@@ -25,6 +25,8 @@ export interface BlueprintFunction {
   inputs: { name: string; type: VarType }[];
   /** Output parameters */
   outputs: { name: string; type: VarType }[];
+  /** Local variables scoped to this function */
+  localVariables: BlueprintVariable[];
   /** The graph data for this function */
   graph: BlueprintGraphData;
 }
@@ -90,6 +92,7 @@ export class BlueprintData {
       id: uid(),
       inputs: [],
       outputs: [],
+      localVariables: [],
       graph: {},
     };
     this.functions.push(fn);
@@ -102,6 +105,19 @@ export class BlueprintData {
 
   getFunction(id: string): BlueprintFunction | undefined {
     return this.functions.find(f => f.id === id);
+  }
+
+  addFunctionLocalVariable(funcId: string, name: string, type: VarType): BlueprintVariable | undefined {
+    const fn = this.getFunction(funcId);
+    if (!fn) return undefined;
+    const v: BlueprintVariable = { name, type, defaultValue: this._defaultForType(type), id: uid() };
+    fn.localVariables.push(v);
+    return v;
+  }
+
+  removeFunctionLocalVariable(funcId: string, varId: string): void {
+    const fn = this.getFunction(funcId);
+    if (fn) fn.localVariables = fn.localVariables.filter(v => v.id !== varId);
   }
 
   // --- Macros ---

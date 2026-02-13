@@ -744,6 +744,13 @@ html, body, #app {
   flex-shrink: 0;
 }
 
+/* Local variable items — slightly indented with dashed left border */
+.mybp-local-var {
+  border-left: 2px dashed rgba(255, 255, 255, 0.15);
+  margin-left: 4px;
+  padding-left: 8px;
+}
+
 /* =========================================
    Graph Tab Bar
    ========================================= */

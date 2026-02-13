@@ -352,8 +352,13 @@ function generateFullCode(
     if (!entryNode) continue;
 
     const params = fn.inputs.map(i => `__param_${sanitizeName(i.name)}`).join(', ');
+    const localDecls: string[] = [];
+    for (const lv of fn.localVariables) {
+      localDecls.push(`  let __var_${sanitizeName(lv.name)} = ${varDefaultStr(lv)};`);
+    }
     const body = walkExec(entryNode.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-    parts.push(`function __fn_${sanitizeName(fn.name)}(${params}) {\n${body.map(l => '  ' + l).join('\n')}\n}`);
+    const fnBody = [...localDecls, ...body.map(l => '  ' + l)].join('\n');
+    parts.push(`function __fn_${sanitizeName(fn.name)}(${params}) {\n${fnBody}\n}`);
   }
 
   // Event graph lifecycle code
@@ -397,10 +402,12 @@ function buildMyBlueprintPanel(
     onAddFunction: () => void;
     onAddMacro: () => void;
     onAddCustomEvent: () => void;
+    onAddLocalVariable: (funcId: string) => void;
     onDeleteVariable: (id: string) => void;
     onDeleteFunction: (id: string) => void;
     onDeleteMacro: (id: string) => void;
     onDeleteCustomEvent: (id: string) => void;
+    onDeleteLocalVariable: (funcId: string, varId: string) => void;
     onEditVariable: (v: BlueprintVariable) => void;
     activeGraphId: string;
     graphTabs: GraphTab[];
@@ -432,6 +439,7 @@ function buildMyBlueprintPanel(
     fnBody.appendChild(makeDeletableItem(fn.name, 'ƒ', 'mybp-fn',
       () => callbacks.onSwitchGraph({ id: fn.id, label: fn.name, type: 'function', refId: fn.id }),
       () => callbacks.onDeleteFunction(fn.id),
+      { dragType: 'function', funcId: fn.id, funcName: fn.name },
     ));
   }
 
@@ -441,6 +449,7 @@ function buildMyBlueprintPanel(
     macroBody.appendChild(makeDeletableItem(m.name, '⚡', 'mybp-macro',
       () => callbacks.onSwitchGraph({ id: m.id, label: m.name, type: 'macro', refId: m.id }),
       () => callbacks.onDeleteMacro(m.id),
+      { dragType: 'macro', macroId: m.id, macroName: m.name },
     ));
   }
 
@@ -479,12 +488,54 @@ function buildMyBlueprintPanel(
     varBody.appendChild(item);
   }
 
+  // --- Local Variables (when viewing a function graph) ---
+  const activeTab = callbacks.graphTabs.find(t => t.id === callbacks.activeGraphId);
+  if (activeTab && activeTab.type === 'function' && activeTab.refId) {
+    const fn = bp.getFunction(activeTab.refId);
+    if (fn) {
+      const localBody = addSection(container, 'Local Variables', () => callbacks.onAddLocalVariable(fn.id));
+      for (const lv of fn.localVariables) {
+        const item = document.createElement('div');
+        item.className = 'mybp-item mybp-var mybp-local-var';
+        item.draggable = true;
+
+        const dot = document.createElement('span');
+        dot.className = `mybp-var-dot mybp-var-${lv.type.toLowerCase()}`;
+        item.appendChild(dot);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'mybp-var-name';
+        nameSpan.textContent = lv.name;
+        item.appendChild(nameSpan);
+
+        const typeSpan = document.createElement('span');
+        typeSpan.className = 'mybp-var-type';
+        typeSpan.textContent = `${lv.type} (local)`;
+        item.appendChild(typeSpan);
+
+        const del = document.createElement('span');
+        del.className = 'mybp-delete';
+        del.textContent = '✕';
+        del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteLocalVariable(fn.id, lv.id); });
+        item.appendChild(del);
+
+        item.addEventListener('click', () => callbacks.onEditVariable(lv));
+        item.addEventListener('dragstart', (e) => {
+          e.dataTransfer!.setData('text/plain', JSON.stringify({ varId: lv.id, varName: lv.name, varType: lv.type, isLocal: true, funcId: fn.id }));
+        });
+
+        localBody.appendChild(item);
+      }
+    }
+  }
+
   // --- Custom Events ---
   const evtBody = addSection(container, 'Custom Events', callbacks.onAddCustomEvent);
   for (const evt of bp.customEvents) {
     evtBody.appendChild(makeDeletableItem(evt.name, '🎯', 'mybp-evt',
       () => callbacks.onSwitchGraph(callbacks.graphTabs[0]),
       () => callbacks.onDeleteCustomEvent(evt.id),
+      { dragType: 'customEvent', eventId: evt.id, eventName: evt.name },
     ));
   }
 }
@@ -516,6 +567,7 @@ function addSection(parent: HTMLElement, title: string, onAdd: (() => void) | nu
 function makeDeletableItem(
   name: string, icon: string, cls: string,
   onClick: () => void, onDelete: () => void,
+  dragData?: Record<string, any>,
 ): HTMLElement {
   const item = document.createElement('div');
   item.className = `mybp-item ${cls}`;
@@ -526,6 +578,12 @@ function makeDeletableItem(
   del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
   item.appendChild(del);
   item.addEventListener('click', onClick);
+  if (dragData) {
+    item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer!.setData('text/plain', JSON.stringify(dragData));
+    });
+  }
   return item;
 }
 
@@ -555,11 +613,13 @@ function showContextMenu(
   container: HTMLElement, x: number, y: number,
   bp: import('./BlueprintData').BlueprintData,
   graphType: GraphType,
+  currentFuncId: string | null,
   onSelect: (entry: NodeEntry) => void,
   onAddVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
   onAddFnCallNode: (fn: BlueprintFunction) => void,
   onAddMacroCallNode: (m: BlueprintMacro) => void,
   onAddCustomEventCallNode: (evt: BlueprintCustomEvent) => void,
+  onAddLocalVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
 ) {
   const existing = container.querySelector('.bp-context-menu');
   if (existing) existing.remove();
@@ -608,6 +668,21 @@ function showContextMenu(
           items.push({ label: `Set ${v.name}`, action: () => { onAddVarNode(v, 'set'); menu.remove(); } });
       }
       if (items.length) categories.set('Variables', items);
+    }
+
+    // Local Variables — Get / Set (only in function graphs)
+    if (currentFuncId) {
+      const fn = bp.getFunction(currentFuncId);
+      if (fn && fn.localVariables.length > 0) {
+        const items: { label: string; action: () => void }[] = [];
+        for (const lv of fn.localVariables) {
+          if (!lf || `get ${lv.name}`.toLowerCase().includes(lf) || 'local variables'.includes(lf))
+            items.push({ label: `Get ${lv.name} (local)`, action: () => { onAddLocalVarNode(lv, 'get'); menu.remove(); } });
+          if (!lf || `set ${lv.name}`.toLowerCase().includes(lf) || 'local variables'.includes(lf))
+            items.push({ label: `Set ${lv.name} (local)`, action: () => { onAddLocalVarNode(lv, 'set'); menu.remove(); } });
+        }
+        if (items.length) categories.set('Local Variables', items);
+      }
     }
 
     // Functions
@@ -751,45 +826,79 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange:
   const dialog = document.createElement('div');
   dialog.className = 'mybp-dialog';
 
-  let inputHtml = '';
-  if (v.type === 'Float') inputHtml = `<input class="mybp-dialog-input" type="number" step="0.1" value="${v.defaultValue}" id="dlg-val" />`;
-  else if (v.type === 'Boolean') inputHtml = `<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="dlg-val" ${v.defaultValue ? 'checked' : ''} /> Default</label>`;
-  else if (v.type === 'String') inputHtml = `<input class="mybp-dialog-input" type="text" value="${v.defaultValue}" id="dlg-val" />`;
-  else if (v.type === 'Vector3') {
-    const d = v.defaultValue || { x: 0, y: 0, z: 0 };
-    inputHtml = `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
+  function buildDefaultValueInput(type: VarType, dv: any): string {
+    if (type === 'Float') return `<input class="mybp-dialog-input" type="number" step="0.1" value="${dv ?? 0}" id="dlg-val" />`;
+    if (type === 'Boolean') return `<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="dlg-val" ${dv ? 'checked' : ''} /> Default</label>`;
+    if (type === 'String') return `<input class="mybp-dialog-input" type="text" value="${dv ?? ''}" id="dlg-val" />`;
+    if (type === 'Vector3') {
+      const d = dv || { x: 0, y: 0, z: 0 };
+      return `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
+    }
+    return '';
   }
 
-  dialog.innerHTML = `
-    <div class="mybp-dialog-title">Edit: ${v.name} (${v.type})</div>
-    <label class="mybp-dialog-label">Name</label>
-    <input class="mybp-dialog-input" type="text" value="${v.name}" id="dlg-var-name" />
-    <label class="mybp-dialog-label">Default Value</label>
-    ${inputHtml}
-    <div class="mybp-dialog-actions">
-      <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
-      <button class="mybp-dialog-btn ok" id="dlg-ok">Save</button>
-    </div>`;
+  function defaultForType(type: VarType): any {
+    switch (type) {
+      case 'Float': return 0;
+      case 'Boolean': return false;
+      case 'Vector3': return { x: 0, y: 0, z: 0 };
+      case 'String': return '';
+    }
+  }
+
+  function renderDialog() {
+    dialog.innerHTML = `
+      <div class="mybp-dialog-title">Edit: ${v.name} (${v.type})</div>
+      <label class="mybp-dialog-label">Name</label>
+      <input class="mybp-dialog-input" type="text" value="${v.name}" id="dlg-var-name" />
+      <label class="mybp-dialog-label">Type</label>
+      <select class="mybp-dialog-select" id="dlg-var-type">
+        <option value="Float"${v.type === 'Float' ? ' selected' : ''}>Float</option>
+        <option value="Boolean"${v.type === 'Boolean' ? ' selected' : ''}>Boolean</option>
+        <option value="Vector3"${v.type === 'Vector3' ? ' selected' : ''}>Vector3</option>
+        <option value="String"${v.type === 'String' ? ' selected' : ''}>String</option>
+      </select>
+      <label class="mybp-dialog-label">Default Value</label>
+      <div id="dlg-default-container">${buildDefaultValueInput(v.type, v.defaultValue)}</div>
+      <div class="mybp-dialog-actions">
+        <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
+        <button class="mybp-dialog-btn ok" id="dlg-ok">Save</button>
+      </div>`;
+
+    // When type changes, update default value input and reset defaultValue
+    const typeSelect = dialog.querySelector('#dlg-var-type') as HTMLSelectElement;
+    typeSelect.addEventListener('change', () => {
+      const newType = typeSelect.value as VarType;
+      v.type = newType;
+      v.defaultValue = defaultForType(newType);
+      const container = dialog.querySelector('#dlg-default-container')!;
+      container.innerHTML = buildDefaultValueInput(newType, v.defaultValue);
+    });
+
+    const close = () => overlay.remove();
+    dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
+      v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
+      v.type = (dialog.querySelector('#dlg-var-type') as HTMLSelectElement).value as VarType;
+      if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
+      else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
+      else if (v.type === 'String') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
+      else if (v.type === 'Vector3') {
+        v.defaultValue = {
+          x: parseFloat((dialog.querySelector('#dlg-vx') as HTMLInputElement).value) || 0,
+          y: parseFloat((dialog.querySelector('#dlg-vy') as HTMLInputElement).value) || 0,
+          z: parseFloat((dialog.querySelector('#dlg-vz') as HTMLInputElement).value) || 0,
+        };
+      }
+      onChange();
+      close();
+    });
+  }
+
+  renderDialog();
   overlay.appendChild(dialog);
   parent.appendChild(overlay);
-  const close = () => overlay.remove();
-  dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
-    v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
-    if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
-    else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
-    else if (v.type === 'String') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
-    else if (v.type === 'Vector3') {
-      v.defaultValue = {
-        x: parseFloat((dialog.querySelector('#dlg-vx') as HTMLInputElement).value) || 0,
-        y: parseFloat((dialog.querySelector('#dlg-vy') as HTMLInputElement).value) || 0,
-        z: parseFloat((dialog.querySelector('#dlg-vz') as HTMLInputElement).value) || 0,
-      };
-    }
-    onChange();
-    close();
-  });
 }
 
 // ============================================================
@@ -799,6 +908,7 @@ async function createGraphEditor(
   container: HTMLElement,
   bp: import('./BlueprintData').BlueprintData,
   graphType: GraphType,
+  currentFuncId: string | null,
   onChanged: () => void,
   onNodeDoubleClick?: (node: ClassicPreset.Node) => void,
 ) {
@@ -819,7 +929,7 @@ async function createGraphEditor(
     const rect = container.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
-    showContextMenu(container, cx, cy, bp, graphType,
+    showContextMenu(container, cx, cy, bp, graphType, currentFuncId,
       async (entry) => {
         const node = entry.factory();
         await editor.addNode(node);
@@ -852,29 +962,61 @@ async function createGraphEditor(
         const t = area.area.transform;
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
       },
+      async (lv, mode) => {
+        const node = mode === 'get'
+          ? new GetVariableNode(lv.id, lv.name, lv.type)
+          : new SetVariableNode(lv.id, lv.name, lv.type);
+        (node as any).__isLocal = true;
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
     );
   });
 
-  // Drop variables from sidebar
+  // Drop items from sidebar (variables, functions, macros, custom events)
   container.addEventListener('dragover', (e) => e.preventDefault());
   container.addEventListener('drop', async (e) => {
     e.preventDefault();
     try {
       const data = JSON.parse(e.dataTransfer!.getData('text/plain'));
+      const rect = container.getBoundingClientRect();
+      const t = area.area.transform;
+      const dropX = (e.clientX - rect.left - t.x) / t.k;
+      const dropY = (e.clientY - rect.top - t.y) / t.k;
+
       if (data.varId) {
-        const rect = container.getBoundingClientRect();
-        const t = area.area.transform;
+        // Variable drop (global or local)
         const mode = e.ctrlKey ? 'set' : 'get';
         const node = mode === 'get'
           ? new GetVariableNode(data.varId, data.varName, data.varType)
           : new SetVariableNode(data.varId, data.varName, data.varType);
+        if (data.isLocal) (node as any).__isLocal = true;
         await editor.addNode(node);
-        await area.translate(node.id, {
-          x: (e.clientX - rect.left - t.x) / t.k,
-          y: (e.clientY - rect.top - t.y) / t.k,
-        });
+        await area.translate(node.id, { x: dropX, y: dropY });
+      } else if (data.dragType === 'function') {
+        // Function drop — create FunctionCallNode
+        const fn = bp.getFunction(data.funcId);
+        if (fn) {
+          const node = new FunctionCallNode(fn.id, fn.name, fn.inputs, fn.outputs);
+          await editor.addNode(node);
+          await area.translate(node.id, { x: dropX, y: dropY });
+        }
+      } else if (data.dragType === 'macro') {
+        // Macro drop — create MacroCallNode
+        const m = bp.getMacro(data.macroId);
+        if (m) {
+          const node = new MacroCallNode(m.id, m.name, m.inputs, m.outputs);
+          await editor.addNode(node);
+          await area.translate(node.id, { x: dropX, y: dropY });
+        }
+      } else if (data.dragType === 'customEvent') {
+        // Custom event drop — create CallCustomEventNode
+        const node = new CallCustomEventNode(data.eventId, data.eventName);
+        await editor.addNode(node);
+        await area.translate(node.id, { x: dropX, y: dropY });
       }
-    } catch { /* not a variable */ }
+    } catch { /* not a drag item */ }
   });
 
   // Auto-compile on changes
@@ -984,7 +1126,8 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
         el.className = 'graph-editor-canvas';
         graphContainer.appendChild(el);
 
-        const { editor, area } = await createGraphEditor(el, bp, tab.type, compileAndSave, (node) => {
+        const funcId = tab.type === 'function' ? (tab.refId || null) : null;
+        const { editor, area } = await createGraphEditor(el, bp, tab.type, funcId, compileAndSave, (node) => {
           if (node instanceof FunctionCallNode) {
             const funcTab = graphTabs.find(t => t.refId === (node as FunctionCallNode).funcId);
             if (funcTab) switchToGraph(funcTab);
@@ -1101,6 +1244,13 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
             compileAndSave();
           });
         },
+        onAddLocalVariable: (funcId: string) => {
+          showAddVariableDialog(root, (name, type) => {
+            bp.addFunctionLocalVariable(funcId, name, type);
+            refreshUI();
+            compileAndSave();
+          });
+        },
         onDeleteVariable: (id) => { bp.removeVariable(id); refreshUI(); compileAndSave(); },
         onDeleteFunction: (id) => {
           bp.removeFunction(id);
@@ -1132,6 +1282,11 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
             if (evtNode) evData.editor.removeNode(evtNode.id);
           }
           bp.removeCustomEvent(id);
+          refreshUI();
+          compileAndSave();
+        },
+        onDeleteLocalVariable: (funcId: string, varId: string) => {
+          bp.removeFunctionLocalVariable(funcId, varId);
           refreshUI();
           compileAndSave();
         },
