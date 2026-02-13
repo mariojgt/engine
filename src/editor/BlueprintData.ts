@@ -3,7 +3,7 @@
 //  Stores variables, functions, macros, and graph data.
 // ============================================================
 
-export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String';
+export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String' | `Struct:${string}`;
 
 export interface BlueprintVariable {
   name: string;
@@ -11,6 +11,17 @@ export interface BlueprintVariable {
   defaultValue: any;
   /** Unique id for referencing */
   id: string;
+}
+
+export interface BlueprintStructField {
+  name: string;
+  type: VarType;
+}
+
+export interface BlueprintStruct {
+  name: string;
+  id: string;
+  fields: BlueprintStructField[];
 }
 
 export interface BlueprintGraphData {
@@ -57,6 +68,7 @@ export class BlueprintData {
   public functions: BlueprintFunction[] = [];
   public macros: BlueprintMacro[] = [];
   public customEvents: BlueprintCustomEvent[] = [];
+  public structs: BlueprintStruct[] = [];
 
   /** Event Graph is always present (index 0 in the graphs concept) */
   public eventGraph: BlueprintGraphData = {};
@@ -156,6 +168,25 @@ export class BlueprintData {
     return this.customEvents.find(e => e.id === id);
   }
 
+  // --- Structs ---
+  addStruct(name: string, fields: BlueprintStructField[] = []): BlueprintStruct {
+    const s: BlueprintStruct = { name, id: uid(), fields };
+    this.structs.push(s);
+    return s;
+  }
+
+  removeStruct(id: string): void {
+    this.structs = this.structs.filter(s => s.id !== id);
+  }
+
+  getStruct(id: string): BlueprintStruct | undefined {
+    return this.structs.find(s => s.id === id);
+  }
+
+  getStructByName(name: string): BlueprintStruct | undefined {
+    return this.structs.find(s => s.name === name);
+  }
+
   // --- Helpers ---
   private _defaultForType(type: VarType): any {
     switch (type) {
@@ -163,6 +194,19 @@ export class BlueprintData {
       case 'Boolean': return false;
       case 'Vector3': return { x: 0, y: 0, z: 0 };
       case 'String': return '';
+      default:
+        if (type.startsWith('Struct:')) {
+          const structId = type.slice(7);
+          const struct = this.structs.find(s => s.id === structId);
+          if (struct) {
+            const obj: any = {};
+            for (const f of struct.fields) {
+              obj[f.name] = this._defaultForType(f.type);
+            }
+            return obj;
+          }
+        }
+        return null;
     }
   }
 }

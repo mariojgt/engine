@@ -730,6 +730,7 @@ html, body, #app {
 .mybp-var-boolean  { background: #e74c3c; }
 .mybp-var-vector3  { background: #f5a623; }
 .mybp-var-string   { background: #e040fb; }
+.mybp-var-struct   { background: #2196f3; }
 
 .mybp-var-name {
   flex: 1;
@@ -924,5 +925,71 @@ html, body, #app {
 
 .mybp-dialog-btn.ok:hover {
   background: var(--accent-hover);
+}
+
+/* =========================================
+   Struct Dialog & Items
+   ========================================= */
+.mybp-struct-dialog {
+  min-width: 380px;
+}
+
+.mybp-struct-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.mybp-struct-field-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mybp-struct-field-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.mybp-struct-field-type {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.mybp-struct-field-del {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.mybp-struct-field-del:hover {
+  color: #e74c3c;
+}
+
+.mybp-struct-add-field {
+  width: 100%;
+  text-align: center;
+  margin-bottom: 8px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.mybp-struct-add-field:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.mybp-struct .mybp-item-icon {
+  color: #2196f3;
 }
 

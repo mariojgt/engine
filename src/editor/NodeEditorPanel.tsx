@@ -11,6 +11,7 @@ import {
   type BlueprintFunction,
   type BlueprintMacro,
   type BlueprintCustomEvent,
+  type BlueprintStruct,
   type VarType,
 } from './BlueprintData';
 
@@ -32,6 +33,8 @@ import {
   MacroCallNode,
   CustomEventNode,
   CallCustomEventNode,
+  MakeStructNode,
+  BreakStructNode,
 } from './nodes';
 import type { NodeEntry } from './nodes';
 
@@ -58,7 +61,7 @@ function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_]/g, '_');
 }
 
-function varDefaultStr(v: BlueprintVariable): string {
+function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').BlueprintData): string {
   switch (v.type) {
     case 'Float': return String(v.defaultValue ?? 0);
     case 'Boolean': return String(v.defaultValue ?? false);
@@ -67,6 +70,19 @@ function varDefaultStr(v: BlueprintVariable): string {
       const d = v.defaultValue ?? { x: 0, y: 0, z: 0 };
       return `{ x: ${d.x ?? 0}, y: ${d.y ?? 0}, z: ${d.z ?? 0} }`;
     }
+    default:
+      if (v.type.startsWith('Struct:')) {
+        const structId = v.type.slice(7);
+        const struct = bp.structs.find(s => s.id === structId);
+        if (struct) {
+          const parts = struct.fields.map(f => {
+            const tempVar: BlueprintVariable = { name: f.name, type: f.type, defaultValue: null, id: '' };
+            return `${sanitizeName(f.name)}: ${varDefaultStr(tempVar, bp)}`;
+          });
+          return `{ ${parts.join(', ')} }`;
+        }
+      }
+      return '0';
   }
 }
 
@@ -95,20 +111,48 @@ function buildMaps(editor: NodeEditor<Schemes>) {
   return { nodes, nodeMap, inputSrc, outputDst };
 }
 
+function fieldDefault(type: VarType): string {
+  switch (type) {
+    case 'Float':   return '0';
+    case 'Boolean': return 'false';
+    case 'String':  return '""';
+    case 'Vector3': return '{ x: 0, y: 0, z: 0 }';
+    default:        return '{}';
+  }
+}
+
 function resolveValue(
   nodeId: string, outputKey: string,
-  nodeMap: NodeMap, inputSrc: SrcMap, bp: { variables: BlueprintVariable[] },
+  nodeMap: NodeMap, inputSrc: SrcMap, bp: import('./BlueprintData').BlueprintData,
 ): string {
   const node = nodeMap.get(nodeId);
   if (!node) return '0';
 
   if (node instanceof GetVariableNode) {
     const vn = sanitizeName(node.varName);
-    return node.varType === 'Vector3' ? `__var_${vn}.${outputKey}` : `__var_${vn}`;
+    if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
+    if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
+    return `__var_${vn}`;
   }
   if (node instanceof SetVariableNode) {
     const vn = sanitizeName(node.varName);
-    return node.varType === 'Vector3' ? `__var_${vn}.${outputKey}` : `__var_${vn}`;
+    if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
+    if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
+    return `__var_${vn}`;
+  }
+  if (node instanceof MakeStructNode) {
+    const fields = node.structFields;
+    const parts = fields.map(f => {
+      const s = inputSrc.get(`${nodeId}.${f.name}`);
+      const val = s ? resolveValue(s.nid, s.ok, nodeMap, inputSrc, bp) : fieldDefault(f.type);
+      return `${sanitizeName(f.name)}: ${val}`;
+    });
+    return `({ ${parts.join(', ')} })`;
+  }
+  if (node instanceof BreakStructNode) {
+    const s = inputSrc.get(`${nodeId}.struct`);
+    const structVal = s ? resolveValue(s.nid, s.ok, nodeMap, inputSrc, bp) : '{}';
+    return `(${structVal}).${outputKey}`;
   }
   if (node instanceof FunctionCallNode) {
     return `__fn_result_${sanitizeName(node.funcName)}_${outputKey}`;
@@ -130,6 +174,19 @@ function resolveValue(
     case 'Boolean': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
       return (ctrl?.value ?? 0) ? 'true' : 'false';
+    }
+    case 'String Literal': {
+      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'text'>;
+      return JSON.stringify(String(ctrl?.value ?? ''));
+    }
+    case 'Vector3 Literal': {
+      const xCtrl = node.controls['x'] as ClassicPreset.InputControl<'number'>;
+      const yCtrl = node.controls['y'] as ClassicPreset.InputControl<'number'>;
+      const zCtrl = node.controls['z'] as ClassicPreset.InputControl<'number'>;
+      if (outputKey === 'x') return String(xCtrl?.value ?? 0);
+      if (outputKey === 'y') return String(yCtrl?.value ?? 0);
+      if (outputKey === 'z') return String(zCtrl?.value ?? 0);
+      return '0';
     }
     case 'Get Time': return 'elapsedTime';
     case 'Get Delta Time': return 'deltaTime';
@@ -176,7 +233,7 @@ function resolveValue(
 function walkExec(
   nodeId: string, execOut: string,
   nodeMap: NodeMap, inputSrc: SrcMap, outputDst: DstMap,
-  bp: { variables: BlueprintVariable[]; functions: BlueprintFunction[] },
+  bp: import('./BlueprintData').BlueprintData,
 ): string[] {
   const lines: string[] = [];
   const targets = outputDst.get(`${nodeId}.${execOut}`) || [];
@@ -187,7 +244,7 @@ function walkExec(
 function genAction(
   nodeId: string,
   nodeMap: NodeMap, inputSrc: SrcMap, outputDst: DstMap,
-  bp: { variables: BlueprintVariable[]; functions: BlueprintFunction[] },
+  bp: import('./BlueprintData').BlueprintData,
 ): string[] {
   const node = nodeMap.get(nodeId);
   if (!node) return [];
@@ -205,10 +262,19 @@ function genAction(
       lines.push(`__var_${vn}.x = ${xS ? rv(xS.nid, xS.ok) : '0'};`);
       lines.push(`__var_${vn}.y = ${yS ? rv(yS.nid, yS.ok) : '0'};`);
       lines.push(`__var_${vn}.z = ${zS ? rv(zS.nid, zS.ok) : '0'};`);
+    } else if (node.varType.startsWith('Struct:')) {
+      const structId = node.varType.slice(7);
+      const struct = bp.structs.find(s => s.id === structId);
+      if (struct && struct.fields.length > 0) {
+        for (const f of struct.fields) {
+          const fS = inputSrc.get(`${nodeId}.${f.name}`);
+          lines.push(`__var_${vn}.${sanitizeName(f.name)} = ${fS ? rv(fS.nid, fS.ok) : fieldDefault(f.type)};`);
+        }
+      }
     } else {
       const vS = inputSrc.get(`${nodeId}.value`);
       const bpVar = bp.variables.find(x => x.name === node.varName);
-      lines.push(`__var_${vn} = ${vS ? rv(vS.nid, vS.ok) : (bpVar ? varDefaultStr(bpVar) : '0')};`);
+      lines.push(`__var_${vn} = ${vS ? rv(vS.nid, vS.ok) : (bpVar ? varDefaultStr(bpVar, bp) : '0')};`);
     }
     lines.push(...we(nodeId, 'exec'));
     return lines;
@@ -322,6 +388,15 @@ function genAction(
       lines.push(...we(nodeId, 'done'));
       break;
     }
+    case 'Delay': {
+      const dS = inputSrc.get(`${nodeId}.duration`);
+      const duration = dS ? rv(dS.nid, dS.ok) : '1';
+      const completedLines = we(nodeId, 'completed');
+      lines.push(`setTimeout(function() {`);
+      lines.push(...completedLines.map(l => '  ' + l));
+      lines.push(`}, (${duration}) * 1000);`);
+      break;
+    }
   }
   return lines;
 }
@@ -339,7 +414,7 @@ function generateFullCode(
   // Variable declarations
   const varDecls: string[] = [];
   for (const v of bp.variables) {
-    varDecls.push(`let __var_${sanitizeName(v.name)} = ${varDefaultStr(v)};`);
+    varDecls.push(`let __var_${sanitizeName(v.name)} = ${varDefaultStr(v, bp)};`);
   }
   if (varDecls.length > 0) parts.push(varDecls.join('\n'));
 
@@ -354,7 +429,7 @@ function generateFullCode(
     const params = fn.inputs.map(i => `__param_${sanitizeName(i.name)}`).join(', ');
     const localDecls: string[] = [];
     for (const lv of fn.localVariables) {
-      localDecls.push(`  let __var_${sanitizeName(lv.name)} = ${varDefaultStr(lv)};`);
+      localDecls.push(`  let __var_${sanitizeName(lv.name)} = ${varDefaultStr(lv, bp)};`);
     }
     const body = walkExec(entryNode.id, 'exec', nodeMap, inputSrc, outputDst, bp);
     const fnBody = [...localDecls, ...body.map(l => '  ' + l)].join('\n');
@@ -370,9 +445,7 @@ function generateFullCode(
     const ce = evNode as CustomEventNode;
     const name = sanitizeName(ce.eventName);
     const body = walkExec(ce.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-    if (body.length) {
-      parts.push(`function __custom_evt_${name}() {\n${body.map(l => '  ' + l).join('\n')}\n}`);
-    }
+    parts.push(`function __custom_evt_${name}() {\n${body.map(l => '  ' + l).join('\n')}\n}`);
   }
 
   const sections: string[] = [];
@@ -403,12 +476,15 @@ function buildMyBlueprintPanel(
     onAddMacro: () => void;
     onAddCustomEvent: () => void;
     onAddLocalVariable: (funcId: string) => void;
+    onAddStruct: () => void;
     onDeleteVariable: (id: string) => void;
     onDeleteFunction: (id: string) => void;
     onDeleteMacro: (id: string) => void;
     onDeleteCustomEvent: (id: string) => void;
     onDeleteLocalVariable: (funcId: string, varId: string) => void;
+    onDeleteStruct: (id: string) => void;
     onEditVariable: (v: BlueprintVariable) => void;
+    onEditStruct: (s: BlueprintStruct) => void;
     activeGraphId: string;
     graphTabs: GraphTab[];
   },
@@ -461,7 +537,7 @@ function buildMyBlueprintPanel(
     item.draggable = true;
 
     const dot = document.createElement('span');
-    dot.className = `mybp-var-dot mybp-var-${v.type.toLowerCase()}`;
+    dot.className = `mybp-var-dot ${typeDotClass(v.type)}`;
     item.appendChild(dot);
 
     const nameSpan = document.createElement('span');
@@ -471,7 +547,7 @@ function buildMyBlueprintPanel(
 
     const typeSpan = document.createElement('span');
     typeSpan.className = 'mybp-var-type';
-    typeSpan.textContent = v.type;
+    typeSpan.textContent = typeDisplayName(v.type, bp);
     item.appendChild(typeSpan);
 
     const del = document.createElement('span');
@@ -500,7 +576,7 @@ function buildMyBlueprintPanel(
         item.draggable = true;
 
         const dot = document.createElement('span');
-        dot.className = `mybp-var-dot mybp-var-${lv.type.toLowerCase()}`;
+        dot.className = `mybp-var-dot ${typeDotClass(lv.type)}`;
         item.appendChild(dot);
 
         const nameSpan = document.createElement('span');
@@ -510,7 +586,7 @@ function buildMyBlueprintPanel(
 
         const typeSpan = document.createElement('span');
         typeSpan.className = 'mybp-var-type';
-        typeSpan.textContent = `${lv.type} (local)`;
+        typeSpan.textContent = `${typeDisplayName(lv.type, bp)} (local)`;
         item.appendChild(typeSpan);
 
         const del = document.createElement('span');
@@ -537,6 +613,21 @@ function buildMyBlueprintPanel(
       () => callbacks.onDeleteCustomEvent(evt.id),
       { dragType: 'customEvent', eventId: evt.id, eventName: evt.name },
     ));
+  }
+
+  // --- Structs ---
+  const structBody = addSection(container, 'Structs', callbacks.onAddStruct);
+  for (const s of bp.structs) {
+    const item = document.createElement('div');
+    item.className = 'mybp-item mybp-struct';
+    item.innerHTML = `<span class="mybp-item-icon">🔷</span><span class="mybp-var-name">${s.name}</span><span class="mybp-var-type">${s.fields.length} fields</span>`;
+    const del = document.createElement('span');
+    del.className = 'mybp-delete';
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteStruct(s.id); });
+    item.appendChild(del);
+    item.addEventListener('click', () => callbacks.onEditStruct(s));
+    structBody.appendChild(item);
   }
 }
 
@@ -620,6 +711,7 @@ function showContextMenu(
   onAddMacroCallNode: (m: BlueprintMacro) => void,
   onAddCustomEventCallNode: (evt: BlueprintCustomEvent) => void,
   onAddLocalVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
+  onAddStructNode: (s: BlueprintStruct, mode: 'make' | 'break') => void,
 ) {
   const existing = container.querySelector('.bp-context-menu');
   if (existing) existing.remove();
@@ -715,6 +807,18 @@ function showContextMenu(
       if (items.length) categories.set('Custom Events', items);
     }
 
+    // Structs — Make / Break
+    if (bp.structs.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const s of bp.structs) {
+        if (!lf || `make ${s.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
+          items.push({ label: `Make ${s.name}`, action: () => { onAddStructNode(s, 'make'); menu.remove(); } });
+        if (!lf || `break ${s.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
+          items.push({ label: `Break ${s.name}`, action: () => { onAddStructNode(s, 'break'); menu.remove(); } });
+      }
+      if (items.length) categories.set('Structs', items);
+    }
+
     for (const [cat, entries] of categories) {
       const catEl = document.createElement('div');
       catEl.className = 'bp-context-category';
@@ -751,9 +855,37 @@ function showContextMenu(
 }
 
 // ============================================================
-//  Dialogs — Add Variable, Add Function/Macro, Edit Variable
+//  Dialogs — Add Variable, Add Function/Macro, Edit Variable, Struct
 // ============================================================
-function showAddVariableDialog(parent: HTMLElement, onAdd: (name: string, type: VarType) => void) {
+function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?: VarType): string {
+  const base = ['Float', 'Boolean', 'Vector3', 'String'] as const;
+  let html = '';
+  for (const t of base) {
+    html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;
+  }
+  for (const s of bp.structs) {
+    const val = `Struct:${s.id}`;
+    html += `<option value="${val}"${selected === val ? ' selected' : ''}>${s.name}</option>`;
+  }
+  return html;
+}
+
+/** Returns the display name for a VarType (resolving struct IDs to names) */
+function typeDisplayName(type: VarType, bp: import('./BlueprintData').BlueprintData): string {
+  if (type.startsWith('Struct:')) {
+    const struct = bp.structs.find(s => s.id === type.slice(7));
+    return struct ? struct.name : 'Struct?';
+  }
+  return type;
+}
+
+/** CSS class suffix for type dot color */
+function typeDotClass(type: VarType): string {
+  if (type.startsWith('Struct:')) return 'mybp-var-struct';
+  return `mybp-var-${type.toLowerCase()}`;
+}
+
+function showAddVariableDialog(parent: HTMLElement, bp: import('./BlueprintData').BlueprintData, onAdd: (name: string, type: VarType) => void) {
   const overlay = document.createElement('div');
   overlay.className = 'mybp-dialog-overlay';
   const dialog = document.createElement('div');
@@ -764,10 +896,7 @@ function showAddVariableDialog(parent: HTMLElement, onAdd: (name: string, type: 
     <input class="mybp-dialog-input" type="text" value="NewVar" id="dlg-var-name" />
     <label class="mybp-dialog-label">Type</label>
     <select class="mybp-dialog-select" id="dlg-var-type">
-      <option value="Float">Float</option>
-      <option value="Boolean">Boolean</option>
-      <option value="Vector3">Vector3</option>
-      <option value="String">String</option>
+      ${buildTypeOptions(bp)}
     </select>
     <div class="mybp-dialog-actions">
       <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
@@ -820,7 +949,7 @@ function showAddNameDialog(parent: HTMLElement, title: string, defaultName: stri
   });
 }
 
-function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange: () => void) {
+function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: import('./BlueprintData').BlueprintData, onChange: () => void) {
   const overlay = document.createElement('div');
   overlay.className = 'mybp-dialog-overlay';
   const dialog = document.createElement('div');
@@ -834,6 +963,9 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange:
       const d = dv || { x: 0, y: 0, z: 0 };
       return `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
     }
+    if (type.startsWith('Struct:')) {
+      return `<span style="color:#888;font-size:11px;">Struct — set field defaults via Set nodes</span>`;
+    }
     return '';
   }
 
@@ -843,20 +975,28 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange:
       case 'Boolean': return false;
       case 'Vector3': return { x: 0, y: 0, z: 0 };
       case 'String': return '';
+      default:
+        if (type.startsWith('Struct:')) {
+          const struct = bp.structs.find(s => s.id === type.slice(7));
+          if (struct) {
+            const obj: any = {};
+            for (const f of struct.fields) obj[f.name] = defaultForType(f.type);
+            return obj;
+          }
+        }
+        return null;
     }
   }
 
   function renderDialog() {
+    const displayType = typeDisplayName(v.type, bp);
     dialog.innerHTML = `
-      <div class="mybp-dialog-title">Edit: ${v.name} (${v.type})</div>
+      <div class="mybp-dialog-title">Edit: ${v.name} (${displayType})</div>
       <label class="mybp-dialog-label">Name</label>
       <input class="mybp-dialog-input" type="text" value="${v.name}" id="dlg-var-name" />
       <label class="mybp-dialog-label">Type</label>
       <select class="mybp-dialog-select" id="dlg-var-type">
-        <option value="Float"${v.type === 'Float' ? ' selected' : ''}>Float</option>
-        <option value="Boolean"${v.type === 'Boolean' ? ' selected' : ''}>Boolean</option>
-        <option value="Vector3"${v.type === 'Vector3' ? ' selected' : ''}>Vector3</option>
-        <option value="String"${v.type === 'String' ? ' selected' : ''}>String</option>
+        ${buildTypeOptions(bp, v.type)}
       </select>
       <label class="mybp-dialog-label">Default Value</label>
       <div id="dlg-default-container">${buildDefaultValueInput(v.type, v.defaultValue)}</div>
@@ -890,6 +1030,8 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange:
           y: parseFloat((dialog.querySelector('#dlg-vy') as HTMLInputElement).value) || 0,
           z: parseFloat((dialog.querySelector('#dlg-vz') as HTMLInputElement).value) || 0,
         };
+      } else if (v.type.startsWith('Struct:')) {
+        v.defaultValue = defaultForType(v.type);
       }
       onChange();
       close();
@@ -899,6 +1041,120 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange:
   renderDialog();
   overlay.appendChild(dialog);
   parent.appendChild(overlay);
+}
+
+// ============================================================
+//  Struct Dialog — Create / Edit struct with field editor
+// ============================================================
+function showStructDialog(
+  parent: HTMLElement,
+  bp: import('./BlueprintData').BlueprintData,
+  existing: BlueprintStruct | null,
+  onSave: (name: string, fields: { name: string; type: VarType }[]) => void,
+) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog mybp-struct-dialog';
+
+  let structName = existing ? existing.name : 'ST_NewStruct';
+  let fields: { name: string; type: VarType }[] = existing
+    ? existing.fields.map(f => ({ ...f }))
+    : [{ name: 'Value', type: 'Float' as VarType }];
+
+  function render() {
+    dialog.innerHTML = '';
+
+    const title = document.createElement('div');
+    title.className = 'mybp-dialog-title';
+    title.textContent = existing ? `Edit Struct: ${structName}` : 'New Struct';
+    dialog.appendChild(title);
+
+    // Name
+    const nameLbl = document.createElement('label');
+    nameLbl.className = 'mybp-dialog-label';
+    nameLbl.textContent = 'Struct Name';
+    dialog.appendChild(nameLbl);
+    const nameInput = document.createElement('input');
+    nameInput.className = 'mybp-dialog-input';
+    nameInput.type = 'text';
+    nameInput.value = structName;
+    nameInput.addEventListener('input', () => { structName = nameInput.value; });
+    dialog.appendChild(nameInput);
+
+    // Fields header
+    const fieldsLbl = document.createElement('label');
+    fieldsLbl.className = 'mybp-dialog-label';
+    fieldsLbl.textContent = 'Fields';
+    dialog.appendChild(fieldsLbl);
+
+    const fieldList = document.createElement('div');
+    fieldList.className = 'mybp-struct-field-list';
+    dialog.appendChild(fieldList);
+
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      const row = document.createElement('div');
+      row.className = 'mybp-struct-field-row';
+
+      const fName = document.createElement('input');
+      fName.className = 'mybp-dialog-input mybp-struct-field-name';
+      fName.type = 'text';
+      fName.value = f.name;
+      fName.placeholder = 'Field name';
+      fName.addEventListener('input', () => { f.name = fName.value; });
+      row.appendChild(fName);
+
+      const fType = document.createElement('select');
+      fType.className = 'mybp-dialog-select mybp-struct-field-type';
+      fType.innerHTML = buildTypeOptions(bp, f.type);
+      fType.addEventListener('change', () => { f.type = fType.value as VarType; });
+      row.appendChild(fType);
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'mybp-struct-field-del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Remove field';
+      delBtn.addEventListener('click', () => { fields.splice(i, 1); render(); });
+      row.appendChild(delBtn);
+
+      fieldList.appendChild(row);
+    }
+
+    // Add field button
+    const addFieldBtn = document.createElement('button');
+    addFieldBtn.className = 'mybp-dialog-btn mybp-struct-add-field';
+    addFieldBtn.textContent = '+ Add Field';
+    addFieldBtn.addEventListener('click', () => {
+      fields.push({ name: 'NewField', type: 'Float' });
+      render();
+    });
+    dialog.appendChild(addFieldBtn);
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'mybp-dialog-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'mybp-dialog-btn cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    actions.appendChild(cancelBtn);
+    const okBtn = document.createElement('button');
+    okBtn.className = 'mybp-dialog-btn ok';
+    okBtn.textContent = existing ? 'Save' : 'Create';
+    okBtn.addEventListener('click', () => {
+      const validFields = fields.filter(f => f.name.trim());
+      onSave(structName.trim() || 'ST_NewStruct', validFields);
+      overlay.remove();
+    });
+    actions.appendChild(okBtn);
+    dialog.appendChild(actions);
+  }
+
+  render();
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
 // ============================================================
@@ -937,9 +1193,10 @@ async function createGraphEditor(
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
       },
       async (v, mode) => {
+        const sf = v.type.startsWith('Struct:') ? bp.structs.find(s => s.id === v.type.slice(7))?.fields : undefined;
         const node = mode === 'get'
-          ? new GetVariableNode(v.id, v.name, v.type)
-          : new SetVariableNode(v.id, v.name, v.type);
+          ? new GetVariableNode(v.id, v.name, v.type, sf)
+          : new SetVariableNode(v.id, v.name, v.type, sf);
         await editor.addNode(node);
         const t = area.area.transform;
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
@@ -963,10 +1220,19 @@ async function createGraphEditor(
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
       },
       async (lv, mode) => {
+        const sf = lv.type.startsWith('Struct:') ? bp.structs.find(s => s.id === lv.type.slice(7))?.fields : undefined;
         const node = mode === 'get'
-          ? new GetVariableNode(lv.id, lv.name, lv.type)
-          : new SetVariableNode(lv.id, lv.name, lv.type);
+          ? new GetVariableNode(lv.id, lv.name, lv.type, sf)
+          : new SetVariableNode(lv.id, lv.name, lv.type, sf);
         (node as any).__isLocal = true;
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      async (s, mode) => {
+        const node = mode === 'make'
+          ? new MakeStructNode(s.id, s.name, s.fields)
+          : new BreakStructNode(s.id, s.name, s.fields);
         await editor.addNode(node);
         const t = area.area.transform;
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
@@ -995,9 +1261,11 @@ async function createGraphEditor(
       if (data.varId) {
         // Variable drop (global or local)
         const mode = e.ctrlKey ? 'set' : 'get';
+        const vType: VarType = data.varType;
+        const sf = vType.startsWith('Struct:') ? bp.structs.find(s => s.id === vType.slice(7))?.fields : undefined;
         const node = mode === 'get'
-          ? new GetVariableNode(data.varId, data.varName, data.varType)
-          : new SetVariableNode(data.varId, data.varName, data.varType);
+          ? new GetVariableNode(data.varId, data.varName, vType, sf)
+          : new SetVariableNode(data.varId, data.varName, vType, sf);
         if (data.isLocal) (node as any).__isLocal = true;
         await editor.addNode(node);
         await area.translate(node.id, { x: dropX, y: dropY });
@@ -1278,7 +1546,7 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
         graphTabs,
         onSwitchGraph: (tab) => switchToGraph(tab),
         onAddVariable: () => {
-          showAddVariableDialog(root, (name, type) => {
+          showAddVariableDialog(root, bp, (name, type) => {
             bp.addVariable(name, type);
             refreshUI();
             compileAndSave();
@@ -1314,7 +1582,7 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
           });
         },
         onAddLocalVariable: (funcId: string) => {
-          showAddVariableDialog(root, (name, type) => {
+          showAddVariableDialog(root, bp, (name, type) => {
             bp.addFunctionLocalVariable(funcId, name, type);
             refreshUI();
             compileAndSave();
@@ -1360,7 +1628,27 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
           compileAndSave();
         },
         onEditVariable: (v) => {
-          showVariableEditor(root, v, () => { refreshUI(); compileAndSave(); });
+          showVariableEditor(root, v, bp, () => { refreshUI(); compileAndSave(); });
+        },
+        onAddStruct: () => {
+          showStructDialog(root, bp, null, (name, fields) => {
+            bp.addStruct(name, fields);
+            refreshUI();
+            compileAndSave();
+          });
+        },
+        onDeleteStruct: (id) => {
+          bp.removeStruct(id);
+          refreshUI();
+          compileAndSave();
+        },
+        onEditStruct: (s) => {
+          showStructDialog(root, bp, s, (name, fields) => {
+            s.name = name;
+            s.fields = fields;
+            refreshUI();
+            compileAndSave();
+          });
         },
       });
     }

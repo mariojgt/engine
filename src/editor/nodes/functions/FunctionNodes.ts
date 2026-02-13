@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, vec3Socket, strSocket } from '../sockets';
+import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, getStructSocket } from '../sockets';
 import type { VarType } from '../../BlueprintData';
 
 function socketForType(type: VarType): ClassicPreset.Socket {
@@ -8,6 +8,9 @@ function socketForType(type: VarType): ClassicPreset.Socket {
     case 'Boolean': return boolSocket;
     case 'Vector3': return vec3Socket;
     case 'String':  return strSocket;
+    default:
+      if (type.startsWith('Struct:')) return getStructSocket(type);
+      return numSocket;
   }
 }
 

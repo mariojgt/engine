@@ -24,6 +24,7 @@ export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes'
 export { BranchNode }   from './flow-control/BranchNode';
 export { SequenceNode } from './flow-control/SequenceNode';
 export { ForLoopNode }  from './flow-control/ForLoopNode';
+export { DelayNode }    from './flow-control/DelayNode';
 
 // ── Math ────────────────────────────────────────────────────
 export { MathAddNode }      from './math/MathAddNode';
@@ -42,6 +43,8 @@ export { FloatNode }     from './values/FloatNode';
 export { BooleanNode }   from './values/BooleanNode';
 export { TimeNode }      from './values/TimeNode';
 export { DeltaTimeNode } from './values/DeltaTimeNode';
+export { StringLiteralNode } from './values/StringLiteralNode';
+export { Vector3LiteralNode } from './values/Vector3LiteralNode';
 
 // ── Transform ───────────────────────────────────────────────
 export { GetPositionNode } from './transform/GetPositionNode';
@@ -61,6 +64,7 @@ export { SetVelocityNode } from './physics/SetVelocityNode';
 
 // ── Variables (dynamic) ─────────────────────────────────────
 export { GetVariableNode, SetVariableNode, socketForType } from './variables/VariableNodes';
+export { MakeStructNode, BreakStructNode } from './variables/StructNodes';
 
 // ── Functions & Macros (dynamic) ────────────────────────────
 export {
