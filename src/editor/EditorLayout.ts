@@ -13,6 +13,7 @@ import { mountNodeEditor } from './NodeEditorPanel';
 import { ActorAssetManager, type ActorAsset } from './ActorAsset';
 import { ActorAssetBrowser } from './ActorAssetBrowser';
 import { ActorEditorPanel } from './ActorEditorPanel';
+import type { CameraStateJSON } from './SceneSerializer';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -324,6 +325,19 @@ export class EditorLayout {
   refreshProperties(): void {
     if (this._properties) {
       this._properties.refresh();
+    }
+  }
+
+  // ---- Camera state for project save/load ----
+
+  getCameraState(): CameraStateJSON | undefined {
+    if (!this._viewport) return undefined;
+    return this._viewport.getCameraState();
+  }
+
+  applyCameraState(state: CameraStateJSON): void {
+    if (this._viewport) {
+      this._viewport.applyCameraState(state);
     }
   }
 }

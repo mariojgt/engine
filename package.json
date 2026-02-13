@@ -23,6 +23,8 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
     "dockview-core": "^4.13.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

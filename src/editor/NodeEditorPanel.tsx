@@ -20,10 +20,38 @@ import {
 import {
   NODE_PALETTE,
   EventTickNode,
+  EventBeginPlayNode,
+  EventOnDestroyNode,
   SineNode,
+  CosineNode,
+  AbsNode,
+  ClampNode,
+  LerpNode,
+  GreaterThanNode,
+  MathAddNode,
+  MathSubtractNode,
+  MathMultiplyNode,
+  MathDivideNode,
   TimeNode,
+  DeltaTimeNode,
+  FloatNode,
+  BooleanNode,
+  StringLiteralNode,
+  Vector3LiteralNode,
   SetPositionNode,
   GetPositionNode,
+  GetRotationNode,
+  SetRotationNode,
+  GetScaleNode,
+  SetScaleNode,
+  BranchNode,
+  SequenceNode,
+  ForLoopNode,
+  DelayNode,
+  PrintStringNode,
+  AddForceNode,
+  AddImpulseNode,
+  SetVelocityNode,
   GetVariableNode,
   SetVariableNode,
   FunctionEntryNode,
@@ -1616,6 +1644,354 @@ function showStructDialog(
 }
 
 // ============================================================
+//  Graph Serialization / Deserialization
+// ============================================================
+
+/** Map a node instance to a serializable type string */
+function getNodeTypeName(node: ClassicPreset.Node): string {
+  // Events
+  if (node instanceof EventTickNode) return 'EventTickNode';
+  if (node instanceof EventBeginPlayNode) return 'EventBeginPlayNode';
+  if (node instanceof EventOnDestroyNode) return 'EventOnDestroyNode';
+  if (node instanceof CustomEventNode) return 'CustomEventNode';
+  if (node instanceof CallCustomEventNode) return 'CallCustomEventNode';
+  if (node instanceof InputKeyEventNode) return 'InputKeyEventNode';
+  if (node instanceof IsKeyDownNode) return 'IsKeyDownNode';
+  // Variables & Structs
+  if (node instanceof GetVariableNode) return 'GetVariableNode';
+  if (node instanceof SetVariableNode) return 'SetVariableNode';
+  if (node instanceof MakeStructNode) return 'MakeStructNode';
+  if (node instanceof BreakStructNode) return 'BreakStructNode';
+  // Functions & Macros
+  if (node instanceof FunctionEntryNode) return 'FunctionEntryNode';
+  if (node instanceof FunctionReturnNode) return 'FunctionReturnNode';
+  if (node instanceof FunctionCallNode) return 'FunctionCallNode';
+  if (node instanceof MacroEntryNode) return 'MacroEntryNode';
+  if (node instanceof MacroExitNode) return 'MacroExitNode';
+  if (node instanceof MacroCallNode) return 'MacroCallNode';
+  // Math
+  if (node instanceof MathAddNode) return 'MathAddNode';
+  if (node instanceof MathSubtractNode) return 'MathSubtractNode';
+  if (node instanceof MathMultiplyNode) return 'MathMultiplyNode';
+  if (node instanceof MathDivideNode) return 'MathDivideNode';
+  if (node instanceof SineNode) return 'SineNode';
+  if (node instanceof CosineNode) return 'CosineNode';
+  if (node instanceof AbsNode) return 'AbsNode';
+  if (node instanceof ClampNode) return 'ClampNode';
+  if (node instanceof LerpNode) return 'LerpNode';
+  if (node instanceof GreaterThanNode) return 'GreaterThanNode';
+  // Values
+  if (node instanceof FloatNode) return 'FloatNode';
+  if (node instanceof BooleanNode) return 'BooleanNode';
+  if (node instanceof StringLiteralNode) return 'StringLiteralNode';
+  if (node instanceof Vector3LiteralNode) return 'Vector3LiteralNode';
+  if (node instanceof TimeNode) return 'TimeNode';
+  if (node instanceof DeltaTimeNode) return 'DeltaTimeNode';
+  // Transform
+  if (node instanceof SetPositionNode) return 'SetPositionNode';
+  if (node instanceof GetPositionNode) return 'GetPositionNode';
+  if (node instanceof SetRotationNode) return 'SetRotationNode';
+  if (node instanceof GetRotationNode) return 'GetRotationNode';
+  if (node instanceof SetScaleNode) return 'SetScaleNode';
+  if (node instanceof GetScaleNode) return 'GetScaleNode';
+  // Flow Control
+  if (node instanceof BranchNode) return 'BranchNode';
+  if (node instanceof SequenceNode) return 'SequenceNode';
+  if (node instanceof ForLoopNode) return 'ForLoopNode';
+  if (node instanceof DelayNode) return 'DelayNode';
+  // Utility
+  if (node instanceof PrintStringNode) return 'PrintStringNode';
+  // Physics
+  if (node instanceof AddForceNode) return 'AddForceNode';
+  if (node instanceof AddImpulseNode) return 'AddImpulseNode';
+  if (node instanceof SetVelocityNode) return 'SetVelocityNode';
+  // Component nodes
+  if (node instanceof GetComponentLocationNode) return 'GetComponentLocationNode';
+  if (node instanceof SetComponentLocationNode) return 'SetComponentLocationNode';
+  if (node instanceof GetComponentRotationNode) return 'GetComponentRotationNode';
+  if (node instanceof SetComponentRotationNode) return 'SetComponentRotationNode';
+  if (node instanceof GetComponentScaleNode) return 'GetComponentScaleNode';
+  if (node instanceof SetComponentScaleNode) return 'SetComponentScaleNode';
+  if (node instanceof SetComponentVisibilityNode) return 'SetComponentVisibilityNode';
+
+  return 'Unknown';
+}
+
+/** Extract custom data from a node for serialization */
+function getNodeSerialData(node: ClassicPreset.Node): any {
+  const data: any = {};
+
+  // Save InputControl values
+  const controls: any = {};
+  for (const [key, ctrl] of Object.entries(node.controls)) {
+    if (ctrl instanceof ClassicPreset.InputControl) {
+      controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
+    }
+  }
+  if (Object.keys(controls).length > 0) data.controls = controls;
+
+  // Custom fields per node type
+  if (node instanceof GetVariableNode || node instanceof SetVariableNode) {
+    data.varId = node.varId;
+    data.varName = node.varName;
+    data.varType = node.varType;
+    if (node.structFields) data.structFields = node.structFields;
+    if ((node as any).__isLocal) data.isLocal = true;
+  } else if (node instanceof CustomEventNode) {
+    data.eventId = node.eventId;
+    data.eventName = node.eventName;
+    data.eventParams = node.eventParams;
+  } else if (node instanceof CallCustomEventNode) {
+    data.eventId = node.eventId;
+    data.eventName = node.eventName;
+    data.eventParams = node.eventParams;
+  } else if (node instanceof InputKeyEventNode) {
+    data.selectedKey = (node as InputKeyEventNode).selectedKey;
+  } else if (node instanceof IsKeyDownNode) {
+    data.selectedKey = (node as IsKeyDownNode).selectedKey;
+  } else if (node instanceof FunctionEntryNode) {
+    data.funcId = node.funcId;
+  } else if (node instanceof FunctionReturnNode) {
+    data.funcId = node.funcId;
+  } else if (node instanceof FunctionCallNode) {
+    data.funcId = node.funcId;
+    data.funcName = node.funcName;
+  } else if (node instanceof MacroEntryNode) {
+    data.macroId = node.macroId;
+  } else if (node instanceof MacroExitNode) {
+    data.macroId = node.macroId;
+  } else if (node instanceof MacroCallNode) {
+    data.macroId = node.macroId;
+    data.macroName = node.macroName;
+  } else if (node instanceof MakeStructNode) {
+    data.structId = node.structId;
+    data.structName = node.structName;
+    data.structFields = node.structFields;
+  } else if (node instanceof BreakStructNode) {
+    data.structId = node.structId;
+    data.structName = node.structName;
+    data.structFields = node.structFields;
+  } else if (
+    node instanceof GetComponentLocationNode || node instanceof SetComponentLocationNode ||
+    node instanceof GetComponentRotationNode || node instanceof SetComponentRotationNode ||
+    node instanceof GetComponentScaleNode || node instanceof SetComponentScaleNode ||
+    node instanceof SetComponentVisibilityNode
+  ) {
+    data.compName = (node as any).compName;
+    data.compIndex = (node as any).compIndex;
+  }
+
+  return data;
+}
+
+/** Serialize the entire graph (nodes + connections + positions) */
+function serializeGraph(editor: NodeEditor<Schemes>, area: AreaPlugin<Schemes, any>): any {
+  const nodes = editor.getNodes();
+  const connections = editor.getConnections();
+
+  const serializedNodes = nodes.map(node => {
+    const view = area.nodeViews.get(node.id);
+    const position = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 };
+    return {
+      id: node.id,
+      type: getNodeTypeName(node),
+      position,
+      data: getNodeSerialData(node),
+    };
+  });
+
+  const serializedConnections = connections.map(c => ({
+    id: c.id,
+    source: c.source,
+    sourceOutput: c.sourceOutput,
+    target: c.target,
+    targetInput: c.targetInput,
+  }));
+
+  return { nodes: serializedNodes, connections: serializedConnections };
+}
+
+/** Create a node instance from serialized data */
+function createNodeFromData(
+  nd: { type: string; data: any },
+  bp: import('./BlueprintData').BlueprintData,
+): ClassicPreset.Node | null {
+  const d = nd.data || {};
+
+  switch (nd.type) {
+    // Events
+    case 'EventTickNode':      return new EventTickNode();
+    case 'EventBeginPlayNode': return new EventBeginPlayNode();
+    case 'EventOnDestroyNode': return new EventOnDestroyNode();
+    case 'CustomEventNode':
+      return new CustomEventNode(d.eventId, d.eventName, d.eventParams || []);
+    case 'CallCustomEventNode':
+      return new CallCustomEventNode(d.eventId, d.eventName, d.eventParams || []);
+    case 'InputKeyEventNode':
+      return new InputKeyEventNode(d.selectedKey || 'Space');
+    case 'IsKeyDownNode':
+      return new IsKeyDownNode(d.selectedKey || 'Space');
+
+    // Variables
+    case 'GetVariableNode': {
+      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? bp.structs.find(s => s.id === d.varType.slice(7))?.fields : undefined);
+      const n = new GetVariableNode(d.varId, d.varName, d.varType, sf);
+      if (d.isLocal) (n as any).__isLocal = true;
+      return n;
+    }
+    case 'SetVariableNode': {
+      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? bp.structs.find(s => s.id === d.varType.slice(7))?.fields : undefined);
+      const n = new SetVariableNode(d.varId, d.varName, d.varType, sf);
+      if (d.isLocal) (n as any).__isLocal = true;
+      return n;
+    }
+    case 'MakeStructNode':
+      return new MakeStructNode(d.structId, d.structName, d.structFields || []);
+    case 'BreakStructNode':
+      return new BreakStructNode(d.structId, d.structName, d.structFields || []);
+
+    // Functions
+    case 'FunctionEntryNode': {
+      const fn = bp.getFunction(d.funcId);
+      return new FunctionEntryNode(d.funcId, fn?.name || 'Function', fn?.inputs || []);
+    }
+    case 'FunctionReturnNode': {
+      const fn = bp.getFunction(d.funcId);
+      return new FunctionReturnNode(d.funcId, fn?.name || 'Function', fn?.outputs || []);
+    }
+    case 'FunctionCallNode': {
+      const fn = bp.getFunction(d.funcId);
+      return new FunctionCallNode(d.funcId, d.funcName || fn?.name || 'Function', fn?.inputs || [], fn?.outputs || []);
+    }
+
+    // Macros
+    case 'MacroEntryNode': {
+      const m = bp.getMacro(d.macroId);
+      return new MacroEntryNode(d.macroId, m?.name || 'Macro', m?.inputs || []);
+    }
+    case 'MacroExitNode': {
+      const m = bp.getMacro(d.macroId);
+      return new MacroExitNode(d.macroId, m?.name || 'Macro', m?.outputs || []);
+    }
+    case 'MacroCallNode': {
+      const m = bp.getMacro(d.macroId);
+      return new MacroCallNode(d.macroId, d.macroName || m?.name || 'Macro', m?.inputs || [], m?.outputs || []);
+    }
+
+    // Math
+    case 'MathAddNode':      return new MathAddNode();
+    case 'MathSubtractNode': return new MathSubtractNode();
+    case 'MathMultiplyNode': return new MathMultiplyNode();
+    case 'MathDivideNode':   return new MathDivideNode();
+    case 'SineNode':         return new SineNode();
+    case 'CosineNode':       return new CosineNode();
+    case 'AbsNode':          return new AbsNode();
+    case 'ClampNode':        return new ClampNode();
+    case 'LerpNode':         return new LerpNode();
+    case 'GreaterThanNode':  return new GreaterThanNode();
+
+    // Values
+    case 'FloatNode':           return new FloatNode(d.controls?.value ?? 0);
+    case 'BooleanNode': {
+      const n = new BooleanNode();
+      if (d.controls?.value != null) {
+        const ctrl = n.controls['value'] as ClassicPreset.InputControl<'number'>;
+        if (ctrl) ctrl.setValue(d.controls.value);
+      }
+      return n;
+    }
+    case 'StringLiteralNode':   return new StringLiteralNode(d.controls?.value ?? '');
+    case 'Vector3LiteralNode':  return new Vector3LiteralNode(d.controls?.x ?? 0, d.controls?.y ?? 0, d.controls?.z ?? 0);
+    case 'TimeNode':            return new TimeNode();
+    case 'DeltaTimeNode':       return new DeltaTimeNode();
+
+    // Transform
+    case 'SetPositionNode': return new SetPositionNode();
+    case 'GetPositionNode': return new GetPositionNode();
+    case 'SetRotationNode': return new SetRotationNode();
+    case 'GetRotationNode': return new GetRotationNode();
+    case 'SetScaleNode':    return new SetScaleNode();
+    case 'GetScaleNode':    return new GetScaleNode();
+
+    // Flow Control
+    case 'BranchNode':   return new BranchNode();
+    case 'SequenceNode': return new SequenceNode();
+    case 'ForLoopNode':  return new ForLoopNode();
+    case 'DelayNode':    return new DelayNode();
+
+    // Utility
+    case 'PrintStringNode': {
+      const n = new PrintStringNode();
+      if (d.controls?.text != null) {
+        const ctrl = n.controls['text'] as ClassicPreset.InputControl<'text'>;
+        if (ctrl) ctrl.setValue(d.controls.text);
+      }
+      return n;
+    }
+
+    // Physics
+    case 'AddForceNode':    return new AddForceNode();
+    case 'AddImpulseNode':  return new AddImpulseNode();
+    case 'SetVelocityNode': return new SetVelocityNode();
+
+    // Component nodes
+    case 'GetComponentLocationNode':  return new GetComponentLocationNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetComponentLocationNode':  return new SetComponentLocationNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'GetComponentRotationNode':  return new GetComponentRotationNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetComponentRotationNode':  return new SetComponentRotationNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'GetComponentScaleNode':     return new GetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetComponentScaleNode':     return new SetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetComponentVisibilityNode': return new SetComponentVisibilityNode(d.compName || 'Root', d.compIndex ?? -1);
+
+    default:
+      console.warn(`[deserialize] Unknown node type: ${nd.type}`);
+      return null;
+  }
+}
+
+/** Restore a graph from serialized data */
+async function deserializeGraph(
+  editor: NodeEditor<Schemes>,
+  area: AreaPlugin<Schemes, any>,
+  graphData: any,
+  bp: import('./BlueprintData').BlueprintData,
+): Promise<void> {
+  if (!graphData || !Array.isArray(graphData.nodes)) return;
+
+  // Map old serialized IDs → new Rete node IDs
+  const idMap = new Map<string, string>();
+
+  for (const nd of graphData.nodes) {
+    const node = createNodeFromData(nd, bp);
+    if (!node) continue;
+
+    await editor.addNode(node);
+    idMap.set(nd.id, node.id);
+
+    if (nd.position) {
+      await area.translate(node.id, { x: nd.position.x, y: nd.position.y });
+    }
+  }
+
+  // Restore connections (remapping IDs)
+  for (const conn of graphData.connections || []) {
+    const newSource = idMap.get(conn.source);
+    const newTarget = idMap.get(conn.target);
+    if (!newSource || !newTarget) continue;
+
+    const sourceNode = editor.getNode(newSource);
+    const targetNode = editor.getNode(newTarget);
+    if (!sourceNode || !targetNode) continue;
+
+    try {
+      await editor.addConnection(
+        new ClassicPreset.Connection(sourceNode, conn.sourceOutput, targetNode, conn.targetInput),
+      );
+    } catch { /* skip invalid connections */ }
+  }
+}
+
+// ============================================================
 //  Rete editor factory — sets up a single graph editor in a container
 // ============================================================
 async function createGraphEditor(
@@ -1826,6 +2202,16 @@ async function createGraphEditor(
     return ctx;
   });
 
+  // Save positions when nodes are moved (debounced)
+  let _positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  area.addPipe((ctx) => {
+    if (ctx.type === 'nodetranslated') {
+      if (_positionSaveTimer) clearTimeout(_positionSaveTimer);
+      _positionSaveTimer = setTimeout(onChanged, 300);
+    }
+    return ctx;
+  });
+
   // Double-click detection on nodes
   {
     let lastPickedId: string | null = null;
@@ -1925,6 +2311,22 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
       gameObject.scripts[0].code = code;
       gameObject.scripts[0].compile();
+
+      // ── Persist graph node data into BlueprintData ──
+      // Event graph
+      bp.eventGraph.nodeData = serializeGraph(evData.editor, evData.area);
+      // Function graphs
+      for (const [id, fnEditor] of functionEditors) {
+        const fn = bp.getFunction(id);
+        const fnData = editorStore.get(id);
+        if (fn && fnData) fn.graph.nodeData = serializeGraph(fnEditor, fnData.area);
+      }
+      // Macro graphs
+      for (const [id, mEditor] of macroEditors) {
+        const m = bp.getMacro(id);
+        const mData = editorStore.get(id);
+        if (m && mData) m.graph.nodeData = serializeGraph(mEditor, mData.area);
+      }
     }
 
     // Switch graph
@@ -1962,22 +2364,32 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
         } else if (tab.type === 'function' && tab.refId) {
           const fn = bp.getFunction(tab.refId);
           if (fn) {
-            const entry = new FunctionEntryNode(fn.id, fn.name, fn.inputs);
-            const ret = new FunctionReturnNode(fn.id, fn.name, fn.outputs);
-            await editor.addNode(entry);
-            await editor.addNode(ret);
-            await area.translate(entry.id, { x: 0, y: 0 });
-            await area.translate(ret.id, { x: 400, y: 0 });
+            // Restore saved graph if available
+            if (fn.graph.nodeData && Array.isArray(fn.graph.nodeData.nodes) && fn.graph.nodeData.nodes.length > 0) {
+              await deserializeGraph(editor, area, fn.graph.nodeData, bp);
+            } else {
+              const entry = new FunctionEntryNode(fn.id, fn.name, fn.inputs);
+              const ret = new FunctionReturnNode(fn.id, fn.name, fn.outputs);
+              await editor.addNode(entry);
+              await editor.addNode(ret);
+              await area.translate(entry.id, { x: 0, y: 0 });
+              await area.translate(ret.id, { x: 400, y: 0 });
+            }
           }
         } else if (tab.type === 'macro' && tab.refId) {
           const m = bp.getMacro(tab.refId);
           if (m) {
-            const entry = new MacroEntryNode(m.id, m.name, m.inputs);
-            const exit = new MacroExitNode(m.id, m.name, m.outputs);
-            await editor.addNode(entry);
-            await editor.addNode(exit);
-            await area.translate(entry.id, { x: 0, y: 0 });
-            await area.translate(exit.id, { x: 400, y: 0 });
+            // Restore saved graph if available
+            if (m.graph.nodeData && Array.isArray(m.graph.nodeData.nodes) && m.graph.nodeData.nodes.length > 0) {
+              await deserializeGraph(editor, area, m.graph.nodeData, bp);
+            } else {
+              const entry = new MacroEntryNode(m.id, m.name, m.inputs);
+              const exit = new MacroExitNode(m.id, m.name, m.outputs);
+              await editor.addNode(entry);
+              await editor.addNode(exit);
+              await area.translate(entry.id, { x: 0, y: 0 });
+              await area.translate(exit.id, { x: 400, y: 0 });
+            }
           }
         }
 
@@ -1992,7 +2404,11 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
     }
 
     async function initEventGraph(editor: NodeEditor<Schemes>, area: AreaPlugin<Schemes, any>) {
-      if (!gameObject.scripts[0]?.nodeData) {
+      // If we have saved graph data, restore it
+      if (bp.eventGraph.nodeData && Array.isArray(bp.eventGraph.nodeData.nodes) && bp.eventGraph.nodeData.nodes.length > 0) {
+        await deserializeGraph(editor, area, bp.eventGraph.nodeData, bp);
+      } else {
+        // Default demo graph for brand-new blueprints
         const evTick = new EventTickNode();
         const sine = new SineNode();
         const time = new TimeNode();

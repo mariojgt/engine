@@ -22,7 +22,7 @@ export class Engine {
 
   async init(): Promise<void> {
     await this.physics.init();
-    console.log('MiniEngine initialized');
+    console.log('Feather Engine initialized');
   }
 
   /** Called when Play is pressed — fires BeginPlay on all scripts */

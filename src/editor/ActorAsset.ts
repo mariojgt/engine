@@ -48,6 +48,8 @@ export interface ActorAssetJSON {
   eventGraphData: any;
   /** Serialized node data per function graph */
   functionGraphData: Record<string, any>;
+  /** Compiled JS code from the node editor */
+  compiledCode: string;
   /** Created timestamp */
   createdAt: number;
   /** Last modified timestamp */
@@ -116,6 +118,7 @@ export class ActorAsset {
       functionGraphData: Object.fromEntries(
         bp.functions.map(f => [f.id, f.graph.nodeData ?? null]),
       ),
+      compiledCode: this.compiledCode,
       createdAt: this.createdAt,
       modifiedAt: this.modifiedAt,
     };
@@ -128,6 +131,7 @@ export class ActorAsset {
     asset.components = json.components || [];
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();
+    asset.compiledCode = json.compiledCode || '';
 
     const bp = asset.blueprintData;
     bp.variables = json.variables || [];

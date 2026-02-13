@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
+import type { CameraStateJSON } from './SceneSerializer';
 
 export class ViewportPanel {
   public container: HTMLElement;
@@ -180,5 +181,31 @@ export class ViewportPanel {
     if (this._transformControls) this._transformControls.dispose();
     if (this._renderer) this._renderer.dispose();
     if (this._controls) this._controls.dispose();
+  }
+
+  // ---- Camera state for project save/load ----
+
+  getCameraState(): CameraStateJSON | undefined {
+    if (!this._controls) return undefined;
+    return {
+      position: {
+        x: this._camera.position.x,
+        y: this._camera.position.y,
+        z: this._camera.position.z,
+      },
+      target: {
+        x: this._controls.target.x,
+        y: this._controls.target.y,
+        z: this._controls.target.z,
+      },
+    };
+  }
+
+  applyCameraState(state: CameraStateJSON): void {
+    this._camera.position.set(state.position.x, state.position.y, state.position.z);
+    if (this._controls) {
+      this._controls.target.set(state.target.x, state.target.y, state.target.z);
+      this._controls.update();
+    }
   }
 }
