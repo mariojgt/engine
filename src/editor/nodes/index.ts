@@ -18,6 +18,7 @@ export {
 export { EventBeginPlayNode } from './events/EventBeginPlayNode';
 export { EventTickNode }      from './events/EventTickNode';
 export { EventOnDestroyNode } from './events/EventOnDestroyNode';
+export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes';
 
 // ── Flow Control ────────────────────────────────────────────
 export { BranchNode }   from './flow-control/BranchNode';
@@ -57,3 +58,16 @@ export { PrintStringNode } from './utility/PrintStringNode';
 export { AddForceNode }   from './physics/AddForceNode';
 export { AddImpulseNode } from './physics/AddImpulseNode';
 export { SetVelocityNode } from './physics/SetVelocityNode';
+
+// ── Variables (dynamic) ─────────────────────────────────────
+export { GetVariableNode, SetVariableNode, socketForType } from './variables/VariableNodes';
+
+// ── Functions & Macros (dynamic) ────────────────────────────
+export {
+  FunctionEntryNode,
+  FunctionReturnNode,
+  FunctionCallNode,
+  MacroEntryNode,
+  MacroExitNode,
+  MacroCallNode,
+} from './functions/FunctionNodes';

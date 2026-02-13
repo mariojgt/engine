@@ -6,8 +6,15 @@ import { ReactPlugin, Presets } from 'rete-react-plugin';
 import { createRoot } from 'react-dom/client';
 import type { GameObject } from '../engine/GameObject';
 import { ScriptComponent } from '../engine/ScriptComponent';
+import {
+  type BlueprintVariable,
+  type BlueprintFunction,
+  type BlueprintMacro,
+  type BlueprintCustomEvent,
+  type VarType,
+} from './BlueprintData';
 
-// Import all nodes — side-effect: each file calls registerNode()
+// Import all nodes
 import {
   NODE_PALETTE,
   EventTickNode,
@@ -15,6 +22,16 @@ import {
   TimeNode,
   SetPositionNode,
   GetPositionNode,
+  GetVariableNode,
+  SetVariableNode,
+  FunctionEntryNode,
+  FunctionReturnNode,
+  FunctionCallNode,
+  MacroEntryNode,
+  MacroExitNode,
+  MacroCallNode,
+  CustomEventNode,
+  CallCustomEventNode,
 } from './nodes';
 import type { NodeEntry } from './nodes';
 
@@ -24,267 +41,525 @@ type Schemes = GetSchemes<
 >;
 
 // ============================================================
-//  CODE GENERATOR  — walks the graph and emits lifecycle blocks
+//  Graph type identifier
 // ============================================================
-function generateCodeFromGraph(editor: NodeEditor<Schemes>): string {
+type GraphType = 'event' | 'function' | 'macro';
+interface GraphTab {
+  id: string;
+  label: string;
+  type: GraphType;
+  refId?: string;
+}
+
+// ============================================================
+//  Helpers
+// ============================================================
+function sanitizeName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+function varDefaultStr(v: BlueprintVariable): string {
+  switch (v.type) {
+    case 'Float': return String(v.defaultValue ?? 0);
+    case 'Boolean': return String(v.defaultValue ?? false);
+    case 'String': return JSON.stringify(String(v.defaultValue ?? ''));
+    case 'Vector3': {
+      const d = v.defaultValue ?? { x: 0, y: 0, z: 0 };
+      return `{ x: ${d.x ?? 0}, y: ${d.y ?? 0}, z: ${d.z ?? 0} }`;
+    }
+  }
+}
+
+// ============================================================
+//  CODE GENERATOR — shared helpers
+// ============================================================
+type NodeMap = Map<string, ClassicPreset.Node>;
+type SrcMap  = Map<string, { nid: string; ok: string }>;
+type DstMap  = Map<string, { nid: string; ik: string }[]>;
+
+function buildMaps(editor: NodeEditor<Schemes>) {
   const nodes = editor.getNodes();
   const connections = editor.getConnections();
-  if (nodes.length === 0) return '';
-
-  // Maps: target.inputKey → { sourceNodeId, sourceOutputKey }
-  const inputSrc = new Map<string, { nid: string; ok: string }>();
+  const inputSrc: SrcMap = new Map();
   for (const c of connections) {
     inputSrc.set(`${c.target}.${c.targetInput}`, { nid: c.source, ok: c.sourceOutput });
   }
-
-  // Maps: source.outputKey → [{ targetNodeId, targetInputKey }]
-  const outputDst = new Map<string, { nid: string; ik: string }[]>();
+  const outputDst: DstMap = new Map();
   for (const c of connections) {
     const key = `${c.source}.${c.sourceOutput}`;
     const arr = outputDst.get(key) || [];
     arr.push({ nid: c.target, ik: c.targetInput });
     outputDst.set(key, arr);
   }
+  const nodeMap: NodeMap = new Map(nodes.map(n => [n.id, n]));
+  return { nodes, nodeMap, inputSrc, outputDst };
+}
 
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+function resolveValue(
+  nodeId: string, outputKey: string,
+  nodeMap: NodeMap, inputSrc: SrcMap, bp: { variables: BlueprintVariable[] },
+): string {
+  const node = nodeMap.get(nodeId);
+  if (!node) return '0';
 
-  // Resolve a value input recursively
-  function resolveValue(nodeId: string, outputKey: string): string {
-    const node = nodeMap.get(nodeId);
-    if (!node) return '0';
-
-    switch (node.label) {
-      case 'Float': {
-        const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
-        return String(ctrl?.value ?? 0);
-      }
-      case 'Boolean': {
-        const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
-        return (ctrl?.value ?? 0) ? 'true' : 'false';
-      }
-      case 'Get Time':
-        return 'elapsedTime';
-      case 'Get Delta Time':
-        return 'deltaTime';
-      case 'Event Tick':
-        if (outputKey === 'dt') return 'deltaTime';
-        return '0';
-
-      // Transform getters
-      case 'Get Actor Position':
-        return `gameObject.position.${outputKey}`;
-      case 'Get Actor Rotation': {
-        const map: Record<string, string> = { x: 'x', y: 'y', z: 'z' };
-        return `gameObject.rotation.${map[outputKey] || 'x'}`;
-      }
-      case 'Get Actor Scale':
-        return `gameObject.scale.${outputKey}`;
-
-      // Math
-      case 'Add':
-      case 'Subtract':
-      case 'Multiply':
-      case 'Divide': {
-        const ops: Record<string, string> = { 'Add': '+', 'Subtract': '-', 'Multiply': '*', 'Divide': '/' };
-        const aS = inputSrc.get(`${nodeId}.a`);
-        const bS = inputSrc.get(`${nodeId}.b`);
-        const a = aS ? resolveValue(aS.nid, aS.ok) : '0';
-        const b = bS ? resolveValue(bS.nid, bS.ok) : (node.label === 'Divide' ? '1' : '0');
-        return `(${a} ${ops[node.label]} ${b})`;
-      }
-      case 'Sine': {
-        const s = inputSrc.get(`${nodeId}.value`);
-        return `Math.sin(${s ? resolveValue(s.nid, s.ok) : '0'})`;
-      }
-      case 'Cosine': {
-        const s = inputSrc.get(`${nodeId}.value`);
-        return `Math.cos(${s ? resolveValue(s.nid, s.ok) : '0'})`;
-      }
-      case 'Abs': {
-        const s = inputSrc.get(`${nodeId}.value`);
-        return `Math.abs(${s ? resolveValue(s.nid, s.ok) : '0'})`;
-      }
-      case 'Clamp': {
-        const v = inputSrc.get(`${nodeId}.value`);
-        const mn = inputSrc.get(`${nodeId}.min`);
-        const mx = inputSrc.get(`${nodeId}.max`);
-        return `Math.min(Math.max(${v ? resolveValue(v.nid, v.ok) : '0'}, ${mn ? resolveValue(mn.nid, mn.ok) : '0'}), ${mx ? resolveValue(mx.nid, mx.ok) : '1'})`;
-      }
-      case 'Lerp': {
-        const aS = inputSrc.get(`${nodeId}.a`);
-        const bS = inputSrc.get(`${nodeId}.b`);
-        const al = inputSrc.get(`${nodeId}.alpha`);
-        const a = aS ? resolveValue(aS.nid, aS.ok) : '0';
-        const b = bS ? resolveValue(bS.nid, bS.ok) : '1';
-        const t = al ? resolveValue(al.nid, al.ok) : '0.5';
-        return `(${a} + (${b} - ${a}) * ${t})`;
-      }
-      case 'Greater Than': {
-        const aS = inputSrc.get(`${nodeId}.a`);
-        const bS = inputSrc.get(`${nodeId}.b`);
-        return `(${aS ? resolveValue(aS.nid, aS.ok) : '0'} > ${bS ? resolveValue(bS.nid, bS.ok) : '0'})`;
-      }
-      default:
-        return '0';
-    }
+  if (node instanceof GetVariableNode) {
+    const vn = sanitizeName(node.varName);
+    return node.varType === 'Vector3' ? `__var_${vn}.${outputKey}` : `__var_${vn}`;
+  }
+  if (node instanceof SetVariableNode) {
+    const vn = sanitizeName(node.varName);
+    return node.varType === 'Vector3' ? `__var_${vn}.${outputKey}` : `__var_${vn}`;
+  }
+  if (node instanceof FunctionCallNode) {
+    return `__fn_result_${sanitizeName(node.funcName)}_${outputKey}`;
   }
 
-  // Walk exec chain from a node's exec output
-  function walkExec(nodeId: string, execOutput: string): string[] {
-    const lines: string[] = [];
-    const targets = outputDst.get(`${nodeId}.${execOutput}`) || [];
-    for (const t of targets) {
-      lines.push(...generateAction(t.nid));
+  // FunctionEntryNode — parameters
+  if (node instanceof FunctionEntryNode) {
+    if (outputKey === 'exec') return '0';
+    return `__param_${sanitizeName(outputKey)}`;
+  }
+
+  const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
+
+  switch (node.label) {
+    case 'Float': {
+      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
+      return String(ctrl?.value ?? 0);
     }
+    case 'Boolean': {
+      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
+      return (ctrl?.value ?? 0) ? 'true' : 'false';
+    }
+    case 'Get Time': return 'elapsedTime';
+    case 'Get Delta Time': return 'deltaTime';
+    case 'Event Tick':
+      return outputKey === 'dt' ? 'deltaTime' : '0';
+    case 'Get Actor Position': return `gameObject.position.${outputKey}`;
+    case 'Get Actor Rotation': return `gameObject.rotation.${outputKey}`;
+    case 'Get Actor Scale':    return `gameObject.scale.${outputKey}`;
+    case 'Add': case 'Subtract': case 'Multiply': case 'Divide': {
+      const ops: Record<string, string> = { 'Add':'+','Subtract':'-','Multiply':'*','Divide':'/' };
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : (node.label === 'Divide' ? '1' : '0');
+      return `(${a} ${ops[node.label]} ${b})`;
+    }
+    case 'Sine': { const s = inputSrc.get(`${nodeId}.value`); return `Math.sin(${s ? rv(s.nid, s.ok) : '0'})`; }
+    case 'Cosine': { const s = inputSrc.get(`${nodeId}.value`); return `Math.cos(${s ? rv(s.nid, s.ok) : '0'})`; }
+    case 'Abs': { const s = inputSrc.get(`${nodeId}.value`); return `Math.abs(${s ? rv(s.nid, s.ok) : '0'})`; }
+    case 'Clamp': {
+      const v = inputSrc.get(`${nodeId}.value`);
+      const mn = inputSrc.get(`${nodeId}.min`);
+      const mx = inputSrc.get(`${nodeId}.max`);
+      return `Math.min(Math.max(${v ? rv(v.nid, v.ok) : '0'}, ${mn ? rv(mn.nid, mn.ok) : '0'}), ${mx ? rv(mx.nid, mx.ok) : '1'})`;
+    }
+    case 'Lerp': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const al = inputSrc.get(`${nodeId}.alpha`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '1';
+      const t = al ? rv(al.nid, al.ok) : '0.5';
+      return `(${a} + (${b} - ${a}) * ${t})`;
+    }
+    case 'Greater Than': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} > ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    default: return '0';
+  }
+}
+
+function walkExec(
+  nodeId: string, execOut: string,
+  nodeMap: NodeMap, inputSrc: SrcMap, outputDst: DstMap,
+  bp: { variables: BlueprintVariable[]; functions: BlueprintFunction[] },
+): string[] {
+  const lines: string[] = [];
+  const targets = outputDst.get(`${nodeId}.${execOut}`) || [];
+  for (const t of targets) lines.push(...genAction(t.nid, nodeMap, inputSrc, outputDst, bp));
+  return lines;
+}
+
+function genAction(
+  nodeId: string,
+  nodeMap: NodeMap, inputSrc: SrcMap, outputDst: DstMap,
+  bp: { variables: BlueprintVariable[]; functions: BlueprintFunction[] },
+): string[] {
+  const node = nodeMap.get(nodeId);
+  if (!node) return [];
+  const lines: string[] = [];
+  const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
+  const we = (nid: string, eo: string) => walkExec(nid, eo, nodeMap, inputSrc, outputDst, bp);
+
+  // Variable Set
+  if (node instanceof SetVariableNode) {
+    const vn = sanitizeName(node.varName);
+    if (node.varType === 'Vector3') {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`__var_${vn}.x = ${xS ? rv(xS.nid, xS.ok) : '0'};`);
+      lines.push(`__var_${vn}.y = ${yS ? rv(yS.nid, yS.ok) : '0'};`);
+      lines.push(`__var_${vn}.z = ${zS ? rv(zS.nid, zS.ok) : '0'};`);
+    } else {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      const bpVar = bp.variables.find(x => x.name === node.varName);
+      lines.push(`__var_${vn} = ${vS ? rv(vS.nid, vS.ok) : (bpVar ? varDefaultStr(bpVar) : '0')};`);
+    }
+    lines.push(...we(nodeId, 'exec'));
     return lines;
   }
 
-  // Generate action code for an exec-receiving node
-  function generateAction(nodeId: string): string[] {
-    const node = nodeMap.get(nodeId);
-    if (!node) return [];
-    const lines: string[] = [];
-
-    switch (node.label) {
-      case 'Set Actor Position': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        const x = xS ? resolveValue(xS.nid, xS.ok) : 'gameObject.position.x';
-        const y = yS ? resolveValue(yS.nid, yS.ok) : 'gameObject.position.y';
-        const z = zS ? resolveValue(zS.nid, zS.ok) : 'gameObject.position.z';
-        lines.push(`gameObject.position.set(${x}, ${y}, ${z});`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Set Actor Rotation': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        const x = xS ? resolveValue(xS.nid, xS.ok) : 'gameObject.rotation.x';
-        const y = yS ? resolveValue(yS.nid, yS.ok) : 'gameObject.rotation.y';
-        const z = zS ? resolveValue(zS.nid, zS.ok) : 'gameObject.rotation.z';
-        lines.push(`gameObject.rotation.set(${x}, ${y}, ${z});`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Set Actor Scale': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        const x = xS ? resolveValue(xS.nid, xS.ok) : 'gameObject.scale.x';
-        const y = yS ? resolveValue(yS.nid, yS.ok) : 'gameObject.scale.y';
-        const z = zS ? resolveValue(zS.nid, zS.ok) : 'gameObject.scale.z';
-        lines.push(`gameObject.scale.set(${x}, ${y}, ${z});`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Print String': {
-        const vS = inputSrc.get(`${nodeId}.value`);
-        let v: string;
-        if (vS) {
-          v = resolveValue(vS.nid, vS.ok);
-        } else {
-          // Use the inline text control value
-          const ctrl = node.controls['text'] as ClassicPreset.InputControl<'text'> | undefined;
-          const txt = ctrl?.value ?? 'Hello';
-          v = JSON.stringify(String(txt));
-        }
-        lines.push(`print(${v});`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Add Force': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForce({x:${xS ? resolveValue(xS.nid, xS.ok) : '0'}, y:${yS ? resolveValue(yS.nid, yS.ok) : '0'}, z:${zS ? resolveValue(zS.nid, zS.ok) : '0'}}, true); }`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Add Impulse': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.applyImpulse({x:${xS ? resolveValue(xS.nid, xS.ok) : '0'}, y:${yS ? resolveValue(yS.nid, yS.ok) : '0'}, z:${zS ? resolveValue(zS.nid, zS.ok) : '0'}}, true); }`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Set Velocity': {
-        const xS = inputSrc.get(`${nodeId}.x`);
-        const yS = inputSrc.get(`${nodeId}.y`);
-        const zS = inputSrc.get(`${nodeId}.z`);
-        lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setLinvel({x:${xS ? resolveValue(xS.nid, xS.ok) : '0'}, y:${yS ? resolveValue(yS.nid, yS.ok) : '0'}, z:${zS ? resolveValue(zS.nid, zS.ok) : '0'}}, true); }`);
-        lines.push(...walkExec(nodeId, 'exec'));
-        break;
-      }
-      case 'Branch': {
-        const cS = inputSrc.get(`${nodeId}.condition`);
-        const cond = cS ? resolveValue(cS.nid, cS.ok) : 'false';
-        const trueLines = walkExec(nodeId, 'true');
-        const falseLines = walkExec(nodeId, 'false');
-        lines.push(`if (${cond}) {`);
-        lines.push(...trueLines.map(l => '  ' + l));
-        if (falseLines.length) {
-          lines.push('} else {');
-          lines.push(...falseLines.map(l => '  ' + l));
-        }
-        lines.push('}');
-        break;
-      }
-      case 'Sequence': {
-        lines.push(...walkExec(nodeId, 'then0'));
-        lines.push(...walkExec(nodeId, 'then1'));
-        break;
-      }
-      case 'For Loop': {
-        const cS = inputSrc.get(`${nodeId}.count`);
-        const count = cS ? resolveValue(cS.nid, cS.ok) : '10';
-        lines.push(`for (let __i = 0; __i < ${count}; __i++) {`);
-        lines.push(...walkExec(nodeId, 'body').map(l => '  ' + l));
-        lines.push('}');
-        lines.push(...walkExec(nodeId, 'done'));
-        break;
-      }
+  // Function Call
+  if (node instanceof FunctionCallNode) {
+    const fn = bp.functions.find(f => f.id === node.funcId);
+    if (fn) {
+      const args = fn.inputs.map(inp => {
+        const s = inputSrc.get(`${nodeId}.${inp.name}`);
+        return s ? rv(s.nid, s.ok) : '0';
+      });
+      lines.push(`__fn_${sanitizeName(fn.name)}(${args.join(', ')});`);
     }
+    lines.push(...we(nodeId, 'exec'));
     return lines;
   }
 
-  // Build code for each lifecycle event
-  const sections: string[] = [];
-
-  const beginPlayNodes = nodes.filter(n => n.label === 'Event BeginPlay');
-  if (beginPlayNodes.length > 0) {
-    const bp: string[] = [];
-    for (const ev of beginPlayNodes) bp.push(...walkExec(ev.id, 'exec'));
-    if (bp.length) sections.push('// __beginPlay__\n' + bp.join('\n'));
+  // Macro Call — inline placeholder
+  if (node instanceof MacroCallNode) {
+    lines.push(`/* macro: ${node.macroName} */`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
   }
 
-  const tickNodes = nodes.filter(n => n.label === 'Event Tick');
-  if (tickNodes.length > 0) {
-    const tk: string[] = [];
-    for (const ev of tickNodes) tk.push(...walkExec(ev.id, 'exec'));
-    if (tk.length) sections.push('// __tick__\n' + tk.join('\n'));
+  // Custom Event Call
+  if (node instanceof CallCustomEventNode) {
+    lines.push(`__custom_evt_${sanitizeName(node.eventName)}();`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
   }
 
-  const destroyNodes = nodes.filter(n => n.label === 'Event OnDestroy');
-  if (destroyNodes.length > 0) {
-    const od: string[] = [];
-    for (const ev of destroyNodes) od.push(...walkExec(ev.id, 'exec'));
-    if (od.length) sections.push('// __onDestroy__\n' + od.join('\n'));
+  switch (node.label) {
+    case 'Set Actor Position': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.position.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.position.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.position.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.position.z'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Rotation': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.rotation.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.rotation.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.rotation.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.rotation.z'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Scale': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.scale.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.scale.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.scale.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.scale.z'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Print String': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      let v: string;
+      if (vS) { v = rv(vS.nid, vS.ok); }
+      else {
+        const ctrl = node.controls['text'] as ClassicPreset.InputControl<'text'> | undefined;
+        v = JSON.stringify(String(ctrl?.value ?? 'Hello'));
+      }
+      lines.push(`print(${v});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Force': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForce({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Impulse': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.applyImpulse({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Velocity': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setLinvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Branch': {
+      const cS = inputSrc.get(`${nodeId}.condition`);
+      const cond = cS ? rv(cS.nid, cS.ok) : 'false';
+      const trueLines = we(nodeId, 'true');
+      const falseLines = we(nodeId, 'false');
+      lines.push(`if (${cond}) {`);
+      lines.push(...trueLines.map(l => '  ' + l));
+      if (falseLines.length) { lines.push('} else {'); lines.push(...falseLines.map(l => '  ' + l)); }
+      lines.push('}');
+      break;
+    }
+    case 'Sequence': {
+      lines.push(...we(nodeId, 'then0'));
+      lines.push(...we(nodeId, 'then1'));
+      break;
+    }
+    case 'For Loop': {
+      const cS = inputSrc.get(`${nodeId}.count`);
+      const count = cS ? rv(cS.nid, cS.ok) : '10';
+      lines.push(`for (let __i = 0; __i < ${count}; __i++) {`);
+      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+      lines.push('}');
+      lines.push(...we(nodeId, 'done'));
+      break;
+    }
   }
-
-  return sections.join('\n');
+  return lines;
 }
 
 // ============================================================
-//  Right-click Context Menu (search palette)
+//  Full code generator
+// ============================================================
+function generateFullCode(
+  eventEditor: NodeEditor<Schemes>,
+  bp: import('./BlueprintData').BlueprintData,
+  functionEditors: Map<string, NodeEditor<Schemes>>,
+): string {
+  const parts: string[] = [];
+
+  // Variable declarations
+  const varDecls: string[] = [];
+  for (const v of bp.variables) {
+    varDecls.push(`let __var_${sanitizeName(v.name)} = ${varDefaultStr(v)};`);
+  }
+  if (varDecls.length > 0) parts.push(varDecls.join('\n'));
+
+  // Function bodies
+  for (const fn of bp.functions) {
+    const fnEditor = functionEditors.get(fn.id);
+    if (!fnEditor) continue;
+    const { nodes, nodeMap, inputSrc, outputDst } = buildMaps(fnEditor);
+    const entryNode = nodes.find(n => n instanceof FunctionEntryNode);
+    if (!entryNode) continue;
+
+    const params = fn.inputs.map(i => `__param_${sanitizeName(i.name)}`).join(', ');
+    const body = walkExec(entryNode.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+    parts.push(`function __fn_${sanitizeName(fn.name)}(${params}) {\n${body.map(l => '  ' + l).join('\n')}\n}`);
+  }
+
+  // Event graph lifecycle code
+  const { nodes, nodeMap, inputSrc, outputDst } = buildMaps(eventEditor);
+
+  // Custom event function bodies (placed in preamble so they're shared)
+  const customEvtNodes = nodes.filter(n => n instanceof CustomEventNode);
+  for (const evNode of customEvtNodes) {
+    const ce = evNode as CustomEventNode;
+    const name = sanitizeName(ce.eventName);
+    const body = walkExec(ce.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+    if (body.length) {
+      parts.push(`function __custom_evt_${name}() {\n${body.map(l => '  ' + l).join('\n')}\n}`);
+    }
+  }
+
+  const sections: string[] = [];
+
+  for (const [label, marker] of [['Event BeginPlay', '__beginPlay__'], ['Event Tick', '__tick__'], ['Event OnDestroy', '__onDestroy__']] as const) {
+    const evNodes = nodes.filter(n => n.label === label);
+    if (evNodes.length > 0) {
+      const code: string[] = [];
+      for (const ev of evNodes) code.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+      if (code.length) sections.push(`// ${marker}\n${code.join('\n')}`);
+    }
+  }
+  if (sections.length) parts.push(sections.join('\n'));
+
+  return parts.join('\n');
+}
+
+// ============================================================
+//  "My Blueprint" Sidebar Builder
+// ============================================================
+function buildMyBlueprintPanel(
+  container: HTMLElement,
+  bp: import('./BlueprintData').BlueprintData,
+  callbacks: {
+    onSwitchGraph: (tab: GraphTab) => void;
+    onAddVariable: () => void;
+    onAddFunction: () => void;
+    onAddMacro: () => void;
+    onAddCustomEvent: () => void;
+    onDeleteVariable: (id: string) => void;
+    onDeleteFunction: (id: string) => void;
+    onDeleteMacro: (id: string) => void;
+    onDeleteCustomEvent: (id: string) => void;
+    onEditVariable: (v: BlueprintVariable) => void;
+    activeGraphId: string;
+    graphTabs: GraphTab[];
+  },
+): void {
+  container.innerHTML = '';
+  container.className = 'my-blueprint-panel';
+
+  // Title
+  const title = document.createElement('div');
+  title.className = 'mybp-title';
+  title.textContent = 'MY BLUEPRINT';
+  container.appendChild(title);
+
+  // --- Graphs ---
+  const graphBody = addSection(container, 'Graphs', null);
+  for (const tab of callbacks.graphTabs) {
+    const item = document.createElement('div');
+    item.className = 'mybp-item' + (tab.id === callbacks.activeGraphId ? ' active' : '');
+    const icon = tab.type === 'event' ? '📋' : tab.type === 'function' ? 'ƒ' : '⚡';
+    item.innerHTML = `<span class="mybp-item-icon">${icon}</span><span>${tab.label}</span>`;
+    item.addEventListener('click', () => callbacks.onSwitchGraph(tab));
+    graphBody.appendChild(item);
+  }
+
+  // --- Functions ---
+  const fnBody = addSection(container, 'Functions', callbacks.onAddFunction);
+  for (const fn of bp.functions) {
+    fnBody.appendChild(makeDeletableItem(fn.name, 'ƒ', 'mybp-fn',
+      () => callbacks.onSwitchGraph({ id: fn.id, label: fn.name, type: 'function', refId: fn.id }),
+      () => callbacks.onDeleteFunction(fn.id),
+    ));
+  }
+
+  // --- Macros ---
+  const macroBody = addSection(container, 'Macros', callbacks.onAddMacro);
+  for (const m of bp.macros) {
+    macroBody.appendChild(makeDeletableItem(m.name, '⚡', 'mybp-macro',
+      () => callbacks.onSwitchGraph({ id: m.id, label: m.name, type: 'macro', refId: m.id }),
+      () => callbacks.onDeleteMacro(m.id),
+    ));
+  }
+
+  // --- Variables ---
+  const varBody = addSection(container, 'Variables', callbacks.onAddVariable);
+  for (const v of bp.variables) {
+    const item = document.createElement('div');
+    item.className = 'mybp-item mybp-var';
+    item.draggable = true;
+
+    const dot = document.createElement('span');
+    dot.className = `mybp-var-dot mybp-var-${v.type.toLowerCase()}`;
+    item.appendChild(dot);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'mybp-var-name';
+    nameSpan.textContent = v.name;
+    item.appendChild(nameSpan);
+
+    const typeSpan = document.createElement('span');
+    typeSpan.className = 'mybp-var-type';
+    typeSpan.textContent = v.type;
+    item.appendChild(typeSpan);
+
+    const del = document.createElement('span');
+    del.className = 'mybp-delete';
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteVariable(v.id); });
+    item.appendChild(del);
+
+    item.addEventListener('click', () => callbacks.onEditVariable(v));
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer!.setData('text/plain', JSON.stringify({ varId: v.id, varName: v.name, varType: v.type }));
+    });
+
+    varBody.appendChild(item);
+  }
+
+  // --- Custom Events ---
+  const evtBody = addSection(container, 'Custom Events', callbacks.onAddCustomEvent);
+  for (const evt of bp.customEvents) {
+    evtBody.appendChild(makeDeletableItem(evt.name, '🎯', 'mybp-evt',
+      () => callbacks.onSwitchGraph(callbacks.graphTabs[0]),
+      () => callbacks.onDeleteCustomEvent(evt.id),
+    ));
+  }
+}
+
+function addSection(parent: HTMLElement, title: string, onAdd: (() => void) | null): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'mybp-section';
+  const header = document.createElement('div');
+  header.className = 'mybp-section-header';
+  const span = document.createElement('span');
+  span.textContent = title;
+  header.appendChild(span);
+  if (onAdd) {
+    const btn = document.createElement('span');
+    btn.className = 'mybp-add-btn';
+    btn.textContent = '+';
+    btn.title = `Add ${title.slice(0, -1)}`;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onAdd(); });
+    header.appendChild(btn);
+  }
+  section.appendChild(header);
+  const body = document.createElement('div');
+  body.className = 'mybp-section-body';
+  section.appendChild(body);
+  parent.appendChild(section);
+  return body;
+}
+
+function makeDeletableItem(
+  name: string, icon: string, cls: string,
+  onClick: () => void, onDelete: () => void,
+): HTMLElement {
+  const item = document.createElement('div');
+  item.className = `mybp-item ${cls}`;
+  item.innerHTML = `<span class="mybp-item-icon">${icon}</span><span>${name}</span>`;
+  const del = document.createElement('span');
+  del.className = 'mybp-delete';
+  del.textContent = '✕';
+  del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
+  item.appendChild(del);
+  item.addEventListener('click', onClick);
+  return item;
+}
+
+// ============================================================
+//  Graph Tab Bar
+// ============================================================
+function buildGraphTabBar(
+  container: HTMLElement, tabs: GraphTab[], activeId: string,
+  onSwitch: (tab: GraphTab) => void,
+): void {
+  container.innerHTML = '';
+  container.className = 'graph-tab-bar';
+  for (const tab of tabs) {
+    const btn = document.createElement('div');
+    btn.className = 'graph-tab' + (tab.id === activeId ? ' active' : '');
+    const icon = tab.type === 'event' ? '📋' : tab.type === 'function' ? 'ƒ' : '⚡';
+    btn.textContent = `${icon} ${tab.label}`;
+    btn.addEventListener('click', () => onSwitch(tab));
+    container.appendChild(btn);
+  }
+}
+
+// ============================================================
+//  Context Menu (palette) — includes variables, functions, macros
 // ============================================================
 function showContextMenu(
-  container: HTMLElement,
-  x: number,
-  y: number,
+  container: HTMLElement, x: number, y: number,
+  bp: import('./BlueprintData').BlueprintData,
+  graphType: GraphType,
   onSelect: (entry: NodeEntry) => void,
+  onAddVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
+  onAddFnCallNode: (fn: BlueprintFunction) => void,
+  onAddMacroCallNode: (m: BlueprintMacro) => void,
+  onAddCustomEventCallNode: (evt: BlueprintCustomEvent) => void,
 ) {
   const existing = container.querySelector('.bp-context-menu');
   if (existing) existing.remove();
@@ -312,13 +587,57 @@ function showContextMenu(
   function renderList(filter: string) {
     listEl.innerHTML = '';
     const lf = filter.toLowerCase();
+    const categories = new Map<string, { label: string; action: () => void }[]>();
 
-    const categories = new Map<string, NodeEntry[]>();
+    // Standard nodes
     for (const entry of NODE_PALETTE) {
+      if (graphType !== 'event' && entry.category === 'Events') continue;
       if (lf && !entry.label.toLowerCase().includes(lf) && !entry.category.toLowerCase().includes(lf)) continue;
       const arr = categories.get(entry.category) || [];
-      arr.push(entry);
+      arr.push({ label: entry.label, action: () => { onSelect(entry); menu.remove(); } });
       categories.set(entry.category, arr);
+    }
+
+    // Variables — Get / Set
+    if (bp.variables.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const v of bp.variables) {
+        if (!lf || `get ${v.name}`.toLowerCase().includes(lf) || 'variables'.includes(lf))
+          items.push({ label: `Get ${v.name}`, action: () => { onAddVarNode(v, 'get'); menu.remove(); } });
+        if (!lf || `set ${v.name}`.toLowerCase().includes(lf) || 'variables'.includes(lf))
+          items.push({ label: `Set ${v.name}`, action: () => { onAddVarNode(v, 'set'); menu.remove(); } });
+      }
+      if (items.length) categories.set('Variables', items);
+    }
+
+    // Functions
+    if (bp.functions.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const fn of bp.functions) {
+        if (!lf || fn.name.toLowerCase().includes(lf) || 'functions'.includes(lf))
+          items.push({ label: fn.name, action: () => { onAddFnCallNode(fn); menu.remove(); } });
+      }
+      if (items.length) categories.set('Functions', items);
+    }
+
+    // Macros
+    if (bp.macros.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const m of bp.macros) {
+        if (!lf || m.name.toLowerCase().includes(lf) || 'macros'.includes(lf))
+          items.push({ label: m.name, action: () => { onAddMacroCallNode(m); menu.remove(); } });
+      }
+      if (items.length) categories.set('Macros', items);
+    }
+
+    // Custom Events — Call
+    if (bp.customEvents.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const evt of bp.customEvents) {
+        if (!lf || `call ${evt.name}`.toLowerCase().includes(lf) || 'custom events'.includes(lf))
+          items.push({ label: `Call ${evt.name}`, action: () => { onAddCustomEventCallNode(evt); menu.remove(); } });
+      }
+      if (items.length) categories.set('Custom Events', items);
     }
 
     for (const [cat, entries] of categories) {
@@ -326,19 +645,14 @@ function showContextMenu(
       catEl.className = 'bp-context-category';
       catEl.textContent = cat;
       listEl.appendChild(catEl);
-
-      for (const entry of entries) {
+      for (const e of entries) {
         const item = document.createElement('div');
         item.className = 'bp-context-item';
-        item.textContent = entry.label;
-        item.addEventListener('click', () => {
-          onSelect(entry);
-          menu.remove();
-        });
+        item.textContent = e.label;
+        item.addEventListener('click', e.action);
         listEl.appendChild(item);
       }
     }
-
     if (categories.size === 0) {
       const empty = document.createElement('div');
       empty.className = 'bp-context-empty';
@@ -349,7 +663,6 @@ function showContextMenu(
 
   renderList('');
   searchInput.addEventListener('input', () => renderList(searchInput.value));
-
   container.appendChild(menu);
   requestAnimationFrame(() => searchInput.focus());
 
@@ -363,6 +676,241 @@ function showContextMenu(
 }
 
 // ============================================================
+//  Dialogs — Add Variable, Add Function/Macro, Edit Variable
+// ============================================================
+function showAddVariableDialog(parent: HTMLElement, onAdd: (name: string, type: VarType) => void) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog';
+  dialog.innerHTML = `
+    <div class="mybp-dialog-title">New Variable</div>
+    <label class="mybp-dialog-label">Name</label>
+    <input class="mybp-dialog-input" type="text" value="NewVar" id="dlg-var-name" />
+    <label class="mybp-dialog-label">Type</label>
+    <select class="mybp-dialog-select" id="dlg-var-type">
+      <option value="Float">Float</option>
+      <option value="Boolean">Boolean</option>
+      <option value="Vector3">Vector3</option>
+      <option value="String">String</option>
+    </select>
+    <div class="mybp-dialog-actions">
+      <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
+      <button class="mybp-dialog-btn ok" id="dlg-ok">Add</button>
+    </div>`;
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  const nameInput = dialog.querySelector('#dlg-var-name') as HTMLInputElement;
+  nameInput.select(); nameInput.focus();
+  const close = () => overlay.remove();
+  dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
+    onAdd(nameInput.value.trim() || 'NewVar', (dialog.querySelector('#dlg-var-type') as HTMLSelectElement).value as VarType);
+    close();
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') dialog.querySelector<HTMLButtonElement>('#dlg-ok')!.click();
+    if (e.key === 'Escape') close();
+  });
+}
+
+function showAddNameDialog(parent: HTMLElement, title: string, defaultName: string, onAdd: (name: string) => void) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog';
+  dialog.innerHTML = `
+    <div class="mybp-dialog-title">${title}</div>
+    <label class="mybp-dialog-label">Name</label>
+    <input class="mybp-dialog-input" type="text" value="${defaultName}" id="dlg-name" />
+    <div class="mybp-dialog-actions">
+      <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
+      <button class="mybp-dialog-btn ok" id="dlg-ok">Add</button>
+    </div>`;
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  const nameInput = dialog.querySelector('#dlg-name') as HTMLInputElement;
+  nameInput.select(); nameInput.focus();
+  const close = () => overlay.remove();
+  dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
+    onAdd(nameInput.value.trim() || defaultName);
+    close();
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') dialog.querySelector<HTMLButtonElement>('#dlg-ok')!.click();
+    if (e.key === 'Escape') close();
+  });
+}
+
+function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, onChange: () => void) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog';
+
+  let inputHtml = '';
+  if (v.type === 'Float') inputHtml = `<input class="mybp-dialog-input" type="number" step="0.1" value="${v.defaultValue}" id="dlg-val" />`;
+  else if (v.type === 'Boolean') inputHtml = `<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="dlg-val" ${v.defaultValue ? 'checked' : ''} /> Default</label>`;
+  else if (v.type === 'String') inputHtml = `<input class="mybp-dialog-input" type="text" value="${v.defaultValue}" id="dlg-val" />`;
+  else if (v.type === 'Vector3') {
+    const d = v.defaultValue || { x: 0, y: 0, z: 0 };
+    inputHtml = `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
+  }
+
+  dialog.innerHTML = `
+    <div class="mybp-dialog-title">Edit: ${v.name} (${v.type})</div>
+    <label class="mybp-dialog-label">Name</label>
+    <input class="mybp-dialog-input" type="text" value="${v.name}" id="dlg-var-name" />
+    <label class="mybp-dialog-label">Default Value</label>
+    ${inputHtml}
+    <div class="mybp-dialog-actions">
+      <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
+      <button class="mybp-dialog-btn ok" id="dlg-ok">Save</button>
+    </div>`;
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  const close = () => overlay.remove();
+  dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
+    v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
+    if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
+    else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
+    else if (v.type === 'String') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
+    else if (v.type === 'Vector3') {
+      v.defaultValue = {
+        x: parseFloat((dialog.querySelector('#dlg-vx') as HTMLInputElement).value) || 0,
+        y: parseFloat((dialog.querySelector('#dlg-vy') as HTMLInputElement).value) || 0,
+        z: parseFloat((dialog.querySelector('#dlg-vz') as HTMLInputElement).value) || 0,
+      };
+    }
+    onChange();
+    close();
+  });
+}
+
+// ============================================================
+//  Rete editor factory — sets up a single graph editor in a container
+// ============================================================
+async function createGraphEditor(
+  container: HTMLElement,
+  bp: import('./BlueprintData').BlueprintData,
+  graphType: GraphType,
+  onChanged: () => void,
+  onNodeDoubleClick?: (node: ClassicPreset.Node) => void,
+) {
+  const editor = new NodeEditor<Schemes>();
+  const area = new AreaPlugin<Schemes, any>(container);
+  const connection = new ConnectionPlugin<Schemes, any>();
+  const reactPlugin = new ReactPlugin<Schemes, any>({ createRoot });
+
+  reactPlugin.addPreset(Presets.classic.setup());
+  connection.addPreset(ConnectionPresets.classic.setup());
+  editor.use(area);
+  area.use(connection);
+  area.use(reactPlugin);
+
+  // Right-click
+  container.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    showContextMenu(container, cx, cy, bp, graphType,
+      async (entry) => {
+        const node = entry.factory();
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      async (v, mode) => {
+        const node = mode === 'get'
+          ? new GetVariableNode(v.id, v.name, v.type)
+          : new SetVariableNode(v.id, v.name, v.type);
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      async (fn) => {
+        const node = new FunctionCallNode(fn.id, fn.name, fn.inputs, fn.outputs);
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      async (m) => {
+        const node = new MacroCallNode(m.id, m.name, m.inputs, m.outputs);
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      async (evt) => {
+        const node = new CallCustomEventNode(evt.id, evt.name);
+        await editor.addNode(node);
+        const t = area.area.transform;
+        await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+    );
+  });
+
+  // Drop variables from sidebar
+  container.addEventListener('dragover', (e) => e.preventDefault());
+  container.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer!.getData('text/plain'));
+      if (data.varId) {
+        const rect = container.getBoundingClientRect();
+        const t = area.area.transform;
+        const mode = e.ctrlKey ? 'set' : 'get';
+        const node = mode === 'get'
+          ? new GetVariableNode(data.varId, data.varName, data.varType)
+          : new SetVariableNode(data.varId, data.varName, data.varType);
+        await editor.addNode(node);
+        await area.translate(node.id, {
+          x: (e.clientX - rect.left - t.x) / t.k,
+          y: (e.clientY - rect.top - t.y) / t.k,
+        });
+      }
+    } catch { /* not a variable */ }
+  });
+
+  // Auto-compile on changes
+  editor.addPipe((ctx) => {
+    if (['connectioncreated','connectionremoved','nodecreated','noderemoved'].includes(ctx.type)) {
+      setTimeout(onChanged, 50);
+    }
+    return ctx;
+  });
+
+  // Double-click detection on nodes
+  {
+    let lastPickedId: string | null = null;
+    let lastPickedTime = 0;
+    area.addPipe((ctx) => {
+      if (ctx.type === 'nodepicked' && onNodeDoubleClick) {
+        const now = Date.now();
+        const nodeId = (ctx.data as any).id as string;
+        if (nodeId === lastPickedId && now - lastPickedTime < 400) {
+          const node = editor.getNode(nodeId);
+          if (node) onNodeDoubleClick(node);
+          lastPickedId = null;
+          lastPickedTime = 0;
+        } else {
+          lastPickedId = nodeId;
+          lastPickedTime = now;
+        }
+      }
+      return ctx;
+    });
+  }
+
+  return { editor, area };
+}
+
+// ============================================================
 //  React Component
 // ============================================================
 interface NodeEditorViewProps {
@@ -371,50 +919,119 @@ interface NodeEditorViewProps {
 
 function NodeEditorView({ gameObject }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<NodeEditor<Schemes> | null>(null);
-  const areaRef = useRef<AreaPlugin<Schemes, any> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
     let destroyed = false;
+    const bp = gameObject.blueprintData;
 
-    async function setup() {
-      const container = containerRef.current!;
-      container.innerHTML = '';
+    // Storage for editors per graph id
+    const editorStore = new Map<string, { editor: NodeEditor<Schemes>; area: AreaPlugin<Schemes, any>; el: HTMLElement }>();
+    const functionEditors = new Map<string, NodeEditor<Schemes>>();
+    const macroEditors = new Map<string, NodeEditor<Schemes>>();
 
-      const editor = new NodeEditor<Schemes>();
-      const area = new AreaPlugin<Schemes, any>(container);
-      const connection = new ConnectionPlugin<Schemes, any>();
-      const reactPlugin = new ReactPlugin<Schemes, any>({ createRoot });
+    // Graph tabs
+    const graphTabs: GraphTab[] = [
+      { id: 'eventgraph', label: 'EventGraph', type: 'event' },
+    ];
+    for (const fn of bp.functions) graphTabs.push({ id: fn.id, label: fn.name, type: 'function', refId: fn.id });
+    for (const m of bp.macros) graphTabs.push({ id: m.id, label: m.name, type: 'macro', refId: m.id });
+    let activeGraphId = 'eventgraph';
 
-      reactPlugin.addPreset(Presets.classic.setup());
-      connection.addPreset(ConnectionPresets.classic.setup());
+    // DOM structure
+    const root = containerRef.current!;
+    root.innerHTML = '';
 
-      editor.use(area);
-      area.use(connection);
-      area.use(reactPlugin);
+    const sidebar = document.createElement('div');
+    sidebar.className = 'my-blueprint-sidebar';
+    root.appendChild(sidebar);
 
-      editorRef.current = editor;
-      areaRef.current = area;
+    const rightArea = document.createElement('div');
+    rightArea.className = 'graph-right-area';
+    root.appendChild(rightArea);
 
-      // Right-click to open context menu / palette
-      container.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        const rect = container.getBoundingClientRect();
-        const clientX = e.clientX - rect.left;
-        const clientY = e.clientY - rect.top;
+    const tabBarEl = document.createElement('div');
+    rightArea.appendChild(tabBarEl);
 
-        showContextMenu(container, clientX, clientY, async (entry) => {
-          const node = entry.factory();
-          await editor.addNode(node);
-          const transform = area.area.transform;
-          const ax = (clientX - transform.x) / transform.k;
-          const ay = (clientY - transform.y) / transform.k;
-          await area.translate(node.id, { x: ax, y: ay });
+    const graphContainer = document.createElement('div');
+    graphContainer.className = 'graph-editor-area';
+    rightArea.appendChild(graphContainer);
+
+    // Compile & save
+    function compileAndSave() {
+      if (destroyed) return;
+      const evData = editorStore.get('eventgraph');
+      if (!evData) return;
+      const code = generateFullCode(evData.editor, bp, functionEditors);
+      if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
+      gameObject.scripts[0].code = code;
+      gameObject.scripts[0].compile();
+    }
+
+    // Switch graph
+    async function switchToGraph(tab: GraphTab) {
+      activeGraphId = tab.id;
+
+      // Hide all editor elements
+      for (const [, data] of editorStore) {
+        data.el.style.display = 'none';
+      }
+
+      let data = editorStore.get(tab.id);
+      if (!data) {
+        // Create new editor
+        const el = document.createElement('div');
+        el.className = 'graph-editor-canvas';
+        graphContainer.appendChild(el);
+
+        const { editor, area } = await createGraphEditor(el, bp, tab.type, compileAndSave, (node) => {
+          if (node instanceof FunctionCallNode) {
+            const funcTab = graphTabs.find(t => t.refId === (node as FunctionCallNode).funcId);
+            if (funcTab) switchToGraph(funcTab);
+          }
         });
-      });
+        data = { editor, area, el };
+        editorStore.set(tab.id, data);
 
-      // Default starter graph
+        if (tab.type === 'function') functionEditors.set(tab.id, editor);
+        if (tab.type === 'macro') macroEditors.set(tab.id, editor);
+
+        // Initialize graph
+        if (tab.type === 'event') {
+          await initEventGraph(editor, area);
+        } else if (tab.type === 'function' && tab.refId) {
+          const fn = bp.getFunction(tab.refId);
+          if (fn) {
+            const entry = new FunctionEntryNode(fn.id, fn.name, fn.inputs);
+            const ret = new FunctionReturnNode(fn.id, fn.name, fn.outputs);
+            await editor.addNode(entry);
+            await editor.addNode(ret);
+            await area.translate(entry.id, { x: 0, y: 0 });
+            await area.translate(ret.id, { x: 400, y: 0 });
+          }
+        } else if (tab.type === 'macro' && tab.refId) {
+          const m = bp.getMacro(tab.refId);
+          if (m) {
+            const entry = new MacroEntryNode(m.id, m.name, m.inputs);
+            const exit = new MacroExitNode(m.id, m.name, m.outputs);
+            await editor.addNode(entry);
+            await editor.addNode(exit);
+            await area.translate(entry.id, { x: 0, y: 0 });
+            await area.translate(exit.id, { x: 400, y: 0 });
+          }
+        }
+
+        compileAndSave();
+        setTimeout(() => {
+          if (!destroyed) AreaExtensions.zoomAt(area, editor.getNodes());
+        }, 100);
+      }
+
+      data.el.style.display = '';
+      refreshUI();
+    }
+
+    async function initEventGraph(editor: NodeEditor<Schemes>, area: AreaPlugin<Schemes, any>) {
       if (!gameObject.scripts[0]?.nodeData) {
         const evTick = new EventTickNode();
         const sine = new SineNode();
@@ -440,48 +1057,110 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
         await editor.addConnection(new ClassicPreset.Connection(getPos, 'y', setPos, 'y'));
         await editor.addConnection(new ClassicPreset.Connection(getPos, 'z', setPos, 'z'));
       }
-
-      // Auto-compile on changes
-      const compileAndSave = () => {
-        if (destroyed) return;
-        const code = generateCodeFromGraph(editor);
-        if (gameObject.scripts.length === 0) {
-          gameObject.scripts.push(new ScriptComponent());
-        }
-        gameObject.scripts[0].code = code;
-        gameObject.scripts[0].compile();
-      };
-
-      editor.addPipe((ctx) => {
-        if (
-          ctx.type === 'connectioncreated' ||
-          ctx.type === 'connectionremoved' ||
-          ctx.type === 'nodecreated' ||
-          ctx.type === 'noderemoved'
-        ) {
-          setTimeout(compileAndSave, 50);
-        }
-        return ctx;
-      });
-
-      compileAndSave();
-
-      setTimeout(() => {
-        if (!destroyed) AreaExtensions.zoomAt(area, editor.getNodes());
-      }, 100);
     }
 
-    setup();
+    function refreshUI() {
+      buildGraphTabBar(tabBarEl, graphTabs, activeGraphId, (tab) => switchToGraph(tab));
+      buildMyBlueprintPanel(sidebar, bp, {
+        activeGraphId,
+        graphTabs,
+        onSwitchGraph: (tab) => switchToGraph(tab),
+        onAddVariable: () => {
+          showAddVariableDialog(root, (name, type) => {
+            bp.addVariable(name, type);
+            refreshUI();
+            compileAndSave();
+          });
+        },
+        onAddFunction: () => {
+          showAddNameDialog(root, 'New Function', 'NewFunction', (name) => {
+            const fn = bp.addFunction(name);
+            const tab: GraphTab = { id: fn.id, label: fn.name, type: 'function', refId: fn.id };
+            graphTabs.push(tab);
+            switchToGraph(tab);
+          });
+        },
+        onAddMacro: () => {
+          showAddNameDialog(root, 'New Macro', 'NewMacro', (name) => {
+            const m = bp.addMacro(name);
+            const tab: GraphTab = { id: m.id, label: m.name, type: 'macro', refId: m.id };
+            graphTabs.push(tab);
+            switchToGraph(tab);
+          });
+        },
+        onAddCustomEvent: () => {
+          showAddNameDialog(root, 'New Custom Event', 'CustomEvent', async (name) => {
+            const evt = bp.addCustomEvent(name);
+            const evData = editorStore.get('eventgraph');
+            if (evData) {
+              const node = new CustomEventNode(evt.id, evt.name);
+              await evData.editor.addNode(node);
+              await evData.area.translate(node.id, { x: 0, y: 300 });
+            }
+            refreshUI();
+            compileAndSave();
+          });
+        },
+        onDeleteVariable: (id) => { bp.removeVariable(id); refreshUI(); compileAndSave(); },
+        onDeleteFunction: (id) => {
+          bp.removeFunction(id);
+          const idx = graphTabs.findIndex(t => t.refId === id);
+          if (idx !== -1) graphTabs.splice(idx, 1);
+          const data = editorStore.get(id);
+          if (data) { data.el.remove(); editorStore.delete(id); }
+          functionEditors.delete(id);
+          if (activeGraphId === id) switchToGraph(graphTabs[0]);
+          else refreshUI();
+          compileAndSave();
+        },
+        onDeleteMacro: (id) => {
+          bp.removeMacro(id);
+          const idx = graphTabs.findIndex(t => t.refId === id);
+          if (idx !== -1) graphTabs.splice(idx, 1);
+          const data = editorStore.get(id);
+          if (data) { data.el.remove(); editorStore.delete(id); }
+          macroEditors.delete(id);
+          if (activeGraphId === id) switchToGraph(graphTabs[0]);
+          else refreshUI();
+          compileAndSave();
+        },
+        onDeleteCustomEvent: (id) => {
+          const evData = editorStore.get('eventgraph');
+          if (evData) {
+            const nodes = evData.editor.getNodes();
+            const evtNode = nodes.find(n => n instanceof CustomEventNode && (n as CustomEventNode).eventId === id);
+            if (evtNode) evData.editor.removeNode(evtNode.id);
+          }
+          bp.removeCustomEvent(id);
+          refreshUI();
+          compileAndSave();
+        },
+        onEditVariable: (v) => {
+          showVariableEditor(root, v, () => { refreshUI(); compileAndSave(); });
+        },
+      });
+    }
+
+    // Init
+    switchToGraph(graphTabs[0]);
+
     return () => {
       destroyed = true;
-      if (areaRef.current) areaRef.current.destroy();
+      for (const [, data] of editorStore) {
+        try { data.area.destroy(); } catch { /* ok */ }
+      }
     };
   }, [gameObject]);
 
   return (
     <div
       ref={containerRef}
-      style={{ width: '100%', height: '100%', background: '#1a1a2e', position: 'relative' }}
+      style={{
+        width: '100%', height: '100%',
+        background: '#1a1a2e',
+        position: 'relative',
+        display: 'flex',
+      }}
     />
   );
 }
@@ -491,7 +1170,7 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
 // ============================================================
 export function mountNodeEditor(
   container: HTMLElement,
-  gameObject: GameObject
+  gameObject: GameObject,
 ): () => void {
   const root = createRoot(container);
   root.render(React.createElement(NodeEditorView, { gameObject }));

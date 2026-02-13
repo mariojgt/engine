@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ScriptComponent } from './ScriptComponent';
+import { BlueprintData } from '../editor/BlueprintData';
 
 let nextId = 1;
 
@@ -11,6 +12,7 @@ export class GameObject {
   public rigidBody: any = null; // Rapier rigid body (set by physics system)
   public collider: any = null;
   public hasPhysics: boolean = false;
+  public blueprintData: BlueprintData = new BlueprintData();
 
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;

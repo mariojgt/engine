@@ -372,6 +372,7 @@ html, body, #app {
   height: 100%;
   position: relative;
   background: #13131e;
+  display: flex;
 }
 
 .node-editor-container .rete-background {
@@ -596,3 +597,325 @@ html, body, #app {
   color: #4ecdc4;
   word-break: break-all;
 }
+
+/* =========================================
+   My Blueprint Sidebar
+   ========================================= */
+.my-blueprint-sidebar {
+  width: 200px;
+  min-width: 180px;
+  max-width: 240px;
+  background: var(--bg-dark);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.mybp-title {
+  padding: 8px 12px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 1.2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mybp-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.mybp-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: default;
+  background: var(--bg-panel);
+}
+
+.mybp-add-btn {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+
+.mybp-add-btn:hover {
+  background: var(--bg-hover);
+}
+
+.mybp-section-body {
+  padding: 2px 0;
+}
+
+.mybp-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 16px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+}
+
+.mybp-item:hover {
+  background: var(--bg-hover);
+}
+
+.mybp-item.active {
+  background: var(--accent-dim);
+  color: var(--text-bright);
+}
+
+.mybp-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.mybp-fn .mybp-item-icon {
+  color: #5b8af5;
+}
+
+.mybp-macro .mybp-item-icon {
+  color: #a68bfa;
+}
+
+.mybp-delete {
+  position: absolute;
+  right: 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.mybp-item:hover .mybp-delete {
+  opacity: 1;
+}
+
+.mybp-delete:hover {
+  color: var(--danger);
+}
+
+/* Variable items */
+.mybp-var {
+  gap: 6px;
+}
+
+.mybp-var-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mybp-var-float   { background: #4ecdc4; }
+.mybp-var-boolean  { background: #e74c3c; }
+.mybp-var-vector3  { background: #f5a623; }
+.mybp-var-string   { background: #e040fb; }
+
+.mybp-var-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mybp-var-type {
+  font-size: 9px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* =========================================
+   Graph Tab Bar
+   ========================================= */
+.graph-right-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.graph-tab-bar {
+  display: flex;
+  align-items: stretch;
+  height: 30px;
+  background: var(--bg-darkest);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.graph-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.graph-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.graph-tab.active {
+  background: var(--bg-panel);
+  color: var(--text-bright);
+  border-bottom: 2px solid var(--accent);
+}
+
+.graph-editor-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-editor-canvas {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* =========================================
+   Blueprint Dialogs (Add Variable, etc.)
+   ========================================= */
+.mybp-dialog-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.mybp-dialog {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 280px;
+  max-width: 360px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.mybp-dialog-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin-bottom: 12px;
+}
+
+.mybp-dialog-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 8px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mybp-dialog-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.mybp-dialog-input:focus {
+  border-color: var(--accent);
+}
+
+.mybp-dialog-select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+}
+
+.mybp-dialog-select:focus {
+  border-color: var(--accent);
+}
+
+.mybp-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mybp-dialog-btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mybp-dialog-btn.cancel {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.mybp-dialog-btn.cancel:hover {
+  background: var(--bg-hover);
+}
+
+.mybp-dialog-btn.ok {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.mybp-dialog-btn.ok:hover {
+  background: var(--accent-hover);
+}
+
