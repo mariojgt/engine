@@ -975,11 +975,18 @@ async function createGraphEditor(
   });
 
   // Drop items from sidebar (variables, functions, macros, custom events)
-  container.addEventListener('dragover', (e) => e.preventDefault());
+  // Use capture phase so events fire before Rete's internal elements can block them
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  }, true);
   container.addEventListener('drop', async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     try {
-      const data = JSON.parse(e.dataTransfer!.getData('text/plain'));
+      const raw = e.dataTransfer!.getData('text/plain');
+      if (!raw) return;
+      const data = JSON.parse(raw);
       const rect = container.getBoundingClientRect();
       const t = area.area.transform;
       const dropX = (e.clientX - rect.left - t.x) / t.k;
@@ -1017,6 +1024,57 @@ async function createGraphEditor(
         await area.translate(node.id, { x: dropX, y: dropY });
       }
     } catch { /* not a drag item */ }
+  }, true);
+
+  // ── Node selection & Delete key ──────────────────────────
+  const selectedNodeIds = new Set<string>();
+  let _lastPointerEvent: PointerEvent | null = null;
+  container.addEventListener('pointerdown', (e) => {
+    _lastPointerEvent = e;
+  }, true);
+
+  // Click on empty canvas = deselect all
+  container.addEventListener('pointerdown', (e) => {
+    const target = e.target as HTMLElement;
+    // Clear selection unless the user clicked on a node element
+    const isOnNode = target.closest('[data-testid="node"]') || target.closest('.node');
+    if (!isOnNode && !e.shiftKey && !e.ctrlKey) {
+      selectedNodeIds.clear();
+    }
+  });
+
+  // Delete key handler
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Don't delete if user is typing in an input
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (selectedNodeIds.size > 0) {
+        e.preventDefault();
+        const ids = [...selectedNodeIds];
+        selectedNodeIds.clear();
+        (async () => {
+          for (const nodeId of ids) {
+            // Remove all connections to/from this node first
+            const conns = editor.getConnections().filter(
+              c => c.source === nodeId || c.target === nodeId
+            );
+            for (const c of conns) {
+              try { await editor.removeConnection(c.id); } catch { /* ok */ }
+            }
+            try { await editor.removeNode(nodeId); } catch { /* ok */ }
+          }
+        })();
+      }
+    }
+  }
+  container.setAttribute('tabindex', '0');
+  container.style.outline = 'none';
+  container.addEventListener('keydown', handleKeyDown);
+  // Focus the container when clicking on it so key events work
+  container.addEventListener('mousedown', () => {
+    if (document.activeElement !== container) container.focus();
   });
 
   // Auto-compile on changes
@@ -1032,10 +1090,10 @@ async function createGraphEditor(
     let lastPickedId: string | null = null;
     let lastPickedTime = 0;
     area.addPipe((ctx) => {
-      if (ctx.type === 'nodepicked' && onNodeDoubleClick) {
+      if (ctx.type === 'nodepicked') {
         const now = Date.now();
         const nodeId = (ctx.data as any).id as string;
-        if (nodeId === lastPickedId && now - lastPickedTime < 400) {
+        if (onNodeDoubleClick && nodeId === lastPickedId && now - lastPickedTime < 400) {
           const node = editor.getNode(nodeId);
           if (node) onNodeDoubleClick(node);
           lastPickedId = null;
@@ -1044,10 +1102,21 @@ async function createGraphEditor(
           lastPickedId = nodeId;
           lastPickedTime = now;
         }
+
+        // Update selection tracking — Shift/Ctrl = multi-select, otherwise single select
+        const isMulti = _lastPointerEvent?.shiftKey || _lastPointerEvent?.ctrlKey;
+        if (!isMulti) selectedNodeIds.clear();
+        selectedNodeIds.add(nodeId);
       }
       return ctx;
     });
   }
+
+  // Cleanup helper
+  const _cleanup = () => {
+    container.removeEventListener('keydown', handleKeyDown);
+  };
+  (area as any).__cleanup = _cleanup;
 
   return { editor, area };
 }
