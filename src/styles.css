@@ -464,9 +464,51 @@ html, body, #app {
 .rete-node .socket {
   width: 12px !important;
   height: 12px !important;
-  background: var(--accent) !important;
-  border: 2px solid var(--bg-dark) !important;
   border-radius: 50% !important;
+  border: 2px solid rgba(0,0,0,0.4) !important;
+  display: inline-block !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
+  transition: box-shadow 0.15s ease;
+}
+/* Type-specific socket colours (UE-style) */
+.rete-node .socket[data-socket-type="Exec"] {
+  background: #ffffff !important;
+  border-color: #888 !important;
+  border-radius: 2px !important;
+  width: 14px !important;
+  height: 14px !important;
+}
+.rete-node .socket[data-socket-type="Number"] {
+  background: #4ecdc4 !important;
+}
+.rete-node .socket[data-socket-type="Boolean"] {
+  background: #e74c3c !important;
+}
+.rete-node .socket[data-socket-type="Vector3"] {
+  background: #f5a623 !important;
+}
+.rete-node .socket[data-socket-type="String"] {
+  background: #c678dd !important;
+}
+/* Hover glow matching socket type */
+.rete-node .socket:hover {
+  box-shadow: 0 0 8px 2px currentColor;
+}
+.rete-node .socket[data-socket-type="Exec"]:hover {
+  box-shadow: 0 0 8px 2px rgba(255,255,255,0.6);
+}
+.rete-node .socket[data-socket-type="Number"]:hover {
+  box-shadow: 0 0 8px 2px rgba(78,205,196,0.6);
+}
+.rete-node .socket[data-socket-type="Boolean"]:hover {
+  box-shadow: 0 0 8px 2px rgba(231,76,60,0.6);
+}
+.rete-node .socket[data-socket-type="Vector3"]:hover {
+  box-shadow: 0 0 8px 2px rgba(245,166,35,0.6);
+}
+.rete-node .socket[data-socket-type="String"]:hover {
+  box-shadow: 0 0 8px 2px rgba(198,120,221,0.6);
 }
 
 .rete-node .input-title,

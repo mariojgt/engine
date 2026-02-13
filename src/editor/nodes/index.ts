@@ -4,7 +4,7 @@
 // ============================================================
 
 // Shared types & registry
-export { NODE_PALETTE, registerNode } from './sockets';
+export { NODE_PALETTE, registerNode, socketColor, socketsCompatible, SOCKET_COLORS } from './sockets';
 export type { NodeEntry } from './sockets';
 export {
   execSocket,
@@ -41,11 +41,19 @@ export { GreaterThanNode }  from './math/GreaterThanNode';
 
 // ── Values ──────────────────────────────────────────────────
 export { FloatNode }     from './values/FloatNode';
-export { BooleanNode }   from './values/BooleanNode';
+export { BooleanNode, BoolSelectControl }   from './values/BooleanNode';
 export { TimeNode }      from './values/TimeNode';
 export { DeltaTimeNode } from './values/DeltaTimeNode';
 export { StringLiteralNode } from './values/StringLiteralNode';
 export { Vector3LiteralNode } from './values/Vector3LiteralNode';
+
+// ── Conversions ─────────────────────────────────────────────
+export { BoolToNumberNode }   from './conversions/BoolToNumber';
+export { NumberToBoolNode }   from './conversions/NumberToBool';
+export { BoolToStringNode }   from './conversions/BoolToString';
+export { StringToBoolNode }   from './conversions/StringToBool';
+export { NumberToStringNode } from './conversions/NumberToString';
+export { StringToNumberNode } from './conversions/StringToNumber';
 
 // ── Transform ───────────────────────────────────────────────
 export { GetPositionNode } from './transform/GetPositionNode';

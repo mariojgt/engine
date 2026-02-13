@@ -10,6 +10,36 @@ export const vec3Socket = new ClassicPreset.Socket('Vector3'); // yellow
 export const strSocket  = new ClassicPreset.Socket('String');  // magenta
 
 // ============================================================
+//  Socket Type Colours  (UE-style)
+// ============================================================
+export const SOCKET_COLORS: Record<string, string> = {
+  Exec:    '#ffffff',   // white
+  Number:  '#4ecdc4',   // teal-green
+  Boolean: '#e74c3c',   // red
+  Vector3: '#f5a623',   // yellow-orange
+  String:  '#c678dd',   // magenta / purple
+};
+const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
+
+/** Get the colour for any socket by its name */
+export function socketColor(sock: ClassicPreset.Socket): string {
+  return SOCKET_COLORS[sock.name] ?? DEFAULT_SOCKET_COLOR;
+}
+
+/**
+ * Return true when two sockets are compatible for connection.
+ *  – same socket type name → OK
+ *  – both are struct sockets with the same struct id → OK
+ *  – everything else → blocked
+ */
+export function socketsCompatible(
+  a: ClassicPreset.Socket,
+  b: ClassicPreset.Socket,
+): boolean {
+  return a.name === b.name;
+}
+
+// ============================================================
 //  Struct Socket Cache (one socket per struct type)
 // ============================================================
 const structSocketCache = new Map<string, ClassicPreset.Socket>();

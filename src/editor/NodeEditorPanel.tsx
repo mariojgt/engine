@@ -36,6 +36,7 @@ import {
   DeltaTimeNode,
   FloatNode,
   BooleanNode,
+  BoolSelectControl,
   StringLiteralNode,
   Vector3LiteralNode,
   SetPositionNode,
@@ -103,6 +104,14 @@ import {
   SetComponentScaleNode,
   SetComponentVisibilityNode,
   getComponentNodeEntries,
+  socketColor,
+  socketsCompatible,
+  BoolToNumberNode,
+  NumberToBoolNode,
+  BoolToStringNode,
+  StringToBoolNode,
+  NumberToStringNode,
+  StringToNumberNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -281,7 +290,7 @@ function resolveValue(
       return String(ctrl?.value ?? 0);
     }
     case 'Boolean': {
-      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
+      const ctrl = node.controls['value'] as BoolSelectControl;
       return (ctrl?.value ?? 0) ? 'true' : 'false';
     }
     case 'String Literal': {
@@ -355,6 +364,33 @@ function resolveValue(
       if (outputKey === 'restitution')
         return '(gameObject.collider ? gameObject.collider.restitution() : 0.3)';
       return '0';
+    }
+
+    // ── Type conversions ─────────────────────────────────────
+    case 'Bool \u2192 Number': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return `(${s ? rv(s.nid, s.ok) : 'false'} ? 1 : 0)`;
+    }
+    case 'Number \u2192 Bool': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return `(!!(${s ? rv(s.nid, s.ok) : '0'}))`;
+    }
+    case 'Bool \u2192 String': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return `(${s ? rv(s.nid, s.ok) : 'false'} ? "true" : "false")`;
+    }
+    case 'String \u2192 Bool': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      const v = s ? rv(s.nid, s.ok) : '""';
+      return `(${v} !== "" && ${v} !== "0" && ${v} !== "false")`;
+    }
+    case 'Number \u2192 String': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return `String(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'String \u2192 Number': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return `(parseFloat(${s ? rv(s.nid, s.ok) : '"0"'}) || 0)`;
     }
 
     default: return '0';
@@ -1890,6 +1926,13 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetComponentScaleNode) return 'GetComponentScaleNode';
   if (node instanceof SetComponentScaleNode) return 'SetComponentScaleNode';
   if (node instanceof SetComponentVisibilityNode) return 'SetComponentVisibilityNode';
+  // Conversions
+  if (node instanceof BoolToNumberNode) return 'BoolToNumberNode';
+  if (node instanceof NumberToBoolNode) return 'NumberToBoolNode';
+  if (node instanceof BoolToStringNode) return 'BoolToStringNode';
+  if (node instanceof StringToBoolNode) return 'StringToBoolNode';
+  if (node instanceof NumberToStringNode) return 'NumberToStringNode';
+  if (node instanceof StringToNumberNode) return 'StringToNumberNode';
 
   return 'Unknown';
 }
@@ -1901,7 +1944,9 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   // Save InputControl values
   const controls: any = {};
   for (const [key, ctrl] of Object.entries(node.controls)) {
-    if (ctrl instanceof ClassicPreset.InputControl) {
+    if (ctrl instanceof BoolSelectControl) {
+      controls[key] = (ctrl as BoolSelectControl).value;
+    } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
   }
@@ -2072,7 +2117,7 @@ function createNodeFromData(
     case 'BooleanNode': {
       const n = new BooleanNode();
       if (d.controls?.value != null) {
-        const ctrl = n.controls['value'] as ClassicPreset.InputControl<'number'>;
+        const ctrl = n.controls['value'] as BoolSelectControl;
         if (ctrl) ctrl.setValue(d.controls.value);
       }
       return n;
@@ -2081,6 +2126,14 @@ function createNodeFromData(
     case 'Vector3LiteralNode':  return new Vector3LiteralNode(d.controls?.x ?? 0, d.controls?.y ?? 0, d.controls?.z ?? 0);
     case 'TimeNode':            return new TimeNode();
     case 'DeltaTimeNode':       return new DeltaTimeNode();
+
+    // Conversions
+    case 'BoolToNumberNode':    return new BoolToNumberNode();
+    case 'NumberToBoolNode':    return new NumberToBoolNode();
+    case 'BoolToStringNode':    return new BoolToStringNode();
+    case 'StringToBoolNode':    return new StringToBoolNode();
+    case 'NumberToStringNode':  return new NumberToStringNode();
+    case 'StringToNumberNode':  return new StringToNumberNode();
 
     // Transform
     case 'SetPositionNode': return new SetPositionNode();
@@ -2212,11 +2265,88 @@ async function createGraphEditor(
   const connection = new ConnectionPlugin<Schemes, any>();
   const reactPlugin = new ReactPlugin<Schemes, any>({ createRoot });
 
-  reactPlugin.addPreset(Presets.classic.setup());
+  reactPlugin.addPreset(Presets.classic.setup({
+    customize: {
+      socket(data) {
+        // Return a custom React component that sets a data-attribute for CSS-based type coloring
+        const sock = data.payload as ClassicPreset.Socket;
+        const color = socketColor(sock);
+        return (props: any) => {
+          const isExec = sock.name === 'Exec';
+          return React.createElement('div', {
+            className: 'socket',
+            title: sock.name,
+            'data-socket-type': sock.name,
+            style: {
+              background: color,
+              width: isExec ? 14 : 12,
+              height: isExec ? 14 : 12,
+              borderRadius: isExec ? '2px' : '50%',
+              border: `2px solid ${isExec ? '#888' : 'rgba(0,0,0,0.4)'}`,
+              display: 'inline-block',
+              cursor: 'pointer',
+              boxSizing: 'border-box' as const,
+            },
+          });
+        };
+      },
+      control(data) {
+        if (data.payload instanceof BoolSelectControl) {
+          const ctrl = data.payload as BoolSelectControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { const v = Number(e.target.value); ctrl.setValue(v); setVal(v); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: val ? '#4caf50' : '#e74c3c',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { value: 1, style: { color: '#4caf50' } }, 'True'),
+              React.createElement('option', { value: 0, style: { color: '#e74c3c' } }, 'False'),
+            );
+          };
+        }
+        return null;  // fall through to default InputControl renderer
+      },
+    },
+  }));
   connection.addPreset(ConnectionPresets.classic.setup());
   editor.use(area);
   area.use(connection);
   area.use(reactPlugin);
+
+  // ── Socket type-safety: block connections between incompatible types ──
+  editor.addPipe((ctx) => {
+    if (ctx.type === 'connectioncreate') {
+      const { data } = ctx as any;
+      const srcNode = editor.getNode(data.source);
+      const tgtNode = editor.getNode(data.target);
+      if (srcNode && tgtNode) {
+        const srcOutput = srcNode.outputs[data.sourceOutput];
+        const tgtInput  = tgtNode.inputs[data.targetInput];
+        if (srcOutput?.socket && tgtInput?.socket) {
+          if (!socketsCompatible(srcOutput.socket, tgtInput.socket)) {
+            console.warn(
+              `[Feather] Blocked connection: ${srcOutput.socket.name} → ${tgtInput.socket.name}`
+            );
+            return undefined as any;           // block the connection
+          }
+        }
+      }
+    }
+    return ctx;
+  });
 
   // Right-click
   container.addEventListener('contextmenu', (e) => {
