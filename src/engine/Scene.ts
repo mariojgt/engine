@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
+import { ScriptComponent } from './ScriptComponent';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -81,6 +82,7 @@ export class Scene {
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     position?: { x: number; y: number; z: number },
     components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
+    compiledCode?: string,
   ): GameObject {
     const go = this.addGameObject(assetName, meshType);
     go.actorAssetId = assetId;
@@ -113,6 +115,13 @@ export class Scene {
       }
     }
 
+    // Apply compiled blueprint code so the script runs at play time
+    if (compiledCode) {
+      if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
+      go.scripts[0].code = compiledCode;
+      go.scripts[0].compile();
+    }
+
     return go;
   }
 
@@ -125,12 +134,41 @@ export class Scene {
     assetName: string,
     meshType: MeshType,
     blueprintData: import('../editor/BlueprintData').BlueprintData,
+    compiledCode?: string,
+    components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
   ): void {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+
     for (const go of this.gameObjects) {
       if (go.actorAssetId !== assetId) continue;
       go.name = assetName;
 
-      // Re-clone the blueprint data
+      // --- Update root mesh geometry if the mesh type changed ---
+      const newGeo = geometries[meshType]();
+      go.mesh.geometry.dispose();
+      go.mesh.geometry = newGeo;
+
+      // --- Rebuild child component meshes ---
+      // Remove all existing children
+      while (go.mesh.children.length > 0) {
+        const child = go.mesh.children[0];
+        go.mesh.remove(child);
+        if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+      }
+      // Add fresh children from the components list
+      if (components) {
+        for (const comp of components) {
+          const geo = geometries[comp.meshType]();
+          const mat = defaultMaterial.clone();
+          const child = new THREE.Mesh(geo, mat);
+          child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+          child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+          child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+          go.mesh.add(child);
+        }
+      }
+
+      // --- Re-clone the blueprint data ---
       const dst = go.blueprintData;
       dst.variables = structuredClone(blueprintData.variables);
       dst.functions = structuredClone(blueprintData.functions);
@@ -138,6 +176,13 @@ export class Scene {
       dst.customEvents = structuredClone(blueprintData.customEvents);
       dst.structs = structuredClone(blueprintData.structs);
       dst.eventGraph = structuredClone(blueprintData.eventGraph);
+
+      // --- Recompile scripts so the latest blueprint code runs at play time ---
+      if (compiledCode) {
+        if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
+        go.scripts[0].code = compiledCode;
+        go.scripts[0].compile();
+      }
     }
     this._emitChanged();
   }

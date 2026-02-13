@@ -41,8 +41,17 @@ import {
   INPUT_KEYS,
   keyEventCode,
   inputType,
+  GetComponentLocationNode,
+  SetComponentLocationNode,
+  GetComponentRotationNode,
+  SetComponentRotationNode,
+  GetComponentScaleNode,
+  SetComponentScaleNode,
+  SetComponentVisibilityNode,
+  getComponentNodeEntries,
 } from './nodes';
-import type { NodeEntry } from './nodes';
+import type { NodeEntry, ComponentNodeEntry } from './nodes';
+import type { ActorComponentData } from './ActorAsset';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
@@ -192,6 +201,26 @@ function resolveValue(
 
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
 
+  // Component getter nodes
+  if (node instanceof GetComponentLocationNode) {
+    const ref = (node as GetComponentLocationNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as GetComponentLocationNode).compIndex}]`;
+    return `${ref}.position.${outputKey}`;
+  }
+  if (node instanceof GetComponentRotationNode) {
+    const ref = (node as GetComponentRotationNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as GetComponentRotationNode).compIndex}]`;
+    return `${ref}.rotation.${outputKey}`;
+  }
+  if (node instanceof GetComponentScaleNode) {
+    const ref = (node as GetComponentScaleNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as GetComponentScaleNode).compIndex}]`;
+    return `${ref}.scale.${outputKey}`;
+  }
+
   switch (node.label) {
     case 'Float': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
@@ -277,6 +306,50 @@ function genAction(
   const lines: string[] = [];
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
   const we = (nid: string, eo: string) => walkExec(nid, eo, nodeMap, inputSrc, outputDst, bp);
+
+  // Component setter nodes
+  if (node instanceof SetComponentLocationNode) {
+    const ref = (node as SetComponentLocationNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as SetComponentLocationNode).compIndex}]`;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`${ref}.position.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.position.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.position.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.position.z`});`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetComponentRotationNode) {
+    const ref = (node as SetComponentRotationNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as SetComponentRotationNode).compIndex}]`;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`${ref}.rotation.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.rotation.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.rotation.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.rotation.z`});`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetComponentScaleNode) {
+    const ref = (node as SetComponentScaleNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as SetComponentScaleNode).compIndex}]`;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`${ref}.scale.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.scale.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.scale.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.scale.z`});`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetComponentVisibilityNode) {
+    const ref = (node as SetComponentVisibilityNode).compIndex === -1
+      ? 'gameObject.mesh'
+      : `gameObject.mesh.children[${(node as SetComponentVisibilityNode).compIndex}]`;
+    const vS = inputSrc.get(`${nodeId}.visible`);
+    lines.push(`${ref}.visible = ${vS ? rv(vS.nid, vS.ok) : 'true'};`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
 
   // Variable Set
   if (node instanceof SetVariableNode) {
@@ -900,6 +973,7 @@ function showContextMenu(
   onAddLocalVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
   onAddStructNode: (s: BlueprintStruct, mode: 'make' | 'break') => void,
   onAddInputKeyNode: (type: 'event' | 'isdown') => void,
+  componentEntries?: ComponentNodeEntry[],
 ) {
   const existing = container.querySelector('.bp-context-menu');
   if (existing) existing.remove();
@@ -1017,6 +1091,16 @@ function showContextMenu(
       if (!lf || 'is key down'.includes(lf) || 'input'.includes(lf))
         items.push({ label: 'Is Key Down', action: () => { menu.remove(); onAddInputKeyNode('isdown'); } });
       if (items.length) categories.set('Input', items);
+    }
+
+    // Components — dynamic entries from ComponentNodeRules
+    if (componentEntries && componentEntries.length > 0) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const ce of componentEntries) {
+        if (!lf || ce.label.toLowerCase().includes(lf) || 'components'.includes(lf))
+          items.push({ label: ce.label, action: () => { onSelect({ label: ce.label, category: 'Components', factory: ce.factory }); menu.remove(); } });
+      }
+      if (items.length) categories.set('Components', items);
     }
 
     for (const [cat, entries] of categories) {
@@ -1541,6 +1625,7 @@ async function createGraphEditor(
   currentFuncId: string | null,
   onChanged: () => void,
   onNodeDoubleClick?: (node: ClassicPreset.Node) => void,
+  componentEntries?: ComponentNodeEntry[],
 ) {
   const editor = new NodeEditor<Schemes>();
   const area = new AreaPlugin<Schemes, any>(container);
@@ -1622,6 +1707,7 @@ async function createGraphEditor(
           await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
         });
       },
+      componentEntries,
     );
   });
 
@@ -1781,9 +1867,11 @@ async function createGraphEditor(
 // ============================================================
 interface NodeEditorViewProps {
   gameObject: GameObject;
+  components?: ActorComponentData[];
+  rootMeshType?: string;
 }
 
-function NodeEditorView({ gameObject }: NodeEditorViewProps) {
+function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1803,6 +1891,11 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
     for (const fn of bp.functions) graphTabs.push({ id: fn.id, label: fn.name, type: 'function', refId: fn.id });
     for (const m of bp.macros) graphTabs.push({ id: m.id, label: m.name, type: 'macro', refId: m.id });
     let activeGraphId = 'eventgraph';
+
+    // Build component node entries from the rules system
+    const compEntries: ComponentNodeEntry[] = (components && rootMeshType)
+      ? getComponentNodeEntries(components, rootMeshType)
+      : [];
 
     // DOM structure
     const root = containerRef.current!;
@@ -1856,7 +1949,7 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
             const funcTab = graphTabs.find(t => t.refId === (node as FunctionCallNode).funcId);
             if (funcTab) switchToGraph(funcTab);
           }
-        });
+        }, compEntries);
         data = { editor, area, el };
         editorStore.set(tab.id, data);
 
@@ -2171,6 +2264,8 @@ export function mountNodeEditorForAsset(
   blueprintData: import('./BlueprintData').BlueprintData,
   assetName: string,
   onCompile?: (code: string) => void,
+  components?: ActorComponentData[],
+  rootMeshType?: string,
 ): () => void {
   // Create a virtual GameObject that shares the asset's blueprint data
   const dummyMesh = new THREE.Mesh(
@@ -2204,6 +2299,10 @@ export function mountNodeEditorForAsset(
   }
 
   const root = createRoot(container);
-  root.render(React.createElement(NodeEditorView, { gameObject: proxyGO }));
+  root.render(React.createElement(NodeEditorView, {
+    gameObject: proxyGO,
+    components: components,
+    rootMeshType: rootMeshType,
+  }));
   return () => root.unmount();
 }

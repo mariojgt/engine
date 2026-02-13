@@ -19,6 +19,7 @@ export class ActorEditorPanel {
   public container: HTMLElement;
   private _asset: ActorAsset;
   private _onCompile: (code: string) => void;
+  private _onAssetChanged: () => void;
 
   // Top-level DOM
   private _tabBar!: HTMLElement;
@@ -41,10 +42,12 @@ export class ActorEditorPanel {
     container: HTMLElement,
     asset: ActorAsset,
     onCompile: (code: string) => void,
+    onAssetChanged?: () => void,
   ) {
     this.container = container;
     this._asset = asset;
     this._onCompile = onCompile;
+    this._onAssetChanged = onAssetChanged ?? (() => {});
     this._build();
   }
 
@@ -233,6 +236,7 @@ export class ActorEditorPanel {
         if (this._preview) this._preview.rebuild();
         this._refreshComponentsList();
         this._refreshComponentProps();
+        this._onAssetChanged();
       });
       actions.appendChild(delBtn);
       item.appendChild(actions);
@@ -274,6 +278,7 @@ export class ActorEditorPanel {
       this._asset.rootMeshType = v as MeshType;
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._onAssetChanged();
     }));
   }
 
@@ -291,6 +296,7 @@ export class ActorEditorPanel {
       comp.name = v;
       this._asset.touch();
       this._refreshComponentsList();
+      this._onAssetChanged();
     }));
 
     // Mesh type
@@ -298,24 +304,28 @@ export class ActorEditorPanel {
       comp.meshType = v as MeshType;
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._onAssetChanged();
     }));
 
     // Offset
     container.appendChild(this._makeVec3Row('Offset', comp.offset, () => {
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._onAssetChanged();
     }));
 
     // Rotation
     container.appendChild(this._makeVec3Row('Rotation', comp.rotation, () => {
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._onAssetChanged();
     }));
 
     // Scale
     container.appendChild(this._makeVec3Row('Scale', comp.scale, () => {
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._onAssetChanged();
     }));
   }
 
@@ -373,6 +383,7 @@ export class ActorEditorPanel {
     if (this._preview) this._preview.rebuild();
     this._refreshComponentsList();
     this._refreshComponentProps();
+    this._onAssetChanged();
   }
 
   // ================================================================
@@ -390,6 +401,8 @@ export class ActorEditorPanel {
       this._asset.blueprintData,
       this._asset.name,
       this._onCompile,
+      this._asset.components,
+      this._asset.rootMeshType,
     );
   }
 

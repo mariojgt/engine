@@ -178,6 +178,7 @@ export class EditorLayout {
           asset.blueprintData,
           { x: 0, y: 3, z: 0 },
           asset.components,
+          asset.compiledCode,
         );
       },
     );
@@ -255,20 +256,32 @@ export class EditorLayout {
     wrapper.style.height = '100%';
     el.appendChild(wrapper);
 
-    // When the asset's blueprint is compiled, sync all scene instances
-    const onCompile = (code: string) => {
-      asset.compiledCode = code;
-      asset.touch();
+    // Full sync: push every aspect of the asset into existing scene instances
+    const syncInstances = () => {
       this.assetManager.notifyAssetChanged(asset.id);
       this._engine.scene.syncActorAssetInstances(
         asset.id,
         asset.name,
         asset.rootMeshType,
         asset.blueprintData,
+        asset.compiledCode,
+        asset.components,
       );
     };
 
-    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile);
+    // When the asset's blueprint is compiled, save code then sync
+    const onCompile = (code: string) => {
+      asset.compiledCode = code;
+      asset.touch();
+      syncInstances();
+    };
+
+    // When viewport-level properties change (mesh type, components, transforms)
+    const onAssetChanged = () => {
+      syncInstances();
+    };
+
+    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged);
   }
 
   private _closeNodeEditor(): void {

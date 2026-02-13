@@ -76,3 +76,16 @@ export {
   MacroExitNode,
   MacroCallNode,
 } from './functions/FunctionNodes';
+
+// ── Component Nodes ─────────────────────────────────────────
+export {
+  GetComponentLocationNode,
+  SetComponentLocationNode,
+  GetComponentRotationNode,
+  SetComponentRotationNode,
+  GetComponentScaleNode,
+  SetComponentScaleNode,
+  SetComponentVisibilityNode,
+} from './components/MeshComponentNodes';
+export { getComponentNodeEntries, registerComponentRule } from './components/ComponentNodeRules';
+export type { ComponentNodeEntry, ComponentRule } from './components/ComponentNodeRules';
