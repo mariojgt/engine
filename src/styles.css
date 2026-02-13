@@ -664,12 +664,12 @@ html, body, #app {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px 4px 16px;
+  padding: 4px 8px 4px 16px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
   transition: background 0.1s;
-  position: relative;
+  min-height: 26px;
 }
 
 .mybp-item:hover {
@@ -688,6 +688,14 @@ html, body, #app {
   font-size: 12px;
 }
 
+.mybp-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mybp-fn .mybp-item-icon {
   color: #5b8af5;
 }
@@ -696,22 +704,48 @@ html, body, #app {
   color: #a68bfa;
 }
 
+/* Action buttons container (right side of item) */
+.mybp-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.mybp-item:hover .mybp-item-actions {
+  opacity: 1;
+}
+
 .mybp-delete {
-  position: absolute;
-  right: 8px;
   font-size: 10px;
   color: var(--text-dim);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.mybp-item:hover .mybp-delete {
-  opacity: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
 }
 
 .mybp-delete:hover {
   color: var(--danger);
+  background: rgba(255, 80, 80, 0.12);
+}
+
+/* Edit (gear) button for functions / custom events */
+.mybp-edit-btn {
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.mybp-edit-btn:hover {
+  color: var(--accent);
+  background: rgba(100, 160, 255, 0.12);
 }
 
 /* Variable items */

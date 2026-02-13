@@ -160,13 +160,19 @@ function resolveValue(
     return `(${structVal}).${outputKey}`;
   }
   if (node instanceof FunctionCallNode) {
-    return `__fn_result_${sanitizeName(node.funcName)}_${outputKey}`;
+    return `__fn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
   }
 
   // FunctionEntryNode — parameters
   if (node instanceof FunctionEntryNode) {
     if (outputKey === 'exec') return '0';
     return `__param_${sanitizeName(outputKey)}`;
+  }
+
+  // CustomEventNode — event parameter outputs
+  if (node instanceof CustomEventNode) {
+    if (outputKey === 'exec') return '0';
+    return `__cev_param_${sanitizeName(outputKey)}`;
   }
 
   // IsKeyDownNode — poll key state
@@ -307,9 +313,29 @@ function genAction(
         const s = inputSrc.get(`${nodeId}.${inp.name}`);
         return s ? rv(s.nid, s.ok) : '0';
       });
-      lines.push(`__fn_${sanitizeName(fn.name)}(${args.join(', ')});`);
+      const resultVar = `__fn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      if (fn.outputs.length > 0) {
+        lines.push(`var ${resultVar} = __fn_${sanitizeName(fn.name)}(${args.join(', ')});`);
+      } else {
+        lines.push(`__fn_${sanitizeName(fn.name)}(${args.join(', ')});`);
+      }
     }
     lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Function Return
+  if (node instanceof FunctionReturnNode) {
+    const fn = bp.functions.find(f => f.id === node.funcId);
+    if (fn && fn.outputs.length > 0) {
+      const retFields = fn.outputs.map(out => {
+        const s = inputSrc.get(`${nodeId}.${out.name}`);
+        return `${sanitizeName(out.name)}: ${s ? rv(s.nid, s.ok) : fieldDefault(out.type)}`;
+      });
+      lines.push(`return { ${retFields.join(', ')} };`);
+    } else {
+      lines.push('return;');
+    }
     return lines;
   }
 
@@ -322,7 +348,15 @@ function genAction(
 
   // Custom Event Call
   if (node instanceof CallCustomEventNode) {
-    lines.push(`__custom_evt_${sanitizeName(node.eventName)}();`);
+    const evt = bp.customEvents.find(e => e.id === node.eventId);
+    const args: string[] = [];
+    if (evt && evt.params.length > 0) {
+      for (const p of evt.params) {
+        const s = inputSrc.get(`${nodeId}.${p.name}`);
+        args.push(s ? rv(s.nid, s.ok) : fieldDefault(p.type));
+      }
+    }
+    lines.push(`__custom_evt_${sanitizeName(node.eventName)}(${args.join(', ')});`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -463,8 +497,12 @@ function generateFullCode(
   for (const evNode of customEvtNodes) {
     const ce = evNode as CustomEventNode;
     const name = sanitizeName(ce.eventName);
+    const evt = bp.customEvents.find(e => e.id === ce.eventId);
+    const params = evt && evt.params.length > 0
+      ? evt.params.map(p => `__cev_param_${sanitizeName(p.name)}`).join(', ')
+      : '';
     const body = walkExec(ce.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-    parts.push(`function __custom_evt_${name}() {\n${body.map(l => '  ' + l).join('\n')}\n}`);
+    parts.push(`function __custom_evt_${name}(${params}) {\n${body.map(l => '  ' + l).join('\n')}\n}`);
   }
 
   // Input key event nodes & IsKeyDown nodes
@@ -569,6 +607,8 @@ function buildMyBlueprintPanel(
     onDeleteStruct: (id: string) => void;
     onEditVariable: (v: BlueprintVariable) => void;
     onEditStruct: (s: BlueprintStruct) => void;
+    onEditFunction: (fn: BlueprintFunction) => void;
+    onEditCustomEvent: (evt: BlueprintCustomEvent) => void;
     activeGraphId: string;
     graphTabs: GraphTab[];
   },
@@ -596,11 +636,20 @@ function buildMyBlueprintPanel(
   // --- Functions ---
   const fnBody = addSection(container, 'Functions', callbacks.onAddFunction);
   for (const fn of bp.functions) {
-    fnBody.appendChild(makeDeletableItem(fn.name, 'ƒ', 'mybp-fn',
+    const fnItem = makeDeletableItem(fn.name, 'ƒ', 'mybp-fn',
       () => callbacks.onSwitchGraph({ id: fn.id, label: fn.name, type: 'function', refId: fn.id }),
       () => callbacks.onDeleteFunction(fn.id),
-      { dragType: 'function', funcId: fn.id, funcName: fn.name },
-    ));
+      { dragType: 'function', funcId: fn.id, funcName: fn.name, inputs: JSON.stringify(fn.inputs), outputs: JSON.stringify(fn.outputs) },
+    );
+    // Add edit button for parameters (insert before delete in the actions container)
+    const actionsEl = fnItem.querySelector('.mybp-item-actions')!;
+    const editBtn = document.createElement('span');
+    editBtn.className = 'mybp-edit-btn';
+    editBtn.textContent = '⚙';
+    editBtn.title = 'Edit Parameters';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onEditFunction(fn); });
+    actionsEl.insertBefore(editBtn, actionsEl.firstChild);
+    fnBody.appendChild(fnItem);
   }
 
   // --- Macros ---
@@ -634,11 +683,15 @@ function buildMyBlueprintPanel(
     typeSpan.textContent = typeDisplayName(v.type, bp);
     item.appendChild(typeSpan);
 
+    const actions = document.createElement('span');
+    actions.className = 'mybp-item-actions';
     const del = document.createElement('span');
     del.className = 'mybp-delete';
     del.textContent = '✕';
+    del.title = 'Delete';
     del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteVariable(v.id); });
-    item.appendChild(del);
+    actions.appendChild(del);
+    item.appendChild(actions);
 
     item.addEventListener('click', () => callbacks.onEditVariable(v));
     item.addEventListener('dragstart', (e) => {
@@ -673,11 +726,15 @@ function buildMyBlueprintPanel(
         typeSpan.textContent = `${typeDisplayName(lv.type, bp)} (local)`;
         item.appendChild(typeSpan);
 
+        const actions = document.createElement('span');
+        actions.className = 'mybp-item-actions';
         const del = document.createElement('span');
         del.className = 'mybp-delete';
         del.textContent = '✕';
+        del.title = 'Delete';
         del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteLocalVariable(fn.id, lv.id); });
-        item.appendChild(del);
+        actions.appendChild(del);
+        item.appendChild(actions);
 
         item.addEventListener('click', () => callbacks.onEditVariable(lv));
         item.addEventListener('dragstart', (e) => {
@@ -692,11 +749,20 @@ function buildMyBlueprintPanel(
   // --- Custom Events ---
   const evtBody = addSection(container, 'Custom Events', callbacks.onAddCustomEvent);
   for (const evt of bp.customEvents) {
-    evtBody.appendChild(makeDeletableItem(evt.name, '🎯', 'mybp-evt',
+    const evtItem = makeDeletableItem(evt.name, '🎯', 'mybp-evt',
       () => callbacks.onSwitchGraph(callbacks.graphTabs[0]),
       () => callbacks.onDeleteCustomEvent(evt.id),
-      { dragType: 'customEvent', eventId: evt.id, eventName: evt.name },
-    ));
+      { dragType: 'customEvent', eventId: evt.id, eventName: evt.name, params: JSON.stringify(evt.params) },
+    );
+    // Add edit button for parameters (insert before delete in the actions container)
+    const actionsEl = evtItem.querySelector('.mybp-item-actions')!;
+    const editBtn = document.createElement('span');
+    editBtn.className = 'mybp-edit-btn';
+    editBtn.textContent = '⚙';
+    editBtn.title = 'Edit Parameters';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onEditCustomEvent(evt); });
+    actionsEl.insertBefore(editBtn, actionsEl.firstChild);
+    evtBody.appendChild(evtItem);
   }
 
   // --- Structs ---
@@ -704,12 +770,31 @@ function buildMyBlueprintPanel(
   for (const s of bp.structs) {
     const item = document.createElement('div');
     item.className = 'mybp-item mybp-struct';
-    item.innerHTML = `<span class="mybp-item-icon">🔷</span><span class="mybp-var-name">${s.name}</span><span class="mybp-var-type">${s.fields.length} fields</span>`;
+
+    const sIcon = document.createElement('span');
+    sIcon.className = 'mybp-item-icon';
+    sIcon.textContent = '🔷';
+    item.appendChild(sIcon);
+
+    const sName = document.createElement('span');
+    sName.className = 'mybp-item-name';
+    sName.textContent = s.name;
+    item.appendChild(sName);
+
+    const sType = document.createElement('span');
+    sType.className = 'mybp-var-type';
+    sType.textContent = `${s.fields.length} fields`;
+    item.appendChild(sType);
+
+    const actions = document.createElement('span');
+    actions.className = 'mybp-item-actions';
     const del = document.createElement('span');
     del.className = 'mybp-delete';
     del.textContent = '✕';
+    del.title = 'Delete';
     del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteStruct(s.id); });
-    item.appendChild(del);
+    actions.appendChild(del);
+    item.appendChild(actions);
     item.addEventListener('click', () => callbacks.onEditStruct(s));
     structBody.appendChild(item);
   }
@@ -746,12 +831,29 @@ function makeDeletableItem(
 ): HTMLElement {
   const item = document.createElement('div');
   item.className = `mybp-item ${cls}`;
-  item.innerHTML = `<span class="mybp-item-icon">${icon}</span><span>${name}</span>`;
+
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'mybp-item-icon';
+  iconSpan.textContent = icon;
+  item.appendChild(iconSpan);
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'mybp-item-name';
+  nameSpan.textContent = name;
+  item.appendChild(nameSpan);
+
+  // Actions container (right side)
+  const actions = document.createElement('span');
+  actions.className = 'mybp-item-actions';
+  item.appendChild(actions);
+
   const del = document.createElement('span');
   del.className = 'mybp-delete';
   del.textContent = '✕';
+  del.title = 'Delete';
   del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
-  item.appendChild(del);
+  actions.appendChild(del);
+
   item.addEventListener('click', onClick);
   if (dragData) {
     item.draggable = true;
@@ -1072,6 +1174,154 @@ function showKeySelectDialog(parent: HTMLElement, title: string, onSelect: (key:
   });
 }
 
+// ============================================================
+//  Parameter Editor Dialog — edit inputs/outputs for functions
+//  or params for custom events (reusable, struct-field-like UI)
+// ============================================================
+function showParamEditorDialog(
+  parent: HTMLElement,
+  bp: import('./BlueprintData').BlueprintData,
+  title: string,
+  inputParams: { name: string; type: VarType }[],
+  outputParams: { name: string; type: VarType }[] | null, // null = custom events (no outputs)
+  onSave: (inputs: { name: string; type: VarType }[], outputs: { name: string; type: VarType }[] | null) => void,
+) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog mybp-struct-dialog';
+
+  const inputs = inputParams.map(p => ({ ...p }));
+  const outputs = outputParams ? outputParams.map(p => ({ ...p })) : null;
+
+  function render() {
+    dialog.innerHTML = '';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'mybp-dialog-title';
+    titleEl.textContent = title;
+    dialog.appendChild(titleEl);
+
+    // --- Inputs ---
+    const inLabel = document.createElement('label');
+    inLabel.className = 'mybp-dialog-label';
+    inLabel.textContent = outputs !== null ? 'Inputs' : 'Parameters';
+    dialog.appendChild(inLabel);
+
+    const inList = document.createElement('div');
+    inList.className = 'mybp-struct-field-list';
+    dialog.appendChild(inList);
+
+    for (let i = 0; i < inputs.length; i++) {
+      const p = inputs[i];
+      const row = document.createElement('div');
+      row.className = 'mybp-struct-field-row';
+
+      const pName = document.createElement('input');
+      pName.className = 'mybp-dialog-input mybp-struct-field-name';
+      pName.type = 'text';
+      pName.value = p.name;
+      pName.placeholder = 'Param name';
+      pName.addEventListener('input', () => { p.name = pName.value; });
+      row.appendChild(pName);
+
+      const pType = document.createElement('select');
+      pType.className = 'mybp-dialog-select mybp-struct-field-type';
+      pType.innerHTML = buildTypeOptions(bp, p.type);
+      pType.addEventListener('change', () => { p.type = pType.value as VarType; });
+      row.appendChild(pType);
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'mybp-struct-field-del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Remove';
+      delBtn.addEventListener('click', () => { inputs.splice(i, 1); render(); });
+      row.appendChild(delBtn);
+
+      inList.appendChild(row);
+    }
+
+    const addInBtn = document.createElement('button');
+    addInBtn.className = 'mybp-dialog-btn mybp-struct-add-field';
+    addInBtn.textContent = outputs !== null ? '+ Add Input' : '+ Add Parameter';
+    addInBtn.addEventListener('click', () => { inputs.push({ name: 'NewParam', type: 'Float' }); render(); });
+    dialog.appendChild(addInBtn);
+
+    // --- Outputs (functions only) ---
+    if (outputs !== null) {
+      const outLabel = document.createElement('label');
+      outLabel.className = 'mybp-dialog-label';
+      outLabel.style.marginTop = '12px';
+      outLabel.textContent = 'Outputs';
+      dialog.appendChild(outLabel);
+
+      const outList = document.createElement('div');
+      outList.className = 'mybp-struct-field-list';
+      dialog.appendChild(outList);
+
+      for (let i = 0; i < outputs.length; i++) {
+        const p = outputs[i];
+        const row = document.createElement('div');
+        row.className = 'mybp-struct-field-row';
+
+        const pName = document.createElement('input');
+        pName.className = 'mybp-dialog-input mybp-struct-field-name';
+        pName.type = 'text';
+        pName.value = p.name;
+        pName.placeholder = 'Output name';
+        pName.addEventListener('input', () => { p.name = pName.value; });
+        row.appendChild(pName);
+
+        const pType = document.createElement('select');
+        pType.className = 'mybp-dialog-select mybp-struct-field-type';
+        pType.innerHTML = buildTypeOptions(bp, p.type);
+        pType.addEventListener('change', () => { p.type = pType.value as VarType; });
+        row.appendChild(pType);
+
+        const delBtn = document.createElement('span');
+        delBtn.className = 'mybp-struct-field-del';
+        delBtn.textContent = '✕';
+        delBtn.title = 'Remove';
+        delBtn.addEventListener('click', () => { outputs.splice(i, 1); render(); });
+        row.appendChild(delBtn);
+
+        outList.appendChild(row);
+      }
+
+      const addOutBtn = document.createElement('button');
+      addOutBtn.className = 'mybp-dialog-btn mybp-struct-add-field';
+      addOutBtn.textContent = '+ Add Output';
+      addOutBtn.addEventListener('click', () => { outputs.push({ name: 'ReturnValue', type: 'Float' }); render(); });
+      dialog.appendChild(addOutBtn);
+    }
+
+    // --- Actions ---
+    const actions = document.createElement('div');
+    actions.className = 'mybp-dialog-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'mybp-dialog-btn cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    actions.appendChild(cancelBtn);
+    const okBtn = document.createElement('button');
+    okBtn.className = 'mybp-dialog-btn ok';
+    okBtn.textContent = 'Save';
+    okBtn.addEventListener('click', () => {
+      const validInputs = inputs.filter(p => p.name.trim());
+      const validOutputs = outputs ? outputs.filter(p => p.name.trim()) : null;
+      onSave(validInputs, validOutputs);
+      overlay.remove();
+    });
+    actions.appendChild(okBtn);
+    dialog.appendChild(actions);
+  }
+
+  render();
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
 function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: import('./BlueprintData').BlueprintData, onChange: () => void) {
   const overlay = document.createElement('div');
   overlay.className = 'mybp-dialog-overlay';
@@ -1337,7 +1587,7 @@ async function createGraphEditor(
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
       },
       async (evt) => {
-        const node = new CallCustomEventNode(evt.id, evt.name);
+        const node = new CallCustomEventNode(evt.id, evt.name, evt.params);
         await editor.addNode(node);
         const t = area.area.transform;
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
@@ -1421,7 +1671,9 @@ async function createGraphEditor(
         }
       } else if (data.dragType === 'customEvent') {
         // Custom event drop — create CallCustomEventNode
-        const node = new CallCustomEventNode(data.eventId, data.eventName);
+        const evt = bp.customEvents.find(e => e.id === data.eventId);
+        const params = evt ? evt.params : [];
+        const node = new CallCustomEventNode(data.eventId, data.eventName, params);
         await editor.addNode(node);
         await area.translate(node.id, { x: dropX, y: dropY });
       }
@@ -1783,6 +2035,90 @@ function NodeEditorView({ gameObject }: NodeEditorViewProps) {
             refreshUI();
             compileAndSave();
           });
+        },
+        onEditFunction: (fn) => {
+          showParamEditorDialog(root, bp, `Edit Function: ${fn.name}`, fn.inputs, fn.outputs,
+            async (newInputs, newOutputs) => {
+              fn.inputs = newInputs;
+              fn.outputs = newOutputs || [];
+
+              // Rebuild entry/return nodes in the function graph
+              const fnData = editorStore.get(fn.id);
+              if (fnData) {
+                const nodes = fnData.editor.getNodes();
+                // Remove old entry & return nodes
+                for (const n of nodes) {
+                  if (n instanceof FunctionEntryNode || n instanceof FunctionReturnNode) {
+                    await fnData.editor.removeNode(n.id);
+                  }
+                }
+                // Add new ones with updated params
+                const entry = new FunctionEntryNode(fn.id, fn.name, fn.inputs);
+                const ret = new FunctionReturnNode(fn.id, fn.name, fn.outputs);
+                await fnData.editor.addNode(entry);
+                await fnData.editor.addNode(ret);
+                await fnData.area.translate(entry.id, { x: 0, y: 0 });
+                await fnData.area.translate(ret.id, { x: 400, y: 0 });
+              }
+
+              // Rebuild all FunctionCallNodes referencing this function across all editors
+              for (const [, data] of editorStore) {
+                const nodes = data.editor.getNodes();
+                for (const n of nodes) {
+                  if (n instanceof FunctionCallNode && (n as FunctionCallNode).funcId === fn.id) {
+                    // Save position
+                    const view = data.area.nodeViews.get(n.id);
+                    const pos = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 };
+                    await data.editor.removeNode(n.id);
+                    const newCall = new FunctionCallNode(fn.id, fn.name, fn.inputs, fn.outputs);
+                    await data.editor.addNode(newCall);
+                    await data.area.translate(newCall.id, pos);
+                  }
+                }
+              }
+
+              refreshUI();
+              compileAndSave();
+            },
+          );
+        },
+        onEditCustomEvent: (evt) => {
+          showParamEditorDialog(root, bp, `Edit Event: ${evt.name}`, evt.params, null,
+            async (newParams) => {
+              evt.params = newParams;
+
+              // Rebuild CustomEventNode in the event graph
+              const evData = editorStore.get('eventgraph');
+              if (evData) {
+                const nodes = evData.editor.getNodes();
+                for (const n of nodes) {
+                  if (n instanceof CustomEventNode && (n as CustomEventNode).eventId === evt.id) {
+                    const view = evData.area.nodeViews.get(n.id);
+                    const pos = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 300 };
+                    await evData.editor.removeNode(n.id);
+                    const newNode = new CustomEventNode(evt.id, evt.name, evt.params);
+                    await evData.editor.addNode(newNode);
+                    await evData.area.translate(newNode.id, pos);
+                  }
+                }
+
+                // Rebuild all CallCustomEventNodes referencing this event
+                for (const n of evData.editor.getNodes()) {
+                  if (n instanceof CallCustomEventNode && (n as CallCustomEventNode).eventId === evt.id) {
+                    const view = evData.area.nodeViews.get(n.id);
+                    const pos = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 };
+                    await evData.editor.removeNode(n.id);
+                    const newCall = new CallCustomEventNode(evt.id, evt.name, evt.params);
+                    await evData.editor.addNode(newCall);
+                    await evData.area.translate(newCall.id, pos);
+                  }
+                }
+              }
+
+              refreshUI();
+              compileAndSave();
+            },
+          );
         },
       });
     }

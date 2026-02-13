@@ -56,6 +56,8 @@ export interface BlueprintMacro {
 export interface BlueprintCustomEvent {
   name: string;
   id: string;
+  /** Parameters passed to this event */
+  params: { name: string; type: VarType }[];
 }
 
 let _nextId = 1;
@@ -155,7 +157,7 @@ export class BlueprintData {
 
   // --- Custom Events ---
   addCustomEvent(name: string): BlueprintCustomEvent {
-    const evt: BlueprintCustomEvent = { name, id: uid() };
+    const evt: BlueprintCustomEvent = { name, id: uid(), params: [] };
     this.customEvents.push(evt);
     return evt;
   }
