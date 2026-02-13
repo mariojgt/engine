@@ -32,7 +32,7 @@ export class Engine {
     const print = (v: any) => this.onPrint(v);
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics };
         script.beginPlay(ctx);
       }
     }
@@ -43,7 +43,7 @@ export class Engine {
     const print = (v: any) => this.onPrint(v);
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics };
         script.onDestroy(ctx);
         script.reset();
       }
@@ -61,7 +61,7 @@ export class Engine {
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
         for (const script of go.scripts) {
-          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print };
+          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics };
           script.tick(ctx);
         }
       }

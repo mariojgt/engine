@@ -63,6 +63,35 @@ export { AddForceNode }   from './physics/AddForceNode';
 export { AddImpulseNode } from './physics/AddImpulseNode';
 export { SetVelocityNode } from './physics/SetVelocityNode';
 
+// ── Physics (extended) ──────────────────────────────────────
+export { GetMassNode }              from './physics/GetMassNode';
+export { SetMassNode }              from './physics/SetMassNode';
+export { GetVelocityNode }          from './physics/GetVelocityNode';
+export { GetAngularVelocityNode }   from './physics/GetAngularVelocityNode';
+export { SetLinearVelocityNode }    from './physics/SetLinearVelocityNode';
+export { SetAngularVelocityNode }   from './physics/SetAngularVelocityNode';
+export { IsSimulatingPhysicsNode }  from './physics/IsSimulatingPhysicsNode';
+export { SetSimulatePhysicsNode }   from './physics/SetSimulatePhysicsNode';
+export { IsGravityEnabledNode }     from './physics/IsGravityEnabledNode';
+export { SetGravityEnabledNode }    from './physics/SetGravityEnabledNode';
+export { GetGravityScaleNode }      from './physics/GetGravityScaleNode';
+export { SetGravityScaleNode }      from './physics/SetGravityScaleNode';
+export { SetLinearDampingNode }     from './physics/SetLinearDampingNode';
+export { SetAngularDampingNode }    from './physics/SetAngularDampingNode';
+export { SetPhysicsMaterialNode }   from './physics/SetPhysicsMaterialNode';
+export { GetPhysicsMaterialNode }   from './physics/GetPhysicsMaterialNode';
+export { AddTorqueNode }            from './physics/AddTorqueNode';
+export { AddForceAtLocationNode }   from './physics/AddForceAtLocationNode';
+export { AddImpulseAtLocationNode } from './physics/AddImpulseAtLocationNode';
+export { SetConstraintNode }        from './physics/SetConstraintNode';
+export {
+  OnComponentHitNode,
+  OnComponentBeginOverlapNode,
+  OnComponentEndOverlapNode,
+  OnComponentWakeNode,
+  OnComponentSleepNode,
+} from './physics/PhysicsEventNodes';
+
 // ── Variables (dynamic) ─────────────────────────────────────
 export { GetVariableNode, SetVariableNode, socketForType } from './variables/VariableNodes';
 export { MakeStructNode, BreakStructNode } from './variables/StructNodes';

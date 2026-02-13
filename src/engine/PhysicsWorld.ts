@@ -1,6 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
+import type { PhysicsConfig } from '../editor/ActorAsset';
+import { defaultPhysicsConfig } from '../editor/ActorAsset';
 
 export class PhysicsWorld {
   public world: RAPIER.World | null = null;
@@ -25,39 +28,80 @@ export class PhysicsWorld {
     // Remove existing if any
     this.removePhysicsBody(go);
 
+    const cfg: PhysicsConfig = go.physicsConfig ?? defaultPhysicsConfig();
+    if (!cfg.enabled || !cfg.simulatePhysics) return;
+
     const pos = go.mesh.position;
     const rbDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(pos.x, pos.y, pos.z);
+      .setTranslation(pos.x, pos.y, pos.z)
+      .setGravityScale(cfg.gravityEnabled ? cfg.gravityScale : 0)
+      .setLinearDamping(cfg.linearDamping)
+      .setAngularDamping(cfg.angularDamping);
+
     const rigidBody = this.world.createRigidBody(rbDesc);
 
-    // Determine collider shape from geometry type
-    const geo = go.mesh.geometry;
-    let colDesc: RAPIER.ColliderDesc;
+    // Mass — Rapier sets mass via additionalMass (on top of collider density)
+    rigidBody.setAdditionalMass(Math.max(0, cfg.mass - 1), true);
 
-    if (geo.type === 'BoxGeometry') {
-      const params = (geo as any).parameters;
-      colDesc = RAPIER.ColliderDesc.cuboid(
-        params.width / 2,
-        params.height / 2,
-        params.depth / 2
-      );
-    } else if (geo.type === 'SphereGeometry') {
-      const params = (geo as any).parameters;
-      colDesc = RAPIER.ColliderDesc.ball(params.radius);
-    } else if (geo.type === 'CylinderGeometry') {
-      const params = (geo as any).parameters;
-      colDesc = RAPIER.ColliderDesc.cylinder(
-        params.height / 2,
-        params.radiusTop
-      );
-    } else {
-      colDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
-    }
+    // Axis constraints
+    rigidBody.setEnabledTranslations(
+      !cfg.lockPositionX,
+      !cfg.lockPositionY,
+      !cfg.lockPositionZ,
+      true,
+    );
+    rigidBody.setEnabledRotations(
+      !cfg.lockRotationX,
+      !cfg.lockRotationY,
+      !cfg.lockRotationZ,
+      true,
+    );
 
-    const collider = this.world.createCollider(colDesc, rigidBody);
+    // Root collider
+    const rootColDesc = this._colliderDescFromGeometry(go.mesh.geometry);
+    rootColDesc.setFriction(cfg.friction);
+    rootColDesc.setRestitution(cfg.restitution);
+    if (!cfg.collisionEnabled) rootColDesc.setSensor(true);
+
+    const collider = this.world.createCollider(rootColDesc, rigidBody);
     go.rigidBody = rigidBody;
     go.collider = collider;
     go.hasPhysics = true;
+
+    // Compound colliders for child component meshes
+    for (const child of go.mesh.children) {
+      if (!(child as any).isMesh) continue;
+      const mesh = child as THREE.Mesh;
+      const childColDesc = this._colliderDescFromGeometry(mesh.geometry);
+      // Offset the child collider relative to the root body
+      childColDesc.setTranslation(mesh.position.x, mesh.position.y, mesh.position.z);
+      if (mesh.quaternion) {
+        childColDesc.setRotation({ x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w });
+      }
+      childColDesc.setFriction(cfg.friction);
+      childColDesc.setRestitution(cfg.restitution);
+      if (!cfg.collisionEnabled) childColDesc.setSensor(true);
+      this.world.createCollider(childColDesc, rigidBody);
+    }
+  }
+
+  /** Build a RAPIER.ColliderDesc from a Three.js geometry */
+  private _colliderDescFromGeometry(geo: THREE.BufferGeometry): RAPIER.ColliderDesc {
+    if (geo.type === 'BoxGeometry') {
+      const params = (geo as any).parameters;
+      return RAPIER.ColliderDesc.cuboid(
+        params.width / 2,
+        params.height / 2,
+        params.depth / 2,
+      );
+    } else if (geo.type === 'SphereGeometry') {
+      const params = (geo as any).parameters;
+      return RAPIER.ColliderDesc.ball(params.radius);
+    } else if (geo.type === 'CylinderGeometry') {
+      const params = (geo as any).parameters;
+      return RAPIER.ColliderDesc.cylinder(params.height / 2, params.radiusTop);
+    }
+    return RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
   }
 
   removePhysicsBody(go: GameObject): void {
@@ -89,9 +133,10 @@ export class PhysicsWorld {
   play(scene: Scene): void {
     if (!this.world) return;
 
-    // Only create rigid bodies for objects that have physics enabled via the toggle
+    // Create rigid bodies for objects whose PhysicsConfig has simulate enabled
     for (const go of scene.gameObjects) {
-      if (go.hasPhysics && !go.rigidBody) {
+      const cfg = go.physicsConfig;
+      if (cfg && cfg.enabled && cfg.simulatePhysics && !go.rigidBody) {
         this.addPhysicsBody(go);
       }
     }

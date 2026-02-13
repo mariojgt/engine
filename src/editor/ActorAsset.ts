@@ -8,6 +8,66 @@ import { BlueprintData, type VarType, type BlueprintVariable, type BlueprintFunc
   type BlueprintMacro, type BlueprintCustomEvent, type BlueprintStruct,
   type BlueprintStructField, type BlueprintGraphData } from './BlueprintData';
 
+// ---- Physics configuration (UE-style per-component) ----
+
+export type CollisionChannel = 'WorldStatic' | 'WorldDynamic' | 'Pawn' | 'PhysicsBody' | 'Trigger' | 'Custom';
+
+export interface PhysicsConfig {
+  /** Master enable — when false the component is purely kinematic */
+  enabled: boolean;
+  /** Actively simulate physics (rigid-body is dynamic) */
+  simulatePhysics: boolean;
+  /** Mass in kg */
+  mass: number;
+  /** Whether gravity affects this body */
+  gravityEnabled: boolean;
+  /** Multiplier on world gravity */
+  gravityScale: number;
+  /** Linear velocity damping (drag) */
+  linearDamping: number;
+  /** Angular velocity damping */
+  angularDamping: number;
+  /** Surface friction coefficient */
+  friction: number;
+  /** Bounciness / coefficient of restitution */
+  restitution: number;
+  /** Lock individual position axes */
+  lockPositionX: boolean;
+  lockPositionY: boolean;
+  lockPositionZ: boolean;
+  /** Lock individual rotation axes */
+  lockRotationX: boolean;
+  lockRotationY: boolean;
+  lockRotationZ: boolean;
+  /** Enable collision detection */
+  collisionEnabled: boolean;
+  /** Collision channel preset */
+  collisionChannel: CollisionChannel;
+}
+
+/** Returns a sensible default PhysicsConfig */
+export function defaultPhysicsConfig(): PhysicsConfig {
+  return {
+    enabled: false,
+    simulatePhysics: false,
+    mass: 1.0,
+    gravityEnabled: true,
+    gravityScale: 1.0,
+    linearDamping: 0.01,
+    angularDamping: 0.05,
+    friction: 0.5,
+    restitution: 0.3,
+    lockPositionX: false,
+    lockPositionY: false,
+    lockPositionZ: false,
+    lockRotationX: false,
+    lockRotationY: false,
+    lockRotationZ: false,
+    collisionEnabled: true,
+    collisionChannel: 'WorldDynamic',
+  };
+}
+
 // ---- Serialized JSON shape for persistence ----
 
 export interface ActorComponentData {
@@ -23,6 +83,8 @@ export interface ActorComponentData {
   rotation: { x: number; y: number; z: number };
   /** Local scale */
   scale: { x: number; y: number; z: number };
+  /** Per-component physics configuration */
+  physics?: PhysicsConfig;
 }
 
 export interface ActorAssetJSON {
@@ -32,6 +94,8 @@ export interface ActorAssetJSON {
   description: string;
   /** Root mesh type for the actor */
   rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
+  /** Physics configuration for the root component */
+  rootPhysics: PhysicsConfig;
   /** Additional child components (future) */
   components: ActorComponentData[];
   /** Blueprint variables */
@@ -68,6 +132,7 @@ export class ActorAsset {
   public name: string;
   public description: string = '';
   public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' = 'cube';
+  public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
   public components: ActorComponentData[] = [];
   public blueprintData: BlueprintData;
   public createdAt: number;
@@ -102,6 +167,7 @@ export class ActorAsset {
       actorName: this.name,
       description: this.description,
       rootMeshType: this.rootMeshType,
+      rootPhysics: structuredClone(this.rootPhysics),
       components: structuredClone(this.components),
       variables: structuredClone(bp.variables),
       functions: bp.functions.map(f => ({
@@ -128,7 +194,11 @@ export class ActorAsset {
     const asset = new ActorAsset(json.actorName, json.actorId);
     asset.description = json.description || '';
     asset.rootMeshType = json.rootMeshType || 'cube';
-    asset.components = json.components || [];
+    asset.rootPhysics = json.rootPhysics ? { ...defaultPhysicsConfig(), ...json.rootPhysics } : defaultPhysicsConfig();
+    asset.components = (json.components || []).map(c => ({
+      ...c,
+      physics: c.physics ? { ...defaultPhysicsConfig(), ...c.physics } : undefined,
+    }));
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();
     asset.compiledCode = json.compiledCode || '';

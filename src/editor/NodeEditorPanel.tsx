@@ -52,6 +52,32 @@ import {
   AddForceNode,
   AddImpulseNode,
   SetVelocityNode,
+  // Physics (extended)
+  GetMassNode,
+  SetMassNode,
+  GetVelocityNode,
+  GetAngularVelocityNode,
+  SetLinearVelocityNode,
+  SetAngularVelocityNode,
+  IsSimulatingPhysicsNode,
+  SetSimulatePhysicsNode,
+  IsGravityEnabledNode,
+  SetGravityEnabledNode,
+  GetGravityScaleNode,
+  SetGravityScaleNode,
+  SetLinearDampingNode,
+  SetAngularDampingNode,
+  SetPhysicsMaterialNode,
+  GetPhysicsMaterialNode,
+  AddTorqueNode,
+  AddForceAtLocationNode,
+  AddImpulseAtLocationNode,
+  SetConstraintNode,
+  OnComponentHitNode,
+  OnComponentBeginOverlapNode,
+  OnComponentEndOverlapNode,
+  OnComponentWakeNode,
+  OnComponentSleepNode,
   GetVariableNode,
   SetVariableNode,
   FunctionEntryNode,
@@ -309,6 +335,28 @@ function resolveValue(
       const bS = inputSrc.get(`${nodeId}.b`);
       return `(${aS ? rv(aS.nid, aS.ok) : '0'} > ${bS ? rv(bS.nid, bS.ok) : '0'})`;
     }
+
+    // ── Physics getters ──────────────────────────────────────
+    case 'Get Mass':
+      return '(gameObject.rigidBody ? gameObject.rigidBody.mass() : 0)';
+    case 'Get Velocity':
+      return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().${outputKey} : 0)`;
+    case 'Get Angular Velocity':
+      return `(gameObject.rigidBody ? gameObject.rigidBody.angvel().${outputKey} : 0)`;
+    case 'Is Simulating Physics':
+      return '(!!gameObject.rigidBody)';
+    case 'Is Gravity Enabled':
+      return '(gameObject.rigidBody ? gameObject.rigidBody.gravityScale() > 0 : false)';
+    case 'Get Gravity Scale':
+      return '(gameObject.rigidBody ? gameObject.rigidBody.gravityScale() : 1)';
+    case 'Get Physics Material': {
+      if (outputKey === 'friction')
+        return '(gameObject.collider ? gameObject.collider.friction() : 0.5)';
+      if (outputKey === 'restitution')
+        return '(gameObject.collider ? gameObject.collider.restitution() : 0.3)';
+      return '0';
+    }
+
     default: return '0';
   }
 }
@@ -515,6 +563,108 @@ function genAction(
     case 'Set Velocity': {
       const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setLinvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Physics (extended) setters / actions ─────────────────
+    case 'Set Mass': {
+      const mS = inputSrc.get(`${nodeId}.mass`);
+      const massVal = mS ? rv(mS.nid, mS.ok) : '1';
+      lines.push(`if (gameObject.rigidBody) { var __m = ${massVal}; gameObject.rigidBody.setAdditionalMass(Math.max(0, __m - 1), true); if (gameObject.physicsConfig) gameObject.physicsConfig.mass = __m; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Linear Velocity': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setLinvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Angular Velocity': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setAngvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Simulate Physics': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      const enabled = eS ? rv(eS.nid, eS.ok) : 'true';
+      lines.push(`if (__physics) {`);
+      lines.push(`  if (${enabled}) {`);
+      lines.push(`    if (!gameObject.physicsConfig) gameObject.physicsConfig = { enabled: true, simulatePhysics: true, mass: 1, gravityEnabled: true, gravityScale: 1, linearDamping: 0.01, angularDamping: 0.05, friction: 0.5, restitution: 0.3, lockPositionX: false, lockPositionY: false, lockPositionZ: false, lockRotationX: false, lockRotationY: false, lockRotationZ: false, collisionEnabled: true, collisionChannel: 'WorldDynamic' };`);
+      lines.push(`    gameObject.physicsConfig.enabled = true;`);
+      lines.push(`    gameObject.physicsConfig.simulatePhysics = true;`);
+      lines.push(`    if (!gameObject.rigidBody) __physics.addPhysicsBody(gameObject);`);
+      lines.push(`  } else {`);
+      lines.push(`    if (gameObject.physicsConfig) { gameObject.physicsConfig.simulatePhysics = false; }`);
+      lines.push(`    if (gameObject.rigidBody) __physics.removePhysicsBody(gameObject);`);
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Gravity Enabled': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      const enabledVal = eS ? rv(eS.nid, eS.ok) : 'true';
+      lines.push(`if (gameObject.rigidBody) { var __ge = !!(${enabledVal}); var __gs = (gameObject.physicsConfig ? gameObject.physicsConfig.gravityScale : 1); gameObject.rigidBody.setGravityScale(__ge ? __gs : 0, true); if (gameObject.physicsConfig) gameObject.physicsConfig.gravityEnabled = __ge; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Gravity Scale': {
+      const sS = inputSrc.get(`${nodeId}.scale`);
+      const scaleVal = sS ? rv(sS.nid, sS.ok) : '1';
+      lines.push(`if (gameObject.rigidBody) { var __gsv = ${scaleVal}; gameObject.rigidBody.setGravityScale(__gsv, true); if (gameObject.physicsConfig) gameObject.physicsConfig.gravityScale = __gsv; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Linear Damping': {
+      const dS = inputSrc.get(`${nodeId}.damping`);
+      const dampVal = dS ? rv(dS.nid, dS.ok) : '0.01';
+      lines.push(`if (gameObject.rigidBody) { var __ld = ${dampVal}; gameObject.rigidBody.setLinearDamping(__ld); if (gameObject.physicsConfig) gameObject.physicsConfig.linearDamping = __ld; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Angular Damping': {
+      const dS = inputSrc.get(`${nodeId}.damping`);
+      const dampVal = dS ? rv(dS.nid, dS.ok) : '0.05';
+      lines.push(`if (gameObject.rigidBody) { var __ad = ${dampVal}; gameObject.rigidBody.setAngularDamping(__ad); if (gameObject.physicsConfig) gameObject.physicsConfig.angularDamping = __ad; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Physics Material': {
+      const fS = inputSrc.get(`${nodeId}.friction`);
+      const rS = inputSrc.get(`${nodeId}.restitution`);
+      const fricVal = fS ? rv(fS.nid, fS.ok) : '0.5';
+      const restVal = rS ? rv(rS.nid, rS.ok) : '0.3';
+      lines.push(`if (gameObject.collider) { var __fr = ${fricVal}; var __re = ${restVal}; gameObject.collider.setFriction(__fr); gameObject.collider.setRestitution(__re); if (gameObject.physicsConfig) { gameObject.physicsConfig.friction = __fr; gameObject.physicsConfig.restitution = __re; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Torque': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addTorque({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Force at Location': {
+      const fxS = inputSrc.get(`${nodeId}.forceX`); const fyS = inputSrc.get(`${nodeId}.forceY`); const fzS = inputSrc.get(`${nodeId}.forceZ`);
+      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForceAtPoint({x:${fxS ? rv(fxS.nid, fxS.ok) : '0'}, y:${fyS ? rv(fyS.nid, fyS.ok) : '0'}, z:${fzS ? rv(fzS.nid, fzS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Impulse at Location': {
+      const ixS = inputSrc.get(`${nodeId}.impulseX`); const iyS = inputSrc.get(`${nodeId}.impulseY`); const izS = inputSrc.get(`${nodeId}.impulseZ`);
+      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.applyImpulseAtPoint({x:${ixS ? rv(ixS.nid, ixS.ok) : '0'}, y:${iyS ? rv(iyS.nid, iyS.ok) : '0'}, z:${izS ? rv(izS.nid, izS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Constraint': {
+      const lx = inputSrc.get(`${nodeId}.lockPosX`); const ly = inputSrc.get(`${nodeId}.lockPosY`); const lz = inputSrc.get(`${nodeId}.lockPosZ`);
+      const rx = inputSrc.get(`${nodeId}.lockRotX`); const ry = inputSrc.get(`${nodeId}.lockRotY`); const rz = inputSrc.get(`${nodeId}.lockRotZ`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabledTranslations(!${lx ? rv(lx.nid, lx.ok) : 'false'}, !${ly ? rv(ly.nid, ly.ok) : 'false'}, !${lz ? rv(lz.nid, lz.ok) : 'false'}, true); gameObject.rigidBody.setEnabledRotations(!${rx ? rv(rx.nid, rx.ok) : 'false'}, !${ry ? rv(ry.nid, ry.ok) : 'false'}, !${rz ? rv(rz.nid, rz.ok) : 'false'}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -1705,6 +1855,33 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof AddForceNode) return 'AddForceNode';
   if (node instanceof AddImpulseNode) return 'AddImpulseNode';
   if (node instanceof SetVelocityNode) return 'SetVelocityNode';
+  // Physics (extended)
+  if (node instanceof GetMassNode) return 'GetMassNode';
+  if (node instanceof SetMassNode) return 'SetMassNode';
+  if (node instanceof GetVelocityNode) return 'GetVelocityNode';
+  if (node instanceof GetAngularVelocityNode) return 'GetAngularVelocityNode';
+  if (node instanceof SetLinearVelocityNode) return 'SetLinearVelocityNode';
+  if (node instanceof SetAngularVelocityNode) return 'SetAngularVelocityNode';
+  if (node instanceof IsSimulatingPhysicsNode) return 'IsSimulatingPhysicsNode';
+  if (node instanceof SetSimulatePhysicsNode) return 'SetSimulatePhysicsNode';
+  if (node instanceof IsGravityEnabledNode) return 'IsGravityEnabledNode';
+  if (node instanceof SetGravityEnabledNode) return 'SetGravityEnabledNode';
+  if (node instanceof GetGravityScaleNode) return 'GetGravityScaleNode';
+  if (node instanceof SetGravityScaleNode) return 'SetGravityScaleNode';
+  if (node instanceof SetLinearDampingNode) return 'SetLinearDampingNode';
+  if (node instanceof SetAngularDampingNode) return 'SetAngularDampingNode';
+  if (node instanceof SetPhysicsMaterialNode) return 'SetPhysicsMaterialNode';
+  if (node instanceof GetPhysicsMaterialNode) return 'GetPhysicsMaterialNode';
+  if (node instanceof AddTorqueNode) return 'AddTorqueNode';
+  if (node instanceof AddForceAtLocationNode) return 'AddForceAtLocationNode';
+  if (node instanceof AddImpulseAtLocationNode) return 'AddImpulseAtLocationNode';
+  if (node instanceof SetConstraintNode) return 'SetConstraintNode';
+  // Physics events
+  if (node instanceof OnComponentHitNode) return 'OnComponentHitNode';
+  if (node instanceof OnComponentBeginOverlapNode) return 'OnComponentBeginOverlapNode';
+  if (node instanceof OnComponentEndOverlapNode) return 'OnComponentEndOverlapNode';
+  if (node instanceof OnComponentWakeNode) return 'OnComponentWakeNode';
+  if (node instanceof OnComponentSleepNode) return 'OnComponentSleepNode';
   // Component nodes
   if (node instanceof GetComponentLocationNode) return 'GetComponentLocationNode';
   if (node instanceof SetComponentLocationNode) return 'SetComponentLocationNode';
@@ -1933,6 +2110,33 @@ function createNodeFromData(
     case 'AddForceNode':    return new AddForceNode();
     case 'AddImpulseNode':  return new AddImpulseNode();
     case 'SetVelocityNode': return new SetVelocityNode();
+    // Physics (extended)
+    case 'GetMassNode':              return new GetMassNode();
+    case 'SetMassNode':              return new SetMassNode();
+    case 'GetVelocityNode':          return new GetVelocityNode();
+    case 'GetAngularVelocityNode':   return new GetAngularVelocityNode();
+    case 'SetLinearVelocityNode':    return new SetLinearVelocityNode();
+    case 'SetAngularVelocityNode':   return new SetAngularVelocityNode();
+    case 'IsSimulatingPhysicsNode':  return new IsSimulatingPhysicsNode();
+    case 'SetSimulatePhysicsNode':   return new SetSimulatePhysicsNode();
+    case 'IsGravityEnabledNode':     return new IsGravityEnabledNode();
+    case 'SetGravityEnabledNode':    return new SetGravityEnabledNode();
+    case 'GetGravityScaleNode':      return new GetGravityScaleNode();
+    case 'SetGravityScaleNode':      return new SetGravityScaleNode();
+    case 'SetLinearDampingNode':     return new SetLinearDampingNode();
+    case 'SetAngularDampingNode':    return new SetAngularDampingNode();
+    case 'SetPhysicsMaterialNode':   return new SetPhysicsMaterialNode();
+    case 'GetPhysicsMaterialNode':   return new GetPhysicsMaterialNode();
+    case 'AddTorqueNode':            return new AddTorqueNode();
+    case 'AddForceAtLocationNode':   return new AddForceAtLocationNode();
+    case 'AddImpulseAtLocationNode': return new AddImpulseAtLocationNode();
+    case 'SetConstraintNode':        return new SetConstraintNode();
+    // Physics events
+    case 'OnComponentHitNode':          return new OnComponentHitNode();
+    case 'OnComponentBeginOverlapNode': return new OnComponentBeginOverlapNode();
+    case 'OnComponentEndOverlapNode':   return new OnComponentEndOverlapNode();
+    case 'OnComponentWakeNode':         return new OnComponentWakeNode();
+    case 'OnComponentSleepNode':        return new OnComponentSleepNode();
 
     // Component nodes
     case 'GetComponentLocationNode':  return new GetComponentLocationNode(d.compName || 'Root', d.compIndex ?? -1);

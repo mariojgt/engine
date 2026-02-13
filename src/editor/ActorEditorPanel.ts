@@ -5,7 +5,8 @@
 //  mini Three.js scene on the right with transform gizmos.
 // ============================================================
 
-import type { ActorAsset, ActorComponentData } from './ActorAsset';
+import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel } from './ActorAsset';
+import { defaultPhysicsConfig } from './ActorAsset';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType } from '../engine/Scene';
@@ -280,6 +281,9 @@ export class ActorEditorPanel {
       if (this._preview) this._preview.rebuild();
       this._onAssetChanged();
     }));
+
+    // Physics section for root component
+    this._buildPhysicsSection(container, this._asset.rootPhysics);
   }
 
   private _buildChildProps(comp: ActorComponentData): void {
@@ -327,6 +331,10 @@ export class ActorEditorPanel {
       if (this._preview) this._preview.rebuild();
       this._onAssetChanged();
     }));
+
+    // Physics section for child component
+    if (!comp.physics) comp.physics = defaultPhysicsConfig();
+    this._buildPhysicsSection(container, comp.physics);
   }
 
   // ---- Add Component context menu ----
@@ -415,6 +423,123 @@ export class ActorEditorPanel {
   }
 
   // ================================================================
+  //  Physics Properties Section builder
+  // ================================================================
+
+  private _buildPhysicsSection(container: HTMLElement, phys: PhysicsConfig): void {
+    const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+
+    const section = document.createElement('div');
+    section.className = 'physics-section';
+
+    // Section header
+    const header = document.createElement('div');
+    header.className = 'physics-section-header';
+    header.textContent = '⚛ Physics Settings';
+    section.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'physics-section-body';
+    section.appendChild(body);
+
+    // -- Simulate Physics (master toggle) --
+    body.appendChild(this._makeCheckboxRow('Simulate Physics', phys.simulatePhysics, (v) => {
+      phys.simulatePhysics = v;
+      phys.enabled = v;
+      notifyChanged();
+      // Refresh to show/hide dependent fields
+      this._refreshComponentProps();
+    }));
+
+    if (phys.simulatePhysics) {
+      // -- Mass --
+      body.appendChild(this._makeNumberRow('Mass (kg)', phys.mass, 0.1, 0, 100000, (v) => {
+        phys.mass = v;
+        notifyChanged();
+      }));
+
+      // -- Gravity sub-section --
+      const gravHeader = document.createElement('div');
+      gravHeader.className = 'physics-subsection-header';
+      gravHeader.textContent = 'Gravity';
+      body.appendChild(gravHeader);
+
+      body.appendChild(this._makeCheckboxRow('Enable Gravity', phys.gravityEnabled, (v) => {
+        phys.gravityEnabled = v;
+        notifyChanged();
+      }));
+      body.appendChild(this._makeNumberRow('Gravity Scale', phys.gravityScale, 0.1, -10, 10, (v) => {
+        phys.gravityScale = v;
+        notifyChanged();
+      }));
+
+      // -- Damping sub-section --
+      const dampHeader = document.createElement('div');
+      dampHeader.className = 'physics-subsection-header';
+      dampHeader.textContent = 'Damping';
+      body.appendChild(dampHeader);
+
+      body.appendChild(this._makeNumberRow('Linear Damping', phys.linearDamping, 0.01, 0, 100, (v) => {
+        phys.linearDamping = v;
+        notifyChanged();
+      }));
+      body.appendChild(this._makeNumberRow('Angular Damping', phys.angularDamping, 0.01, 0, 100, (v) => {
+        phys.angularDamping = v;
+        notifyChanged();
+      }));
+
+      // -- Material sub-section --
+      const matHeader = document.createElement('div');
+      matHeader.className = 'physics-subsection-header';
+      matHeader.textContent = 'Material';
+      body.appendChild(matHeader);
+
+      body.appendChild(this._makeNumberRow('Friction', phys.friction, 0.05, 0, 2, (v) => {
+        phys.friction = v;
+        notifyChanged();
+      }));
+      body.appendChild(this._makeNumberRow('Restitution', phys.restitution, 0.05, 0, 2, (v) => {
+        phys.restitution = v;
+        notifyChanged();
+      }));
+
+      // -- Constraints sub-section --
+      const conHeader = document.createElement('div');
+      conHeader.className = 'physics-subsection-header';
+      conHeader.textContent = 'Constraints';
+      body.appendChild(conHeader);
+
+      body.appendChild(this._makeAxisLockRow('Lock Position',
+        phys.lockPositionX, phys.lockPositionY, phys.lockPositionZ,
+        (x, y, z) => { phys.lockPositionX = x; phys.lockPositionY = y; phys.lockPositionZ = z; notifyChanged(); },
+      ));
+      body.appendChild(this._makeAxisLockRow('Lock Rotation',
+        phys.lockRotationX, phys.lockRotationY, phys.lockRotationZ,
+        (x, y, z) => { phys.lockRotationX = x; phys.lockRotationY = y; phys.lockRotationZ = z; notifyChanged(); },
+      ));
+
+      // -- Collision sub-section --
+      const colHeader = document.createElement('div');
+      colHeader.className = 'physics-subsection-header';
+      colHeader.textContent = 'Collision';
+      body.appendChild(colHeader);
+
+      body.appendChild(this._makeCheckboxRow('Collision Enabled', phys.collisionEnabled, (v) => {
+        phys.collisionEnabled = v;
+        notifyChanged();
+      }));
+
+      const channels: CollisionChannel[] = ['WorldStatic', 'WorldDynamic', 'Pawn', 'PhysicsBody', 'Trigger', 'Custom'];
+      body.appendChild(this._makeDropdownRow('Collision Channel', phys.collisionChannel, channels, (v) => {
+        phys.collisionChannel = v as CollisionChannel;
+        notifyChanged();
+      }));
+    }
+
+    container.appendChild(section);
+  }
+
+  // ================================================================
   //  Helper UI builders
   // ================================================================
 
@@ -481,6 +606,76 @@ export class ActorEditorPanel {
       row.appendChild(input);
     }
 
+    return row;
+  }
+
+  private _makeCheckboxRow(label: string, checked: boolean, onChange: (v: boolean) => void): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = label;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'prop-checkbox';
+    cb.checked = checked;
+    cb.addEventListener('change', () => onChange(cb.checked));
+    row.appendChild(lbl);
+    row.appendChild(cb);
+    return row;
+  }
+
+  private _makeNumberRow(label: string, value: number, step: number, min: number, max: number, onChange: (v: number) => void): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'prop-input';
+    input.step = String(step);
+    input.min = String(min);
+    input.max = String(max);
+    input.value = String(value);
+    input.addEventListener('change', () => onChange(parseFloat(input.value) || 0));
+    row.appendChild(lbl);
+    row.appendChild(input);
+    return row;
+  }
+
+  private _makeAxisLockRow(
+    label: string,
+    x: boolean, y: boolean, z: boolean,
+    onChange: (x: boolean, y: boolean, z: boolean) => void,
+  ): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+
+    let cx = x, cy = y, cz = z;
+    for (const [axisLabel, getter, setter] of [
+      ['X', () => cx, (v: boolean) => { cx = v; }],
+      ['Y', () => cy, (v: boolean) => { cy = v; }],
+      ['Z', () => cz, (v: boolean) => { cz = v; }],
+    ] as [string, () => boolean, (v: boolean) => void][]) {
+      const axLbl = document.createElement('span');
+      axLbl.className = `prop-xyz-label ${axisLabel.toLowerCase()}`;
+      axLbl.textContent = axisLabel;
+      row.appendChild(axLbl);
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'prop-checkbox';
+      cb.checked = getter();
+      cb.addEventListener('change', () => {
+        setter(cb.checked);
+        onChange(cx, cy, cz);
+      });
+      row.appendChild(cb);
+    }
     return row;
   }
 

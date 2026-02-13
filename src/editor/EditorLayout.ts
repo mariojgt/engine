@@ -180,6 +180,7 @@ export class EditorLayout {
           { x: 0, y: 3, z: 0 },
           asset.components,
           asset.compiledCode,
+          asset.rootPhysics,
         );
       },
     );
@@ -267,6 +268,7 @@ export class EditorLayout {
         asset.blueprintData,
         asset.compiledCode,
         asset.components,
+        asset.rootPhysics,
       );
     };
 

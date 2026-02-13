@@ -7,6 +7,7 @@ import type { Scene, MeshType } from '../engine/Scene';
 import type { GameObject } from '../engine/GameObject';
 import type { ActorAssetManager } from './ActorAsset';
 import type { BlueprintData } from './BlueprintData';
+import type { PhysicsConfig } from './ActorAsset';
 import type { BufferGeometry } from 'three';
 
 // ---- Serialized shape ----
@@ -22,6 +23,8 @@ export interface GameObjectJSON {
   actorAssetId: string | null;
   /** For standalone (non-actor) game objects, store their blueprint data */
   blueprintData?: any;
+  /** Per-object physics configuration */
+  physicsConfig?: PhysicsConfig | null;
 }
 
 export interface CameraStateJSON {
@@ -91,6 +94,7 @@ export function serializeScene(
       },
       hasPhysics: go.hasPhysics,
       actorAssetId: go.actorAssetId,
+      physicsConfig: go.physicsConfig ? structuredClone(go.physicsConfig) : null,
     };
 
     // For standalone game objects (not spawned from an actor asset),
@@ -134,11 +138,13 @@ export function deserializeScene(
           goData.position,
           asset.components,
           asset.compiledCode,
+          asset.rootPhysics,
         );
         // Apply saved transform (overrides default asset position)
         go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);
         go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
         go.hasPhysics = goData.hasPhysics;
+        if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
       } else {
         // Asset not found — create a standalone placeholder
         console.warn(`Actor asset ${goData.actorAssetId} not found, creating standalone object`);
@@ -147,6 +153,7 @@ export function deserializeScene(
         go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);
         go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
         go.hasPhysics = goData.hasPhysics;
+        if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
       }
     } else {
       // Standalone game object
@@ -155,6 +162,7 @@ export function deserializeScene(
       go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);
       go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
       go.hasPhysics = goData.hasPhysics;
+      if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
 
       // Restore blueprint data
       if (goData.blueprintData) {

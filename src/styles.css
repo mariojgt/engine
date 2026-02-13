@@ -339,6 +339,49 @@ html, body, #app {
   color: var(--text-dim);
 }
 
+/* ── Physics Section ────────────────────────── */
+.physics-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 6px 4px;
+  overflow: hidden;
+}
+
+.physics-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--bg-darker, #1e1e2e);
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.physics-section-header:hover {
+  background: var(--bg-hover, #2a2a3e);
+}
+
+.physics-section-body {
+  padding: 4px 0;
+}
+
+.physics-subsection-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
 /* =========================================
    Viewport
    ========================================= */

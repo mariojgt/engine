@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
+import type { PhysicsConfig } from '../editor/ActorAsset';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -83,9 +84,16 @@ export class Scene {
     position?: { x: number; y: number; z: number },
     components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
     compiledCode?: string,
+    physicsConfig?: PhysicsConfig,
   ): GameObject {
     const go = this.addGameObject(assetName, meshType);
     go.actorAssetId = assetId;
+
+    // Apply physics config from the actor asset
+    if (physicsConfig) {
+      go.physicsConfig = structuredClone(physicsConfig);
+      go.hasPhysics = physicsConfig.enabled && physicsConfig.simulatePhysics;
+    }
 
     // Deep copy blueprint data from the asset
     const src = blueprintData;
@@ -136,6 +144,7 @@ export class Scene {
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     compiledCode?: string,
     components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
+    physicsConfig?: PhysicsConfig,
   ): void {
     const toRad = (d: number) => (d * Math.PI) / 180;
 
@@ -182,6 +191,12 @@ export class Scene {
         if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
         go.scripts[0].code = compiledCode;
         go.scripts[0].compile();
+      }
+
+      // --- Re-sync physics config ---
+      if (physicsConfig) {
+        go.physicsConfig = structuredClone(physicsConfig);
+        go.hasPhysics = physicsConfig.enabled && physicsConfig.simulatePhysics;
       }
     }
     this._emitChanged();

@@ -5,6 +5,8 @@ export interface ScriptContext {
   deltaTime: number;
   elapsedTime: number;
   print: (value: any) => void;
+  /** PhysicsWorld reference so blueprint nodes can add/remove physics at runtime */
+  physics?: any;
 }
 
 /**
@@ -86,7 +88,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-var gameObject, deltaTime, elapsedTime, print;
+var gameObject, deltaTime, elapsedTime, print, __physics;
 
 ${preamble}
 
@@ -99,6 +101,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   deltaTime = ctx.deltaTime;
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
+  __physics = ctx.physics || null;
   ${beginPlay}
 };` : ''}
 
@@ -107,6 +110,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   deltaTime = ctx.deltaTime;
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
+  __physics = ctx.physics || null;
   ${tick}
 };` : ''}
 
@@ -115,6 +119,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   deltaTime = ctx.deltaTime;
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
+  __physics = ctx.physics || null;
   ${onDestroy}
 };` : ''}
 
@@ -134,7 +139,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
     if (!body.trim()) return null;
     return new Function(
       'ctx',
-      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\n${body}`
+      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\n${body}`
     ) as (ctx: ScriptContext) => void;
   }
 

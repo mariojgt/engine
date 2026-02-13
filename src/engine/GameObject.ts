@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ScriptComponent } from './ScriptComponent';
 import { BlueprintData } from '../editor/BlueprintData';
+import type { PhysicsConfig } from '../editor/ActorAsset';
 
 let nextId = 1;
 
@@ -13,6 +14,8 @@ export class GameObject {
   public collider: any = null;
   public hasPhysics: boolean = false;
   public blueprintData: BlueprintData = new BlueprintData();
+  /** Per-object physics configuration (from ActorAsset rootPhysics) */
+  public physicsConfig: PhysicsConfig | null = null;
 
   /**
    * If this GameObject was spawned from an ActorAsset, this holds the asset ID.
