@@ -3,6 +3,7 @@ import 'dockview-core/dist/styles/dockview.css';
 import { Engine } from './engine';
 import { EditorLayout } from './editor/EditorLayout';
 import { OutputLog } from './editor/OutputLog';
+import { ScriptComponent } from './engine/ScriptComponent';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -52,6 +53,21 @@ async function main() {
       (go as any)._savedPos = go.mesh.position.clone();
       (go as any)._savedRot = go.mesh.rotation.clone();
     }
+
+    // Pre-compile actor-asset instances: copy latest compiled code from asset
+    for (const go of engine.scene.gameObjects) {
+      if (go.actorAssetId) {
+        const asset = editor.assetManager.getAsset(go.actorAssetId);
+        if (asset && asset.compiledCode) {
+          if (go.scripts.length === 0) {
+            go.scripts.push(new ScriptComponent());
+          }
+          go.scripts[0].code = asset.compiledCode;
+          go.scripts[0].compile();
+        }
+      }
+    }
+
     engine.physics.play(engine.scene);
     engine.onPlayStarted();
     outputLog.clear();

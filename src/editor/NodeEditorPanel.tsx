@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 import { NodeEditor, GetSchemes, ClassicPreset } from 'rete';
 import { AreaPlugin, AreaExtensions } from 'rete-area-plugin';
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin';
@@ -2156,5 +2157,53 @@ export function mountNodeEditor(
 ): () => void {
   const root = createRoot(container);
   root.render(React.createElement(NodeEditorView, { gameObject }));
+  return () => root.unmount();
+}
+
+/**
+ * Mount the node editor for an ActorAsset.
+ * We create a lightweight proxy GameObject that wraps the asset's blueprintData.
+ * The onCompile callback is called every time the code is compiled,
+ * so the caller can sync instances in the scene.
+ */
+export function mountNodeEditorForAsset(
+  container: HTMLElement,
+  blueprintData: import('./BlueprintData').BlueprintData,
+  assetName: string,
+  onCompile?: (code: string) => void,
+): () => void {
+  // Create a virtual GameObject that shares the asset's blueprint data
+  const dummyMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+
+  const proxyGO: GameObject = {
+    id: -1,
+    name: assetName,
+    mesh: dummyMesh,
+    scripts: [new ScriptComponent()],
+    rigidBody: null,
+    collider: null,
+    hasPhysics: false,
+    blueprintData,
+    actorAssetId: null,
+    get position() { return dummyMesh.position; },
+    get rotation() { return dummyMesh.rotation; },
+    get scale() { return dummyMesh.scale; },
+  } as any;
+
+  // Hook into ScriptComponent compile to notify the caller
+  if (onCompile) {
+    const origCompile = proxyGO.scripts[0].compile.bind(proxyGO.scripts[0]);
+    proxyGO.scripts[0].compile = function () {
+      const result = origCompile();
+      onCompile(proxyGO.scripts[0].code);
+      return result;
+    };
+  }
+
+  const root = createRoot(container);
+  root.render(React.createElement(NodeEditorView, { gameObject: proxyGO }));
   return () => root.unmount();
 }

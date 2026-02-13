@@ -14,6 +14,12 @@ export class GameObject {
   public hasPhysics: boolean = false;
   public blueprintData: BlueprintData = new BlueprintData();
 
+  /**
+   * If this GameObject was spawned from an ActorAsset, this holds the asset ID.
+   * Used to look up and re-sync blueprint data when the asset changes.
+   */
+  public actorAssetId: string | null = null;
+
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;
     this.name = name;

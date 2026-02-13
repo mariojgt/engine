@@ -10,6 +10,9 @@ import { ViewportPanel } from './ViewportPanel';
 import { ContentBrowserPanel } from './ContentBrowserPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { mountNodeEditor } from './NodeEditorPanel';
+import { ActorAssetManager, type ActorAsset } from './ActorAsset';
+import { ActorAssetBrowser } from './ActorAssetBrowser';
+import { ActorEditorPanel } from './ActorEditorPanel';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -51,9 +54,14 @@ export class EditorLayout {
   private _viewport: ViewportPanel | null = null;
   private _properties: PropertiesPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
+  private _actorEditor: ActorEditorPanel | null = null;
+
+  /** Shared actor asset manager — stores all actor blueprints in memory */
+  public assetManager: ActorAssetManager;
 
   constructor(container: HTMLElement, engine: Engine) {
     this._engine = engine;
+    this.assetManager = new ActorAssetManager();
     this._init(container);
   }
 
@@ -79,7 +87,7 @@ export class EditorLayout {
       component: 'default',
     });
 
-    // 2. Content Browser (left)
+    // 2. Scene panel (left)
     const contentPanel = this._api.addPanel({
       id: 'content-browser',
       title: 'Scene',
@@ -90,7 +98,18 @@ export class EditorLayout {
       },
     });
 
-    // 3. Properties (right)
+    // 3. Content Browser (below scene, same left group)
+    const assetBrowserPanel = this._api.addPanel({
+      id: 'asset-browser',
+      title: 'Content Browser',
+      component: 'default',
+      position: {
+        direction: 'below',
+        referencePanel: 'content-browser',
+      },
+    });
+
+    // 4. Properties (right)
     const propertiesPanel = this._api.addPanel({
       id: 'properties',
       title: 'Properties',
@@ -112,6 +131,7 @@ export class EditorLayout {
     // Initialize panel contents using renderer map
     this._initViewport('viewport');
     this._initContentBrowser('content-browser');
+    this._initAssetBrowser('asset-browser');
     this._initProperties('properties');
   }
 
@@ -136,6 +156,33 @@ export class EditorLayout {
     });
   }
 
+  private _initAssetBrowser(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+
+    new ActorAssetBrowser(
+      el,
+      this.assetManager,
+      (asset: ActorAsset) => this._openActorEditor(asset),
+      (asset, mx, my) => {
+        // Custom drop: check if the mouse is over the viewport
+        if (!this._viewport) return;
+        const rect = this._viewport.container.getBoundingClientRect();
+        if (mx < rect.left || mx > rect.right || my < rect.top || my > rect.bottom) return;
+
+        this._engine.scene.addGameObjectFromAsset(
+          asset.id,
+          asset.name,
+          asset.rootMeshType,
+          asset.blueprintData,
+          { x: 0, y: 3, z: 0 },
+          asset.components,
+        );
+      },
+    );
+  }
+
   private _initProperties(panelId: string): void {
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
@@ -144,13 +191,14 @@ export class EditorLayout {
   }
 
   private _openNodeEditor(go: GameObject): void {
-    // Close existing node editor if any
+    // Close existing editors
     this._closeNodeEditor();
+    this._closeActorEditor();
 
     const panelId = 'node-editor-' + go.id;
 
     // Add a new panel for the node editor below the viewport
-    const nodePanel = this._api.addPanel({
+    this._api.addPanel({
       id: panelId,
       title: `⬡ Blueprint: ${go.name}`,
       component: 'default',
@@ -176,6 +224,53 @@ export class EditorLayout {
     this._nodeEditorCleanup = mountNodeEditor(wrapper, go);
   }
 
+  /** Open the full actor editor for an ActorAsset */
+  private _openActorEditor(asset: ActorAsset): void {
+    // Close existing editors
+    this._closeNodeEditor();
+    this._closeActorEditor();
+
+    const panelId = 'actor-editor-' + asset.id;
+
+    this._api.addPanel({
+      id: panelId,
+      title: `⬡ Actor: ${asset.name}`,
+      component: 'default',
+      position: {
+        direction: 'below',
+        referencePanel: 'viewport',
+      },
+    });
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) { /* not critical */ }
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    // When the asset's blueprint is compiled, sync all scene instances
+    const onCompile = (code: string) => {
+      asset.compiledCode = code;
+      asset.touch();
+      this.assetManager.notifyAssetChanged(asset.id);
+      this._engine.scene.syncActorAssetInstances(
+        asset.id,
+        asset.name,
+        asset.rootMeshType,
+        asset.blueprintData,
+      );
+    };
+
+    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile);
+  }
+
   private _closeNodeEditor(): void {
     if (this._nodeEditorCleanup) {
       this._nodeEditorCleanup();
@@ -186,6 +281,20 @@ export class EditorLayout {
     const panels = this._api.panels;
     for (const p of panels) {
       if (p.id.startsWith('node-editor-')) {
+        this._api.removePanel(p);
+      }
+    }
+  }
+
+  private _closeActorEditor(): void {
+    if (this._actorEditor) {
+      this._actorEditor.dispose();
+      this._actorEditor = null;
+    }
+
+    const panels = this._api.panels;
+    for (const p of panels) {
+      if (p.id.startsWith('actor-editor-')) {
         this._api.removePanel(p);
       }
     }

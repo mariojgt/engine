@@ -69,6 +69,79 @@ export class Scene {
     return go;
   }
 
+  /**
+   * Create a GameObject from an ActorAsset reference.
+   * The blueprint data is cloned from the asset so each instance is independent at runtime,
+   * but `actorAssetId` links it back so the editor can re-sync when the asset changes.
+   */
+  addGameObjectFromAsset(
+    assetId: string,
+    assetName: string,
+    meshType: MeshType,
+    blueprintData: import('../editor/BlueprintData').BlueprintData,
+    position?: { x: number; y: number; z: number },
+    components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
+  ): GameObject {
+    const go = this.addGameObject(assetName, meshType);
+    go.actorAssetId = assetId;
+
+    // Deep copy blueprint data from the asset
+    const src = blueprintData;
+    const dst = go.blueprintData;
+    dst.variables = structuredClone(src.variables);
+    dst.functions = structuredClone(src.functions);
+    dst.macros = structuredClone(src.macros);
+    dst.customEvents = structuredClone(src.customEvents);
+    dst.structs = structuredClone(src.structs);
+    dst.eventGraph = structuredClone(src.eventGraph);
+
+    if (position) {
+      go.mesh.position.set(position.x, position.y, position.z);
+    }
+
+    // Add child component meshes as children of the root mesh
+    if (components) {
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      for (const comp of components) {
+        const geo = geometries[comp.meshType]();
+        const mat = defaultMaterial.clone();
+        const child = new THREE.Mesh(geo, mat);
+        child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+        child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+        child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+        go.mesh.add(child);
+      }
+    }
+
+    return go;
+  }
+
+  /**
+   * Re-sync all scene instances that reference the given actor asset.
+   * Called when an actor asset's blueprint is edited.
+   */
+  syncActorAssetInstances(
+    assetId: string,
+    assetName: string,
+    meshType: MeshType,
+    blueprintData: import('../editor/BlueprintData').BlueprintData,
+  ): void {
+    for (const go of this.gameObjects) {
+      if (go.actorAssetId !== assetId) continue;
+      go.name = assetName;
+
+      // Re-clone the blueprint data
+      const dst = go.blueprintData;
+      dst.variables = structuredClone(blueprintData.variables);
+      dst.functions = structuredClone(blueprintData.functions);
+      dst.macros = structuredClone(blueprintData.macros);
+      dst.customEvents = structuredClone(blueprintData.customEvents);
+      dst.structs = structuredClone(blueprintData.structs);
+      dst.eventGraph = structuredClone(blueprintData.eventGraph);
+    }
+    this._emitChanged();
+  }
+
   removeGameObject(go: GameObject): void {
     this.threeScene.remove(go.mesh);
     this.gameObjects = this.gameObjects.filter((o) => o.id !== go.id);

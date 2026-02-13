@@ -84,6 +84,18 @@ export class ContentBrowserPanel {
       item.appendChild(icon);
       item.appendChild(name);
 
+      // Show a small badge if spawned from an actor asset
+      if (go.actorAssetId) {
+        const badge = document.createElement('span');
+        badge.className = 'icon';
+        badge.textContent = '⬡';
+        badge.title = 'Actor Asset Instance';
+        badge.style.marginLeft = 'auto';
+        badge.style.fontSize = '10px';
+        badge.style.color = 'var(--accent)';
+        item.appendChild(badge);
+      }
+
       // Single click = select
       item.addEventListener('click', (e) => {
         e.stopPropagation();
