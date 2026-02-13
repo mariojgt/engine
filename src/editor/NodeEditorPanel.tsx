@@ -35,6 +35,10 @@ import {
   CallCustomEventNode,
   MakeStructNode,
   BreakStructNode,
+  InputKeyEventNode,
+  IsKeyDownNode,
+  INPUT_KEYS,
+  keyEventCode,
 } from './nodes';
 import type { NodeEntry } from './nodes';
 
@@ -162,6 +166,12 @@ function resolveValue(
   if (node instanceof FunctionEntryNode) {
     if (outputKey === 'exec') return '0';
     return `__param_${sanitizeName(outputKey)}`;
+  }
+
+  // IsKeyDownNode — poll key state
+  if (node instanceof IsKeyDownNode) {
+    const kc = keyEventCode((node as IsKeyDownNode).selectedKey);
+    return `(__inputKeys[${JSON.stringify(kc)}] || false)`;
   }
 
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
@@ -448,16 +458,57 @@ function generateFullCode(
     parts.push(`function __custom_evt_${name}() {\n${body.map(l => '  ' + l).join('\n')}\n}`);
   }
 
-  const sections: string[] = [];
-
-  for (const [label, marker] of [['Event BeginPlay', '__beginPlay__'], ['Event Tick', '__tick__'], ['Event OnDestroy', '__onDestroy__']] as const) {
-    const evNodes = nodes.filter(n => n.label === label);
-    if (evNodes.length > 0) {
-      const code: string[] = [];
-      for (const ev of evNodes) code.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
-      if (code.length) sections.push(`// ${marker}\n${code.join('\n')}`);
-    }
+  // Input key event nodes & IsKeyDown nodes
+  const inputKeyNodes = nodes.filter(n => n instanceof InputKeyEventNode) as InputKeyEventNode[];
+  const isKeyDownNodes = nodes.filter(n => n instanceof IsKeyDownNode);
+  const hasInputNodes = inputKeyNodes.length > 0 || isKeyDownNodes.length > 0;
+  if (hasInputNodes) {
+    parts.push('var __inputKeys = {};');
+    parts.push('var __inputCleanup = [];');
   }
+
+  // Collect lifecycle code
+  const beginPlayCode: string[] = [];
+  const tickCode: string[] = [];
+  const onDestroyCode: string[] = [];
+
+  const bpEvts = nodes.filter(n => n.label === 'Event BeginPlay');
+  for (const ev of bpEvts) beginPlayCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+  const tkEvts = nodes.filter(n => n.label === 'Event Tick');
+  for (const ev of tkEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+  const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
+  for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // Input key event listeners — inject into beginPlay & onDestroy
+  if (hasInputNodes) {
+    // Global key state tracking for IsKeyDown polling
+    beginPlayCode.push('var __kd_global = function(e) { __inputKeys[e.key] = true; };');
+    beginPlayCode.push('var __ku_global = function(e) { __inputKeys[e.key] = false; };');
+    beginPlayCode.push('document.addEventListener("keydown", __kd_global);');
+    beginPlayCode.push('document.addEventListener("keyup", __ku_global);');
+    beginPlayCode.push('__inputCleanup.push(function() { document.removeEventListener("keydown", __kd_global); document.removeEventListener("keyup", __ku_global); });');
+
+    // Per InputKeyEventNode listeners
+    for (const ikNode of inputKeyNodes) {
+      const kc = keyEventCode(ikNode.selectedKey);
+      const pressedBody = walkExec(ikNode.id, 'pressed', nodeMap, inputSrc, outputDst, bp);
+      const releasedBody = walkExec(ikNode.id, 'released', nodeMap, inputSrc, outputDst, bp);
+      if (pressedBody.length) {
+        beginPlayCode.push(`(function() { var _kd = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${pressedBody.join(' ')} } }; document.addEventListener("keydown", _kd); __inputCleanup.push(function() { document.removeEventListener("keydown", _kd); }); })();`);
+      }
+      if (releasedBody.length) {
+        beginPlayCode.push(`(function() { var _ku = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${releasedBody.join(' ')} } }; document.addEventListener("keyup", _ku); __inputCleanup.push(function() { document.removeEventListener("keyup", _ku); }); })();`);
+      }
+    }
+
+    // Cleanup in onDestroy
+    onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
+  }
+
+  const sections: string[] = [];
+  if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
+  if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
+  if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
   if (sections.length) parts.push(sections.join('\n'));
 
   return parts.join('\n');
@@ -712,6 +763,7 @@ function showContextMenu(
   onAddCustomEventCallNode: (evt: BlueprintCustomEvent) => void,
   onAddLocalVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
   onAddStructNode: (s: BlueprintStruct, mode: 'make' | 'break') => void,
+  onAddInputKeyNode: (type: 'event' | 'isdown') => void,
 ) {
   const existing = container.querySelector('.bp-context-menu');
   if (existing) existing.remove();
@@ -817,6 +869,18 @@ function showContextMenu(
           items.push({ label: `Break ${s.name}`, action: () => { onAddStructNode(s, 'break'); menu.remove(); } });
       }
       if (items.length) categories.set('Structs', items);
+    }
+
+    // Input — Key Event / Is Key Down (event graph only for Key Event)
+    {
+      const items: { label: string; action: () => void }[] = [];
+      if (graphType === 'event') {
+        if (!lf || 'input key event'.includes(lf) || 'input'.includes(lf))
+          items.push({ label: 'Input Key Event', action: () => { menu.remove(); onAddInputKeyNode('event'); } });
+      }
+      if (!lf || 'is key down'.includes(lf) || 'input'.includes(lf))
+        items.push({ label: 'Is Key Down', action: () => { menu.remove(); onAddInputKeyNode('isdown'); } });
+      if (items.length) categories.set('Input', items);
     }
 
     for (const [cat, entries] of categories) {
@@ -946,6 +1010,32 @@ function showAddNameDialog(parent: HTMLElement, title: string, defaultName: stri
   nameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') dialog.querySelector<HTMLButtonElement>('#dlg-ok')!.click();
     if (e.key === 'Escape') close();
+  });
+}
+
+function showKeySelectDialog(parent: HTMLElement, title: string, onSelect: (key: string) => void) {
+  const overlay = document.createElement('div');
+  overlay.className = 'mybp-dialog-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'mybp-dialog';
+  const options = INPUT_KEYS.map(k => `<option value="${k}">${k}</option>`).join('');
+  dialog.innerHTML = `
+    <div class="mybp-dialog-title">${title}</div>
+    <label class="mybp-dialog-label">Key</label>
+    <select class="mybp-dialog-input" id="dlg-key">${options}</select>
+    <div class="mybp-dialog-actions">
+      <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
+      <button class="mybp-dialog-btn ok" id="dlg-ok">Add</button>
+    </div>`;
+  overlay.appendChild(dialog);
+  parent.appendChild(overlay);
+  const close = () => overlay.remove();
+  dialog.querySelector('#dlg-cancel')!.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
+    const sel = dialog.querySelector('#dlg-key') as HTMLSelectElement;
+    onSelect(sel.value);
+    close();
   });
 }
 
@@ -1236,6 +1326,17 @@ async function createGraphEditor(
         await editor.addNode(node);
         const t = area.area.transform;
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+      },
+      (type) => {
+        const title = type === 'event' ? 'Input Key Event' : 'Is Key Down';
+        showKeySelectDialog(container, title, async (key) => {
+          const node = type === 'event'
+            ? new InputKeyEventNode(key)
+            : new IsKeyDownNode(key);
+          await editor.addNode(node);
+          const t = area.area.transform;
+          await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+        });
       },
     );
   });
