@@ -17,14 +17,35 @@ export const INPUT_KEYS = [
   'Backspace','CapsLock',
   // Function keys
   'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
+  // Mouse buttons
+  'Mouse Left','Mouse Right','Mouse Middle',
+  // Mouse wheel
+  'Mouse Wheel Up','Mouse Wheel Down',
 ] as const;
 
-/** Maps our friendly key names to KeyboardEvent.key values */
+/** Returns the input category: 'keyboard', 'mouse', or 'wheel' */
+export function inputType(key: string): 'keyboard' | 'mouse' | 'wheel' {
+  if (key === 'Mouse Left' || key === 'Mouse Right' || key === 'Mouse Middle') return 'mouse';
+  if (key === 'Mouse Wheel Up' || key === 'Mouse Wheel Down') return 'wheel';
+  return 'keyboard';
+}
+
+/** Maps our friendly key names to the runtime value used for matching.
+ *  - Keyboard: KeyboardEvent.key string
+ *  - Mouse:    MouseEvent.button number (as string)
+ *  - Wheel:    'up' or 'down' */
 export function keyEventCode(key: string): string {
   if (key === 'Space') return ' ';
   if (key === 'Shift') return 'Shift';
   if (key === 'Control') return 'Control';
   if (key === 'Alt') return 'Alt';
+  // Mouse buttons → MouseEvent.button number
+  if (key === 'Mouse Left') return '0';
+  if (key === 'Mouse Right') return '2';
+  if (key === 'Mouse Middle') return '1';
+  // Mouse wheel direction
+  if (key === 'Mouse Wheel Up') return 'up';
+  if (key === 'Mouse Wheel Down') return 'down';
   // Single letters: KeyboardEvent.key is lowercase
   if (key.length === 1 && key >= 'A' && key <= 'Z') return key.toLowerCase();
   return key;

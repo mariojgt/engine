@@ -19,7 +19,7 @@ export { EventBeginPlayNode } from './events/EventBeginPlayNode';
 export { EventTickNode }      from './events/EventTickNode';
 export { EventOnDestroyNode } from './events/EventOnDestroyNode';
 export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes';
-export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode } from './events/InputKeyNodes';
+export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode, inputType } from './events/InputKeyNodes';
 
 // ── Flow Control ────────────────────────────────────────────
 export { BranchNode }   from './flow-control/BranchNode';

@@ -39,6 +39,7 @@ import {
   IsKeyDownNode,
   INPUT_KEYS,
   keyEventCode,
+  inputType,
 } from './nodes';
 import type { NodeEntry } from './nodes';
 
@@ -170,7 +171,15 @@ function resolveValue(
 
   // IsKeyDownNode — poll key state
   if (node instanceof IsKeyDownNode) {
-    const kc = keyEventCode((node as IsKeyDownNode).selectedKey);
+    const ikd = node as IsKeyDownNode;
+    const itype = inputType(ikd.selectedKey);
+    const kc = keyEventCode(ikd.selectedKey);
+    if (itype === 'mouse') {
+      return `(__inputKeys["__mouse${kc}"] || false)`;
+    }
+    if (itype === 'wheel') {
+      return 'false'; // wheel has no "held" state
+    }
     return `(__inputKeys[${JSON.stringify(kc)}] || false)`;
   }
 
@@ -481,23 +490,47 @@ function generateFullCode(
 
   // Input key event listeners — inject into beginPlay & onDestroy
   if (hasInputNodes) {
-    // Global key state tracking for IsKeyDown polling
+    // Global key state tracking for IsKeyDown polling (keyboard + mouse buttons)
     beginPlayCode.push('var __kd_global = function(e) { __inputKeys[e.key] = true; };');
     beginPlayCode.push('var __ku_global = function(e) { __inputKeys[e.key] = false; };');
     beginPlayCode.push('document.addEventListener("keydown", __kd_global);');
     beginPlayCode.push('document.addEventListener("keyup", __ku_global);');
-    beginPlayCode.push('__inputCleanup.push(function() { document.removeEventListener("keydown", __kd_global); document.removeEventListener("keyup", __ku_global); });');
+    beginPlayCode.push('var __md_global = function(e) { __inputKeys["__mouse" + e.button] = true; };');
+    beginPlayCode.push('var __mu_global = function(e) { __inputKeys["__mouse" + e.button] = false; };');
+    beginPlayCode.push('document.addEventListener("mousedown", __md_global);');
+    beginPlayCode.push('document.addEventListener("mouseup", __mu_global);');
+    beginPlayCode.push('__inputCleanup.push(function() { document.removeEventListener("keydown", __kd_global); document.removeEventListener("keyup", __ku_global); document.removeEventListener("mousedown", __md_global); document.removeEventListener("mouseup", __mu_global); });');
 
     // Per InputKeyEventNode listeners
     for (const ikNode of inputKeyNodes) {
       const kc = keyEventCode(ikNode.selectedKey);
+      const itype = inputType(ikNode.selectedKey);
       const pressedBody = walkExec(ikNode.id, 'pressed', nodeMap, inputSrc, outputDst, bp);
       const releasedBody = walkExec(ikNode.id, 'released', nodeMap, inputSrc, outputDst, bp);
-      if (pressedBody.length) {
-        beginPlayCode.push(`(function() { var _kd = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${pressedBody.join(' ')} } }; document.addEventListener("keydown", _kd); __inputCleanup.push(function() { document.removeEventListener("keydown", _kd); }); })();`);
-      }
-      if (releasedBody.length) {
-        beginPlayCode.push(`(function() { var _ku = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${releasedBody.join(' ')} } }; document.addEventListener("keyup", _ku); __inputCleanup.push(function() { document.removeEventListener("keyup", _ku); }); })();`);
+
+      if (itype === 'keyboard') {
+        if (pressedBody.length) {
+          beginPlayCode.push(`(function() { var _kd = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${pressedBody.join(' ')} } }; document.addEventListener("keydown", _kd); __inputCleanup.push(function() { document.removeEventListener("keydown", _kd); }); })();`);
+        }
+        if (releasedBody.length) {
+          beginPlayCode.push(`(function() { var _ku = function(e) { if (e.key === ${JSON.stringify(kc)}) { ${releasedBody.join(' ')} } }; document.addEventListener("keyup", _ku); __inputCleanup.push(function() { document.removeEventListener("keyup", _ku); }); })();`);
+        }
+      } else if (itype === 'mouse') {
+        if (pressedBody.length) {
+          beginPlayCode.push(`(function() { var _md = function(e) { if (e.button === ${kc}) { ${pressedBody.join(' ')} } }; document.addEventListener("mousedown", _md); __inputCleanup.push(function() { document.removeEventListener("mousedown", _md); }); })();`);
+        }
+        if (releasedBody.length) {
+          beginPlayCode.push(`(function() { var _mu = function(e) { if (e.button === ${kc}) { ${releasedBody.join(' ')} } }; document.addEventListener("mouseup", _mu); __inputCleanup.push(function() { document.removeEventListener("mouseup", _mu); }); })();`);
+        }
+      } else if (itype === 'wheel') {
+        // Wheel: "pressed" fires on scroll in that direction, "released" not applicable but supported
+        const dir = kc === 'up' ? '< 0' : '> 0';
+        if (pressedBody.length) {
+          beginPlayCode.push(`(function() { var _wh = function(e) { if (e.deltaY ${dir}) { ${pressedBody.join(' ')} } }; document.addEventListener("wheel", _wh); __inputCleanup.push(function() { document.removeEventListener("wheel", _wh); }); })();`);
+        }
+        if (releasedBody.length) {
+          beginPlayCode.push(`(function() { var _wh2 = function(e) { if (e.deltaY ${dir}) { ${releasedBody.join(' ')} } }; document.addEventListener("wheel", _wh2); __inputCleanup.push(function() { document.removeEventListener("wheel", _wh2); }); })();`);
+        }
       }
     }
 
