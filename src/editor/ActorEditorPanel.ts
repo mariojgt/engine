@@ -5,13 +5,13 @@
 //  mini Three.js scene on the right with transform gizmos.
 // ============================================================
 
-import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel } from './ActorAsset';
-import { defaultPhysicsConfig } from './ActorAsset';
+import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType } from './ActorAsset';
+import { defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 import { defaultCollisionConfig, defaultDimensionsForShape } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
-import type { MeshType } from '../engine/Scene';
+import type { MeshType, RootMeshType } from '../engine/Scene';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -188,12 +188,18 @@ export class ActorEditorPanel {
 
     // Root component (always present)
     this._componentsListEl.appendChild(
-      this._makeComponentItem('DefaultSceneRoot (' + this._asset.rootMeshType + ')', '__root__', '📦'),
+      this._makeComponentItem(
+        this._asset.rootMeshType === 'none'
+          ? 'DefaultSceneRoot'
+          : 'DefaultSceneRoot (' + this._asset.rootMeshType + ')',
+        '__root__',
+        this._asset.rootMeshType === 'none' ? '🔵' : '📦',
+      ),
     );
 
     // Child components
     for (const comp of this._asset.components) {
-      const icon = comp.type === 'trigger' ? '⚡' : '🔹';
+      const icon = comp.type === 'trigger' ? '⚡' : comp.type === 'light' ? '💡' : '🔹';
       this._componentsListEl.appendChild(
         this._makeComponentItem(comp.name, comp.id, icon),
       );
@@ -277,16 +283,19 @@ export class ActorEditorPanel {
     title.textContent = 'Root Component';
     container.appendChild(title);
 
-    // Mesh type dropdown
-    container.appendChild(this._makeDropdownRow('Mesh', this._asset.rootMeshType, ['cube', 'sphere', 'cylinder', 'plane'], (v) => {
-      this._asset.rootMeshType = v as MeshType;
+    // Root type dropdown (none = empty scene root)
+    container.appendChild(this._makeDropdownRow('Root Type', this._asset.rootMeshType, ['none', 'cube', 'sphere', 'cylinder', 'plane'], (v) => {
+      this._asset.rootMeshType = v as any;
       this._asset.touch();
       if (this._preview) this._preview.rebuild();
+      this._refreshComponentsList();
       this._onAssetChanged();
     }));
 
-    // Physics section for root component
-    this._buildPhysicsSection(container, this._asset.rootPhysics);
+    // Physics section for root component (only for mesh roots)
+    if (this._asset.rootMeshType !== 'none') {
+      this._buildPhysicsSection(container, this._asset.rootPhysics);
+    }
   }
 
   private _buildChildProps(comp: ActorComponentData): void {
@@ -318,6 +327,125 @@ export class ActorEditorPanel {
       // Collision settings section
       if (!comp.collision) comp.collision = defaultCollisionConfig();
       this._buildCollisionSection(container, comp.collision);
+    } else if (comp.type === 'light') {
+      // ---- Light component properties ----
+      if (!comp.light) comp.light = defaultLightConfig('point');
+      const lcfg = comp.light;
+
+      // Light Type (read-only)
+      const ltRow = document.createElement('div');
+      ltRow.className = 'prop-row';
+      ltRow.innerHTML = '<span class="prop-label">Type</span>';
+      const ltVal = document.createElement('span');
+      ltVal.className = 'prop-value';
+      ltVal.textContent = lcfg.lightType.charAt(0).toUpperCase() + lcfg.lightType.slice(1);
+      ltVal.style.color = '#ffcc00';
+      ltRow.appendChild(ltVal);
+      container.appendChild(ltRow);
+
+      // Offset
+      container.appendChild(this._makeVec3Row('Offset', comp.offset, () => {
+        this._asset.touch();
+        if (this._preview) this._preview.rebuild();
+        this._onAssetChanged();
+      }));
+
+      // Enabled
+      container.appendChild(this._makeCheckboxRow('Enabled', lcfg.enabled, (v) => {
+        lcfg.enabled = v;
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+
+      // Color
+      container.appendChild(this._makeColorRow('Color', lcfg.color, (v) => {
+        lcfg.color = v;
+        this._asset.touch();
+        if (this._preview) this._preview.rebuild();
+        this._onAssetChanged();
+      }));
+
+      // Ground Color (hemisphere only)
+      if (lcfg.lightType === 'hemisphere') {
+        container.appendChild(this._makeColorRow('Ground Color', lcfg.groundColor, (v) => {
+          lcfg.groundColor = v;
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._onAssetChanged();
+        }));
+      }
+
+      // Intensity
+      container.appendChild(this._makeNumberRow('Intensity', lcfg.intensity, 0.1, 0, 100, (v) => {
+        lcfg.intensity = v;
+        this._asset.touch();
+        if (this._preview) this._preview.rebuild();
+        this._onAssetChanged();
+      }));
+
+      // Distance (point / spot)
+      if (lcfg.lightType === 'point' || lcfg.lightType === 'spot') {
+        container.appendChild(this._makeNumberRow('Distance', lcfg.distance, 0.5, 0, 1000, (v) => {
+          lcfg.distance = v;
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._onAssetChanged();
+        }));
+        container.appendChild(this._makeNumberRow('Decay', lcfg.decay, 0.1, 0, 10, (v) => {
+          lcfg.decay = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+      }
+
+      // Spot-specific: angle, penumbra
+      if (lcfg.lightType === 'spot') {
+        container.appendChild(this._makeNumberRow('Angle (deg)', lcfg.angle, 1, 1, 180, (v) => {
+          lcfg.angle = v;
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._onAssetChanged();
+        }));
+        container.appendChild(this._makeNumberRow('Penumbra', lcfg.penumbra, 0.05, 0, 1, (v) => {
+          lcfg.penumbra = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+      }
+
+      // Target (directional / spot)
+      if (lcfg.lightType === 'directional' || lcfg.lightType === 'spot') {
+        container.appendChild(this._makeVec3Row('Target', lcfg.target, () => {
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._onAssetChanged();
+        }));
+      }
+
+      // Shadows section header
+      const shHeader = document.createElement('div');
+      shHeader.className = 'prop-section-title';
+      shHeader.textContent = 'Shadows';
+      container.appendChild(shHeader);
+
+      // Cast Shadow (not for ambient/hemisphere)
+      if (lcfg.lightType !== 'ambient' && lcfg.lightType !== 'hemisphere') {
+        container.appendChild(this._makeCheckboxRow('Cast Shadow', lcfg.castShadow, (v) => {
+          lcfg.castShadow = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+        container.appendChild(this._makeDropdownRow('Map Size', String(lcfg.shadowMapSize), ['512', '1024', '2048', '4096'], (v) => {
+          lcfg.shadowMapSize = parseInt(v, 10);
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+        container.appendChild(this._makeNumberRow('Shadow Bias', lcfg.shadowBias, 0.0001, -0.01, 0.01, (v) => {
+          lcfg.shadowBias = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+      }
     } else {
       // ---- Mesh component properties ----
       // Mesh type
@@ -412,6 +540,32 @@ export class ActorEditorPanel {
       menu.appendChild(item);
     }
 
+    // ---- Light sub-header ----
+    const lightHeader = document.createElement('div');
+    lightHeader.className = 'context-menu-header';
+    lightHeader.textContent = '💡 Light';
+    menu.appendChild(lightHeader);
+
+    const lightTypes: { label: string; lt: LightType }[] = [
+      { label: 'Directional Light', lt: 'directional' },
+      { label: 'Point Light',       lt: 'point' },
+      { label: 'Spot Light',        lt: 'spot' },
+      { label: 'Ambient Light',     lt: 'ambient' },
+      { label: 'Hemisphere Light',  lt: 'hemisphere' },
+    ];
+
+    for (const t of lightTypes) {
+      const item = document.createElement('div');
+      item.className = 'context-menu-item';
+      item.textContent = t.label;
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        this._addLightComponent(t.lt);
+      });
+      menu.appendChild(item);
+    }
+
     document.body.appendChild(menu);
 
     const cleanup = () => {
@@ -460,6 +614,29 @@ export class ActorEditorPanel {
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       collision,
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addLightComponent(lightType: LightType): void {
+    const label = lightType.charAt(0).toUpperCase() + lightType.slice(1);
+    const name = label + 'Light_' + this._asset.components.length;
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'light',
+      meshType: 'cube',           // placeholder — not rendered as mesh
+      name,
+      offset: { x: 0, y: 3, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      light: defaultLightConfig(lightType),
     };
     this._asset.components.push(comp);
     this._asset.touch();
@@ -818,6 +995,27 @@ export class ActorEditorPanel {
     cb.addEventListener('change', () => onChange(cb.checked));
     row.appendChild(lbl);
     row.appendChild(cb);
+    return row;
+  }
+
+  private _makeColorRow(label: string, value: string, onChange: (v: string) => void): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.className = 'prop-color';
+    input.value = value;
+    input.style.width = '50px';
+    input.style.height = '22px';
+    input.style.border = '1px solid #555';
+    input.style.backgroundColor = 'transparent';
+    input.style.cursor = 'pointer';
+    input.addEventListener('input', () => onChange(input.value));
+    row.appendChild(lbl);
+    row.appendChild(input);
     return row;
   }
 

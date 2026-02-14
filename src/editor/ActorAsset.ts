@@ -10,6 +10,49 @@ import { BlueprintData, type VarType, type BlueprintVariable, type BlueprintFunc
 import type { CollisionConfig } from '../engine/CollisionTypes';
 import { defaultCollisionConfig } from '../engine/CollisionTypes';
 
+// ---- Light component configuration ----
+
+export type LightType = 'directional' | 'point' | 'spot' | 'ambient' | 'hemisphere';
+
+export interface LightConfig {
+  lightType: LightType;
+  enabled: boolean;
+  color: string;            // hex e.g. '#ffffff'
+  intensity: number;
+  // Point / Spot
+  distance: number;
+  decay: number;
+  // Spot only
+  angle: number;            // radians
+  penumbra: number;         // 0-1
+  // Directional / Spot target
+  target: { x: number; y: number; z: number };
+  // Hemisphere
+  groundColor: string;      // hex
+  // Shadows
+  castShadow: boolean;
+  shadowMapSize: number;    // e.g. 512, 1024, 2048
+  shadowBias: number;
+}
+
+export function defaultLightConfig(lightType: LightType = 'point'): LightConfig {
+  return {
+    lightType,
+    enabled: true,
+    color: '#ffffff',
+    intensity: 1.0,
+    distance: 20,
+    decay: 2,
+    angle: Math.PI / 6,     // 30 degrees
+    penumbra: 0.2,
+    target: { x: 0, y: 0, z: 0 },
+    groundColor: '#8b4513',
+    castShadow: true,
+    shadowMapSize: 1024,
+    shadowBias: -0.0001,
+  };
+}
+
 // ---- Physics configuration (UE-style per-component) ----
 
 export type CollisionChannel = 'WorldStatic' | 'WorldDynamic' | 'Pawn' | 'PhysicsBody' | 'Trigger' | 'Custom';
@@ -75,7 +118,7 @@ export function defaultPhysicsConfig(): PhysicsConfig {
 export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
-  type: 'mesh' | 'trigger';
+  type: 'mesh' | 'trigger' | 'light';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -89,6 +132,8 @@ export interface ActorComponentData {
   physics?: PhysicsConfig;
   /** Collision / trigger configuration (for type='trigger') */
   collision?: CollisionConfig;
+  /** Light configuration (for type='light') */
+  light?: LightConfig;
 }
 
 export interface ActorAssetJSON {
@@ -97,7 +142,7 @@ export interface ActorAssetJSON {
   /** Optional description / tooltip */
   description: string;
   /** Root mesh type for the actor */
-  rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
+  rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none';
   /** Physics configuration for the root component */
   rootPhysics: PhysicsConfig;
   /** Additional child components (future) */
@@ -135,7 +180,7 @@ export class ActorAsset {
   public id: string;
   public name: string;
   public description: string = '';
-  public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' = 'cube';
+  public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none' = 'cube';
   public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
   public components: ActorComponentData[] = [];
   public blueprintData: BlueprintData;
@@ -203,6 +248,7 @@ export class ActorAsset {
       ...c,
       physics: c.physics ? { ...defaultPhysicsConfig(), ...c.physics } : undefined,
       collision: c.collision ? { ...defaultCollisionConfig(), ...c.collision } : undefined,
+      light: c.light ? { ...defaultLightConfig(c.light.lightType), ...c.light } : undefined,
     }));
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();

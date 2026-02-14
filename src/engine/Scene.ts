@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
-import type { PhysicsConfig, ActorComponentData } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorComponentData, LightConfig } from '../editor/ActorAsset';
+import { defaultLightConfig } from '../editor/ActorAsset';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
+export type RootMeshType = MeshType | 'none';
 
 // Simple materials with flat colors
 const defaultMaterial = new THREE.MeshStandardMaterial({
@@ -75,15 +77,24 @@ export class Scene {
     this.threeScene.add(ground);
   }
 
-  addGameObject(name: string, type: MeshType): GameObject {
-    const geo = geometries[type]();
-    const mat = defaultMaterial.clone();
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.position.set(0, type === 'plane' ? 0 : 3, 0);
-    if (type === 'plane') {
-      mesh.rotation.x = -Math.PI / 2;
+  addGameObject(name: string, type: RootMeshType): GameObject {
+    let mesh: THREE.Mesh;
+    if (type === 'none') {
+      // DefaultSceneRoot — invisible placeholder mesh (no geometry)
+      const invisGeo = new THREE.BoxGeometry(0.001, 0.001, 0.001);
+      const invisMat = new THREE.MeshBasicMaterial({ visible: false });
+      mesh = new THREE.Mesh(invisGeo, invisMat);
+      mesh.position.set(0, 3, 0);
+    } else {
+      const geo = geometries[type]();
+      const mat = defaultMaterial.clone();
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.position.set(0, type === 'plane' ? 0 : 3, 0);
+      if (type === 'plane') {
+        mesh.rotation.x = -Math.PI / 2;
+      }
     }
 
     const go = new GameObject(name, mesh);
@@ -102,7 +113,7 @@ export class Scene {
   addGameObjectFromAsset(
     assetId: string,
     assetName: string,
-    meshType: MeshType,
+    meshType: RootMeshType,
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     position?: { x: number; y: number; z: number },
     components?: ActorComponentData[],
@@ -154,7 +165,7 @@ export class Scene {
   syncActorAssetInstances(
     assetId: string,
     assetName: string,
-    meshType: MeshType,
+    meshType: RootMeshType,
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     compiledCode?: string,
     components?: ActorComponentData[],
@@ -165,9 +176,16 @@ export class Scene {
       go.name = assetName;
 
       // --- Update root mesh geometry if the mesh type changed ---
-      const newGeo = geometries[meshType]();
-      go.mesh.geometry.dispose();
-      go.mesh.geometry = newGeo;
+      if (meshType === 'none') {
+        const invisGeo = new THREE.BoxGeometry(0.001, 0.001, 0.001);
+        go.mesh.geometry.dispose();
+        go.mesh.geometry = invisGeo;
+        go.mesh.material = new THREE.MeshBasicMaterial({ visible: false }) as any;
+      } else {
+        const newGeo = geometries[meshType]();
+        go.mesh.geometry.dispose();
+        go.mesh.geometry = newGeo;
+      }
 
       // --- Rebuild child component meshes & trigger data ---
       // Remove all existing children
@@ -307,6 +325,8 @@ export class Scene {
     const toRad = (d: number) => (d * Math.PI) / 180;
     const triggers: Array<{ config: CollisionConfig; name: string; index: number; offset: { x: number; y: number; z: number } }> = [];
     let triggerIdx = 0;
+    const lightComps: Array<{ light: THREE.Light; config: LightConfig; name: string; index: number }> = [];
+    let lightIdx = 0;
 
     for (const comp of components) {
       if (comp.type === 'trigger') {
@@ -326,6 +346,111 @@ export class Scene {
         helper.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
         helper.userData.__triggerCompName = comp.name;
         go.mesh.add(helper);
+      } else if (comp.type === 'light') {
+        // Light component — create Three.js light
+        const cfg: LightConfig = comp.light ? { ...defaultLightConfig(comp.light.lightType), ...comp.light } : defaultLightConfig('point');
+        let threeLight: THREE.Light;
+
+        switch (cfg.lightType) {
+          case 'directional': {
+            const dl = new THREE.DirectionalLight(cfg.color, cfg.intensity);
+            dl.castShadow = cfg.castShadow;
+            dl.shadow.mapSize.width = cfg.shadowMapSize;
+            dl.shadow.mapSize.height = cfg.shadowMapSize;
+            dl.shadow.bias = cfg.shadowBias;
+            dl.shadow.camera.near = 0.5;
+            dl.shadow.camera.far = 50;
+            dl.shadow.camera.left = -15;
+            dl.shadow.camera.right = 15;
+            dl.shadow.camera.top = 15;
+            dl.shadow.camera.bottom = -15;
+            dl.target.position.set(cfg.target.x, cfg.target.y, cfg.target.z);
+            threeLight = dl;
+            // The target must be added to the scene for it to work
+            go.mesh.add(dl.target);
+            break;
+          }
+          case 'point': {
+            const pl = new THREE.PointLight(cfg.color, cfg.intensity, cfg.distance, cfg.decay);
+            pl.castShadow = cfg.castShadow;
+            pl.shadow.mapSize.width = cfg.shadowMapSize;
+            pl.shadow.mapSize.height = cfg.shadowMapSize;
+            pl.shadow.bias = cfg.shadowBias;
+            threeLight = pl;
+            break;
+          }
+          case 'spot': {
+            const toRadLight = (d: number) => (d * Math.PI) / 180;
+            const sl = new THREE.SpotLight(cfg.color, cfg.intensity, cfg.distance, toRadLight(cfg.angle), cfg.penumbra, cfg.decay);
+            sl.castShadow = cfg.castShadow;
+            sl.shadow.mapSize.width = cfg.shadowMapSize;
+            sl.shadow.mapSize.height = cfg.shadowMapSize;
+            sl.shadow.bias = cfg.shadowBias;
+            sl.target.position.set(cfg.target.x, cfg.target.y, cfg.target.z);
+            threeLight = sl;
+            go.mesh.add(sl.target);
+            break;
+          }
+          case 'ambient': {
+            threeLight = new THREE.AmbientLight(cfg.color, cfg.intensity);
+            break;
+          }
+          case 'hemisphere': {
+            threeLight = new THREE.HemisphereLight(cfg.color, cfg.groundColor, cfg.intensity);
+            break;
+          }
+          default:
+            threeLight = new THREE.PointLight(cfg.color, cfg.intensity, cfg.distance, cfg.decay);
+        }
+
+        threeLight.visible = cfg.enabled;
+        threeLight.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+        threeLight.userData.__lightCompName = comp.name;
+        go.mesh.add(threeLight);
+
+        // --- Editor helper: icon + range wireframe ---
+        const helperGroup = new THREE.Group();
+        helperGroup.userData.__isLightHelper = true;
+        helperGroup.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+
+        // Clickable light icon (small diamond)
+        const iconGeo = new THREE.OctahedronGeometry(0.12, 0);
+        const iconMat = new THREE.MeshBasicMaterial({
+          color: cfg.color,
+          transparent: true,
+          opacity: 0.85,
+          depthTest: false,
+        });
+        const iconMesh = new THREE.Mesh(iconGeo, iconMat);
+        iconMesh.renderOrder = 999;
+        helperGroup.add(iconMesh);
+
+        // Range indicator
+        if (cfg.lightType === 'point' && cfg.distance > 0) {
+          const rangeGeo = new THREE.SphereGeometry(cfg.distance, 24, 16);
+          const rangeWire = new THREE.Mesh(rangeGeo, new THREE.MeshBasicMaterial({
+            color: cfg.color, wireframe: true, transparent: true, opacity: 0.06,
+          }));
+          helperGroup.add(rangeWire);
+        } else if (cfg.lightType === 'spot') {
+          const toRadH = (d: number) => (d * Math.PI) / 180;
+          const coneH = cfg.distance > 0 ? cfg.distance : 5;
+          const coneR = Math.tan(toRadH(cfg.angle)) * coneH;
+          const coneGeo = new THREE.ConeGeometry(coneR, coneH, 24, 1, true);
+          const coneWire = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+            color: cfg.color, wireframe: true, transparent: true, opacity: 0.08,
+          }));
+          coneWire.position.y = -coneH / 2;
+          helperGroup.add(coneWire);
+        } else if (cfg.lightType === 'directional') {
+          const dDir = new THREE.Vector3(cfg.target.x - comp.offset.x, cfg.target.y - comp.offset.y, cfg.target.z - comp.offset.z).normalize();
+          const arrow = new THREE.ArrowHelper(dDir, new THREE.Vector3(), 1.5, new THREE.Color(cfg.color).getHex(), 0.3, 0.15);
+          helperGroup.add(arrow);
+        }
+
+        go.mesh.add(helperGroup);
+
+        lightComps.push({ light: threeLight, config: cfg, name: comp.name, index: lightIdx++ });
       } else {
         // Mesh component — add as child mesh
         const geo = geometries[comp.meshType]();
@@ -342,6 +467,8 @@ export class Scene {
 
     // Store trigger data on the GO so CollisionSystem.createSensors() can read it
     (go as any)._triggerComponents = triggers;
+    // Store light data on the GO so blueprint codegen can read it
+    (go as any)._lightComponents = lightComps;
   }
 
   /** Hide or show trigger wireframe helpers (e.g., hide during Play for cleaner view) */
@@ -349,6 +476,17 @@ export class Scene {
     for (const go of this.gameObjects) {
       go.mesh.traverse((child) => {
         if (child.userData.__isTriggerHelper) {
+          child.visible = visible;
+        }
+      });
+    }
+  }
+
+  /** Hide or show light editor helpers (icons + range wireframes) during Play */
+  setLightHelpersVisible(visible: boolean): void {
+    for (const go of this.gameObjects) {
+      go.mesh.traverse((child) => {
+        if (child.userData.__isLightHelper) {
           child.visible = visible;
         }
       });

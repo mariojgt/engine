@@ -3,11 +3,12 @@ import { ClassicPreset } from 'rete';
 // ============================================================
 //  Shared Socket Types
 // ============================================================
-export const execSocket = new ClassicPreset.Socket('Exec');    // white – execution flow
-export const numSocket  = new ClassicPreset.Socket('Number');  // green
-export const boolSocket = new ClassicPreset.Socket('Boolean'); // red
-export const vec3Socket = new ClassicPreset.Socket('Vector3'); // yellow
-export const strSocket  = new ClassicPreset.Socket('String');  // magenta
+export const execSocket  = new ClassicPreset.Socket('Exec');    // white – execution flow
+export const numSocket   = new ClassicPreset.Socket('Number');  // green
+export const boolSocket  = new ClassicPreset.Socket('Boolean'); // red
+export const vec3Socket  = new ClassicPreset.Socket('Vector3'); // yellow
+export const strSocket   = new ClassicPreset.Socket('String');  // magenta
+export const colorSocket = new ClassicPreset.Socket('Color');   // coral – hex colour
 
 // ============================================================
 //  Socket Type Colours  (UE-style)
@@ -18,6 +19,7 @@ export const SOCKET_COLORS: Record<string, string> = {
   Boolean: '#e74c3c',   // red
   Vector3: '#f5a623',   // yellow-orange
   String:  '#c678dd',   // magenta / purple
+  Color:   '#ff6b9d',   // coral / pink – hex colour
   Enum:    '#00bcd4',   // cyan – enum sockets
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
@@ -41,7 +43,6 @@ export function socketsCompatible(
   b: ClassicPreset.Socket,
 ): boolean {
   // RerouteNode "Any" socket is compatible with everything
-  if (a.name === 'Any' || b.name === 'Any') return true;
   return a.name === b.name;
 }
 

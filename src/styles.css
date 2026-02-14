@@ -470,72 +470,6 @@ html, body, #app {
   min-width: 180px;
 }
 
-/* ── Reroute node — small dot waypoint (UE-style) ── */
-.fe-reroute {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  min-width: 20px !important;
-}
-.fe-reroute::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--reroute-color, #8888cc);
-  border: 2px solid rgba(0,0,0,0.5);
-  box-shadow: 0 0 6px rgba(0,0,0,0.6);
-  z-index: 2;
-  pointer-events: none;
-}
-.fe-reroute:hover::before {
-  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--reroute-color, #8888cc) 60%, transparent);
-  transform: translate(-50%, -50%) scale(1.2);
-}
-/* Hide the inner Rete node body — we only want the dot */
-.fe-reroute .node,
-.fe-reroute .rete-node {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  min-width: 0 !important;
-  width: 20px !important;
-  overflow: visible !important;
-}
-.fe-reroute .node .title,
-.fe-reroute .rete-node .title {
-  display: none !important;
-}
-/* Make sockets invisible but keep them for hit detection */
-.fe-reroute .socket {
-  opacity: 0 !important;
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  pointer-events: all !important;
-}
-/* Hide input/output labels */
-.fe-reroute .input-title,
-.fe-reroute .output-title {
-  display: none !important;
-}
-/* Selected reroute */
-[data-node-id].fe-selected .fe-reroute::before {
-  box-shadow: 0 0 16px 4px rgba(255, 230, 0, 0.7);
-  border-color: #FFE600;
-}
-/* Override outer selection outline for reroute nodes */
-[data-node-category="Utility"][data-node-id].fe-selected:has(.fe-reroute) {
-  outline: none !important;
-  filter: none;
-}
-
 /* Category colour strip at top of node */
 .fe-node-cat-strip {
   display: flex;
@@ -1129,6 +1063,7 @@ html, body, #app {
 .mybp-var-boolean  { background: #e74c3c; }
 .mybp-var-vector3  { background: #f5a623; }
 .mybp-var-string   { background: #e040fb; }
+.mybp-var-color    { background: #ff6b9d; }
 .mybp-var-struct   { background: #2196f3; }
 
 .mybp-var-name {

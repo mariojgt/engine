@@ -12,6 +12,7 @@ export {
   boolSocket,
   vec3Socket,
   strSocket,
+  colorSocket,
 } from './sockets';
 
 // ── Events ──────────────────────────────────────────────────
@@ -46,6 +47,7 @@ export { TimeNode }      from './values/TimeNode';
 export { DeltaTimeNode } from './values/DeltaTimeNode';
 export { StringLiteralNode } from './values/StringLiteralNode';
 export { Vector3LiteralNode } from './values/Vector3LiteralNode';
+export { ColorNode, ColorPickerControl } from './values/ColorNode';
 
 // ── Conversions ─────────────────────────────────────────────
 export { BoolToNumberNode }   from './conversions/BoolToNumber';
@@ -54,6 +56,8 @@ export { BoolToStringNode }   from './conversions/BoolToString';
 export { StringToBoolNode }   from './conversions/StringToBool';
 export { NumberToStringNode } from './conversions/NumberToString';
 export { StringToNumberNode } from './conversions/StringToNumber';
+export { ColorToStringNode } from './conversions/ColorToString';
+export { StringToColorNode } from './conversions/StringToColor';
 
 // ── Transform ───────────────────────────────────────────────
 export { GetPositionNode } from './transform/GetPositionNode';
@@ -65,7 +69,7 @@ export { SetScaleNode }    from './transform/SetScaleNode';
 
 // ── Utility ─────────────────────────────────────────────────
 export { PrintStringNode } from './utility/PrintStringNode';
-export { RerouteNode } from './utility/RerouteNode';
+
 
 // ── Physics ─────────────────────────────────────────────────
 export { AddForceNode }   from './physics/AddForceNode';
@@ -136,6 +140,21 @@ export {
   GetTriggerOverlapCountNode,
   GetTriggerShapeNode,
 } from './components/TriggerComponentNodes';
+export {
+  SetLightEnabledNode,
+  GetLightEnabledNode,
+  SetLightColorNode,
+  GetLightColorNode,
+  SetLightIntensityNode,
+  GetLightIntensityNode,
+  SetLightDistanceNode,
+  SetLightPositionNode,
+  GetLightPositionNode,
+  SetLightTargetNode,
+  SetCastShadowNode,
+  SetSpotAngleNode,
+  SetSpotPenumbraNode,
+} from './components/LightComponentNodes';
 export { getComponentNodeEntries, registerComponentRule } from './components/ComponentNodeRules';
 export type { ComponentNodeEntry, ComponentRule } from './components/ComponentNodeRules';
 

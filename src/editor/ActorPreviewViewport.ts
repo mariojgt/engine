@@ -7,7 +7,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import type { ActorAsset, ActorComponentData } from './ActorAsset';
+import type { ActorAsset, ActorComponentData, LightConfig } from './ActorAsset';
+import { defaultLightConfig } from './ActorAsset';
 
 type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -49,8 +50,8 @@ export class ActorPreviewViewport {
   private _controls: OrbitControls | null = null;
   private _transformControls: TransformControls | null = null;
   private _asset: ActorAsset;
-  private _rootMesh: THREE.Mesh | null = null;
-  private _componentMeshes: Map<string, THREE.Mesh> = new Map();
+  private _rootMesh: THREE.Object3D | null = null;
+  private _componentMeshes: Map<string, THREE.Object3D> = new Map();
   private _resizeObserver: ResizeObserver;
   private _disposed = false;
   private _animFrameId = 0;
@@ -170,15 +171,20 @@ export class ActorPreviewViewport {
     this._mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     this._raycaster.setFromCamera(this._mouse, this._camera);
 
-    const meshes: THREE.Mesh[] = [];
-    if (this._rootMesh) meshes.push(this._rootMesh);
-    for (const m of this._componentMeshes.values()) meshes.push(m);
+    const objects: THREE.Object3D[] = [];
+    if (this._rootMesh) objects.push(this._rootMesh);
+    for (const m of this._componentMeshes.values()) objects.push(m);
 
-    const hits = this._raycaster.intersectObjects(meshes, false);
+    const hits = this._raycaster.intersectObjects(objects, true);
     if (hits.length > 0) {
-      const hit = hits[0].object as THREE.Mesh;
-      const id = hit.userData.__componentId as string;
-      this._selectById(id);
+      // Walk up the parent chain to find the object with __componentId
+      let obj: THREE.Object3D | null = hits[0].object;
+      while (obj && !obj.userData.__componentId) obj = obj.parent;
+      if (obj) {
+        this._selectById(obj.userData.__componentId as string);
+      } else {
+        this._selectById(null);
+      }
     } else {
       this._selectById(null);
     }
@@ -189,26 +195,26 @@ export class ActorPreviewViewport {
   }
 
   private _selectById(id: string | null): void {
-    // Reset materials
-    if (this._rootMesh) (this._rootMesh.material as THREE.MeshStandardMaterial).color.set(0x6c8ebf);
+    // Reset materials — walk all objects and reset __lightIcon or mesh color
+    if (this._rootMesh) this._resetObjectColor(this._rootMesh, 0x6c8ebf);
     for (const m of this._componentMeshes.values()) {
-      (m.material as THREE.MeshStandardMaterial).color.set(0x8fbf6c);
+      this._resetObjectColor(m, 0x8fbf6c);
     }
 
     this._selectedId = id;
 
-    let mesh: THREE.Mesh | null = null;
+    let target: THREE.Object3D | null = null;
     if (id === '__root__' && this._rootMesh) {
-      mesh = this._rootMesh;
-      (mesh.material as THREE.MeshStandardMaterial).color.set(0xf5a623);
+      target = this._rootMesh;
+      this._highlightObject(target, 0xf5a623);
     } else if (id && this._componentMeshes.has(id)) {
-      mesh = this._componentMeshes.get(id)!;
-      (mesh.material as THREE.MeshStandardMaterial).color.set(0xf5a623);
+      target = this._componentMeshes.get(id)!;
+      this._highlightObject(target, 0xf5a623);
     }
 
     if (this._transformControls) {
-      if (mesh) {
-        this._transformControls.attach(mesh);
+      if (target) {
+        this._transformControls.attach(target);
       } else {
         this._transformControls.detach();
       }
@@ -221,60 +227,217 @@ export class ActorPreviewViewport {
     }
   }
 
-  /** Sync the Three.js mesh position/rotation/scale back to ActorComponentData */
+  /** Set a highlight color on an object or its icon child */
+  private _highlightObject(obj: THREE.Object3D, color: number): void {
+    if ((obj as THREE.Mesh).isMesh) {
+      ((obj as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(color);
+    } else {
+      // Group — find the icon mesh inside
+      obj.traverse(child => {
+        if (child.userData.__lightIcon && (child as THREE.Mesh).isMesh) {
+          ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(color);
+        }
+      });
+    }
+  }
+
+  /** Reset an object to its default color */
+  private _resetObjectColor(obj: THREE.Object3D, defaultColor: number): void {
+    if ((obj as THREE.Mesh).isMesh) {
+      ((obj as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(defaultColor);
+    } else {
+      // Group — reset icon to light color
+      obj.traverse(child => {
+        if (child.userData.__lightIcon && (child as THREE.Mesh).isMesh) {
+          const lightColor = child.userData.__lightOrigColor ?? 0xffcc00;
+          ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(lightColor);
+        }
+      });
+    }
+  }
+
+  /** Sync the Three.js object position/rotation/scale back to ActorComponentData */
   private _syncMeshToData(): void {
     if (!this._selectedId) return;
 
     if (this._selectedId === '__root__' && this._rootMesh) {
       // Root doesn't have offset in the data model — it's always at origin.
-      // But we could allow it in the future.
       return;
     }
 
     const comp = this._asset.components.find(c => c.id === this._selectedId);
     if (!comp) return;
-    const mesh = this._componentMeshes.get(this._selectedId);
-    if (!mesh) return;
+    const obj = this._componentMeshes.get(this._selectedId);
+    if (!obj) return;
 
-    comp.offset.x = mesh.position.x;
-    comp.offset.y = mesh.position.y;
-    comp.offset.z = mesh.position.z;
-    const toDeg = (r: number) => (r * 180) / Math.PI;
-    comp.rotation.x = toDeg(mesh.rotation.x);
-    comp.rotation.y = toDeg(mesh.rotation.y);
-    comp.rotation.z = toDeg(mesh.rotation.z);
-    comp.scale.x = mesh.scale.x;
-    comp.scale.y = mesh.scale.y;
-    comp.scale.z = mesh.scale.z;
+    comp.offset.x = obj.position.x;
+    comp.offset.y = obj.position.y;
+    comp.offset.z = obj.position.z;
+
+    // Only sync rotation and scale for non-light components
+    if (comp.type !== 'light') {
+      const toDeg = (r: number) => (r * 180) / Math.PI;
+      comp.rotation.x = toDeg(obj.rotation.x);
+      comp.rotation.y = toDeg(obj.rotation.y);
+      comp.rotation.z = toDeg(obj.rotation.z);
+      comp.scale.x = obj.scale.x;
+      comp.scale.y = obj.scale.y;
+      comp.scale.z = obj.scale.z;
+    }
 
     this._asset.touch();
   }
 
   /** Rebuild all meshes from the asset data */
   rebuild(): void {
-    // Remove old meshes
+    // Remove old objects
     if (this._rootMesh) {
       this._scene.remove(this._rootMesh);
-      this._rootMesh.geometry.dispose();
+      this._disposeObject3D(this._rootMesh);
       this._rootMesh = null;
     }
     for (const m of this._componentMeshes.values()) {
       this._scene.remove(m);
-      m.geometry.dispose();
+      this._disposeObject3D(m);
     }
     this._componentMeshes.clear();
 
     if (this._transformControls) this._transformControls.detach();
 
-    // Root mesh
-    const rootGeo = geometries[this._asset.rootMeshType]();
-    this._rootMesh = new THREE.Mesh(rootGeo, rootMaterial.clone());
-    this._rootMesh.userData.__componentId = '__root__';
-    this._rootMesh.position.set(0, 0.5, 0);
-    this._scene.add(this._rootMesh);
+    // Root mesh (or empty scene root if 'none')
+    if (this._asset.rootMeshType === 'none') {
+      // DefaultSceneRoot — small axis helper with no geometry
+      const group = new THREE.Group();
+      group.userData.__componentId = '__root__';
+      const axes = new THREE.AxesHelper(0.4);
+      group.add(axes);
+      // Small diamond icon so it's clickable
+      const iconGeo = new THREE.OctahedronGeometry(0.08, 0);
+      const iconMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, depthTest: false });
+      const icon = new THREE.Mesh(iconGeo, iconMat);
+      icon.userData.__componentId = '__root__';
+      group.add(icon);
+      group.position.set(0, 0.5, 0);
+      this._scene.add(group);
+      this._rootMesh = group;
+    } else {
+      const rootGeo = geometries[this._asset.rootMeshType]();
+      const rm = new THREE.Mesh(rootGeo, rootMaterial.clone());
+      rm.userData.__componentId = '__root__';
+      rm.position.set(0, 0.5, 0);
+      this._scene.add(rm);
+      this._rootMesh = rm;
+    }
 
     // Child components
     for (const comp of this._asset.components) {
+      if (comp.type === 'light') {
+        // Light component — UE-style icon + range helper
+        const cfg: LightConfig = comp.light
+          ? { ...defaultLightConfig(comp.light.lightType), ...comp.light }
+          : defaultLightConfig('point');
+        const group = new THREE.Group();
+        group.userData.__componentId = comp.id;
+        group.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+
+        // Clickable icon — bright diamond shape
+        const iconColor = new THREE.Color(cfg.color);
+        const iconGeo = new THREE.OctahedronGeometry(0.12, 0);
+        const iconMat = new THREE.MeshBasicMaterial({
+          color: iconColor,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: false,
+        });
+        const iconMesh = new THREE.Mesh(iconGeo, iconMat);
+        iconMesh.userData.__lightIcon = true;
+        iconMesh.userData.__lightOrigColor = iconColor.getHex();
+        iconMesh.renderOrder = 999;
+        group.add(iconMesh);
+
+        // Outer glow ring
+        const ringGeo = new THREE.RingGeometry(0.14, 0.18, 16);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: iconColor,
+          transparent: true,
+          opacity: 0.4,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.renderOrder = 998;
+        group.add(ring);
+
+        // Add the actual light so it illuminates the preview
+        switch (cfg.lightType) {
+          case 'point': {
+            const pl = new THREE.PointLight(cfg.color, cfg.intensity, cfg.distance);
+            group.add(pl);
+            // Range wireframe sphere
+            if (cfg.distance > 0) {
+              const rangeGeo = new THREE.SphereGeometry(cfg.distance, 24, 16);
+              const rangeWire = new THREE.Mesh(rangeGeo, new THREE.MeshBasicMaterial({
+                color: cfg.color,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.08,
+                depthTest: true,
+              }));
+              rangeWire.userData.__lightRange = true;
+              group.add(rangeWire);
+            }
+            break;
+          }
+          case 'spot': {
+            const toR = (d: number) => (d * Math.PI) / 180;
+            const sl = new THREE.SpotLight(cfg.color, cfg.intensity, cfg.distance, toR(cfg.angle), cfg.penumbra);
+            sl.target.position.set(cfg.target.x - comp.offset.x, cfg.target.y - comp.offset.y, cfg.target.z - comp.offset.z);
+            group.add(sl);
+            group.add(sl.target);
+            // Range cone wireframe
+            const coneHeight = cfg.distance > 0 ? cfg.distance : 5;
+            const coneRadius = Math.tan(toR(cfg.angle)) * coneHeight;
+            const coneGeo = new THREE.ConeGeometry(coneRadius, coneHeight, 24, 1, true);
+            const coneWire = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+              color: cfg.color,
+              wireframe: true,
+              transparent: true,
+              opacity: 0.1,
+              depthTest: true,
+            }));
+            coneWire.position.y = -coneHeight / 2;
+            coneWire.userData.__lightRange = true;
+            group.add(coneWire);
+            break;
+          }
+          case 'directional': {
+            const dl = new THREE.DirectionalLight(cfg.color, cfg.intensity);
+            group.add(dl);
+            // Direction arrow
+            const dir = new THREE.Vector3(
+              cfg.target.x - comp.offset.x,
+              cfg.target.y - comp.offset.y,
+              cfg.target.z - comp.offset.z,
+            ).normalize();
+            const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(), 1.5, new THREE.Color(cfg.color).getHex(), 0.3, 0.15);
+            group.add(arrow);
+            break;
+          }
+          case 'ambient': {
+            group.add(new THREE.AmbientLight(cfg.color, cfg.intensity));
+            break;
+          }
+          case 'hemisphere': {
+            group.add(new THREE.HemisphereLight(cfg.color, cfg.groundColor, cfg.intensity));
+            break;
+          }
+        }
+
+        this._scene.add(group);
+        this._componentMeshes.set(comp.id, group);
+        continue;
+      }
+
       const geo = geometries[comp.meshType]();
       const mesh = new THREE.Mesh(geo, childMaterial.clone());
       mesh.userData.__componentId = comp.id;
@@ -290,6 +453,18 @@ export class ActorPreviewViewport {
     if (this._selectedId) {
       this._selectById(this._selectedId);
     }
+  }
+
+  /** Recursively dispose geometries in an Object3D tree */
+  private _disposeObject3D(obj: THREE.Object3D): void {
+    obj.traverse(child => {
+      if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+      if ((child as THREE.Mesh).material) {
+        const mat = (child as THREE.Mesh).material;
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+        else (mat as THREE.Material).dispose();
+      }
+    });
   }
 
   private _startRenderLoop(): void {
@@ -322,7 +497,7 @@ export class ActorPreviewViewport {
     if (this._renderer) this._renderer.dispose();
     if (this._controls) this._controls.dispose();
     // Dispose geometries
-    if (this._rootMesh) this._rootMesh.geometry.dispose();
-    for (const m of this._componentMeshes.values()) m.geometry.dispose();
+    if (this._rootMesh) this._disposeObject3D(this._rootMesh);
+    for (const m of this._componentMeshes.values()) this._disposeObject3D(m);
   }
 }

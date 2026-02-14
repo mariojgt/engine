@@ -204,6 +204,7 @@ async function main() {
     engine.physics.play(engine.scene);
     engine.onPlayStarted();
     engine.scene.setTriggerHelpersVisible(false);  // hide debug wireframes during play
+    engine.scene.setLightHelpersVisible(false);     // hide light editor helpers during play
     playBtn.style.display = 'none';
     stopBtn.style.display = '';
   });
@@ -212,6 +213,7 @@ async function main() {
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
+    engine.scene.setLightHelpersVisible(true);     // restore light editor helpers
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 

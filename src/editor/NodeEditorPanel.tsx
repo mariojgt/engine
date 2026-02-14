@@ -39,6 +39,8 @@ import {
   BoolSelectControl,
   StringLiteralNode,
   Vector3LiteralNode,
+  ColorNode,
+  ColorPickerControl,
   SetPositionNode,
   GetPositionNode,
   GetRotationNode,
@@ -104,6 +106,20 @@ import {
   SetComponentScaleNode,
   SetComponentVisibilityNode,
   getComponentNodeEntries,
+  // Light Component Nodes
+  SetLightEnabledNode,
+  GetLightEnabledNode,
+  SetLightColorNode,
+  GetLightColorNode,
+  SetLightIntensityNode,
+  GetLightIntensityNode,
+  SetLightDistanceNode,
+  SetLightPositionNode,
+  GetLightPositionNode,
+  SetLightTargetNode,
+  SetCastShadowNode,
+  SetSpotAngleNode,
+  SetSpotPenumbraNode,
   // Trigger Component Nodes
   OnTriggerComponentBeginOverlapNode,
   OnTriggerComponentEndOverlapNode,
@@ -133,13 +149,15 @@ import {
   boolSocket,
   vec3Socket,
   strSocket,
+  colorSocket,
   BoolToNumberNode,
   NumberToBoolNode,
   BoolToStringNode,
   StringToBoolNode,
   NumberToStringNode,
   StringToNumberNode,
-  RerouteNode,
+  ColorToStringNode,
+  StringToColorNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -180,7 +198,6 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof GetVariableNode || node instanceof SetVariableNode) return 'Variables';
   if (node instanceof MakeStructNode || node instanceof BreakStructNode) return 'Structs';
   if (node instanceof FunctionEntryNode || node instanceof FunctionReturnNode) return 'Functions';
-  if (node instanceof RerouteNode) return 'Utility';
   if (node instanceof FunctionCallNode) return 'Functions';
   if (node instanceof MacroEntryNode || node instanceof MacroExitNode) return 'Macros';
   if (node instanceof MacroCallNode) return 'Macros';
@@ -203,6 +220,14 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
       node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
       node instanceof IsTriggerOverlappingNode || node instanceof GetTriggerShapeNode) return 'Components';
+  // Light component nodes
+  if (node instanceof SetLightEnabledNode || node instanceof GetLightEnabledNode ||
+      node instanceof SetLightColorNode || node instanceof GetLightColorNode ||
+      node instanceof SetLightIntensityNode || node instanceof GetLightIntensityNode ||
+      node instanceof SetLightDistanceNode || node instanceof SetLightPositionNode ||
+      node instanceof GetLightPositionNode || node instanceof SetLightTargetNode ||
+      node instanceof SetCastShadowNode || node instanceof SetSpotAngleNode ||
+      node instanceof SetSpotPenumbraNode) return 'Components';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -258,6 +283,7 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
     case 'Float': return String(v.defaultValue ?? 0);
     case 'Boolean': return String(v.defaultValue ?? false);
     case 'String': return JSON.stringify(String(v.defaultValue ?? ''));
+    case 'Color': return JSON.stringify(String(v.defaultValue ?? '#ffffff'));
     case 'Vector3': {
       const d = v.defaultValue ?? { x: 0, y: 0, z: 0 };
       return `{ x: ${d.x ?? 0}, y: ${d.y ?? 0}, z: ${d.z ?? 0} }`;
@@ -325,6 +351,7 @@ function fieldDefault(type: VarType): string {
     case 'Float':   return '0';
     case 'Boolean': return 'false';
     case 'String':  return '""';
+    case 'Color':   return '"#ffffff"';
     case 'Vector3': return '{ x: 0, y: 0, z: 0 }';
     default:        return '{}';
   }
@@ -336,12 +363,6 @@ function resolveValue(
 ): string {
   const node = nodeMap.get(nodeId);
   if (!node) return '0';
-
-  // ── RerouteNode: pass-through to input ──
-  if (node instanceof RerouteNode) {
-    const s = inputSrc.get(`${nodeId}.in`);
-    return s ? resolveValue(s.nid, s.ok, nodeMap, inputSrc, bp) : '0';
-  }
 
   if (node instanceof GetVariableNode) {
     const vn = sanitizeName(node.varName);
@@ -472,6 +493,24 @@ function resolveValue(
   if (node instanceof GetTriggerShapeNode) {
     return `(((gameObject._triggerComponents || [])[${(node as GetTriggerShapeNode).compIndex}] || {}).config || {}).shape || 'box'`;
   }
+
+  // Light component getter nodes
+  if (node instanceof GetLightEnabledNode) {
+    const ci = (node as GetLightEnabledNode).compIndex;
+    return `((gameObject._lightComponents || [])[${ci}] ? (gameObject._lightComponents[${ci}].light.visible ? 1 : 0) : 0)`;
+  }
+  if (node instanceof GetLightColorNode) {
+    const ci = (node as GetLightColorNode).compIndex;
+    return `((gameObject._lightComponents || [])[${ci}] ? '#' + gameObject._lightComponents[${ci}].light.color.getHexString() : '#ffffff')`;
+  }
+  if (node instanceof GetLightIntensityNode) {
+    const ci = (node as GetLightIntensityNode).compIndex;
+    return `((gameObject._lightComponents || [])[${ci}] ? gameObject._lightComponents[${ci}].light.intensity : 0)`;
+  }
+  if (node instanceof GetLightPositionNode) {
+    const ci = (node as GetLightPositionNode).compIndex;
+    return `((gameObject._lightComponents || [])[${ci}] ? gameObject._lightComponents[${ci}].light.position.${outputKey} : 0)`;
+  }
   // Collision query nodes
   if (node instanceof IsOverlappingActorNode) {
     const idS = inputSrc.get(`${nodeId}.actorId`);
@@ -493,6 +532,10 @@ function resolveValue(
     case 'String Literal': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'text'>;
       return JSON.stringify(String(ctrl?.value ?? ''));
+    }
+    case 'Color Literal': {
+      const ctrl = node.controls['value'] as ColorPickerControl;
+      return JSON.stringify(String(ctrl?.value ?? '#ffffff'));
     }
     case 'Vector3 Literal': {
       const xCtrl = node.controls['x'] as ClassicPreset.InputControl<'number'>;
@@ -589,6 +632,14 @@ function resolveValue(
       const s = inputSrc.get(`${nodeId}.in`);
       return `(parseFloat(${s ? rv(s.nid, s.ok) : '"0"'}) || 0)`;
     }
+    case 'Color \u2192 String': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return s ? rv(s.nid, s.ok) : '"#ffffff"';
+    }
+    case 'String \u2192 Color': {
+      const s = inputSrc.get(`${nodeId}.in`);
+      return s ? rv(s.nid, s.ok) : '"#ffffff"';
+    }
 
     default: return '0';
   }
@@ -683,6 +734,75 @@ function genAction(
   if (node instanceof SetCollisionEnabledNode) {
     const eS = inputSrc.get(`${nodeId}.enabled`);
     lines.push(`{ const _tcs = gameObject._triggerComponents || []; for (const _tc of _tcs) _tc.config.enabled = ${eS ? rv(eS.nid, eS.ok) : 'true'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Light component setter nodes
+  if (node instanceof SetLightEnabledNode) {
+    const ci = (node as SetLightEnabledNode).compIndex;
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc) _lc.light.visible = !!(${eS ? rv(eS.nid, eS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetLightColorNode) {
+    const ci = (node as SetLightColorNode).compIndex;
+    const cS = inputSrc.get(`${nodeId}.color`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc) _lc.light.color.set(${cS ? rv(cS.nid, cS.ok) : "'#ffffff'"}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetLightIntensityNode) {
+    const ci = (node as SetLightIntensityNode).compIndex;
+    const iS = inputSrc.get(`${nodeId}.intensity`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc) _lc.light.intensity = ${iS ? rv(iS.nid, iS.ok) : '1'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetLightDistanceNode) {
+    const ci = (node as SetLightDistanceNode).compIndex;
+    const dS = inputSrc.get(`${nodeId}.distance`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc && _lc.light.distance !== undefined) _lc.light.distance = ${dS ? rv(dS.nid, dS.ok) : '0'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetLightPositionNode) {
+    const ci = (node as SetLightPositionNode).compIndex;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc) _lc.light.position.set(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetLightTargetNode) {
+    const ci = (node as SetLightTargetNode).compIndex;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc && _lc.light.target) _lc.light.target.position.set(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '-1'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCastShadowNode) {
+    const ci = (node as SetCastShadowNode).compIndex;
+    const cS = inputSrc.get(`${nodeId}.castShadow`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc) _lc.light.castShadow = !!(${cS ? rv(cS.nid, cS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetSpotAngleNode) {
+    const ci = (node as SetSpotAngleNode).compIndex;
+    const aS = inputSrc.get(`${nodeId}.angle`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc && _lc.light.angle !== undefined) _lc.light.angle = (${aS ? rv(aS.nid, aS.ok) : '45'}) * Math.PI / 180; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetSpotPenumbraNode) {
+    const ci = (node as SetSpotPenumbraNode).compIndex;
+    const pS = inputSrc.get(`${nodeId}.penumbra`);
+    lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc && _lc.light.penumbra !== undefined) _lc.light.penumbra = ${pS ? rv(pS.nid, pS.ok) : '0'}; }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1715,7 +1835,7 @@ function showContextMenu(
 //  Dialogs — Add Variable, Add Function/Macro, Edit Variable, Struct
 // ============================================================
 function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?: VarType): string {
-  const base = ['Float', 'Boolean', 'Vector3', 'String'] as const;
+  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color'] as const;
   let html = '';
   for (const t of base) {
     html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;
@@ -2021,6 +2141,7 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
     if (type === 'Float') return `<input class="mybp-dialog-input" type="number" step="0.1" value="${dv ?? 0}" id="dlg-val" />`;
     if (type === 'Boolean') return `<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="dlg-val" ${dv ? 'checked' : ''} /> Default</label>`;
     if (type === 'String') return `<input class="mybp-dialog-input" type="text" value="${dv ?? ''}" id="dlg-val" />`;
+    if (type === 'Color') return `<input class="mybp-dialog-input" type="color" value="${dv ?? '#ffffff'}" id="dlg-val" style="height:32px;padding:2px;cursor:pointer;" />`;
     if (type === 'Vector3') {
       const d = dv || { x: 0, y: 0, z: 0 };
       return `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
@@ -2049,6 +2170,7 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       case 'Float': return 0;
       case 'Boolean': return false;
       case 'Vector3': return { x: 0, y: 0, z: 0 };
+      case 'Color': return '#ffffff'
       case 'String': return '';
       default:
         if (type.startsWith('Struct:')) {
@@ -2101,6 +2223,7 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
       v.type = (dialog.querySelector('#dlg-var-type') as HTMLSelectElement).value as VarType;
       if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
+      else if (v.type === 'Color') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
       else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
       else if (v.type === 'String') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
       else if (v.type === 'Vector3') {
@@ -2277,6 +2400,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof LerpNode) return 'LerpNode';
   if (node instanceof GreaterThanNode) return 'GreaterThanNode';
   // Values
+  if (node instanceof ColorNode) return 'ColorNode';
   if (node instanceof FloatNode) return 'FloatNode';
   if (node instanceof BooleanNode) return 'BooleanNode';
   if (node instanceof StringLiteralNode) return 'StringLiteralNode';
@@ -2336,6 +2460,20 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetComponentScaleNode) return 'GetComponentScaleNode';
   if (node instanceof SetComponentScaleNode) return 'SetComponentScaleNode';
   if (node instanceof SetComponentVisibilityNode) return 'SetComponentVisibilityNode';
+  // Light component nodes
+  if (node instanceof SetLightEnabledNode) return 'SetLightEnabledNode';
+  if (node instanceof GetLightEnabledNode) return 'GetLightEnabledNode';
+  if (node instanceof SetLightColorNode) return 'SetLightColorNode';
+  if (node instanceof GetLightColorNode) return 'GetLightColorNode';
+  if (node instanceof SetLightIntensityNode) return 'SetLightIntensityNode';
+  if (node instanceof GetLightIntensityNode) return 'GetLightIntensityNode';
+  if (node instanceof SetLightDistanceNode) return 'SetLightDistanceNode';
+  if (node instanceof SetLightPositionNode) return 'SetLightPositionNode';
+  if (node instanceof GetLightPositionNode) return 'GetLightPositionNode';
+  if (node instanceof SetLightTargetNode) return 'SetLightTargetNode';
+  if (node instanceof SetCastShadowNode) return 'SetCastShadowNode';
+  if (node instanceof SetSpotAngleNode) return 'SetSpotAngleNode';
+  if (node instanceof SetSpotPenumbraNode) return 'SetSpotPenumbraNode';
   // Conversions
   if (node instanceof BoolToNumberNode) return 'BoolToNumberNode';
   if (node instanceof NumberToBoolNode) return 'NumberToBoolNode';
@@ -2343,8 +2481,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof StringToBoolNode) return 'StringToBoolNode';
   if (node instanceof NumberToStringNode) return 'NumberToStringNode';
   if (node instanceof StringToNumberNode) return 'StringToNumberNode';
-  // Reroute
-  if (node instanceof RerouteNode) return 'RerouteNode';
+  if (node instanceof ColorToStringNode) return 'ColorToStringNode';
+  if (node instanceof StringToColorNode) return 'StringToColorNode';
   // Collision / Trigger event nodes
   if (node instanceof OnTriggerBeginOverlapNode) return 'OnTriggerBeginOverlapNode';
   if (node instanceof OnTriggerEndOverlapNode) return 'OnTriggerEndOverlapNode';
@@ -2376,6 +2514,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   for (const [key, ctrl] of Object.entries(node.controls)) {
     if (ctrl instanceof BoolSelectControl) {
       controls[key] = (ctrl as BoolSelectControl).value;
+    } else if (ctrl instanceof ColorPickerControl) {
+      controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
@@ -2432,6 +2572,17 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
   } else if (
+    node instanceof SetLightEnabledNode || node instanceof GetLightEnabledNode ||
+    node instanceof SetLightColorNode || node instanceof GetLightColorNode ||
+    node instanceof SetLightIntensityNode || node instanceof GetLightIntensityNode ||
+    node instanceof SetLightDistanceNode || node instanceof SetLightPositionNode ||
+    node instanceof GetLightPositionNode || node instanceof SetLightTargetNode ||
+    node instanceof SetCastShadowNode || node instanceof SetSpotAngleNode ||
+    node instanceof SetSpotPenumbraNode
+  ) {
+    data.compName = (node as any).compName;
+    data.compIndex = (node as any).compIndex;
+  } else if (
     node instanceof OnTriggerComponentBeginOverlapNode || node instanceof OnTriggerComponentEndOverlapNode ||
     node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
     node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
@@ -2439,8 +2590,6 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
-  } else if (node instanceof RerouteNode) {
-    data.socketName = node.passSocket?.name ?? null;
   }
 
   return data;
@@ -2562,6 +2711,7 @@ function createNodeFromData(
       }
       return n;
     }
+    case 'ColorNode':           return new ColorNode(d.controls?.value ?? '#ffffff');
     case 'StringLiteralNode':   return new StringLiteralNode(d.controls?.value ?? '');
     case 'Vector3LiteralNode':  return new Vector3LiteralNode(d.controls?.x ?? 0, d.controls?.y ?? 0, d.controls?.z ?? 0);
     case 'TimeNode':            return new TimeNode();
@@ -2574,26 +2724,8 @@ function createNodeFromData(
     case 'StringToBoolNode':    return new StringToBoolNode();
     case 'NumberToStringNode':  return new NumberToStringNode();
     case 'StringToNumberNode':  return new StringToNumberNode();
-
-    // Reroute
-    case 'RerouteNode': {
-      const sockName = d.socketName || null;
-      let sock: ClassicPreset.Socket | undefined;
-      if (sockName) {
-        // Resolve socket name back to a socket instance
-        const sockMap: Record<string, ClassicPreset.Socket> = {
-          'Exec': execSocket, 'Number': numSocket, 'Boolean': boolSocket,
-          'Vector3': vec3Socket, 'String': strSocket,
-        };
-        sock = sockMap[sockName];
-        // Dynamic sockets (Enum_*, Struct_*) are re-created
-        if (!sock && sockName.startsWith('Enum_')) sock = new ClassicPreset.Socket(sockName);
-        if (!sock && sockName.startsWith('Struct_')) sock = new ClassicPreset.Socket(sockName);
-      }
-      return new RerouteNode(sock);
-    }
-
-    // e 'StringToNumberNode':  return new StringToNumberNode();
+    case 'ColorToStringNode':   return new ColorToStringNode();
+    case 'StringToColorNode':   return new StringToColorNode();
 
     // Transform
     case 'SetPositionNode': return new SetPositionNode();
@@ -2659,6 +2791,21 @@ function createNodeFromData(
     case 'GetComponentScaleNode':     return new GetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
     case 'SetComponentScaleNode':     return new SetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
     case 'SetComponentVisibilityNode': return new SetComponentVisibilityNode(d.compName || 'Root', d.compIndex ?? -1);
+
+    // Light component nodes
+    case 'SetLightEnabledNode':    return new SetLightEnabledNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'GetLightEnabledNode':    return new GetLightEnabledNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetLightColorNode':      return new SetLightColorNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'GetLightColorNode':      return new GetLightColorNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetLightIntensityNode':  return new SetLightIntensityNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'GetLightIntensityNode':  return new GetLightIntensityNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetLightDistanceNode':   return new SetLightDistanceNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetLightPositionNode':   return new SetLightPositionNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'GetLightPositionNode':   return new GetLightPositionNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetLightTargetNode':     return new SetLightTargetNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetCastShadowNode':      return new SetCastShadowNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetSpotAngleNode':       return new SetSpotAngleNode(d.compName || 'Light', d.compIndex ?? 0);
+    case 'SetSpotPenumbraNode':    return new SetSpotPenumbraNode(d.compName || 'Light', d.compIndex ?? 0);
 
     // Trigger component nodes
     case 'OnTriggerComponentBeginOverlapNode': return new OnTriggerComponentBeginOverlapNode(d.compName || 'Trigger', d.compIndex ?? 0);
@@ -2750,22 +2897,6 @@ async function createGraphEditor(
       node(context) {
         const node = context.payload;
 
-        // ── RerouteNode: render as a small dot ──
-        if ((node as any).__isReroute) {
-          const rn = node as RerouteNode;
-          return (props: any) => {
-            const dotColor = rn.passSocket ? socketColor(rn.passSocket) : '#8888cc';
-            return React.createElement('div', {
-              className: 'fe-reroute',
-              title: 'Reroute',
-              style: { '--reroute-color': dotColor } as any,
-            },
-              // Invisible sockets rendered by Rete for hit-testing
-              React.createElement(Presets.classic.Node, props),
-            );
-          };
-        }
-
         const category = getNodeCategory(node);
         const color = NODE_CATEGORY_COLORS[category] || '#546E7A';
         const icon = getCategoryIcon(category);
@@ -2807,6 +2938,28 @@ async function createGraphEditor(
         };
       },
       control(data) {
+        if (data.payload instanceof ColorPickerControl) {
+          const ctrl = data.payload as ColorPickerControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            return React.createElement('input', {
+              type: 'color',
+              value: val,
+              onChange: (e: any) => { const v = e.target.value; ctrl.setValue(v); setVal(v); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                height: 28,
+                padding: 2,
+                background: '#1e1e2e',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                cursor: 'pointer',
+                boxSizing: 'border-box' as const,
+              },
+            });
+          };
+        }
         if (data.payload instanceof BoolSelectControl) {
           const ctrl = data.payload as BoolSelectControl;
           return (props: any) => {
@@ -2894,17 +3047,6 @@ async function createGraphEditor(
   let _rcStartX = 0, _rcStartY = 0;
   let _rcStartTx = 0, _rcStartTy = 0;
 
-  // Flag: suppress area zoom when a dblclick was consumed by a reroute insertion
-  let _rerouteDblClickConsumed = false;
-  container.addEventListener('dblclick', (e) => {
-    if (_rerouteDblClickConsumed) {
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      _rerouteDblClickConsumed = false;
-    }
-  }, true); // capture phase — runs before Rete's area listener
-
   // ── Connection wire coloring by socket type ──
   area.addPipe((ctx) => {
     if (ctx.type === 'rendered') {
@@ -2923,52 +3065,8 @@ async function createGraphEditor(
               path.setAttribute('stroke', wireColor);
               path.setAttribute('stroke-width', isExec ? '3.5' : '2');
               if (isExec) path.classList.add('fe-exec-wire');
-            }stopImmediatePropagation();
-            me.preventDefault();
-            _rerouteDblClickConsumed = true
-          }
-        }
-
-        // ── Double-click wire → insert reroute node ──
-        const svg = el.querySelector('svg') || el;
-        if (!(svg as any).__feRerouteBound) {
-          (svg as any).__feRerouteBound = true;
-          svg.addEventListener('dblclick', async (e: Event) => {
-            const me = e as MouseEvent;
-            me.stopPropagation();
-            me.preventDefault();
-            try {
-              const srcN = editor.getNode(conn.source);
-              const tgtN = editor.getNode(conn.target);
-              if (!srcN || !tgtN) return;
-              const srcOut = srcN.outputs[conn.sourceOutput];
-              if (!srcOut?.socket) return;
-
-              // Determine the socket type for the reroute
-              const sock = srcOut.socket;
-              const rerouteNode = new RerouteNode(sock);
-
-              await editor.addNode(rerouteNode);
-
-              // Position: convert screen coordinates to canvas coordinates
-              const t = area.area.transform;
-              const canvasX = (me.clientX - container.getBoundingClientRect().left - t.x) / t.k;
-              const canvasY = (me.clientY - container.getBoundingClientRect().top - t.y) / t.k;
-              await area.translate(rerouteNode.id, { x: canvasX - 10, y: canvasY - 10 });
-
-              // Remove old connection
-              await editor.removeConnection(conn.id);
-
-              await editor.addConnection(
-                new ClassicPreset.Connection(srcN, conn.sourceOutput, rerouteNode, 'in') as any,
-              );
-              await editor.addConnection(
-                new ClassicPreset.Connection(rerouteNode, 'out', tgtN, conn.targetInput) as any,
-              );
-            } catch (err) {
-              console.error('[Feather] Failed to insert reroute:', err);
             }
-          });
+          }
         }
       }
       // Add category + ID attributes to rendered node elements
@@ -3003,14 +3101,6 @@ async function createGraphEditor(
         const srcOutput = srcNode.outputs[data.sourceOutput];
         const tgtInput  = tgtNode.inputs[data.targetInput];
         if (srcOutput?.socket && tgtInput?.socket) {
-          // --- RerouteNode: adopt socket type from first connection ---
-          if ((srcNode as any).__isReroute && !(srcNode as any).passSocket) {
-            (srcNode as RerouteNode).setSocket(tgtInput.socket);
-          }
-          if ((tgtNode as any).__isReroute && !(tgtNode as any).passSocket) {
-            (tgtNode as RerouteNode).setSocket(srcOutput.socket);
-          }
-
           if (!socketsCompatible(srcOutput.socket, tgtInput.socket)) {
             // Check for an auto-conversion
             const conv = getConversion(srcOutput.socket.name, tgtInput.socket.name);
@@ -3128,23 +3218,6 @@ async function createGraphEditor(
             for (const nid of targets) {
               const node = editor.getNode(nid);
               const conns = editor.getConnections().filter(c => c.source === nid || c.target === nid);
-              // Reroute: reconnect through
-              if (node && (node as any).__isReroute) {
-                const incoming = conns.filter(c => c.target === nid && c.targetInput === 'in');
-                const outgoing = conns.filter(c => c.source === nid && c.sourceOutput === 'out');
-                for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
-                for (const inc of incoming) {
-                  const incSrc = editor.getNode(inc.source);
-                  for (const out of outgoing) {
-                    const outTgt = editor.getNode(out.target);
-                    if (incSrc && outTgt) {
-                      try { await editor.addConnection(new ClassicPreset.Connection(incSrc, inc.sourceOutput, outTgt, out.targetInput)); } catch { /* ok */ }
-                    }
-                  }
-                }
-                try { await editor.removeNode(nid); } catch { /* ok */ }
-                continue;
-              }
               for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
               try { await editor.removeNode(nid); } catch { /* ok */ }
             }
@@ -3564,31 +3637,6 @@ async function createGraphEditor(
           for (const nodeId of ids) {
             const node = editor.getNode(nodeId);
             const conns = editor.getConnections().filter(c => c.source === nodeId || c.target === nodeId);
-
-            // ── Reroute deletion: reconnect wires through ──
-            if (node && (node as any).__isReroute) {
-              const incoming = conns.filter(c => c.target === nodeId && c.targetInput === 'in');
-              const outgoing = conns.filter(c => c.source === nodeId && c.sourceOutput === 'out');
-              // Remove all connections first
-              for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
-              // Reconnect: each incoming source → each outgoing target
-              for (const inc of incoming) {
-                const incSrc = editor.getNode(inc.source);
-                for (const out of outgoing) {
-                  const outTgt = editor.getNode(out.target);
-                  if (incSrc && outTgt) {
-                    try {
-                      await editor.addConnection(
-                        new ClassicPreset.Connection(incSrc, inc.sourceOutput, outTgt, out.targetInput),
-                      );
-                    } catch { /* ok — may fail if types mismatch after chain */ }
-                  }
-                }
-              }
-              try { await editor.removeNode(nodeId); } catch { /* ok */ }
-              continue;
-            }
-
             for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
             try { await editor.removeNode(nodeId); } catch { /* ok */ }
           }
