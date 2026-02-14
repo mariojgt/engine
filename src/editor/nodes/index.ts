@@ -4,7 +4,7 @@
 // ============================================================
 
 // Shared types & registry
-export { NODE_PALETTE, registerNode, socketColor, socketsCompatible, SOCKET_COLORS } from './sockets';
+export { NODE_PALETTE, registerNode, socketColor, socketsCompatible, SOCKET_COLORS, NODE_CATEGORY_COLORS, getCategoryIcon } from './sockets';
 export type { NodeEntry } from './sockets';
 export {
   execSocket,

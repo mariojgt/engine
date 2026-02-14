@@ -414,12 +414,12 @@ html, body, #app {
   width: 100%;
   height: 100%;
   position: relative;
-  background: #13131e;
+  background: #090910;
   display: flex;
 }
 
 .node-editor-container .rete-background {
-  background: #13131e !important;
+  background: #090910 !important;
 }
 
 .node-editor-empty {
@@ -431,95 +431,277 @@ html, body, #app {
   color: var(--text-dim);
 }
 
-/* Rete node overrides for flat theme */
+/* ── UE-style grid background ── */
+.graph-editor-canvas {
+  background-color: #090910 !important;
+  background-image:
+    radial-gradient(circle, #17172a 1px, transparent 1px),
+    radial-gradient(circle, #121220 1.2px, transparent 1.2px);
+  background-size: 20px 20px, 100px 100px;
+  background-position: 0 0, 0 0;
+}
+
+/* ── Rete outer node wrapper (area plugin) ── */
 .node-editor-container [data-testid="node"] {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
-.node-editor-container [data-testid="node"].selected {
-  border-color: var(--accent) !important;
+/* ── Custom node wrapper (.fe-node) ── */
+.fe-node {
+  position: relative;
+  min-width: 180px;
 }
 
+/* Category colour strip at top of node */
+.fe-node-cat-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px 6px 0 0;
+  background: var(--node-color, #546E7A);
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.92);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  user-select: none;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-bottom: none;
+}
+
+.fe-node-cat-icon {
+  font-size: 10px;
+  filter: brightness(1.3);
+}
+
+.fe-node-cat-label {
+  opacity: 0.9;
+}
+
+/* ── Rete classic preset Node body ── */
+.fe-node .node,
 .rete-node {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
+  background: linear-gradient(180deg, #2e2e50 0%, #262642 100%) !important;
+  border: 1.5px solid #4a4a70 !important;
+  border-top: none !important;
+  border-radius: 0 0 6px 6px !important;
   padding: 0 !important;
-  min-width: 160px;
+  min-width: 180px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.7), 0 2px 6px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) !important;
 }
 
+.fe-node .node .title,
 .rete-node .title {
-  background: var(--bg-input) !important;
-  color: var(--text-bright) !important;
+  background: rgba(255,255,255,0.06) !important;
+  color: #e8e8f0 !important;
   padding: 6px 12px !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  border-radius: 6px 6px 0 0 !important;
-  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  letter-spacing: 0.3px;
 }
 
-.rete-node .socket {
+/* ── Selected node — neon yellow UE-style ── */
+/* Node body glow */
+.node-editor-container [data-testid="node"].selected .fe-node .node,
+.node-editor-container [data-testid="node"].selected .rete-node,
+.fe-node .node.selected,
+.fe-selected .fe-node .node,
+.fe-selected .rete-node {
+  border-color: #FFE600 !important;
+  box-shadow: 0 0 30px rgba(255,230,0,0.6), 0 0 8px rgba(255,230,0,0.35), 0 4px 16px rgba(0,0,0,0.45) !important;
+}
+/* Outer wrapper outline + glow halo (targets the NodeView wrapper that has data-node-id) */
+[data-node-id].fe-selected {
+  outline: 3px solid #FFE600 !important;
+  outline-offset: 3px;
+  border-radius: 8px;
+  filter: drop-shadow(0 0 14px rgba(255, 230, 0, 0.7)) drop-shadow(0 0 5px rgba(255, 230, 0, 0.5));
+}
+/* Category strip highlight */
+.node-editor-container [data-testid="node"].selected .fe-node-cat-strip,
+.fe-selected .fe-node-cat-strip {
+  box-shadow: inset 0 0 0 2px #FFE600;
+  border-color: #FFE600 !important;
+  filter: brightness(1.3);
+}
+
+/* ── Hover effect on nodes ── */
+.fe-node:hover .node,
+.rete-node:hover {
+  border-color: #5a5a80 !important;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.7), 0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08) !important;
+}
+
+/* ── Socket styling (type-coloured pins) ── */
+.rete-node .socket,
+.fe-node .socket {
   width: 12px !important;
   height: 12px !important;
   border-radius: 50% !important;
-  border: 2px solid rgba(0,0,0,0.4) !important;
+  border: 2px solid rgba(0,0,0,0.35) !important;
   display: inline-block !important;
   cursor: pointer !important;
   box-sizing: border-box !important;
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
 }
-/* Type-specific socket colours (UE-style) */
+
+.socket-exec,
 .rete-node .socket[data-socket-type="Exec"] {
   background: #ffffff !important;
-  border-color: #888 !important;
+  border-color: #666 !important;
   border-radius: 2px !important;
   width: 14px !important;
   height: 14px !important;
 }
-.rete-node .socket[data-socket-type="Number"] {
-  background: #4ecdc4 !important;
+.rete-node .socket[data-socket-type="Number"] { background: #4ecdc4 !important; }
+.rete-node .socket[data-socket-type="Boolean"] { background: #e74c3c !important; }
+.rete-node .socket[data-socket-type="Vector3"] { background: #f5a623 !important; }
+.rete-node .socket[data-socket-type="String"] { background: #c678dd !important; }
+
+/* Socket hover glow */
+.rete-node .socket:hover,
+.fe-node .socket:hover {
+  transform: scale(1.3);
 }
-.rete-node .socket[data-socket-type="Boolean"] {
-  background: #e74c3c !important;
-}
-.rete-node .socket[data-socket-type="Vector3"] {
-  background: #f5a623 !important;
-}
-.rete-node .socket[data-socket-type="String"] {
-  background: #c678dd !important;
-}
-/* Hover glow matching socket type */
-.rete-node .socket:hover {
-  box-shadow: 0 0 8px 2px currentColor;
-}
-.rete-node .socket[data-socket-type="Exec"]:hover {
-  box-shadow: 0 0 8px 2px rgba(255,255,255,0.6);
-}
-.rete-node .socket[data-socket-type="Number"]:hover {
-  box-shadow: 0 0 8px 2px rgba(78,205,196,0.6);
-}
-.rete-node .socket[data-socket-type="Boolean"]:hover {
-  box-shadow: 0 0 8px 2px rgba(231,76,60,0.6);
-}
-.rete-node .socket[data-socket-type="Vector3"]:hover {
-  box-shadow: 0 0 8px 2px rgba(245,166,35,0.6);
-}
-.rete-node .socket[data-socket-type="String"]:hover {
-  box-shadow: 0 0 8px 2px rgba(198,120,221,0.6);
-}
+.rete-node .socket[data-socket-type="Exec"]:hover { box-shadow: 0 0 10px 3px rgba(255,255,255,0.5) !important; }
+.rete-node .socket[data-socket-type="Number"]:hover { box-shadow: 0 0 10px 3px rgba(78,205,196,0.5) !important; }
+.rete-node .socket[data-socket-type="Boolean"]:hover { box-shadow: 0 0 10px 3px rgba(231,76,60,0.5) !important; }
+.rete-node .socket[data-socket-type="Vector3"]:hover { box-shadow: 0 0 10px 3px rgba(245,166,35,0.5) !important; }
+.rete-node .socket[data-socket-type="String"]:hover { box-shadow: 0 0 10px 3px rgba(198,120,221,0.5) !important; }
 
 .rete-node .input-title,
-.rete-node .output-title {
+.rete-node .output-title,
+.fe-node .input-title,
+.fe-node .output-title {
   font-size: 11px !important;
   color: var(--text) !important;
 }
 
+/* ── Connection wires ── */
 .rete-connection path {
   stroke: var(--accent-dim) !important;
   stroke-width: 2px !important;
+  stroke-linecap: round;
+  transition: stroke-width 0.15s ease;
+}
+.rete-connection:hover path {
+  stroke-width: 3.5px !important;
+  filter: brightness(1.3);
+}
+/* Exec wire pulse animation */
+.fe-exec-wire {
+  stroke-dasharray: 8 4;
+  animation: fe-exec-flow 0.8s linear infinite;
+}
+@keyframes fe-exec-flow {
+  to { stroke-dashoffset: -12; }
+}
+
+/* =========================================
+   Comment Boxes
+   ========================================= */
+.fe-comment-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.fe-comment-box {
+  position: absolute;
+  border: 2px solid #4455aa;
+  border-radius: 6px;
+  background: rgba(40, 44, 80, 0.2);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.fe-comment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px 4px 0 0;
+  cursor: grab;
+  user-select: none;
+  min-height: 24px;
+}
+.fe-comment-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  outline: none;
+  cursor: text;
+  flex: 1;
+  min-width: 20px;
+}
+.fe-comment-close {
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.fe-comment-header:hover .fe-comment-close { opacity: 1; }
+.fe-comment-close:hover { color: #fff; background: rgba(255,80,80,0.3); }
+.fe-comment-body {
+  flex: 1;
+}
+.fe-comment-resize {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.fe-comment-box:hover .fe-comment-resize {
+  opacity: 1;
+  background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.15) 50%);
+  border-radius: 0 0 4px 0;
+}
+
+/* =========================================
+   Minimap
+   ========================================= */
+.fe-minimap {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 168px;
+  background: rgba(18, 18, 30, 0.85);
+  border: 1px solid #2d2d48;
+  border-radius: 6px;
+  overflow: hidden;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+.fe-minimap-title {
+  padding: 3px 8px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #2d2d48;
+}
+.fe-minimap-canvas {
+  display: block;
+  width: 160px;
+  height: 100px;
 }
 
 /* =========================================
@@ -528,40 +710,44 @@ html, body, #app {
 .bp-context-menu {
   position: absolute;
   z-index: 9999;
-  width: 280px;
-  max-height: 420px;
-  background: #1e1e2e;
+  width: 300px;
+  max-height: 460px;
+  background: linear-gradient(180deg, #1e1e30 0%, #1a1a2a 100%);
   border: 1px solid #3a3a5c;
-  border-radius: 6px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   font-family: var(--font);
+  backdrop-filter: blur(8px);
 }
 
 .bp-context-header {
-  padding: 8px 12px 4px;
+  padding: 10px 14px 6px;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-bright);
   letter-spacing: 0.5px;
   border-bottom: 1px solid #2d2d44;
+  background: rgba(255,255,255,0.02);
 }
 
 .bp-context-search {
-  margin: 6px 8px;
-  padding: 6px 10px;
+  margin: 8px 10px;
+  padding: 7px 12px;
   border: 1px solid #3a3a5c;
-  border-radius: 4px;
-  background: #13131e;
+  border-radius: 6px;
+  background: #111120;
   color: var(--text-bright);
   font-size: 12px;
   font-family: var(--font);
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .bp-context-search:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91,138,245,0.15);
 }
 .bp-context-search::placeholder {
   color: var(--text-dim);
@@ -571,27 +757,39 @@ html, body, #app {
   overflow-y: auto;
   flex: 1;
   padding: 4px 0;
+  overscroll-behavior: contain;
 }
 
 .bp-context-category {
-  padding: 6px 12px 3px;
+  padding: 8px 14px 4px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bp-cat-icon {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .bp-context-item {
-  padding: 5px 12px 5px 24px;
+  padding: 6px 14px 6px 28px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.08s, color 0.08s;
+  border-left: 2px solid transparent;
 }
-.bp-context-item:hover {
+.bp-context-item:hover,
+.bp-context-item.highlighted {
   background: var(--accent);
   color: #fff;
+  border-left-color: var(--accent-hover);
 }
 
 .bp-context-empty {
@@ -687,10 +885,10 @@ html, body, #app {
    My Blueprint Sidebar
    ========================================= */
 .my-blueprint-sidebar {
-  width: 200px;
+  width: 210px;
   min-width: 180px;
-  max-width: 240px;
-  background: var(--bg-dark);
+  max-width: 260px;
+  background: linear-gradient(180deg, var(--bg-dark) 0%, #141420 100%);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -699,12 +897,13 @@ html, body, #app {
 }
 
 .mybp-title {
-  padding: 8px 12px 6px;
+  padding: 10px 14px 8px;
   font-size: 10px;
   font-weight: 700;
-  color: var(--text-dim);
-  letter-spacing: 1.2px;
+  color: var(--accent);
+  letter-spacing: 1.5px;
   border-bottom: 1px solid var(--border);
+  background: rgba(91,138,245,0.04);
 }
 
 .mybp-section {
@@ -885,7 +1084,7 @@ html, body, #app {
 .graph-tab-bar {
   display: flex;
   align-items: stretch;
-  height: 30px;
+  height: 32px;
   background: var(--bg-darkest);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
@@ -895,7 +1094,7 @@ html, body, #app {
 .graph-tab {
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 16px;
   font-size: 11px;
   font-weight: 500;
   color: var(--text-dim);
@@ -903,6 +1102,7 @@ html, body, #app {
   border-right: 1px solid var(--border);
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
+  gap: 4px;
 }
 
 .graph-tab:hover {
@@ -914,6 +1114,7 @@ html, body, #app {
   background: var(--bg-panel);
   color: var(--text-bright);
   border-bottom: 2px solid var(--accent);
+  font-weight: 600;
 }
 
 .graph-editor-area {
@@ -928,6 +1129,53 @@ html, body, #app {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+/* ── Keyboard shortcuts hint ── */
+.graph-editor-area::after {
+  content: 'Space: Search  |  F: Frame  |  C: Comment  |  Del: Delete  |  Ctrl+C/V/D: Copy/Paste/Dup  |  Ctrl+Z/Y: Undo/Redo  |  Alt: Free drag';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: rgba(120,120,160,0.4);
+  pointer-events: none;
+  letter-spacing: 0.3px;
+  z-index: 50;
+  white-space: nowrap;
+}
+
+/* ── Box Select rectangle — neon yellow UE-style ── */
+.fe-box-select {
+  position: absolute;
+  border: 2px dashed #FFE600;
+  background: rgba(255, 230, 0, 0.07);
+  pointer-events: none;
+  z-index: 500;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 230, 0, 0.25);
+}
+
+/* ── Disabled Node overlay ── */
+.fe-node-disabled {
+  opacity: 0.38 !important;
+  filter: saturate(0.3);
+  pointer-events: auto;
+}
+.fe-node-disabled::after {
+  content: 'DISABLED';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(255, 80, 80, 0.7);
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 10;
 }
 
 /* =========================================

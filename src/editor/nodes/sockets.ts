@@ -40,6 +40,48 @@ export function socketsCompatible(
 }
 
 // ============================================================
+//  Node Category Header Colours (UE Blueprint-style)
+// ============================================================
+export const NODE_CATEGORY_COLORS: Record<string, string> = {
+  'Events':        '#8B0000',
+  'Flow Control':  '#555555',
+  'Math':          '#00786E',
+  'Values':        '#1B6B38',
+  'Variables':     '#0E8A0E',
+  'Physics':       '#B85C00',
+  'Transform':     '#1565C0',
+  'Utility':       '#546E7A',
+  'Conversions':   '#5D4037',
+  'Components':    '#6A1B9A',
+  'Functions':     '#1565C0',
+  'Macros':        '#7B1FA2',
+  'Custom Events': '#B71C1C',
+  'Input':         '#880E4F',
+  'Structs':       '#00695C',
+};
+
+export function getCategoryIcon(cat: string): string {
+  switch (cat) {
+    case 'Events':        return '⚡';
+    case 'Flow Control':  return '⑂';
+    case 'Math':          return '∑';
+    case 'Values':        return '◆';
+    case 'Variables':     return '◉';
+    case 'Physics':       return '☄';
+    case 'Transform':     return '↕';
+    case 'Utility':       return '⚙';
+    case 'Conversions':   return '⇄';
+    case 'Components':    return '⬡';
+    case 'Functions':     return 'ƒ';
+    case 'Macros':        return '⚡';
+    case 'Custom Events': return '🎯';
+    case 'Input':         return '🎮';
+    case 'Structs':       return '🔷';
+    default:              return '●';
+  }
+}
+
+// ============================================================
 //  Struct Socket Cache (one socket per struct type)
 // ============================================================
 const structSocketCache = new Map<string, ClassicPreset.Socket>();

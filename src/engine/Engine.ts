@@ -30,24 +30,30 @@ export class Engine {
     this._elapsedTime = 0;
     this._playStarted = true;
     const print = (v: any) => this.onPrint(v);
+    let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
+        scriptCount++;
         const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics };
         script.beginPlay(ctx);
       }
     }
+    console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
   }
 
   /** Called when Stop is pressed — fires OnDestroy on all scripts */
   onPlayStopped(): void {
     const print = (v: any) => this.onPrint(v);
+    let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
+        scriptCount++;
         const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics };
         script.onDestroy(ctx);
         script.reset();
       }
     }
+    console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
     this._elapsedTime = 0;
   }

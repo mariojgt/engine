@@ -27,6 +27,16 @@ export interface BlueprintStruct {
 export interface BlueprintGraphData {
   /** Rete serialized node data (optional, for future persistence) */
   nodeData?: any;
+  /** Comment boxes placed in the graph */
+  comments?: BlueprintComment[];
+}
+
+export interface BlueprintComment {
+  id: string;
+  text: string;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  color: string;
 }
 
 export interface BlueprintFunction {

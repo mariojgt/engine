@@ -150,10 +150,13 @@ async function main() {
       }
     }
 
-    engine.physics.play(engine.scene);
-    engine.onPlayStarted();
+    // Clear & show the output log BEFORE firing lifecycle events
+    // so that BeginPlay print output is visible
     outputLog.clear();
     outputLog.show();
+
+    engine.physics.play(engine.scene);
+    engine.onPlayStarted();
     playBtn.style.display = 'none';
     stopBtn.style.display = '';
   });
@@ -161,7 +164,8 @@ async function main() {
   stopBtn.addEventListener('click', () => {
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
-    outputLog.hide();
+    // Delay hiding the output log so OnDestroy print output is visible
+    setTimeout(() => outputLog.hide(), 500);
     // Restore saved positions
     for (const go of engine.scene.gameObjects) {
       if ((go as any)._savedPos) {

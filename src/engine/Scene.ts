@@ -47,17 +47,38 @@ export class Scene {
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(5, 10, 7);
     dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 50;
+    dirLight.shadow.camera.left = -15;
+    dirLight.shadow.camera.right = 15;
+    dirLight.shadow.camera.top = 15;
+    dirLight.shadow.camera.bottom = -15;
+    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.normalBias = 0.02;
     this.threeScene.add(dirLight);
 
     // Grid helper
     const grid = new THREE.GridHelper(20, 20, 0x333355, 0x222244);
     this.threeScene.add(grid);
+
+    // Shadow-receiving ground plane (invisible flat mesh under the grid)
+    const groundGeo = new THREE.PlaneGeometry(40, 40);
+    const groundMat = new THREE.ShadowMaterial({ opacity: 0.35 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.01; // slightly below the grid to avoid z-fighting
+    ground.receiveShadow = true;
+    this.threeScene.add(ground);
   }
 
   addGameObject(name: string, type: MeshType): GameObject {
     const geo = geometries[type]();
     const mat = defaultMaterial.clone();
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     mesh.position.set(0, type === 'plane' ? 0 : 3, 0);
     if (type === 'plane') {
       mesh.rotation.x = -Math.PI / 2;
@@ -116,6 +137,8 @@ export class Scene {
         const geo = geometries[comp.meshType]();
         const mat = defaultMaterial.clone();
         const child = new THREE.Mesh(geo, mat);
+        child.castShadow = true;
+        child.receiveShadow = true;
         child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
         child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
         child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
@@ -170,6 +193,8 @@ export class Scene {
           const geo = geometries[comp.meshType]();
           const mat = defaultMaterial.clone();
           const child = new THREE.Mesh(geo, mat);
+          child.castShadow = true;
+          child.receiveShadow = true;
           child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
           child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
           child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);

@@ -44,6 +44,8 @@ export class ScriptComponent {
       // Preamble = everything before the first lifecycle marker
       const preamble = this._extractPreamble(code);
 
+      console.log(`[Script] compile: hasSections=${!!hasSections}, beginPlay=${!!beginPlayCode}, tick=${!!tickCode}, onDestroy=${!!destroyCode}, preamble=${!!preamble}`);
+
       if (!hasSections && !preamble) {
         // Legacy: treat entire code as tick
         this._beginPlayFn = null;
@@ -174,8 +176,12 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
   beginPlay(ctx: ScriptContext): void {
     if (this._hasStarted) return;
     this._hasStarted = true;
-    if (!this._beginPlayFn) return;
+    if (!this._beginPlayFn) {
+      console.log('[Script] beginPlay: no _beginPlayFn');
+      return;
+    }
     try {
+      console.log('[Script] beginPlay: executing for', ctx.gameObject?.name);
       this._beginPlayFn(ctx);
     } catch (e) {
       console.error('BeginPlay error:', e);
@@ -197,8 +203,12 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
   }
 
   onDestroy(ctx: ScriptContext): void {
-    if (!this._onDestroyFn) return;
+    if (!this._onDestroyFn) {
+      console.log('[Script] onDestroy: no _onDestroyFn');
+      return;
+    }
     try {
+      console.log('[Script] onDestroy: executing for', ctx.gameObject?.name);
       this._onDestroyFn(ctx);
     } catch (e) {
       console.error('OnDestroy error:', e);

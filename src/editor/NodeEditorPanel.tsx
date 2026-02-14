@@ -106,6 +106,8 @@ import {
   getComponentNodeEntries,
   socketColor,
   socketsCompatible,
+  NODE_CATEGORY_COLORS,
+  getCategoryIcon,
   BoolToNumberNode,
   NumberToBoolNode,
   BoolToStringNode,
@@ -130,6 +132,66 @@ interface GraphTab {
   label: string;
   type: GraphType;
   refId?: string;
+}
+
+// ============================================================
+//  Node Category Detection
+// ============================================================
+function getNodeCategory(node: ClassicPreset.Node): string {
+  // Dynamic nodes not in NODE_PALETTE
+  if (node instanceof GetVariableNode || node instanceof SetVariableNode) return 'Variables';
+  if (node instanceof MakeStructNode || node instanceof BreakStructNode) return 'Structs';
+  if (node instanceof FunctionEntryNode || node instanceof FunctionReturnNode) return 'Functions';
+  if (node instanceof FunctionCallNode) return 'Functions';
+  if (node instanceof MacroEntryNode || node instanceof MacroExitNode) return 'Macros';
+  if (node instanceof MacroCallNode) return 'Macros';
+  if (node instanceof CustomEventNode || node instanceof CallCustomEventNode) return 'Events';
+  if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode) return 'Input';
+  // Physics event nodes  
+  if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
+      node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
+      node instanceof OnComponentSleepNode) return 'Events';
+  // Fallback: check NODE_PALETTE
+  for (const entry of NODE_PALETTE) {
+    if (entry.label === node.label) return entry.category;
+  }
+  return 'Utility';
+}
+
+// ============================================================
+//  Comment Box helpers
+// ============================================================
+type CommentBox = import('./BlueprintData').BlueprintComment;
+let _commentUid = 1;
+function commentUid(): string {
+  return 'cmt_' + (_commentUid++) + '_' + Math.random().toString(36).slice(2, 6);
+}
+
+// ============================================================
+//  Undo / Redo — lightweight history stack
+// ============================================================
+interface HistoryState { graphJson: any; label: string; }
+class UndoManager {
+  private stack: HistoryState[] = [];
+  private pointer = -1;
+  private _limit = 50;
+  push(state: HistoryState) {
+    this.stack = this.stack.slice(0, this.pointer + 1);
+    this.stack.push(state);
+    if (this.stack.length > this._limit) this.stack.shift();
+    this.pointer = this.stack.length - 1;
+  }
+  undo(): HistoryState | null {
+    if (this.pointer <= 0) return null;
+    this.pointer--;
+    return this.stack[this.pointer];
+  }
+  redo(): HistoryState | null {
+    if (this.pointer >= this.stack.length - 1) return null;
+    this.pointer++;
+    return this.stack[this.pointer];
+  }
+  current(): HistoryState | null { return this.stack[this.pointer] ?? null; }
 }
 
 // ============================================================
@@ -415,6 +477,10 @@ function genAction(
 ): string[] {
   const node = nodeMap.get(nodeId);
   if (!node) return [];
+  // Skip disabled nodes — just pass through to exec outputs
+  if ((node as any).__disabled) {
+    return walkExec(nodeId, 'exec', nodeMap, inputSrc, outputDst, bp);
+  }
   const lines: string[] = [];
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
   const we = (nid: string, eo: string) => walkExec(nid, eo, nodeMap, inputSrc, outputDst, bp);
@@ -1320,7 +1386,8 @@ function showContextMenu(
     for (const [cat, entries] of categories) {
       const catEl = document.createElement('div');
       catEl.className = 'bp-context-category';
-      catEl.textContent = cat;
+      const catIcon = getCategoryIcon(cat);
+      catEl.innerHTML = `<span class="bp-cat-icon">${catIcon}</span> ${cat}`;
       listEl.appendChild(catEl);
       for (const e of entries) {
         const item = document.createElement('div');
@@ -1340,7 +1407,36 @@ function showContextMenu(
 
   renderList('');
   searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+  // Keyboard navigation in context menu
+  let _selectedIdx = -1;
+  searchInput.addEventListener('keydown', (e) => {
+    const items = listEl.querySelectorAll('.bp-context-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _selectedIdx = Math.min(_selectedIdx + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === _selectedIdx));
+      items[_selectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _selectedIdx = Math.max(_selectedIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === _selectedIdx));
+      items[_selectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (_selectedIdx >= 0 && _selectedIdx < items.length) {
+        (items[_selectedIdx] as HTMLElement).click();
+      }
+    } else if (e.key === 'Escape') {
+      menu.remove();
+    } else {
+      _selectedIdx = -1;
+    }
+  });
+
   container.appendChild(menu);
+  // Prevent scroll inside menu from zooming the canvas
+  menu.addEventListener('wheel', (e) => { e.stopPropagation(); }, true);
   requestAnimationFrame(() => searchInput.focus());
 
   const closeHandler = (e: MouseEvent) => {
@@ -2267,14 +2363,32 @@ async function createGraphEditor(
 
   reactPlugin.addPreset(Presets.classic.setup({
     customize: {
+      node(context) {
+        const node = context.payload;
+        const category = getNodeCategory(node);
+        const color = NODE_CATEGORY_COLORS[category] || '#546E7A';
+        const icon = getCategoryIcon(category);
+        return (props: any) => {
+          return React.createElement('div', {
+            className: 'fe-node',
+            'data-category': category,
+            style: { '--node-color': color } as any,
+          },
+            React.createElement('div', { className: 'fe-node-cat-strip' },
+              React.createElement('span', { className: 'fe-node-cat-icon' }, icon),
+              React.createElement('span', { className: 'fe-node-cat-label' }, category),
+            ),
+            React.createElement(Presets.classic.Node, props),
+          );
+        };
+      },
       socket(data) {
-        // Return a custom React component that sets a data-attribute for CSS-based type coloring
         const sock = data.payload as ClassicPreset.Socket;
         const color = socketColor(sock);
         return (props: any) => {
           const isExec = sock.name === 'Exec';
           return React.createElement('div', {
-            className: 'socket',
+            className: `socket${isExec ? ' socket-exec' : ''}`,
             title: sock.name,
             'data-socket-type': sock.name,
             style: {
@@ -2282,10 +2396,11 @@ async function createGraphEditor(
               width: isExec ? 14 : 12,
               height: isExec ? 14 : 12,
               borderRadius: isExec ? '2px' : '50%',
-              border: `2px solid ${isExec ? '#888' : 'rgba(0,0,0,0.4)'}`,
+              border: `2px solid ${isExec ? '#666' : 'rgba(0,0,0,0.35)'}`,
               display: 'inline-block',
               cursor: 'pointer',
               boxSizing: 'border-box' as const,
+              transition: 'box-shadow 0.15s ease, transform 0.1s ease',
             },
           });
         };
@@ -2317,7 +2432,7 @@ async function createGraphEditor(
             );
           };
         }
-        return null;  // fall through to default InputControl renderer
+        return null;
       },
     },
   }));
@@ -2325,6 +2440,72 @@ async function createGraphEditor(
   editor.use(area);
   area.use(connection);
   area.use(reactPlugin);
+
+  // ── Selection state (declared early so area pipes can reference it) ──
+  const selectedNodeIds = new Set<string>();
+  let _lastPointerEvent: PointerEvent | null = null;
+  container.addEventListener('pointerdown', (e) => {
+    _lastPointerEvent = e;
+  }, true);
+
+  // ── UE-style controls: block Rete's default left-click area pan ──
+  let _leftMouseDown = false;
+  container.addEventListener('pointerdown', (e) => {
+    if (e.button === 0) _leftMouseDown = true;
+  }, true);
+  window.addEventListener('pointerup', (e) => {
+    if (e.button === 0) _leftMouseDown = false;
+  });
+
+  // Right-click pan state (declared early so contextmenu handler can reference _rcMoved)
+  let _rcDown = false;
+  let _rcMoved = false;
+  let _rcStartX = 0, _rcStartY = 0;
+  let _rcStartTx = 0, _rcStartTy = 0;
+
+  // ── Connection wire coloring by socket type ──
+  area.addPipe((ctx) => {
+    if (ctx.type === 'rendered') {
+      const d = ctx.data as any;
+      if (d.type === 'connection' && d.data && d.element) {
+        const conn = d.data;
+        const el = d.element as HTMLElement;
+        const srcNode = editor.getNode(conn.source);
+        if (srcNode) {
+          const output = srcNode.outputs[conn.sourceOutput];
+          if (output?.socket) {
+            const wireColor = socketColor(output.socket);
+            const isExec = output.socket.name === 'Exec';
+            const path = el.querySelector('path');
+            if (path) {
+              path.setAttribute('stroke', wireColor);
+              path.setAttribute('stroke-width', isExec ? '3.5' : '2');
+              if (isExec) path.classList.add('fe-exec-wire');
+            }
+          }
+        }
+      }
+      // Add category + ID attributes to rendered node elements
+      if (d.type === 'node' && d.data && d.element) {
+        const nodeObj = d.data;
+        const outerEl = d.element as HTMLElement;
+        const cat = getNodeCategory(nodeObj);
+        // Stamp on outer wrapper (NodeView.element)
+        outerEl.setAttribute('data-node-category', cat);
+        outerEl.setAttribute('data-node-id', nodeObj.id);
+        // Also stamp on inner [data-testid="node"] React element
+        const innerEl = outerEl.querySelector('[data-testid="node"]') as HTMLElement | null;
+        if (innerEl) {
+          innerEl.setAttribute('data-node-id', nodeObj.id);
+        }
+        // Apply initial selection state on BOTH elements
+        const isSel = selectedNodeIds.has(nodeObj.id);
+        outerEl.classList.toggle('fe-selected', isSel);
+        if (innerEl) innerEl.classList.toggle('fe-selected', isSel);
+      }
+    }
+    return ctx;
+  });
 
   // ── Socket type-safety: block connections between incompatible types ──
   editor.addPipe((ctx) => {
@@ -2348,12 +2529,113 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // Right-click
+  // ── Block Rete's built-in left-click area pan (UE-style: only right-click pans) ──
+  area.addPipe((ctx) => {
+    if (ctx.type === 'translate') {
+      // Block area translate when left mouse is held (Rete's default drag-to-pan).
+      // Programmatic translates (zoomAt, etc.) happen without mouse down so are allowed.
+      if (_leftMouseDown) return undefined;
+    }
+    return ctx;
+  });
+
+  // Right-click context menu + pan
   container.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    // If the user was right-click-dragging to pan, don't show the menu
+    if (_rcMoved) return;
     const rect = container.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
+
+    // Check if right-click is on a node — show node actions menu
+    const targetEl = e.target as HTMLElement;
+    const nodeEl = targetEl.closest('[data-testid="node"]') as HTMLElement | null;
+    if (nodeEl) {
+      // Find which node was right-clicked
+      const clickedNode = editor.getNodes().find(n => {
+        const view = area.nodeViews.get(n.id);
+        if (!view) return false;
+        const nodeContainer = (view as any).element as HTMLElement | undefined;
+        return nodeContainer === nodeEl || nodeEl.contains(nodeContainer as Node) || (nodeContainer && nodeContainer.contains(nodeEl));
+      });
+      if (clickedNode || selectedNodeIds.size > 0) {
+        const existingMenu = container.querySelector('.bp-context-menu');
+        if (existingMenu) existingMenu.remove();
+        const menu = document.createElement('div');
+        menu.className = 'bp-context-menu fe-node-action-menu';
+        menu.style.left = cx + 'px';
+        menu.style.top = cy + 'px';
+        const header = document.createElement('div');
+        header.className = 'bp-context-header';
+        header.textContent = 'Node Actions';
+        menu.appendChild(header);
+        // Disable/Enable
+        const isDisabled = clickedNode ? (clickedNode as any).__disabled : false;
+        const disableItem = document.createElement('div');
+        disableItem.className = 'bp-context-item';
+        disableItem.textContent = isDisabled ? '✅ Enable Node' : '🚫 Disable Node';
+        disableItem.addEventListener('click', () => {
+          const targets = selectedNodeIds.size > 0 ? editor.getNodes().filter(n => selectedNodeIds.has(n.id)) : (clickedNode ? [clickedNode] : []);
+          for (const n of targets) {
+            (n as any).__disabled = !(n as any).__disabled;
+            // Update visual
+            const view = area.nodeViews.get(n.id);
+            if (view) {
+              const el = (view as any).element as HTMLElement | undefined;
+              if (el) el.classList.toggle('fe-node-disabled', !!(n as any).__disabled);
+            }
+          }
+          menu.remove();
+          onChanged();
+        });
+        menu.appendChild(disableItem);
+        // Delete
+        const deleteItem = document.createElement('div');
+        deleteItem.className = 'bp-context-item';
+        deleteItem.textContent = '🗑️ Delete';
+        deleteItem.addEventListener('click', () => {
+          const targets = selectedNodeIds.size > 0 ? [...selectedNodeIds] : (clickedNode ? [clickedNode.id] : []);
+          pushUndo('Delete nodes');
+          (async () => {
+            for (const nid of targets) {
+              const conns = editor.getConnections().filter(c => c.source === nid || c.target === nid);
+              for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
+              try { await editor.removeNode(nid); } catch { /* ok */ }
+            }
+          })();
+          selectedNodeIds.clear();
+          menu.remove();
+        });
+        menu.appendChild(deleteItem);
+        // Duplicate
+        const dupItem = document.createElement('div');
+        dupItem.className = 'bp-context-item';
+        dupItem.textContent = '📋 Duplicate';
+        dupItem.addEventListener('click', () => {
+          const targets = selectedNodeIds.size > 0 ? editor.getNodes().filter(n => selectedNodeIds.has(n.id)) : (clickedNode ? [clickedNode] : []);
+          (async () => {
+            const idMap = new Map<string, string>();
+            for (const sn of targets) {
+              const sd = { type: getNodeTypeName(sn), data: getNodeSerialData(sn) };
+              const node = createNodeFromData(sd, bp);
+              if (!node) continue;
+              await editor.addNode(node);
+              idMap.set(sn.id, node.id);
+              const v = area.nodeViews.get(sn.id);
+              await area.translate(node.id, { x: (v?.position.x ?? 0) + 40, y: (v?.position.y ?? 0) + 40 });
+            }
+          })();
+          menu.remove();
+        });
+        menu.appendChild(dupItem);
+        container.appendChild(menu);
+        const closeHandler = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) { menu.remove(); document.removeEventListener('mousedown', closeHandler); } };
+        setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+        return;
+      }
+    }
+
     showContextMenu(container, cx, cy, bp, graphType, currentFuncId,
       async (entry) => {
         const node = entry.factory();
@@ -2477,47 +2759,431 @@ async function createGraphEditor(
     } catch { /* not a drag item */ }
   }, true);
 
-  // ── Node selection & Delete key ──────────────────────────
-  const selectedNodeIds = new Set<string>();
-  let _lastPointerEvent: PointerEvent | null = null;
-  container.addEventListener('pointerdown', (e) => {
-    _lastPointerEvent = e;
-  }, true);
+  // ── Clipboard for copy/paste ──
+  let _clipboard: { nodes: any[]; connections: any[]; offset: { x: number; y: number } } | null = null;
 
-  // Click on empty canvas = deselect all
+  // ── Comment boxes ──
+  const comments: CommentBox[] = [];
+  const commentEls = new Map<string, HTMLElement>();
+  const commentLayer = document.createElement('div');
+  commentLayer.className = 'fe-comment-layer';
+  container.appendChild(commentLayer);
+
+  function createCommentEl(c: CommentBox): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'fe-comment-box';
+    el.setAttribute('data-comment-id', c.id);
+    el.style.cssText = `left:${c.position.x}px;top:${c.position.y}px;width:${c.size.width}px;height:${c.size.height}px;border-color:${c.color};`;
+    el.innerHTML = `<div class="fe-comment-header" style="background:${c.color}"><span class="fe-comment-text" contenteditable="true">${c.text}</span><span class="fe-comment-close">✕</span></div><div class="fe-comment-body"></div><div class="fe-comment-resize"></div>`;
+    // Make header draggable
+    const header = el.querySelector('.fe-comment-header')!;
+    let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+    header.addEventListener('pointerdown', (ev: any) => {
+      if ((ev.target as HTMLElement).classList.contains('fe-comment-close') || (ev.target as HTMLElement).isContentEditable) return;
+      dragging = true; startX = ev.clientX; startY = ev.clientY;
+      origX = c.position.x; origY = c.position.y;
+      const onMove = (me: PointerEvent) => {
+        if (!dragging) return;
+        c.position.x = origX + (me.clientX - startX) / (area.area.transform.k);
+        c.position.y = origY + (me.clientY - startY) / (area.area.transform.k);
+        el.style.left = c.position.x + 'px';
+        el.style.top = c.position.y + 'px';
+      };
+      const onUp = () => { dragging = false; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); onChanged(); };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+    // Resize handle
+    const resizeHandle = el.querySelector('.fe-comment-resize')!;
+    resizeHandle.addEventListener('pointerdown', (ev: any) => {
+      ev.stopPropagation();
+      const rStartX = ev.clientX, rStartY = ev.clientY;
+      const rOrigW = c.size.width, rOrigH = c.size.height;
+      const onMove = (me: PointerEvent) => {
+        c.size.width = Math.max(150, rOrigW + (me.clientX - rStartX) / (area.area.transform.k));
+        c.size.height = Math.max(80, rOrigH + (me.clientY - rStartY) / (area.area.transform.k));
+        el.style.width = c.size.width + 'px';
+        el.style.height = c.size.height + 'px';
+      };
+      const onUp = () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); onChanged(); };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+    // Edit text
+    const textEl = el.querySelector('.fe-comment-text') as HTMLElement;
+    textEl.addEventListener('blur', () => { c.text = textEl.textContent || 'Comment'; onChanged(); });
+    textEl.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); } });
+    // Close button
+    el.querySelector('.fe-comment-close')!.addEventListener('click', () => {
+      const idx = comments.findIndex(x => x.id === c.id);
+      if (idx >= 0) comments.splice(idx, 1);
+      el.remove(); commentEls.delete(c.id); onChanged();
+    });
+    commentLayer.appendChild(el);
+    commentEls.set(c.id, el);
+    return el;
+  }
+
+  function addComment(x: number, y: number) {
+    const t = area.area.transform;
+    const c: CommentBox = { id: commentUid(), text: 'Comment', position: { x: (x - t.x) / t.k, y: (y - t.y) / t.k }, size: { width: 300, height: 150 }, color: '#4455aa' };
+    comments.push(c);
+    createCommentEl(c);
+    onChanged();
+  }
+
+  // ── Undo / Redo Manager ──
+  const undoMgr = new UndoManager();
+  let _undoThrottle: ReturnType<typeof setTimeout> | null = null;
+  function pushUndo(label: string) {
+    if (_undoThrottle) clearTimeout(_undoThrottle);
+    _undoThrottle = setTimeout(() => {
+      const snap = serializeGraph(editor, area);
+      undoMgr.push({ graphJson: snap, label });
+    }, 100);
+  }
+
+  // ── Snap to Grid (20px increments, always on — hold Alt to disable) ──
+  const GRID_SIZE = 20;
+  area.addPipe((ctx) => {
+    if (ctx.type === 'nodetranslate') {
+      const d = ctx.data as any;
+      if (!(_lastPointerEvent?.altKey)) {
+        d.position.x = Math.round(d.position.x / GRID_SIZE) * GRID_SIZE;
+        d.position.y = Math.round(d.position.y / GRID_SIZE) * GRID_SIZE;
+      }
+    }
+    return ctx;
+  });
+
+  // Sync comment layer transform with area pan/zoom
+  area.addPipe((ctx) => {
+    if (ctx.type === 'translated' || ctx.type === 'zoomed' || ctx.type === 'resized') {
+      const t = area.area.transform;
+      commentLayer.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.k})`;
+    }
+    return ctx;
+  });
+
+  // ── Right-click drag pan (UE-style) ──
   container.addEventListener('pointerdown', (e) => {
-    const target = e.target as HTMLElement;
-    // Clear selection unless the user clicked on a node element
-    const isOnNode = target.closest('[data-testid="node"]') || target.closest('.node');
-    if (!isOnNode && !e.shiftKey && !e.ctrlKey) {
-      selectedNodeIds.clear();
+    if (e.button === 2) {
+      _rcDown = true;
+      _rcMoved = false;
+      _rcStartX = e.clientX;
+      _rcStartY = e.clientY;
+      _rcStartTx = area.area.transform.x;
+      _rcStartTy = area.area.transform.y;
+    }
+  }, true);
+  container.addEventListener('pointermove', (e) => {
+    if (!_rcDown) return;
+    const dx = e.clientX - _rcStartX;
+    const dy = e.clientY - _rcStartY;
+    if (!_rcMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+      _rcMoved = true;
+    }
+    if (_rcMoved) {
+      // Directly update the area transform and DOM for smooth panning
+      const t = area.area.transform;
+      t.x = _rcStartTx + dx;
+      t.y = _rcStartTy + dy;
+      // Update the area's content element (first child of container is the rete area content)
+      const areaContent = container.querySelector(':scope > div') as HTMLElement;
+      if (areaContent) {
+        areaContent.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.k})`;
+      }
+      // Sync comment layer
+      commentLayer.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.k})`;
+    }
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (e.button === 2 && _rcDown) {
+      _rcDown = false;
     }
   });
 
-  // Delete key handler
-  function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      // Don't delete if user is typing in an input
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  // ── Box Select (drag rectangle on empty canvas) ──
+  let _boxSelecting = false;
+  let _boxStart = { x: 0, y: 0 };
+  const boxSelRect = document.createElement('div');
+  boxSelRect.className = 'fe-box-select';
+  boxSelRect.style.display = 'none';
+  container.appendChild(boxSelRect);
 
+  container.addEventListener('pointerdown', (e) => {
+    const target = e.target as HTMLElement;
+    const isOnNode = target.closest('[data-testid="node"]') || target.closest('.node') || target.closest('[data-node-id]');
+    const isOnComment = target.closest('.fe-comment-box');
+    const isOnUI = target.closest('.bp-context-menu') || target.closest('.mybp-dialog-overlay') || target.closest('.fe-minimap');
+    if (!isOnNode && !isOnComment && !isOnUI && e.button === 0) {
+      // Left-click on empty canvas
+      if (!e.shiftKey && !e.ctrlKey) { selectedNodeIds.clear(); syncSelectionVisuals(); }
+      // Start box select
+      _boxSelecting = true;
+      const rect = container.getBoundingClientRect();
+      _boxStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      boxSelRect.style.left = _boxStart.x + 'px';
+      boxSelRect.style.top = _boxStart.y + 'px';
+      boxSelRect.style.width = '0px';
+      boxSelRect.style.height = '0px';
+      boxSelRect.style.display = 'none';
+    }
+  });
+  container.addEventListener('pointermove', (e) => {
+    if (!_boxSelecting) return;
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const x = Math.min(cx, _boxStart.x);
+    const y = Math.min(cy, _boxStart.y);
+    const w = Math.abs(cx - _boxStart.x);
+    const h = Math.abs(cy - _boxStart.y);
+    if (w > 4 || h > 4) {
+      boxSelRect.style.display = 'block';
+      boxSelRect.style.left = x + 'px';
+      boxSelRect.style.top = y + 'px';
+      boxSelRect.style.width = w + 'px';
+      boxSelRect.style.height = h + 'px';
+    }
+  });
+  container.addEventListener('pointerup', (e) => {
+    if (!_boxSelecting) return;
+    _boxSelecting = false;
+    boxSelRect.style.display = 'none';
+    // Select nodes within the rectangle
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const bx1 = Math.min(cx, _boxStart.x);
+    const by1 = Math.min(cy, _boxStart.y);
+    const bx2 = Math.max(cx, _boxStart.x);
+    const by2 = Math.max(cy, _boxStart.y);
+    if (bx2 - bx1 < 5 && by2 - by1 < 5) { syncSelectionVisuals(); return; } // too small, just sync
+    const t = area.area.transform;
+    for (const n of editor.getNodes()) {
+      const v = area.nodeViews.get(n.id);
+      if (!v) continue;
+      // Convert node position to screen coords
+      const nx = v.position.x * t.k + t.x;
+      const ny = v.position.y * t.k + t.y;
+      if (nx >= bx1 && nx <= bx2 && ny >= by1 && ny <= by2) {
+        selectedNodeIds.add(n.id);
+      }
+    }
+    syncSelectionVisuals();
+  });
+
+  // ── Visual selection sync: apply/remove .fe-selected class on node elements ──
+  function syncSelectionVisuals() {
+    // We need to apply .fe-selected on BOTH:
+    // 1. The outer wrapper div (NodeView.element) — has data-node-id from rendered pipe
+    // 2. The inner [data-testid="node"] React element — for CSS selectors to match
+    const outerEls = container.querySelectorAll('[data-node-id]');
+    outerEls.forEach((outerEl) => {
+      const nodeId = outerEl.getAttribute('data-node-id');
+      if (!nodeId) return;
+      const isSel = selectedNodeIds.has(nodeId);
+      (outerEl as HTMLElement).classList.toggle('fe-selected', isSel);
+      // Find the inner [data-testid="node"] inside this wrapper
+      const innerEl = outerEl.querySelector('[data-testid="node"]') as HTMLElement | null;
+      if (innerEl) {
+        innerEl.classList.toggle('fe-selected', isSel);
+        innerEl.classList.toggle('selected', isSel);
+      }
+    });
+  }
+
+  // ── Prevent wheel events on UI overlays from zooming the canvas ──
+  container.addEventListener('wheel', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.bp-context-menu') || target.closest('.fe-minimap') || target.closest('.mybp-dialog-overlay') || target.closest('.fe-node-action-menu')) {
+      e.stopPropagation();
+    }
+  }, true);
+
+  // ── Keyboard shortcut handler ──
+  function handleKeyDown(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement).tagName;
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable;
+
+    // Delete / Backspace — delete selected nodes
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput) {
       if (selectedNodeIds.size > 0) {
         e.preventDefault();
+        pushUndo('Delete nodes');
         const ids = [...selectedNodeIds];
         selectedNodeIds.clear();
+        syncSelectionVisuals();
         (async () => {
           for (const nodeId of ids) {
-            // Remove all connections to/from this node first
-            const conns = editor.getConnections().filter(
-              c => c.source === nodeId || c.target === nodeId
-            );
-            for (const c of conns) {
-              try { await editor.removeConnection(c.id); } catch { /* ok */ }
-            }
+            const conns = editor.getConnections().filter(c => c.source === nodeId || c.target === nodeId);
+            for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
             try { await editor.removeNode(nodeId); } catch { /* ok */ }
           }
         })();
       }
+    }
+
+    // Ctrl+Z — undo
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !inInput) {
+      e.preventDefault();
+      const state = undoMgr.undo();
+      if (state) {
+        (async () => {
+          // Clear current graph
+          for (const c of editor.getConnections()) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
+          for (const n of editor.getNodes()) { try { await editor.removeNode(n.id); } catch { /* ok */ } }
+          // Restore from snapshot
+          await deserializeGraph(editor, area, state.graphJson, bp);
+        })();
+      }
+    }
+
+    // Ctrl+Y or Ctrl+Shift+Z — redo
+    if (((e.key === 'y' && (e.ctrlKey || e.metaKey)) || (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)) && !inInput) {
+      e.preventDefault();
+      const state = undoMgr.redo();
+      if (state) {
+        (async () => {
+          for (const c of editor.getConnections()) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
+          for (const n of editor.getNodes()) { try { await editor.removeNode(n.id); } catch { /* ok */ } }
+          await deserializeGraph(editor, area, state.graphJson, bp);
+        })();
+      }
+    }
+
+    // Ctrl+A — select all
+    if (e.key === 'a' && (e.ctrlKey || e.metaKey) && !inInput) {
+      e.preventDefault();
+      for (const n of editor.getNodes()) selectedNodeIds.add(n.id);
+      syncSelectionVisuals();
+    }
+
+    // F — frame selection (zoom to fit selected or all)
+    if (e.key === 'f' && !inInput && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const selected = editor.getNodes().filter(n => selectedNodeIds.has(n.id));
+      const targets = selected.length > 0 ? selected : editor.getNodes();
+      if (targets.length > 0) AreaExtensions.zoomAt(area, targets);
+    }
+
+    // Ctrl+C — copy
+    if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !inInput) {
+      if (selectedNodeIds.size > 0) {
+        e.preventDefault();
+        const selNodes = editor.getNodes().filter(n => selectedNodeIds.has(n.id));
+        const selConns = editor.getConnections().filter(c => selectedNodeIds.has(c.source) && selectedNodeIds.has(c.target));
+        // Find center of selection for offset
+        let cx = 0, cy = 0;
+        for (const n of selNodes) {
+          const v = area.nodeViews.get(n.id);
+          if (v) { cx += v.position.x; cy += v.position.y; }
+        }
+        cx /= selNodes.length; cy /= selNodes.length;
+        _clipboard = {
+          nodes: selNodes.map(n => ({ type: getNodeTypeName(n), data: getNodeSerialData(n), position: area.nodeViews.get(n.id)?.position || { x: 0, y: 0 } })),
+          connections: selConns.map(c => ({ source: c.source, sourceOutput: c.sourceOutput, target: c.target, targetInput: c.targetInput })),
+          offset: { x: cx, y: cy },
+        };
+      }
+    }
+
+    // Ctrl+V — paste
+    if (e.key === 'v' && (e.ctrlKey || e.metaKey) && !inInput) {
+      if (_clipboard && _clipboard.nodes.length > 0) {
+        e.preventDefault();
+        (async () => {
+          const idMap = new Map<string, string>();
+          const newIds: string[] = [];
+          // Get viewport center as paste target
+          const rect = container.getBoundingClientRect();
+          const t = area.area.transform;
+          const vcx = (rect.width / 2 - t.x) / t.k;
+          const vcy = (rect.height / 2 - t.y) / t.k;
+          for (const nd of _clipboard!.nodes) {
+            const node = createNodeFromData(nd, bp);
+            if (!node) continue;
+            const oldPos = nd.position || { x: 0, y: 0 };
+            await editor.addNode(node);
+            idMap.set(nd.type + '_' + JSON.stringify(nd.data), node.id);
+            const nx = vcx + (oldPos.x - _clipboard!.offset.x) + 30;
+            const ny = vcy + (oldPos.y - _clipboard!.offset.y) + 30;
+            await area.translate(node.id, { x: nx, y: ny });
+            newIds.push(node.id);
+          }
+          selectedNodeIds.clear();
+          for (const id of newIds) selectedNodeIds.add(id);
+          syncSelectionVisuals();
+        })();
+      }
+    }
+
+    // Ctrl+D — duplicate
+    if (e.key === 'd' && (e.ctrlKey || e.metaKey) && !inInput) {
+      if (selectedNodeIds.size > 0) {
+        e.preventDefault();
+        (async () => {
+          const selNodes = editor.getNodes().filter(n => selectedNodeIds.has(n.id));
+          const selConns = editor.getConnections().filter(c => selectedNodeIds.has(c.source) && selectedNodeIds.has(c.target));
+          const idMap = new Map<string, string>();
+          const newIds: string[] = [];
+          for (const sn of selNodes) {
+            const serialData = { type: getNodeTypeName(sn), data: getNodeSerialData(sn) };
+            const node = createNodeFromData(serialData, bp);
+            if (!node) continue;
+            await editor.addNode(node);
+            idMap.set(sn.id, node.id);
+            const v = area.nodeViews.get(sn.id);
+            const pos = v ? { x: v.position.x + 40, y: v.position.y + 40 } : { x: 40, y: 40 };
+            await area.translate(node.id, pos);
+            newIds.push(node.id);
+          }
+          // Restore internal connections
+          for (const c of selConns) {
+            const ns = idMap.get(c.source);
+            const nt = idMap.get(c.target);
+            if (ns && nt) {
+              const sn = editor.getNode(ns);
+              const tn = editor.getNode(nt);
+              if (sn && tn) { try { await editor.addConnection(new ClassicPreset.Connection(sn, c.sourceOutput, tn, c.targetInput)); } catch { /* ok */ } }
+            }
+          }
+          selectedNodeIds.clear();
+          for (const id of newIds) selectedNodeIds.add(id);
+          syncSelectionVisuals();
+        })();
+      }
+    }
+
+    // Spacebar or Ctrl+F — quick search / node menu
+    if ((e.key === ' ' || (e.key === 'f' && (e.ctrlKey || e.metaKey))) && !inInput) {
+      if (e.key === ' ') {
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        showContextMenu(container, rect.width / 2 - 140, rect.height / 2 - 210, bp, graphType, currentFuncId,
+          async (entry) => {
+            const node = entry.factory();
+            await editor.addNode(node);
+            const t = area.area.transform;
+            await area.translate(node.id, { x: (-t.x + rect.width / 2) / t.k, y: (-t.y + rect.height / 2) / t.k });
+          },
+          async () => {}, async () => {}, async () => {}, async () => {}, async () => {},
+          async (s, mode) => {
+            const node = mode === 'make' ? new MakeStructNode(s.id, s.name, s.fields) : new BreakStructNode(s.id, s.name, s.fields);
+            await editor.addNode(node); const t = area.area.transform;
+            await area.translate(node.id, { x: (-t.x + rect.width / 2) / t.k, y: (-t.y + rect.height / 2) / t.k });
+          },
+          () => {},
+          componentEntries,
+        );
+      }
+    }
+
+    // C — add comment box (when not in input)
+    if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !inInput) {
+      const rect = container.getBoundingClientRect();
+      addComment(rect.width / 2, rect.height / 2);
     }
   }
   container.setAttribute('tabindex', '0');
@@ -2528,20 +3194,45 @@ async function createGraphEditor(
     if (document.activeElement !== container) container.focus();
   });
 
-  // Auto-compile on changes
+  // Auto-compile on changes + push undo on structural changes
   editor.addPipe((ctx) => {
     if (['connectioncreated','connectionremoved','nodecreated','noderemoved'].includes(ctx.type)) {
       setTimeout(onChanged, 50);
+      if (ctx.type === 'nodecreated' || ctx.type === 'noderemoved') pushUndo(ctx.type);
+      if (ctx.type === 'connectioncreated' || ctx.type === 'connectionremoved') pushUndo(ctx.type);
     }
     return ctx;
   });
 
-  // Save positions when nodes are moved (debounced)
+  // ── Tooltips on nodes — show description on hover ──
+  area.addPipe((ctx) => {
+    if (ctx.type === 'rendered') {
+      const d = ctx.data as any;
+      if (d.type === 'node' && d.data && d.element) {
+        const nodeObj = d.data as ClassicPreset.Node;
+        const el = d.element as HTMLElement;
+        const cat = getNodeCategory(nodeObj);
+        const inputNames = Object.keys(nodeObj.inputs).filter(k => nodeObj.inputs[k]).map(k => `${k}: ${nodeObj.inputs[k]!.socket.name}`);
+        const outputNames = Object.keys(nodeObj.outputs).filter(k => nodeObj.outputs[k]).map(k => `${k}: ${nodeObj.outputs[k]!.socket.name}`);
+        const tipLines = [`${nodeObj.label} [${cat}]`];
+        if (inputNames.length) tipLines.push(`In: ${inputNames.join(', ')}`);
+        if (outputNames.length) tipLines.push(`Out: ${outputNames.join(', ')}`);
+        el.title = tipLines.join('\n');
+        // Apply disabled styling if node is marked disabled
+        if ((nodeObj as any).__disabled) {
+          el.classList.add('fe-node-disabled');
+        }
+      }
+    }
+    return ctx;
+  });
+
+  // Save positions when nodes are moved (debounced) + push undo on move
   let _positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
   area.addPipe((ctx) => {
     if (ctx.type === 'nodetranslated') {
       if (_positionSaveTimer) clearTimeout(_positionSaveTimer);
-      _positionSaveTimer = setTimeout(onChanged, 300);
+      _positionSaveTimer = setTimeout(() => { onChanged(); pushUndo('move'); }, 300);
     }
     return ctx;
   });
@@ -2568,6 +3259,7 @@ async function createGraphEditor(
         const isMulti = _lastPointerEvent?.shiftKey || _lastPointerEvent?.ctrlKey;
         if (!isMulti) selectedNodeIds.clear();
         selectedNodeIds.add(nodeId);
+        syncSelectionVisuals();
       }
       return ctx;
     });
@@ -2576,10 +3268,12 @@ async function createGraphEditor(
   // Cleanup helper
   const _cleanup = () => {
     container.removeEventListener('keydown', handleKeyDown);
+    commentLayer.remove();
+    boxSelRect.remove();
   };
   (area as any).__cleanup = _cleanup;
 
-  return { editor, area };
+  return { editor, area, comments, createCommentEl };
 }
 
 // ============================================================
@@ -2600,7 +3294,7 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
     const bp = gameObject.blueprintData;
 
     // Storage for editors per graph id
-    const editorStore = new Map<string, { editor: NodeEditor<Schemes>; area: AreaPlugin<Schemes, any>; el: HTMLElement }>();
+    const editorStore = new Map<string, { editor: NodeEditor<Schemes>; area: AreaPlugin<Schemes, any>; el: HTMLElement; comments?: CommentBox[]; createCommentEl?: (c: CommentBox) => HTMLElement }>();
     const functionEditors = new Map<string, NodeEditor<Schemes>>();
     const macroEditors = new Map<string, NodeEditor<Schemes>>();
 
@@ -2636,6 +3330,54 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
     graphContainer.className = 'graph-editor-area';
     rightArea.appendChild(graphContainer);
 
+    // Minimap
+    const minimap = document.createElement('div');
+    minimap.className = 'fe-minimap';
+    minimap.innerHTML = '<div class="fe-minimap-title">MINIMAP</div><canvas class="fe-minimap-canvas" width="160" height="100"></canvas>';
+    rightArea.appendChild(minimap);
+    const minimapCanvas = minimap.querySelector('.fe-minimap-canvas') as HTMLCanvasElement;
+    function updateMinimap() {
+      const data = editorStore.get(activeGraphId);
+      if (!data || !minimapCanvas) return;
+      const ctx = minimapCanvas.getContext('2d');
+      if (!ctx) return;
+      const nodes = data.editor.getNodes();
+      if (nodes.length === 0) return;
+      ctx.clearRect(0, 0, 160, 100);
+      // Find bounds
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of nodes) {
+        const v = data.area.nodeViews.get(n.id);
+        if (v) { minX = Math.min(minX, v.position.x); minY = Math.min(minY, v.position.y); maxX = Math.max(maxX, v.position.x + 160); maxY = Math.max(maxY, v.position.y + 40); }
+      }
+      const rangeX = Math.max(maxX - minX, 1);
+      const rangeY = Math.max(maxY - minY, 1);
+      const pad = 10;
+      const sx = (160 - pad * 2) / rangeX;
+      const sy = (100 - pad * 2) / rangeY;
+      const s = Math.min(sx, sy);
+      for (const n of nodes) {
+        const v = data.area.nodeViews.get(n.id);
+        if (!v) continue;
+        const x = pad + (v.position.x - minX) * s;
+        const y = pad + (v.position.y - minY) * s;
+        const cat = getNodeCategory(n);
+        ctx.fillStyle = NODE_CATEGORY_COLORS[cat] || '#555';
+        ctx.fillRect(x, y, Math.max(4, 160 * s * 0.08), Math.max(2, 40 * s * 0.08));
+      }
+      // Draw viewport rect
+      const t = data.area.area.transform;
+      const el = data.el;
+      const vx = pad + (-t.x / t.k - minX) * s;
+      const vy = pad + (-t.y / t.k - minY) * s;
+      const vw = (el.clientWidth / t.k) * s;
+      const vh = (el.clientHeight / t.k) * s;
+      ctx.strokeStyle = '#5b8af566';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(vx, vy, vw, vh);
+    }
+    setInterval(() => { if (!destroyed) updateMinimap(); }, 500);
+
     // Compile & save
     function compileAndSave() {
       if (destroyed) return;
@@ -2649,17 +3391,24 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
       // ── Persist graph node data into BlueprintData ──
       // Event graph
       bp.eventGraph.nodeData = serializeGraph(evData.editor, evData.area);
+      bp.eventGraph.comments = evData.comments ? evData.comments.map(c => ({ ...c, position: { ...c.position }, size: { ...c.size } })) : [];
       // Function graphs
       for (const [id, fnEditor] of functionEditors) {
         const fn = bp.getFunction(id);
         const fnData = editorStore.get(id);
-        if (fn && fnData) fn.graph.nodeData = serializeGraph(fnEditor, fnData.area);
+        if (fn && fnData) {
+          fn.graph.nodeData = serializeGraph(fnEditor, fnData.area);
+          fn.graph.comments = fnData.comments ? fnData.comments.map(c => ({ ...c, position: { ...c.position }, size: { ...c.size } })) : [];
+        }
       }
       // Macro graphs
       for (const [id, mEditor] of macroEditors) {
         const m = bp.getMacro(id);
         const mData = editorStore.get(id);
-        if (m && mData) m.graph.nodeData = serializeGraph(mEditor, mData.area);
+        if (m && mData) {
+          m.graph.nodeData = serializeGraph(mEditor, mData.area);
+          m.graph.comments = mData.comments ? mData.comments.map(c => ({ ...c, position: { ...c.position }, size: { ...c.size } })) : [];
+        }
       }
     }
 
@@ -2680,13 +3429,13 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
         graphContainer.appendChild(el);
 
         const funcId = tab.type === 'function' ? (tab.refId || null) : null;
-        const { editor, area } = await createGraphEditor(el, bp, tab.type, funcId, compileAndSave, (node) => {
+        const { editor, area, comments: graphComments, createCommentEl: createCmtEl } = await createGraphEditor(el, bp, tab.type, funcId, compileAndSave, (node) => {
           if (node instanceof FunctionCallNode) {
             const funcTab = graphTabs.find(t => t.refId === (node as FunctionCallNode).funcId);
             if (funcTab) switchToGraph(funcTab);
           }
         }, compEntries);
-        data = { editor, area, el };
+        data = { editor, area, el, comments: graphComments, createCommentEl: createCmtEl };
         editorStore.set(tab.id, data);
 
         if (tab.type === 'function') functionEditors.set(tab.id, editor);
@@ -2728,6 +3477,21 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
         }
 
         compileAndSave();
+
+        // Restore saved comments
+        const graphDataSource =
+          tab.type === 'event' ? bp.eventGraph :
+          tab.type === 'function' && tab.refId ? bp.getFunction(tab.refId)?.graph :
+          tab.type === 'macro' && tab.refId ? bp.getMacro(tab.refId)?.graph :
+          null;
+        if (graphDataSource?.comments && data.comments && data.createCommentEl) {
+          for (const saved of graphDataSource.comments) {
+            const c: CommentBox = { ...saved, position: { ...saved.position }, size: { ...saved.size } };
+            data.comments.push(c);
+            data.createCommentEl(c);
+          }
+        }
+
         setTimeout(() => {
           if (!destroyed) AreaExtensions.zoomAt(area, editor.getNodes());
         }, 100);
