@@ -139,6 +139,69 @@ import {
   IsOverlappingActorNode,
   GetOverlapCountNode,
   SetCollisionEnabledNode,
+  // Character Movement Nodes
+  AddMovementInputNode,
+  JumpNode,
+  StopJumpingNode,
+  CrouchNode,
+  UncrouchNode,
+  StartFlyingNode,
+  StopFlyingNode,
+  StartSwimmingNode,
+  StopSwimmingNode,
+  SetMovementModeNode,
+  SetMaxWalkSpeedNode,
+  LaunchCharacterNode,
+  SetCameraModeNode,
+  SetCameraFOVNode,
+  GetCharacterVelocityNode,
+  GetMovementSpeedNode,
+  IsGroundedNode,
+  IsJumpingNode,
+  IsCrouchingNode,
+  IsFallingNode,
+  IsFlyingNode,
+  IsSwimmingNode,
+  IsMovingNode,
+  GetMovementModeNode,
+  GetCameraLocationNode,
+  InputAxisNode,
+  // Camera & Spring Arm Nodes
+  SetSpringArmLengthNode,
+  SetSpringArmTargetOffsetNode,
+  SetSpringArmSocketOffsetNode,
+  SetSpringArmCollisionNode,
+  SetCameraLagNode,
+  SetCameraRotationLagNode,
+  GetSpringArmLengthNode,
+  GetSpringArmTargetOffsetNode,
+  GetSpringArmSocketOffsetNode,
+  CameraModeLiteralNode,
+  MovementModeLiteralNode,
+  GetCameraRotationNode,
+  // Player Controller Nodes
+  PossessPawnNode,
+  UnpossessPawnNode,
+  GetControlledPawnNode,
+  IsPossessingNode,
+  // AI Controller Nodes
+  AIMoveToNode,
+  AIStopMovementNode,
+  AISetFocalPointNode,
+  AIClearFocalPointNode,
+  AIStartPatrolNode,
+  AIStopPatrolNode,
+  AIStartFollowingNode,
+  AIStopFollowingNode,
+  GetAIStateNode,
+  AIHasReachedTargetNode,
+  AIGetDistanceToTargetNode,
+  // Controller ↔ Pawn Nodes
+  GetControllerNode,
+  GetControllerTypeNode,
+  GetPawnNode,
+  IsPlayerControlledNode,
+  IsAIControlledNode,
   socketColor,
   socketsCompatible,
   getConversion,
@@ -202,7 +265,7 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof MacroEntryNode || node instanceof MacroExitNode) return 'Macros';
   if (node instanceof MacroCallNode) return 'Macros';
   if (node instanceof CustomEventNode || node instanceof CallCustomEventNode) return 'Events';
-  if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode) return 'Input';
+  if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode || node instanceof InputAxisNode) return 'Input';
   // Physics event nodes  
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
@@ -422,6 +485,19 @@ function resolveValue(
     return `(__inputKeys[${JSON.stringify(kc)}] || false)`;
   }
 
+  // InputAxisNode — two-key axis: positive key → +1, negative key → -1
+  if (node instanceof InputAxisNode) {
+    const ia = node as InputAxisNode;
+    // Read from controls (user may have edited them on the node)
+    const posCtrl = ia.controls['posKey'] as ClassicPreset.InputControl<'text'> | undefined;
+    const negCtrl = ia.controls['negKey'] as ClassicPreset.InputControl<'text'> | undefined;
+    const posKey = posCtrl?.value as string || ia.positiveKey;
+    const negKey = negCtrl?.value as string || ia.negativeKey;
+    const posCode = keyEventCode(posKey);
+    const negCode = keyEventCode(negKey);
+    return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
+  }
+
   // Collision / Trigger event output data (variables set inside the callback closure)
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode) {
     if (outputKey === 'otherActorName') return '__otherActorName';
@@ -518,6 +594,121 @@ function resolveValue(
   }
   if (node instanceof GetOverlapCountNode) {
     return `(__physics.collision.getOverlappingCount(gameObject.id))`;
+  }
+
+  // Character movement query nodes
+  if (node instanceof GetCharacterVelocityNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'x') return `(${cc} ? ${cc}.velocity.x : 0)`;
+    if (outputKey === 'y') return `(${cc} ? ${cc}.velocity.y : 0)`;
+    if (outputKey === 'z') return `(${cc} ? ${cc}.velocity.z : 0)`;
+    return '0';
+  }
+  if (node instanceof GetMovementSpeedNode) {
+    return `(gameObject.characterController ? gameObject.characterController.getSpeed() : 0)`;
+  }
+  if (node instanceof IsGroundedNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isGrounded : false)`;
+  }
+  if (node instanceof IsJumpingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isJumping : false)`;
+  }
+  if (node instanceof IsCrouchingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isCrouching : false)`;
+  }
+  if (node instanceof IsFallingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isFalling : false)`;
+  }
+  if (node instanceof IsFlyingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.movementMode === 'flying' : false)`;
+  }
+  if (node instanceof IsSwimmingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.movementMode === 'swimming' : false)`;
+  }
+  if (node instanceof IsMovingNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isMoving() : false)`;
+  }
+  if (node instanceof GetMovementModeNode) {
+    return `(gameObject.characterController ? gameObject.characterController.movementMode : 'walking')`;
+  }
+  if (node instanceof GetCameraLocationNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'x') return `(${cc} ? ${cc}.camera.position.x : 0)`;
+    if (outputKey === 'y') return `(${cc} ? ${cc}.camera.position.y : 0)`;
+    if (outputKey === 'z') return `(${cc} ? ${cc}.camera.position.z : 0)`;
+    return '0';
+  }
+  // Camera & Spring Arm query nodes
+  if (node instanceof GetSpringArmLengthNode) {
+    return `(gameObject.characterController ? gameObject.characterController.getSpringArmLength() : 0)`;
+  }
+  if (node instanceof GetSpringArmTargetOffsetNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'x') return `(${cc} ? ${cc}.getSpringArmTargetOffset().x : 0)`;
+    if (outputKey === 'y') return `(${cc} ? ${cc}.getSpringArmTargetOffset().y : 0)`;
+    if (outputKey === 'z') return `(${cc} ? ${cc}.getSpringArmTargetOffset().z : 0)`;
+    return '0';
+  }
+  if (node instanceof GetSpringArmSocketOffsetNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'x') return `(${cc} ? ${cc}.getSpringArmSocketOffset().x : 0)`;
+    if (outputKey === 'y') return `(${cc} ? ${cc}.getSpringArmSocketOffset().y : 0)`;
+    if (outputKey === 'z') return `(${cc} ? ${cc}.getSpringArmSocketOffset().z : 0)`;
+    return '0';
+  }
+  if (node instanceof GetCameraRotationNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'x') return `(${cc} ? ${cc}.camera.rotation.x : 0)`;
+    if (outputKey === 'y') return `(${cc} ? ${cc}.camera.rotation.y : 0)`;
+    if (outputKey === 'z') return `(${cc} ? ${cc}.camera.rotation.z : 0)`;
+    return '0';
+  }
+  // Player Controller query nodes
+  if (node instanceof GetControlledPawnNode) {
+    if (outputKey === 'name') return `(gameObject.characterController ? gameObject.characterController.gameObject.name : '')`;
+    if (outputKey === 'hasPawn') return `(!!gameObject.characterController)`;
+    return '""';
+  }
+  if (node instanceof IsPossessingNode) {
+    return `(!!gameObject.characterController)`;
+  }
+  // AI Controller query nodes
+  if (node instanceof GetAIStateNode) {
+    return `(gameObject.aiController ? gameObject.aiController.state : 'idle')`;
+  }
+  if (node instanceof AIHasReachedTargetNode) {
+    return `(gameObject.aiController ? gameObject.aiController.hasReachedTarget() : false)`;
+  }
+  if (node instanceof AIGetDistanceToTargetNode) {
+    return `(gameObject.aiController ? gameObject.aiController.getDistanceToTarget() : 0)`;
+  }
+  // ── Controller ↔ Pawn bidirectional nodes ──
+  if (node instanceof GetControllerNode) {
+    if (outputKey === 'type') return `(gameObject.controller ? gameObject.controller.controllerType : 'None')`;
+    if (outputKey === 'hasController') return `(!!gameObject.controller)`;
+    return `'None'`;
+  }
+  if (node instanceof GetControllerTypeNode) {
+    return `(gameObject.controller ? gameObject.controller.controllerType : 'None')`;
+  }
+  if (node instanceof GetPawnNode) {
+    if (outputKey === 'name') return `(gameObject.controller && gameObject.controller.getPawn() ? gameObject.controller.getPawn().gameObject.name : '')`;
+    if (outputKey === 'hasPawn') return `(gameObject.controller ? gameObject.controller.isPossessing() : false)`;
+    return `''`;
+  }
+  if (node instanceof IsPlayerControlledNode) {
+    return `(gameObject.controller ? gameObject.controller.controllerType === 'PlayerController' : false)`;
+  }
+  if (node instanceof IsAIControlledNode) {
+    return `(gameObject.controller ? gameObject.controller.controllerType === 'AIController' : false)`;
+  }
+  if (node instanceof CameraModeLiteralNode) {
+    const ctrl = node.controls['mode'] as ClassicPreset.InputControl<'text'>;
+    return `'${ctrl?.value ?? 'thirdPerson'}'`;
+  }
+  if (node instanceof MovementModeLiteralNode) {
+    const ctrl = node.controls['mode'] as ClassicPreset.InputControl<'text'>;
+    return `'${ctrl?.value ?? 'walking'}'`;
   }
 
   switch (node.label) {
@@ -803,6 +994,196 @@ function genAction(
     const ci = (node as SetSpotPenumbraNode).compIndex;
     const pS = inputSrc.get(`${nodeId}.penumbra`);
     lines.push(`{ const _lc = (gameObject._lightComponents || [])[${ci}]; if (_lc && _lc.light.penumbra !== undefined) _lc.light.penumbra = ${pS ? rv(pS.nid, pS.ok) : '0'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Character Movement action nodes
+  if (node instanceof AddMovementInputNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    const sS = inputSrc.get(`${nodeId}.scale`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) { const _d = ({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}); _cc.addMovementInput(_d, ${sS ? rv(sS.nid, sS.ok) : '1'}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof JumpNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.jump(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof StopJumpingNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.stopJumping(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof CrouchNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.crouch(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof UncrouchNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.uncrouch(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof StartFlyingNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.startFlying(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof StopFlyingNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.stopFlying(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof StartSwimmingNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.startSwimming(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof StopSwimmingNode) {
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.stopSwimming(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetMovementModeNode) {
+    const mS = inputSrc.get(`${nodeId}.mode`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setMovementMode(${mS ? rv(mS.nid, mS.ok) : "'walking'"}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetMaxWalkSpeedNode) {
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setMaxWalkSpeed(${sS ? rv(sS.nid, sS.ok) : '6'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof LaunchCharacterNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    const oxyS = inputSrc.get(`${nodeId}.overrideXY`);
+    const ozS = inputSrc.get(`${nodeId}.overrideZ`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.launchCharacter({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, ${oxyS ? rv(oxyS.nid, oxyS.ok) : 'true'}, ${ozS ? rv(ozS.nid, ozS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCameraModeNode) {
+    const mS = inputSrc.get(`${nodeId}.mode`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setCameraMode(${mS ? rv(mS.nid, mS.ok) : "'firstPerson'"}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCameraFOVNode) {
+    const fS = inputSrc.get(`${nodeId}.fov`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setFOV(${fS ? rv(fS.nid, fS.ok) : '75'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // Player Controller action nodes
+  if (node instanceof PossessPawnNode) {
+    const nS = inputSrc.get(`${nodeId}.pawnName`);
+    lines.push(`{ /* Possess Pawn — handled at engine level */ }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof UnpossessPawnNode) {
+    lines.push(`{ /* Unpossess Pawn — handled at engine level */ }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // AI Controller action nodes
+  if (node instanceof AIMoveToNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.moveTo(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIStopMovementNode) {
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.stopMovement(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AISetFocalPointNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.setFocalPoint(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIClearFocalPointNode) {
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.clearFocalPoint(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIStartPatrolNode) {
+    const loopS = inputSrc.get(`${nodeId}.loop`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.startPatrol(_ai.patrolPoints.length ? _ai.patrolPoints : [], ${loopS ? rv(loopS.nid, loopS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIStopPatrolNode) {
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.stopMovement(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIStartFollowingNode) {
+    const tS = inputSrc.get(`${nodeId}.targetName`);
+    const dS = inputSrc.get(`${nodeId}.distance`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) { const _tn = ${tS ? rv(tS.nid, tS.ok) : "''"}; const _tgo = scene.gameObjects.find(g => g.name === _tn); if (_tgo) _ai.startFollowing(_tgo, ${dS ? rv(dS.nid, dS.ok) : '3'}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIStopFollowingNode) {
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.stopMovement(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // Camera & Spring Arm action nodes
+  if (node instanceof SetSpringArmLengthNode) {
+    const lS = inputSrc.get(`${nodeId}.length`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmLength(${lS ? rv(lS.nid, lS.ok) : '4'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetSpringArmTargetOffsetNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmTargetOffset(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0.9'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetSpringArmSocketOffsetNode) {
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmSocketOffset(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetSpringArmCollisionNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmCollision(${eS ? rv(eS.nid, eS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCameraLagNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setCameraLag(${eS ? rv(eS.nid, eS.ok) : 'false'}, ${sS ? rv(sS.nid, sS.ok) : '10'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCameraRotationLagNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setCameraRotationLag(${eS ? rv(eS.nid, eS.ok) : 'false'}, ${sS ? rv(sS.nid, sS.ok) : '10'}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1167,7 +1548,8 @@ function generateFullCode(
   // Input key event nodes & IsKeyDown nodes
   const inputKeyNodes = nodes.filter(n => n instanceof InputKeyEventNode) as InputKeyEventNode[];
   const isKeyDownNodes = nodes.filter(n => n instanceof IsKeyDownNode);
-  const hasInputNodes = inputKeyNodes.length > 0 || isKeyDownNodes.length > 0;
+  const inputAxisNodes = nodes.filter(n => n instanceof InputAxisNode);
+  const hasInputNodes = inputKeyNodes.length > 0 || isKeyDownNodes.length > 0 || inputAxisNodes.length > 0;
   if (hasInputNodes) {
     parts.push('var __inputKeys = {};');
     parts.push('var __inputCleanup = [];');
@@ -1621,7 +2003,7 @@ function showContextMenu(
   onAddCustomEventCallNode: (evt: BlueprintCustomEvent) => void,
   onAddLocalVarNode: (v: BlueprintVariable, mode: 'get' | 'set') => void,
   onAddStructNode: (s: BlueprintStruct, mode: 'make' | 'break') => void,
-  onAddInputKeyNode: (type: 'event' | 'isdown') => void,
+  onAddInputKeyNode: (type: 'event' | 'isdown' | 'axis') => void,
   componentEntries?: ComponentNodeEntry[],
 ) {
   const existing = container.querySelector('.bp-context-menu');
@@ -1744,7 +2126,7 @@ function showContextMenu(
       if (items.length) categories.set('Structs', items);
     }
 
-    // Input — Key Event / Is Key Down (event graph only for Key Event)
+    // Input — Key Event / Is Key Down / Input Axis (event graph only for Key Event)
     {
       const items: { label: string; action: () => void }[] = [];
       if (graphType === 'event') {
@@ -1753,6 +2135,8 @@ function showContextMenu(
       }
       if (!lf || 'is key down'.includes(lf) || 'input'.includes(lf))
         items.push({ label: 'Is Key Down', action: () => { menu.remove(); onAddInputKeyNode('isdown'); } });
+      if (!lf || 'input axis'.includes(lf) || 'input'.includes(lf))
+        items.push({ label: 'Input Axis', action: () => { menu.remove(); onAddInputKeyNode('axis'); } });
       if (items.length) categories.set('Input', items);
     }
 
@@ -2501,6 +2885,69 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetTriggerOverlapCountNode) return 'GetTriggerOverlapCountNode';
   if (node instanceof IsTriggerOverlappingNode) return 'IsTriggerOverlappingNode';
   if (node instanceof GetTriggerShapeNode) return 'GetTriggerShapeNode';
+  // Character Movement nodes
+  if (node instanceof AddMovementInputNode) return 'AddMovementInputNode';
+  if (node instanceof JumpNode) return 'JumpNode';
+  if (node instanceof StopJumpingNode) return 'StopJumpingNode';
+  if (node instanceof CrouchNode) return 'CrouchNode';
+  if (node instanceof UncrouchNode) return 'UncrouchNode';
+  if (node instanceof SetMovementModeNode) return 'SetMovementModeNode';
+  if (node instanceof SetMaxWalkSpeedNode) return 'SetMaxWalkSpeedNode';
+  if (node instanceof LaunchCharacterNode) return 'LaunchCharacterNode';
+  if (node instanceof SetCameraModeNode) return 'SetCameraModeNode';
+  if (node instanceof SetCameraFOVNode) return 'SetCameraFOVNode';
+  if (node instanceof GetCharacterVelocityNode) return 'GetCharacterVelocityNode';
+  if (node instanceof GetMovementSpeedNode) return 'GetMovementSpeedNode';
+  if (node instanceof IsGroundedNode) return 'IsGroundedNode';
+  if (node instanceof IsJumpingNode) return 'IsJumpingNode';
+  if (node instanceof IsCrouchingNode) return 'IsCrouchingNode';
+  if (node instanceof IsFallingNode) return 'IsFallingNode';
+  if (node instanceof IsFlyingNode) return 'IsFlyingNode';
+  if (node instanceof IsSwimmingNode) return 'IsSwimmingNode';
+  if (node instanceof StartFlyingNode) return 'StartFlyingNode';
+  if (node instanceof StopFlyingNode) return 'StopFlyingNode';
+  if (node instanceof StartSwimmingNode) return 'StartSwimmingNode';
+  if (node instanceof StopSwimmingNode) return 'StopSwimmingNode';
+  if (node instanceof IsMovingNode) return 'IsMovingNode';
+  if (node instanceof GetMovementModeNode) return 'GetMovementModeNode';
+  if (node instanceof GetCameraLocationNode) return 'GetCameraLocationNode';
+  if (node instanceof InputAxisNode) return 'InputAxisNode';
+  // Camera & Spring Arm nodes
+  if (node instanceof SetSpringArmLengthNode) return 'SetSpringArmLengthNode';
+  if (node instanceof SetSpringArmTargetOffsetNode) return 'SetSpringArmTargetOffsetNode';
+  if (node instanceof SetSpringArmSocketOffsetNode) return 'SetSpringArmSocketOffsetNode';
+  if (node instanceof SetSpringArmCollisionNode) return 'SetSpringArmCollisionNode';
+  if (node instanceof SetCameraLagNode) return 'SetCameraLagNode';
+  if (node instanceof SetCameraRotationLagNode) return 'SetCameraRotationLagNode';
+  if (node instanceof GetSpringArmLengthNode) return 'GetSpringArmLengthNode';
+  if (node instanceof GetSpringArmTargetOffsetNode) return 'GetSpringArmTargetOffsetNode';
+  if (node instanceof GetSpringArmSocketOffsetNode) return 'GetSpringArmSocketOffsetNode';
+  if (node instanceof CameraModeLiteralNode) return 'CameraModeLiteralNode';
+  if (node instanceof MovementModeLiteralNode) return 'MovementModeLiteralNode';
+  if (node instanceof GetCameraRotationNode) return 'GetCameraRotationNode';
+  // Player Controller nodes
+  if (node instanceof PossessPawnNode) return 'PossessPawnNode';
+  if (node instanceof UnpossessPawnNode) return 'UnpossessPawnNode';
+  if (node instanceof GetControlledPawnNode) return 'GetControlledPawnNode';
+  if (node instanceof IsPossessingNode) return 'IsPossessingNode';
+  // AI Controller nodes
+  if (node instanceof AIMoveToNode) return 'AIMoveToNode';
+  if (node instanceof AIStopMovementNode) return 'AIStopMovementNode';
+  if (node instanceof AISetFocalPointNode) return 'AISetFocalPointNode';
+  if (node instanceof AIClearFocalPointNode) return 'AIClearFocalPointNode';
+  if (node instanceof AIStartPatrolNode) return 'AIStartPatrolNode';
+  if (node instanceof AIStopPatrolNode) return 'AIStopPatrolNode';
+  if (node instanceof AIStartFollowingNode) return 'AIStartFollowingNode';
+  if (node instanceof AIStopFollowingNode) return 'AIStopFollowingNode';
+  if (node instanceof GetAIStateNode) return 'GetAIStateNode';
+  if (node instanceof AIHasReachedTargetNode) return 'AIHasReachedTargetNode';
+  if (node instanceof AIGetDistanceToTargetNode) return 'AIGetDistanceToTargetNode';
+  // Controller ↔ Pawn nodes
+  if (node instanceof GetControllerNode) return 'GetControllerNode';
+  if (node instanceof GetControllerTypeNode) return 'GetControllerTypeNode';
+  if (node instanceof GetPawnNode) return 'GetPawnNode';
+  if (node instanceof IsPlayerControlledNode) return 'IsPlayerControlledNode';
+  if (node instanceof IsAIControlledNode) return 'IsAIControlledNode';
 
   return 'Unknown';
 }
@@ -2541,6 +2988,12 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.selectedKey = (node as InputKeyEventNode).selectedKey;
   } else if (node instanceof IsKeyDownNode) {
     data.selectedKey = (node as IsKeyDownNode).selectedKey;
+  } else if (node instanceof InputAxisNode) {
+    const ia = node as InputAxisNode;
+    const posCtrl = ia.controls['posKey'] as ClassicPreset.InputControl<'text'> | undefined;
+    const negCtrl = ia.controls['negKey'] as ClassicPreset.InputControl<'text'> | undefined;
+    data.positiveKey = (posCtrl?.value as string) || ia.positiveKey;
+    data.negativeKey = (negCtrl?.value as string) || ia.negativeKey;
   } else if (node instanceof FunctionEntryNode) {
     data.funcId = node.funcId;
   } else if (node instanceof FunctionReturnNode) {
@@ -2642,6 +3095,8 @@ function createNodeFromData(
       return new InputKeyEventNode(d.selectedKey || 'Space');
     case 'IsKeyDownNode':
       return new IsKeyDownNode(d.selectedKey || 'Space');
+    case 'InputAxisNode':
+      return new InputAxisNode(d.positiveKey || 'D', d.negativeKey || 'A');
 
     // Variables
     case 'GetVariableNode': {
@@ -2826,6 +3281,69 @@ function createNodeFromData(
     case 'IsOverlappingActorNode':      return new IsOverlappingActorNode();
     case 'GetOverlapCountNode':         return new GetOverlapCountNode();
     case 'SetCollisionEnabledNode':     return new SetCollisionEnabledNode();
+
+    // Character Movement nodes
+    case 'AddMovementInputNode':        return new AddMovementInputNode();
+    case 'JumpNode':                    return new JumpNode();
+    case 'StopJumpingNode':             return new StopJumpingNode();
+    case 'CrouchNode':                  return new CrouchNode();
+    case 'UncrouchNode':                return new UncrouchNode();
+    case 'SetMovementModeNode':         return new SetMovementModeNode();
+    case 'SetMaxWalkSpeedNode':         return new SetMaxWalkSpeedNode();
+    case 'LaunchCharacterNode':         return new LaunchCharacterNode();
+    case 'SetCameraModeNode':           return new SetCameraModeNode();
+    case 'SetCameraFOVNode':            return new SetCameraFOVNode();
+    case 'GetCharacterVelocityNode':    return new GetCharacterVelocityNode();
+    case 'GetMovementSpeedNode':        return new GetMovementSpeedNode();
+    case 'IsGroundedNode':              return new IsGroundedNode();
+    case 'IsJumpingNode':               return new IsJumpingNode();
+    case 'IsCrouchingNode':             return new IsCrouchingNode();
+    case 'IsFallingNode':               return new IsFallingNode();
+    case 'IsFlyingNode':                 return new IsFlyingNode();
+    case 'IsSwimmingNode':               return new IsSwimmingNode();
+    case 'StartFlyingNode':              return new StartFlyingNode();
+    case 'StopFlyingNode':               return new StopFlyingNode();
+    case 'StartSwimmingNode':            return new StartSwimmingNode();
+    case 'StopSwimmingNode':             return new StopSwimmingNode();
+    case 'IsMovingNode':                 return new IsMovingNode();
+    case 'GetMovementModeNode':         return new GetMovementModeNode();
+    case 'GetCameraLocationNode':       return new GetCameraLocationNode();
+    // Camera & Spring Arm nodes
+    case 'SetSpringArmLengthNode':          return new SetSpringArmLengthNode();
+    case 'SetSpringArmTargetOffsetNode':    return new SetSpringArmTargetOffsetNode();
+    case 'SetSpringArmSocketOffsetNode':    return new SetSpringArmSocketOffsetNode();
+    case 'SetSpringArmCollisionNode':       return new SetSpringArmCollisionNode();
+    case 'SetCameraLagNode':                return new SetCameraLagNode();
+    case 'SetCameraRotationLagNode':        return new SetCameraRotationLagNode();
+    case 'GetSpringArmLengthNode':          return new GetSpringArmLengthNode();
+    case 'GetSpringArmTargetOffsetNode':    return new GetSpringArmTargetOffsetNode();
+    case 'GetSpringArmSocketOffsetNode':    return new GetSpringArmSocketOffsetNode();
+    case 'CameraModeLiteralNode':           return new CameraModeLiteralNode();
+    case 'MovementModeLiteralNode':         return new MovementModeLiteralNode();
+    case 'GetCameraRotationNode':           return new GetCameraRotationNode();
+    // Player Controller nodes
+    case 'PossessPawnNode':                 return new PossessPawnNode();
+    case 'UnpossessPawnNode':               return new UnpossessPawnNode();
+    case 'GetControlledPawnNode':           return new GetControlledPawnNode();
+    case 'IsPossessingNode':                return new IsPossessingNode();
+    // AI Controller nodes
+    case 'AIMoveToNode':                    return new AIMoveToNode();
+    case 'AIStopMovementNode':              return new AIStopMovementNode();
+    case 'AISetFocalPointNode':             return new AISetFocalPointNode();
+    case 'AIClearFocalPointNode':           return new AIClearFocalPointNode();
+    case 'AIStartPatrolNode':               return new AIStartPatrolNode();
+    case 'AIStopPatrolNode':                return new AIStopPatrolNode();
+    case 'AIStartFollowingNode':            return new AIStartFollowingNode();
+    case 'AIStopFollowingNode':             return new AIStopFollowingNode();
+    case 'GetAIStateNode':                  return new GetAIStateNode();
+    case 'AIHasReachedTargetNode':          return new AIHasReachedTargetNode();
+    case 'AIGetDistanceToTargetNode':       return new AIGetDistanceToTargetNode();
+    // Controller ↔ Pawn
+    case 'GetControllerNode':               return new GetControllerNode();
+    case 'GetControllerTypeNode':           return new GetControllerTypeNode();
+    case 'GetPawnNode':                     return new GetPawnNode();
+    case 'IsPlayerControlledNode':          return new IsPlayerControlledNode();
+    case 'IsAIControlledNode':              return new IsAIControlledNode();
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
@@ -3307,15 +3825,25 @@ async function createGraphEditor(
         await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
       },
       (type) => {
-        const title = type === 'event' ? 'Input Key Event' : 'Is Key Down';
-        showKeySelectDialog(container, title, async (key) => {
-          const node = type === 'event'
-            ? new InputKeyEventNode(key)
-            : new IsKeyDownNode(key);
-          await editor.addNode(node);
-          const t = area.area.transform;
-          await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
-        });
+        if (type === 'axis') {
+          // Input Axis — create directly with default keys (user can modify in properties)
+          (async () => {
+            const node = new InputAxisNode('D', 'A');
+            await editor.addNode(node);
+            const t = area.area.transform;
+            await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+          })();
+        } else {
+          const title = type === 'event' ? 'Input Key Event' : 'Is Key Down';
+          showKeySelectDialog(container, title, async (key) => {
+            const node = type === 'event'
+              ? new InputKeyEventNode(key)
+              : new IsKeyDownNode(key);
+            await editor.addNode(node);
+            const t = area.area.transform;
+            await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+          });
+        }
       },
       componentEntries,
     );

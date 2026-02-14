@@ -37,9 +37,49 @@ export type CollisionChannelName =
   | 'Pawn'
   | 'Player'
   | 'Projectile'
-  | 'Trigger';
+  | 'Trigger'
+  | 'Camera';
 
 export type ChannelResponses = Partial<Record<CollisionChannelName, CollisionResponse>>;
+
+// ---- Collision Groups (bitmask) for Rapier ----
+
+/** Collision group membership & filter bits used with Rapier's InteractionGroups.
+ *  Each channel gets a bit; the upper 16 bits = membership, lower 16 bits = filter (what to collide with).
+ */
+export const CollisionGroupBits = {
+  WorldStatic:  0x0001,
+  WorldDynamic: 0x0002,
+  Pawn:         0x0004,
+  Player:       0x0008,
+  Camera:       0x0010,
+  Projectile:   0x0020,
+  Trigger:      0x0040,
+  All:          0xFFFF,
+} as const;
+
+/**
+ * Build Rapier interaction groups (membership | filter << 16).
+ *  - membership: which groups this collider belongs to
+ *  - filter:     which groups this collider collides with
+ */
+export function makeInteractionGroups(membership: number, filter: number): number {
+  return (membership << 16) | filter;
+}
+
+/** Character capsule collision groups: belongs to Pawn, collides with WorldStatic + WorldDynamic + Pawn, ignores Camera */
+export function characterCapsuleGroups(): number {
+  const membership = CollisionGroupBits.Pawn;
+  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic | CollisionGroupBits.Pawn;
+  return makeInteractionGroups(membership, filter);
+}
+
+/** Camera spring arm ray collision groups: belongs to Camera, collides with WorldStatic only, ignores Pawn */
+export function cameraRayGroups(): number {
+  const membership = CollisionGroupBits.Camera;
+  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic;
+  return makeInteractionGroups(membership, filter);
+}
 
 // ---- Collision Type — what the component does ----
 

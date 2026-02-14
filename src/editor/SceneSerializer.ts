@@ -139,6 +139,10 @@ export function deserializeScene(
           asset.components,
           asset.compiledCode,
           asset.rootPhysics,
+          asset.actorType,
+          asset.characterPawnConfig,
+          asset.controllerClass,
+          asset.controllerBlueprintId,
         );
         // Apply saved transform (overrides default asset position)
         go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);

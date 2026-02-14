@@ -4,6 +4,7 @@ import {
   type IContentRenderer,
   type GroupPanelPartInitParameters,
 } from 'dockview-core';
+import * as THREE from 'three';
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import { ViewportPanel } from './ViewportPanel';
@@ -172,6 +173,9 @@ export class EditorLayout {
       this.assetManager,
       (asset: ActorAsset) => this._openActorEditor(asset),
       (asset, mx, my) => {
+        // Controller blueprints are not droppable into the scene
+        if (asset.actorType === 'playerController' || asset.actorType === 'aiController') return;
+
         // Custom drop: check if the mouse is over the viewport
         if (!this._viewport) return;
         const rect = this._viewport.container.getBoundingClientRect();
@@ -186,6 +190,10 @@ export class EditorLayout {
           asset.components,
           asset.compiledCode,
           asset.rootPhysics,
+          asset.actorType,
+          asset.characterPawnConfig,
+          asset.controllerClass,
+          asset.controllerBlueprintId,
         );
       },
     );
@@ -240,9 +248,16 @@ export class EditorLayout {
 
     const panelId = 'actor-editor-' + asset.id;
 
+    const titleIcon = asset.actorType === 'playerController' ? '🎮'
+      : asset.actorType === 'aiController' ? '🤖'
+      : '⬡';
+    const titleLabel = asset.actorType === 'playerController' ? 'PlayerController'
+      : asset.actorType === 'aiController' ? 'AIController'
+      : 'Actor';
+
     this._api.addPanel({
       id: panelId,
-      title: `⬡ Actor: ${asset.name}`,
+      title: `${titleIcon} ${titleLabel}: ${asset.name}`,
       component: 'default',
       position: {
         direction: 'below',
@@ -274,6 +289,10 @@ export class EditorLayout {
         asset.compiledCode,
         asset.components,
         asset.rootPhysics,
+        asset.actorType,
+        asset.characterPawnConfig,
+        asset.controllerClass,
+        asset.controllerBlueprintId,
       );
     };
 
@@ -289,7 +308,7 @@ export class EditorLayout {
       syncInstances();
     };
 
-    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged);
+    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged, this.assetManager);
   }
 
   /** Wire up the StructureAssetManager for the content browser and editors */
@@ -438,5 +457,15 @@ export class EditorLayout {
     if (this._viewport) {
       this._viewport.applyCameraState(state);
     }
+  }
+
+  /** Get the viewport canvas for pointer lock / character controller */
+  getCanvas(): HTMLCanvasElement | null {
+    return this._viewport?.getCanvas() ?? null;
+  }
+
+  /** Set or clear the play-mode camera (character pawn) */
+  setPlayCamera(cam: THREE.PerspectiveCamera | null): void {
+    if (this._viewport) this._viewport.setPlayCamera(cam);
   }
 }

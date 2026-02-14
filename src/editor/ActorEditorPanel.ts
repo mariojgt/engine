@@ -6,12 +6,14 @@
 // ============================================================
 
 import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType } from './ActorAsset';
-import { defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
+import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 import { defaultCollisionConfig, defaultDimensionsForShape } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType, RootMeshType } from '../engine/Scene';
+import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig } from '../engine/CharacterPawnData';
+import type { CameraMode, SpringArmConfig, CameraComponentConfig } from '../engine/CharacterPawnData';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -21,6 +23,7 @@ function compUid(): string {
 export class ActorEditorPanel {
   public container: HTMLElement;
   private _asset: ActorAsset;
+  private _assetManager: ActorAssetManager | null;
   private _onCompile: (code: string) => void;
   private _onAssetChanged: () => void;
 
@@ -46,9 +49,11 @@ export class ActorEditorPanel {
     asset: ActorAsset,
     onCompile: (code: string) => void,
     onAssetChanged?: () => void,
+    assetManager?: ActorAssetManager,
   ) {
     this.container = container;
     this._asset = asset;
+    this._assetManager = assetManager ?? null;
     this._onCompile = onCompile;
     this._onAssetChanged = onAssetChanged ?? (() => {});
     this._build();
@@ -72,7 +77,10 @@ export class ActorEditorPanel {
 
     // Build tabs
     this._buildTabBar();
-    this._switchTab('viewport');
+
+    // Controller blueprints default to Event Graph tab (no mesh to show)
+    const isController = this._asset.actorType === 'playerController' || this._asset.actorType === 'aiController';
+    this._switchTab(isController ? 'graph' : 'viewport');
   }
 
   private _buildTabBar(): void {
@@ -111,6 +119,13 @@ export class ActorEditorPanel {
   // ================================================================
 
   private _buildViewportTab(): void {
+    // Controller blueprints have no mesh — show a simple info panel
+    const isController = this._asset.actorType === 'playerController' || this._asset.actorType === 'aiController';
+    if (isController) {
+      this._buildControllerInfoTab();
+      return;
+    }
+
     const wrap = document.createElement('div');
     wrap.className = 'actor-viewport-tab';
     this._tabContentArea.appendChild(wrap);
@@ -170,6 +185,57 @@ export class ActorEditorPanel {
     this._refreshComponentProps();
   }
 
+  /**
+   * Build a simplified info panel for Controller blueprint assets.
+   * No 3D viewport — just shows controller type and variables.
+   */
+  private _buildControllerInfoTab(): void {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:16px;overflow-y:auto;height:100%;';
+    this._tabContentArea.appendChild(wrap);
+    this._viewportTabEl = wrap;
+
+    const isPC = this._asset.actorType === 'playerController';
+    const typeLabel = isPC ? 'Player Controller' : 'AI Controller';
+    const emoji = isPC ? '🎮' : '🤖';
+
+    // Header
+    const hdr = document.createElement('div');
+    hdr.className = 'physics-section-header';
+    hdr.textContent = `${emoji} ${typeLabel} Blueprint`;
+    wrap.appendChild(hdr);
+
+    // Description
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:12px;line-height:1.5;';
+    desc.textContent = isPC
+      ? 'This is a Player Controller blueprint. Assign it to a Character Pawn in its Controller settings. ' +
+        'Its Event Graph runs at play time alongside the possessed pawn — use Get Pawn to access the character.'
+      : 'This is an AI Controller blueprint. Assign it to a Character Pawn in its Controller settings. ' +
+        'Its Event Graph runs at play time alongside the possessed pawn — use AI MoveTo, Get Pawn, etc.';
+    wrap.appendChild(desc);
+
+    // Name row
+    wrap.appendChild(this._makeTextRow('Name', this._asset.name, (v) => {
+      this._asset.name = v;
+      this._asset.touch();
+      this._onAssetChanged();
+    }));
+
+    // Description row
+    wrap.appendChild(this._makeTextRow('Description', this._asset.description, (v) => {
+      this._asset.description = v;
+      this._asset.touch();
+      this._onAssetChanged();
+    }));
+
+    // Tip
+    const tip = document.createElement('div');
+    tip.style.cssText = 'color:#888;font-size:11px;margin-top:16px;font-style:italic;';
+    tip.textContent = 'Switch to the Event Graph tab to add blueprint logic.';
+    wrap.appendChild(tip);
+  }
+
   private _disposeViewportTab(): void {
     if (this._preview) {
       this._preview.dispose();
@@ -197,12 +263,19 @@ export class ActorEditorPanel {
       ),
     );
 
-    // Child components
+    // Child components — render with hierarchy indentation
     for (const comp of this._asset.components) {
-      const icon = comp.type === 'trigger' ? '⚡' : comp.type === 'light' ? '💡' : '🔹';
-      this._componentsListEl.appendChild(
-        this._makeComponentItem(comp.name, comp.id, icon),
-      );
+      const icon = comp.type === 'trigger' ? '⚡'
+        : comp.type === 'light' ? '💡'
+        : comp.type === 'camera' ? '📷'
+        : comp.type === 'characterMovement' ? '🏃'
+        : comp.type === 'springArm' ? '🎯'
+        : comp.type === 'capsule' ? '🔵'
+        : '🔹';
+      const indent = comp.parentId ? true : false;
+      const item = this._makeComponentItem(comp.name, comp.id, icon);
+      if (indent) item.style.paddingLeft = '24px';
+      this._componentsListEl.appendChild(item);
     }
   }
 
@@ -295,6 +368,73 @@ export class ActorEditorPanel {
     // Physics section for root component (only for mesh roots)
     if (this._asset.rootMeshType !== 'none') {
       this._buildPhysicsSection(container, this._asset.rootPhysics);
+    }
+
+    // ---- Character Pawn settings ----
+    if (this._asset.actorType === 'characterPawn') {
+      if (!this._asset.characterPawnConfig) {
+        this._asset.characterPawnConfig = defaultCharacterPawnConfig();
+      }
+
+      // ── Controller selector ──
+      const ctrlHeader = document.createElement('div');
+      ctrlHeader.className = 'physics-section-header';
+      ctrlHeader.textContent = '🎮 Controller';
+      container.appendChild(ctrlHeader);
+
+      // Build options list: Default types + any created controller blueprints
+      const controllerOptions: string[] = ['None', 'PlayerController (Default)', 'AIController (Default)'];
+      const controllerBlueprintAssets: ActorAsset[] = [];
+      if (this._assetManager) {
+        for (const a of this._assetManager.assets) {
+          if (a.actorType === 'playerController' || a.actorType === 'aiController') {
+            controllerBlueprintAssets.push(a);
+            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
+            controllerOptions.push(`${prefix} ${a.name}`);
+          }
+        }
+      }
+
+      // Determine current value for the dropdown
+      let currentValue = 'None';
+      if (this._asset.controllerBlueprintId) {
+        const bpAsset = controllerBlueprintAssets.find(a => a.id === this._asset.controllerBlueprintId);
+        if (bpAsset) {
+          const prefix = bpAsset.actorType === 'playerController' ? '🎮' : '🤖';
+          currentValue = `${prefix} ${bpAsset.name}`;
+        }
+      } else if (this._asset.controllerClass === 'PlayerController') {
+        currentValue = 'PlayerController (Default)';
+      } else if (this._asset.controllerClass === 'AIController') {
+        currentValue = 'AIController (Default)';
+      }
+
+      container.appendChild(this._makeDropdownRow('Controller', currentValue, controllerOptions, (v) => {
+        if (v === 'None') {
+          this._asset.controllerClass = 'None';
+          this._asset.controllerBlueprintId = '';
+        } else if (v === 'PlayerController (Default)') {
+          this._asset.controllerClass = 'PlayerController';
+          this._asset.controllerBlueprintId = '';
+        } else if (v === 'AIController (Default)') {
+          this._asset.controllerClass = 'AIController';
+          this._asset.controllerBlueprintId = '';
+        } else {
+          // A specific controller blueprint was selected
+          const bpAsset = controllerBlueprintAssets.find(a => {
+            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
+            return `${prefix} ${a.name}` === v;
+          });
+          if (bpAsset) {
+            this._asset.controllerClass = bpAsset.actorType === 'playerController' ? 'PlayerController' : 'AIController';
+            this._asset.controllerBlueprintId = bpAsset.id;
+          }
+        }
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+
+      this._buildCharacterPawnSection(container);
     }
   }
 
@@ -446,6 +586,38 @@ export class ActorEditorPanel {
           this._onAssetChanged();
         }));
       }
+    } else if (comp.type === 'springArm') {
+      // ---- Spring Arm component properties ----
+      if (!comp.springArm) comp.springArm = defaultSpringArmConfig();
+      this._buildSpringArmSection(container, comp.springArm);
+    } else if (comp.type === 'camera') {
+      // ---- Camera component properties ----
+      if (!comp.camera) comp.camera = defaultCameraConfig('thirdPerson');
+      this._buildCameraComponentSection(container, comp.camera);
+    } else if (comp.type === 'capsule') {
+      // ---- Capsule component (read-only info, config lives in characterPawnConfig) ----
+      const capsInfo = document.createElement('div');
+      capsInfo.className = 'prop-row';
+      capsInfo.style.color = '#888';
+      capsInfo.style.fontSize = '11px';
+      capsInfo.style.padding = '4px 0';
+      capsInfo.textContent = 'Capsule collision is configured via the root Character Pawn settings.';
+      container.appendChild(capsInfo);
+      if (this._asset.characterPawnConfig) {
+        const cfg = this._asset.characterPawnConfig.capsule;
+        const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+        container.appendChild(this._makeNumberRow('Radius', cfg.radius, 0.05, 0.1, 5, (v) => { cfg.radius = v; notifyChanged(); }));
+        container.appendChild(this._makeNumberRow('Height', cfg.height, 0.1, 0.2, 10, (v) => { cfg.height = v; notifyChanged(); }));
+      }
+    } else if (comp.type === 'characterMovement') {
+      // ---- Character Movement component (read-only info, config lives in characterPawnConfig) ----
+      const info = document.createElement('div');
+      info.className = 'prop-row';
+      info.style.color = '#888';
+      info.style.fontSize = '11px';
+      info.style.padding = '4px 0';
+      info.textContent = 'Movement is configured via the root Character Pawn settings.';
+      container.appendChild(info);
     } else {
       // ---- Mesh component properties ----
       // Mesh type
@@ -566,6 +738,32 @@ export class ActorEditorPanel {
       menu.appendChild(item);
     }
 
+    // ---- Camera sub-header ----
+    const cameraHeader = document.createElement('div');
+    cameraHeader.className = 'context-menu-header';
+    cameraHeader.textContent = '📷 Camera';
+    menu.appendChild(cameraHeader);
+
+    const addSpringArm = document.createElement('div');
+    addSpringArm.className = 'context-menu-item';
+    addSpringArm.textContent = 'Spring Arm (Camera Boom)';
+    addSpringArm.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      this._addSpringArmComponent();
+    });
+    menu.appendChild(addSpringArm);
+
+    const addCamera = document.createElement('div');
+    addCamera.className = 'context-menu-item';
+    addCamera.textContent = 'Camera';
+    addCamera.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      this._addCameraComponent();
+    });
+    menu.appendChild(addCamera);
+
     document.body.appendChild(menu);
 
     const cleanup = () => {
@@ -641,6 +839,58 @@ export class ActorEditorPanel {
     this._asset.components.push(comp);
     this._asset.touch();
     this._selectedComponentId = comp.id;
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addSpringArmComponent(): void {
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'springArm',
+      meshType: 'cube',
+      name: 'SpringArm_' + this._asset.components.length,
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      springArm: defaultSpringArmConfig(),
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    // Also update characterPawnConfig if this is a pawn
+    if (this._asset.characterPawnConfig && comp.springArm) {
+      this._asset.characterPawnConfig.springArm = structuredClone(comp.springArm);
+    }
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addCameraComponent(): void {
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'camera',
+      meshType: 'cube',
+      name: 'Camera_' + this._asset.components.length,
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      camera: defaultCameraConfig('thirdPerson'),
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    // Also update characterPawnConfig if this is a pawn
+    if (this._asset.characterPawnConfig && comp.camera) {
+      this._asset.characterPawnConfig.camera = structuredClone(comp.camera);
+    }
 
     if (this._preview) this._preview.rebuild();
     this._refreshComponentsList();
@@ -910,6 +1160,258 @@ export class ActorEditorPanel {
     }
 
     container.appendChild(section);
+  }
+
+  // ================================================================
+  //  Character Pawn settings (movement, camera, capsule, input)
+  // ================================================================
+
+  private _buildCharacterPawnSection(container: HTMLElement): void {
+    const cfg = this._asset.characterPawnConfig!;
+    const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+
+    // ---- Movement settings ----
+    const moveHeader = document.createElement('div');
+    moveHeader.className = 'physics-section-header';
+    moveHeader.textContent = '🏃 Movement';
+    container.appendChild(moveHeader);
+
+    container.appendChild(this._makeNumberRow('Walk Speed', cfg.movement.walkSpeed, 0.5, 0, 50, (v) => {
+      cfg.movement.walkSpeed = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Run Speed', cfg.movement.runSpeed, 0.5, 0, 100, (v) => {
+      cfg.movement.runSpeed = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Crouch Speed', cfg.movement.crouchSpeed, 0.5, 0, 20, (v) => {
+      cfg.movement.crouchSpeed = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Jump Velocity', cfg.movement.jumpVelocity, 0.5, 0, 50, (v) => {
+      cfg.movement.jumpVelocity = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Air Control', cfg.movement.airControl, 0.05, 0, 1, (v) => {
+      cfg.movement.airControl = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Gravity', cfg.movement.gravity, 1, -100, 0, (v) => {
+      cfg.movement.gravity = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Ground Friction', cfg.movement.groundFriction, 0.5, 0, 30, (v) => {
+      cfg.movement.groundFriction = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Max Slope Angle', cfg.movement.maxSlopeAngle, 1, 0, 90, (v) => {
+      cfg.movement.maxSlopeAngle = v; notifyChanged();
+    }));
+    container.appendChild(this._makeNumberRow('Max Step Height', cfg.movement.maxStepHeight, 0.05, 0, 2, (v) => {
+      cfg.movement.maxStepHeight = v; notifyChanged();
+    }));
+
+    // Ability flags
+    const abilHeader = document.createElement('div');
+    abilHeader.className = 'physics-subsection-header';
+    abilHeader.textContent = 'Abilities';
+    container.appendChild(abilHeader);
+
+    container.appendChild(this._makeCheckboxRow('Can Walk', cfg.movement.canWalk, (v) => {
+      cfg.movement.canWalk = v; notifyChanged();
+    }));
+    container.appendChild(this._makeCheckboxRow('Can Run', cfg.movement.canRun, (v) => {
+      cfg.movement.canRun = v; notifyChanged();
+    }));
+    container.appendChild(this._makeCheckboxRow('Can Jump', cfg.movement.canJump, (v) => {
+      cfg.movement.canJump = v; notifyChanged();
+    }));
+    container.appendChild(this._makeCheckboxRow('Can Crouch', cfg.movement.canCrouch, (v) => {
+      cfg.movement.canCrouch = v; notifyChanged();
+    }));
+
+    // ---- Input Bindings ----
+    const inputHeader = document.createElement('div');
+    inputHeader.className = 'physics-section-header';
+    inputHeader.textContent = '🎮 Input Bindings';
+    container.appendChild(inputHeader);
+
+    container.appendChild(this._makeTextRow('Forward', cfg.inputBindings.moveForward, (v) => {
+      cfg.inputBindings.moveForward = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Backward', cfg.inputBindings.moveBackward, (v) => {
+      cfg.inputBindings.moveBackward = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Left', cfg.inputBindings.moveLeft, (v) => {
+      cfg.inputBindings.moveLeft = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Right', cfg.inputBindings.moveRight, (v) => {
+      cfg.inputBindings.moveRight = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Jump', cfg.inputBindings.jump, (v) => {
+      cfg.inputBindings.jump = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Crouch', cfg.inputBindings.crouch, (v) => {
+      cfg.inputBindings.crouch = v; notifyChanged();
+    }));
+    container.appendChild(this._makeTextRow('Run', cfg.inputBindings.run, (v) => {
+      cfg.inputBindings.run = v; notifyChanged();
+    }));
+    container.appendChild(this._makeCheckboxRow('Mouse Look', cfg.inputBindings.mouseLook, (v) => {
+      cfg.inputBindings.mouseLook = v; notifyChanged();
+    }));
+  }
+
+  // ================================================================
+  //  Spring Arm Properties Section builder
+  // ================================================================
+
+  private _buildSpringArmSection(container: HTMLElement, sa: SpringArmConfig): void {
+    const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+
+    const header = document.createElement('div');
+    header.className = 'physics-section-header';
+    header.textContent = '🎯 Spring Arm (Camera Boom)';
+    container.appendChild(header);
+
+    container.appendChild(this._makeNumberRow('Arm Length', sa.armLength, 0.5, 0, 50, (v) => {
+      sa.armLength = v; notifyChanged();
+      // Sync to characterPawnConfig if present
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.armLength = v;
+    }));
+
+    container.appendChild(this._makeVec3Row('Target Offset', sa.targetOffset, () => {
+      notifyChanged();
+      if (this._asset.characterPawnConfig) {
+        this._asset.characterPawnConfig.springArm.targetOffset = { ...sa.targetOffset };
+      }
+    }));
+
+    container.appendChild(this._makeVec3Row('Socket Offset', sa.socketOffset, () => {
+      notifyChanged();
+      if (this._asset.characterPawnConfig) {
+        this._asset.characterPawnConfig.springArm.socketOffset = { ...sa.socketOffset };
+      }
+    }));
+
+    // Collision
+    const colHeader = document.createElement('div');
+    colHeader.className = 'physics-subsection-header';
+    colHeader.textContent = 'Collision';
+    container.appendChild(colHeader);
+
+    container.appendChild(this._makeCheckboxRow('Do Collision Test', sa.doCollisionTest, (v) => {
+      sa.doCollisionTest = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.doCollisionTest = v;
+    }));
+    container.appendChild(this._makeNumberRow('Probe Size', sa.probeSize, 0.01, 0.01, 1, (v) => {
+      sa.probeSize = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.probeSize = v;
+    }));
+
+    // Camera Lag
+    const lagHeader = document.createElement('div');
+    lagHeader.className = 'physics-subsection-header';
+    lagHeader.textContent = 'Camera Lag';
+    container.appendChild(lagHeader);
+
+    container.appendChild(this._makeCheckboxRow('Enable Camera Lag', sa.enableCameraLag, (v) => {
+      sa.enableCameraLag = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.enableCameraLag = v;
+      this._refreshComponentProps();
+    }));
+    if (sa.enableCameraLag) {
+      container.appendChild(this._makeNumberRow('Lag Speed', sa.cameraLagSpeed, 0.5, 0.1, 100, (v) => {
+        sa.cameraLagSpeed = v; notifyChanged();
+        if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.cameraLagSpeed = v;
+      }));
+    }
+
+    container.appendChild(this._makeCheckboxRow('Enable Rotation Lag', sa.enableCameraRotationLag, (v) => {
+      sa.enableCameraRotationLag = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.enableCameraRotationLag = v;
+      this._refreshComponentProps();
+    }));
+    if (sa.enableCameraRotationLag) {
+      container.appendChild(this._makeNumberRow('Rotation Lag Speed', sa.cameraRotationLagSpeed, 0.5, 0.1, 100, (v) => {
+        sa.cameraRotationLagSpeed = v; notifyChanged();
+        if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.cameraRotationLagSpeed = v;
+      }));
+    }
+
+    // Inherit Control Rotation
+    const inheritHeader = document.createElement('div');
+    inheritHeader.className = 'physics-subsection-header';
+    inheritHeader.textContent = 'Inherit Rotation';
+    container.appendChild(inheritHeader);
+
+    container.appendChild(this._makeCheckboxRow('Inherit Pitch', sa.inheritPitch, (v) => {
+      sa.inheritPitch = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.inheritPitch = v;
+    }));
+    container.appendChild(this._makeCheckboxRow('Inherit Yaw', sa.inheritYaw, (v) => {
+      sa.inheritYaw = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.inheritYaw = v;
+    }));
+    container.appendChild(this._makeCheckboxRow('Inherit Roll', sa.inheritRoll, (v) => {
+      sa.inheritRoll = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.inheritRoll = v;
+    }));
+  }
+
+  // ================================================================
+  //  Camera Component Properties Section builder
+  // ================================================================
+
+  private _buildCameraComponentSection(container: HTMLElement, cam: CameraComponentConfig): void {
+    const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+
+    const header = document.createElement('div');
+    header.className = 'physics-section-header';
+    header.textContent = '📷 Camera';
+    container.appendChild(header);
+
+    container.appendChild(this._makeDropdownRow('Camera Mode', cam.cameraMode, ['firstPerson', 'thirdPerson'], (v) => {
+      cam.cameraMode = v as CameraMode;
+      notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.cameraMode = v as CameraMode;
+      this._refreshComponentProps();
+    }));
+
+    container.appendChild(this._makeNumberRow('Field of View', cam.fieldOfView, 1, 30, 120, (v) => {
+      cam.fieldOfView = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.fieldOfView = v;
+    }));
+
+    container.appendChild(this._makeNumberRow('Near Clip', cam.nearClip, 0.01, 0.01, 10, (v) => {
+      cam.nearClip = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.nearClip = v;
+    }));
+
+    container.appendChild(this._makeNumberRow('Far Clip', cam.farClip, 10, 10, 100000, (v) => {
+      cam.farClip = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.farClip = v;
+    }));
+
+    container.appendChild(this._makeNumberRow('Mouse Sensitivity', cam.mouseSensitivity, 0.01, 0.01, 1, (v) => {
+      cam.mouseSensitivity = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.mouseSensitivity = v;
+    }));
+
+    container.appendChild(this._makeVec3Row('Offset', cam.offset, () => {
+      notifyChanged();
+      if (this._asset.characterPawnConfig) {
+        this._asset.characterPawnConfig.camera.offset = { ...cam.offset };
+      }
+    }));
+
+    // Pitch clamp
+    const clampHeader = document.createElement('div');
+    clampHeader.className = 'physics-subsection-header';
+    clampHeader.textContent = 'Pitch Clamp';
+    container.appendChild(clampHeader);
+
+    container.appendChild(this._makeNumberRow('Pitch Min', cam.pitchMin, 1, -90, 0, (v) => {
+      cam.pitchMin = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.pitchMin = v;
+    }));
+    container.appendChild(this._makeNumberRow('Pitch Max', cam.pitchMax, 1, 0, 90, (v) => {
+      cam.pitchMax = v; notifyChanged();
+      if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.pitchMax = v;
+    }));
   }
 
   // ================================================================

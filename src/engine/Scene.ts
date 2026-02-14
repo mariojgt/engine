@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
-import type { PhysicsConfig, ActorComponentData, LightConfig } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType } from '../editor/ActorAsset';
 import { defaultLightConfig } from '../editor/ActorAsset';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
+import type { CharacterPawnConfig } from './CharacterPawnData';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
@@ -119,6 +120,10 @@ export class Scene {
     components?: ActorComponentData[],
     compiledCode?: string,
     physicsConfig?: PhysicsConfig,
+    actorType?: ActorType,
+    characterPawnConfig?: CharacterPawnConfig | null,
+    controllerClass?: import('./Controller').ControllerType,
+    controllerBlueprintId?: string,
   ): GameObject {
     const go = this.addGameObject(assetName, meshType);
     go.actorAssetId = assetId;
@@ -142,6 +147,12 @@ export class Scene {
     if (position) {
       go.mesh.position.set(position.x, position.y, position.z);
     }
+
+    // Set actor type and character pawn config
+    if (actorType) go.actorType = actorType;
+    if (characterPawnConfig) go.characterPawnConfig = structuredClone(characterPawnConfig);
+    if (controllerClass) go.controllerClass = controllerClass;
+    if (controllerBlueprintId) go.controllerBlueprintId = controllerBlueprintId;
 
     // Add child component meshes & collect trigger component data
     if (components) {
@@ -170,6 +181,10 @@ export class Scene {
     compiledCode?: string,
     components?: ActorComponentData[],
     physicsConfig?: PhysicsConfig,
+    actorType?: ActorType,
+    characterPawnConfig?: CharacterPawnConfig | null,
+    controllerClass?: import('./Controller').ControllerType,
+    controllerBlueprintId?: string,
   ): void {
     for (const go of this.gameObjects) {
       if (go.actorAssetId !== assetId) continue;
@@ -222,6 +237,14 @@ export class Scene {
         go.physicsConfig = structuredClone(physicsConfig);
         go.hasPhysics = physicsConfig.enabled && physicsConfig.simulatePhysics;
       }
+
+      // --- Re-sync actor type / character pawn config ---
+      if (actorType) go.actorType = actorType;
+      if (characterPawnConfig !== undefined) {
+        go.characterPawnConfig = characterPawnConfig ? structuredClone(characterPawnConfig) : null;
+      }
+      if (controllerClass) go.controllerClass = controllerClass;
+      if (controllerBlueprintId !== undefined) go.controllerBlueprintId = controllerBlueprintId || '';
     }
     this._emitChanged();
   }
@@ -461,6 +484,14 @@ export class Scene {
         child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
         child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
         child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+
+        // Mark editor-only component visualization meshes (camera, spring arm, capsule, etc.)
+        // These are hidden at runtime just like UE hides component gizmos during play.
+        const editorOnlyTypes = ['camera', 'springArm', 'capsule', 'characterMovement'];
+        if (editorOnlyTypes.includes(comp.type)) {
+          child.userData.__isComponentHelper = true;
+        }
+
         go.mesh.add(child);
       }
     }
@@ -487,6 +518,17 @@ export class Scene {
     for (const go of this.gameObjects) {
       go.mesh.traverse((child) => {
         if (child.userData.__isLightHelper) {
+          child.visible = visible;
+        }
+      });
+    }
+  }
+
+  /** Hide or show editor-only component helpers (camera, spring arm, capsule, etc.) during Play */
+  setComponentHelpersVisible(visible: boolean): void {
+    for (const go of this.gameObjects) {
+      go.mesh.traverse((child) => {
+        if (child.userData.__isComponentHelper) {
           child.visible = visible;
         }
       });

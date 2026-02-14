@@ -67,6 +67,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Structs':       '#00695C',
   'Enums':         '#00838F',
   'Collision':     '#C62828',
+  'Character':     '#2E7D32',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -88,6 +89,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Structs':       return '🔷';
     case 'Enums':         return '📋';
     case 'Collision':     return '💥';
+    case 'Character':     return '🏃';
     default:              return '●';
   }
 }

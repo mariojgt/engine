@@ -7,7 +7,7 @@
 //    - Right-click asset → Rename / Duplicate / Delete
 // ============================================================
 
-import { ActorAssetManager, type ActorAsset } from './ActorAsset';
+import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
 import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
@@ -229,7 +229,15 @@ export class ActorAssetBrowser {
       // Icon area
       const icon = document.createElement('div');
       icon.className = 'asset-card-icon';
-      icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
+      if (asset.actorType === 'characterPawn') {
+        icon.innerHTML = '<span style="font-size:28px;">🏃</span>';
+      } else if (asset.actorType === 'playerController') {
+        icon.innerHTML = '<span style="font-size:28px;">🎮</span>';
+      } else if (asset.actorType === 'aiController') {
+        icon.innerHTML = '<span style="font-size:28px;">🤖</span>';
+      } else {
+        icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
+      }
       card.appendChild(icon);
 
       // Name label
@@ -424,10 +432,24 @@ export class ActorAssetBrowser {
     }
   }
 
-  private _createNewAsset(): void {
-    const name = this._promptName('New Actor Asset', 'BP_NewActor');
+  private _createNewAsset(actorType: ActorType = 'actor'): void {
+    const defaultNames: Record<string, string> = {
+      actor: 'BP_NewActor',
+      characterPawn: 'BP_CharacterPawn',
+      playerController: 'BP_PlayerController',
+      aiController: 'BP_AIController',
+    };
+    const titles: Record<string, string> = {
+      actor: 'New Actor Asset',
+      characterPawn: 'New Character Pawn',
+      playerController: 'New Player Controller',
+      aiController: 'New AI Controller',
+    };
+    const defaultName = defaultNames[actorType] || 'BP_NewActor';
+    const title = titles[actorType] || 'New Actor Asset';
+    const name = this._promptName(title, defaultName);
     if (!name) return;
-    const asset = this._manager.createAsset(name);
+    const asset = this._manager.createAsset(name, actorType);
     this._selectedAssetId = asset.id;
   }
 
@@ -457,6 +479,29 @@ export class ActorAssetBrowser {
       this._activeTab = 'Actors';
       this._rebuildTabBar();
       this._createNewAsset();
+    });
+
+    this._addMenuItem(menu, '🏃 New Character Pawn', () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      this._createNewAsset('characterPawn');
+    });
+
+    // ── Controller blueprints ──
+    const sep0 = document.createElement('div');
+    sep0.className = 'context-menu-separator';
+    menu.appendChild(sep0);
+
+    this._addMenuItem(menu, '🎮 New Player Controller', () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      this._createNewAsset('playerController');
+    });
+
+    this._addMenuItem(menu, '🤖 New AI Controller', () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      this._createNewAsset('aiController');
     });
 
     // Structure/Enum creation when manager is available
@@ -515,7 +560,7 @@ export class ActorAssetBrowser {
 
     this._addMenuItem(menu, '📋 Duplicate', () => {
       const json = asset.toJSON();
-      const dup = this._manager.createAsset(asset.name + '_Copy');
+      const dup = this._manager.createAsset(asset.name + '_Copy', asset.actorType);
       // Copy blueprint data
       const src = asset.blueprintData;
       const dst = dup.blueprintData;
@@ -526,6 +571,11 @@ export class ActorAssetBrowser {
       dst.structs = structuredClone(src.structs);
       dup.rootMeshType = asset.rootMeshType;
       dup.components = structuredClone(asset.components);
+      dup.controllerClass = asset.controllerClass;
+      dup.controllerBlueprintId = asset.controllerBlueprintId;
+      if (asset.characterPawnConfig) {
+        dup.characterPawnConfig = structuredClone(asset.characterPawnConfig);
+      }
       this._manager.notifyAssetChanged(dup.id);
     });
 

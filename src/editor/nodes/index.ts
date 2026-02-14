@@ -169,3 +169,81 @@ export {
   GetOverlapCountNode,
   SetCollisionEnabledNode,
 } from './collision/CollisionEventNodes';
+
+// ── Character Movement ──────────────────────────────────────
+export {
+  AddMovementInputNode,
+  JumpNode,
+  StopJumpingNode,
+  CrouchNode,
+  UncrouchNode,
+  SetMovementModeNode,
+  SetMaxWalkSpeedNode,
+  LaunchCharacterNode,
+  SetCameraModeNode,
+  SetCameraFOVNode,
+  GetCharacterVelocityNode,
+  GetMovementSpeedNode,
+  IsGroundedNode,
+  IsJumpingNode,
+  IsCrouchingNode,
+  IsFallingNode,
+  IsFlyingNode,
+  IsSwimmingNode,
+  IsMovingNode,
+  GetMovementModeNode,
+  GetCameraLocationNode,
+  InputAxisNode,
+  StartFlyingNode,
+  StopFlyingNode,
+  StartSwimmingNode,
+  StopSwimmingNode,
+} from './character/CharacterMovementNodes';
+
+// ── Player Controller ───────────────────────────────────────
+export {
+  PossessPawnNode,
+  UnpossessPawnNode,
+  GetControlledPawnNode,
+  IsPossessingNode,
+} from './character/PlayerControllerNodes';
+
+// ── AI Controller ───────────────────────────────────────────
+export {
+  AIMoveToNode,
+  AIStopMovementNode,
+  AISetFocalPointNode,
+  AIClearFocalPointNode,
+  AIStartPatrolNode,
+  AIStopPatrolNode,
+  AIStartFollowingNode,
+  AIStopFollowingNode,
+  GetAIStateNode,
+  AIHasReachedTargetNode,
+  AIGetDistanceToTargetNode,
+} from './character/AIControllerNodes';
+
+// ── Controller (bidirectional Pawn ↔ Controller) ────────────
+export {
+  GetControllerNode,
+  GetControllerTypeNode,
+  GetPawnNode,
+  IsPlayerControlledNode,
+  IsAIControlledNode,
+} from './character/ControllerNodes';
+
+// ── Camera & Spring Arm ─────────────────────────────────────
+export {
+  SetSpringArmLengthNode,
+  SetSpringArmTargetOffsetNode,
+  SetSpringArmSocketOffsetNode,
+  SetSpringArmCollisionNode,
+  SetCameraLagNode,
+  SetCameraRotationLagNode,
+  GetSpringArmLengthNode,
+  GetSpringArmTargetOffsetNode,
+  GetSpringArmSocketOffsetNode,
+  CameraModeLiteralNode,
+  MovementModeLiteralNode,
+  GetCameraRotationNode,
+} from './character/CameraSpringArmNodes';

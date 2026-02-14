@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { ScriptComponent } from './ScriptComponent';
 import { BlueprintData } from '../editor/BlueprintData';
-import type { PhysicsConfig } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorType } from '../editor/ActorAsset';
+import type { CharacterPawnConfig } from './CharacterPawnData';
+import type { SpectatorPawnConfig } from './SpectatorController';
 
 let nextId = 1;
 
@@ -22,6 +24,37 @@ export class GameObject {
    * Used to look up and re-sync blueprint data when the asset changes.
    */
   public actorAssetId: string | null = null;
+
+  /** Actor type — 'actor' (default) or 'characterPawn' */
+  public actorType: ActorType = 'actor';
+
+  /** Character Pawn config (set when actorType === 'characterPawn') */
+  public characterPawnConfig: CharacterPawnConfig | null = null;
+
+  /** Spectator Pawn config (set when actorType === 'spectatorPawn') */
+  public spectatorPawnConfig: SpectatorPawnConfig | null = null;
+
+  /** Runtime character controller (set during play) */
+  public characterController: any = null;
+
+  /** Runtime AI controller (set during play) */
+  public aiController: any = null;
+
+  /**
+   * Controller class to use for this pawn at play time.
+   * 'PlayerController' (default for player pawns), 'AIController', or 'None'.
+   * Set from the actor asset's controllerClass property.
+   */
+  public controllerClass: import('./Controller').ControllerType = 'None';
+
+  /** Runtime controller reference (PlayerController or AIController) — set during play */
+  public controller: import('./Controller').Controller | null = null;
+
+  /**
+   * ID of the controller blueprint asset to instantiate at play time.
+   * When set, the controller's blueprint script runs alongside the pawn.
+   */
+  public controllerBlueprintId: string = '';
 
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;

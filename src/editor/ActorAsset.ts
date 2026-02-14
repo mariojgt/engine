@@ -9,6 +9,12 @@ import { BlueprintData, type VarType, type BlueprintVariable, type BlueprintFunc
   type BlueprintStructField, type BlueprintGraphData } from './BlueprintData';
 import type { CollisionConfig } from '../engine/CollisionTypes';
 import { defaultCollisionConfig } from '../engine/CollisionTypes';
+import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, CharacterRotationConfig, CameraModeSettings } from '../engine/CharacterPawnData';
+import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings } from '../engine/CharacterPawnData';
+import type { ControllerType } from '../engine/Controller';
+
+// ---- Actor type ----
+export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController';
 
 // ---- Light component configuration ----
 
@@ -118,7 +124,7 @@ export function defaultPhysicsConfig(): PhysicsConfig {
 export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
-  type: 'mesh' | 'trigger' | 'light';
+  type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -134,11 +140,19 @@ export interface ActorComponentData {
   collision?: CollisionConfig;
   /** Light configuration (for type='light') */
   light?: LightConfig;
+  /** Spring Arm configuration (for type='springArm') */
+  springArm?: SpringArmConfig;
+  /** Camera configuration (for type='camera') */
+  camera?: CameraComponentConfig;
+  /** Parent component id (for nesting under spring arm, etc.) */
+  parentId?: string;
 }
 
 export interface ActorAssetJSON {
   actorId: string;
   actorName: string;
+  /** Actor type — 'actor' (default) or 'characterPawn' */
+  actorType?: ActorType;
   /** Optional description / tooltip */
   description: string;
   /** Root mesh type for the actor */
@@ -163,6 +177,12 @@ export interface ActorAssetJSON {
   functionGraphData: Record<string, any>;
   /** Compiled JS code from the node editor */
   compiledCode: string;
+  /** Character Pawn configuration (only when actorType === 'characterPawn') */
+  characterPawnConfig?: CharacterPawnConfig;
+  /** Controller class: 'PlayerController' | 'AIController' | 'None' */
+  controllerClass?: ControllerType;
+  /** ID of a controller blueprint asset to use (overrides controllerClass) */
+  controllerBlueprintId?: string;
   /** Created timestamp */
   createdAt: number;
   /** Last modified timestamp */
@@ -179,6 +199,7 @@ function assetUid(): string {
 export class ActorAsset {
   public id: string;
   public name: string;
+  public actorType: ActorType = 'actor';
   public description: string = '';
   public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none' = 'cube';
   public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
@@ -186,6 +207,21 @@ export class ActorAsset {
   public blueprintData: BlueprintData;
   public createdAt: number;
   public modifiedAt: number;
+  /** Character Pawn configuration (only when actorType === 'characterPawn') */
+  public characterPawnConfig: CharacterPawnConfig | null = null;
+
+  /**
+   * Which controller class this pawn uses at play time.
+   * 'PlayerController' (default for characterPawn), 'AIController', or 'None'.
+   */
+  public controllerClass: ControllerType = 'None';
+
+  /**
+   * Optional: ID of a controller blueprint asset.
+   * When set, this overrides controllerClass and the controller's
+   * blueprint script runs alongside the pawn at play time.
+   */
+  public controllerBlueprintId: string = '';
 
   /**
    * The latest compiled JS code from the node editor.
@@ -214,6 +250,7 @@ export class ActorAsset {
     return {
       actorId: this.id,
       actorName: this.name,
+      actorType: this.actorType,
       description: this.description,
       rootMeshType: this.rootMeshType,
       rootPhysics: structuredClone(this.rootPhysics),
@@ -234,6 +271,9 @@ export class ActorAsset {
         bp.functions.map(f => [f.id, f.graph.nodeData ?? null]),
       ),
       compiledCode: this.compiledCode,
+      characterPawnConfig: this.characterPawnConfig ? structuredClone(this.characterPawnConfig) : undefined,
+      controllerClass: this.controllerClass,
+      controllerBlueprintId: this.controllerBlueprintId || undefined,
       createdAt: this.createdAt,
       modifiedAt: this.modifiedAt,
     };
@@ -241,14 +281,31 @@ export class ActorAsset {
 
   static fromJSON(json: ActorAssetJSON): ActorAsset {
     const asset = new ActorAsset(json.actorName, json.actorId);
+    asset.actorType = json.actorType || 'actor';
+    asset.controllerClass = json.controllerClass || 'None';
+    asset.controllerBlueprintId = json.controllerBlueprintId || '';
     asset.description = json.description || '';
     asset.rootMeshType = json.rootMeshType || 'cube';
+    asset.characterPawnConfig = json.characterPawnConfig
+      ? {
+          ...defaultCharacterPawnConfig(),
+          ...json.characterPawnConfig,
+          rotation: json.characterPawnConfig.rotation
+            ? { ...defaultRotationConfig(), ...json.characterPawnConfig.rotation }
+            : defaultRotationConfig(),
+          cameraSettings: json.characterPawnConfig.cameraSettings
+            ? { ...defaultCameraModeSettings(), ...json.characterPawnConfig.cameraSettings }
+            : defaultCameraModeSettings(),
+        }
+      : null;
     asset.rootPhysics = json.rootPhysics ? { ...defaultPhysicsConfig(), ...json.rootPhysics } : defaultPhysicsConfig();
     asset.components = (json.components || []).map(c => ({
       ...c,
       physics: c.physics ? { ...defaultPhysicsConfig(), ...c.physics } : undefined,
       collision: c.collision ? { ...defaultCollisionConfig(), ...c.collision } : undefined,
       light: c.light ? { ...defaultLightConfig(c.light.lightType), ...c.light } : undefined,
+      springArm: c.springArm ? { ...defaultSpringArmConfig(), ...c.springArm } : undefined,
+      camera: c.camera ? { ...defaultCameraConfig(c.camera.cameraMode), ...c.camera } : undefined,
     }));
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();
@@ -291,8 +348,129 @@ export class ActorAssetManager {
     return this._assets.get(id);
   }
 
-  createAsset(name: string): ActorAsset {
+  createAsset(name: string, actorType: ActorType = 'actor'): ActorAsset {
     const asset = new ActorAsset(name);
+    asset.actorType = actorType;
+    if (actorType === 'characterPawn') {
+      asset.rootMeshType = 'none';
+      asset.controllerClass = 'PlayerController';   // default for character pawns
+      asset.characterPawnConfig = defaultCharacterPawnConfig();
+      // Create default pawn component hierarchy: Capsule → SpringArm → Camera
+      const capsuleId = 'comp_cap_' + Date.now().toString(36);
+      const springArmId = 'comp_sa_' + Date.now().toString(36);
+      const cameraId = 'comp_cam_' + Date.now().toString(36);
+      asset.components = [
+        {
+          id: capsuleId,
+          type: 'capsule',
+          meshType: 'cube',
+          name: 'CapsuleComponent',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+        {
+          id: springArmId,
+          type: 'springArm',
+          meshType: 'cube',
+          name: 'SpringArm',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          springArm: defaultSpringArmConfig(),
+          parentId: capsuleId,
+        },
+        {
+          id: cameraId,
+          type: 'camera',
+          meshType: 'cube',
+          name: 'Camera',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          camera: defaultCameraConfig('thirdPerson'),
+          parentId: springArmId,
+        },
+        {
+          id: 'comp_move_' + Date.now().toString(36),
+          type: 'characterMovement',
+          meshType: 'cube',
+          name: 'CharacterMovement',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+      ];
+
+      // Pre-populate event graph with full movement logic (UE-style)
+      // The graph provides: EventBeginPlay, EventTick → AddMovementInput,
+      // InputAxis nodes for WASD, and InputKeyEvent(Space) → Jump / StopJumping
+      asset.blueprintData.eventGraph = {
+        nodeData: {
+          nodes: [
+            // ── Starter event ──
+            { id: 'def_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+
+            // ── Tick → movement ──
+            { id: 'def_tick', type: 'EventTickNode', position: { x: 80, y: 220 }, data: {} },
+            { id: 'def_move', type: 'AddMovementInputNode', position: { x: 520, y: 220 }, data: {} },
+
+            // ── Axis nodes (output Number: +1 / -1 / 0) ──
+            { id: 'def_axis_lr', type: 'InputAxisNode', position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
+            { id: 'def_axis_fb', type: 'InputAxisNode', position: { x: 200, y: 530 }, data: { positiveKey: 'W', negativeKey: 'S' } },
+
+            // ── Jump: Space key ──
+            { id: 'def_jump_key', type: 'InputKeyEventNode', position: { x: 80, y: 700 }, data: { selectedKey: 'Space' } },
+            { id: 'def_jump', type: 'JumpNode', position: { x: 460, y: 680 }, data: {} },
+            { id: 'def_stopjump', type: 'StopJumpingNode', position: { x: 460, y: 780 }, data: {} },
+          ],
+          connections: [
+            // Tick → AddMovementInput exec
+            { id: 'c1', source: 'def_tick', sourceOutput: 'exec', target: 'def_move', targetInput: 'exec' },
+            // InputAxis D/A → X
+            { id: 'c2', source: 'def_axis_lr', sourceOutput: 'value', target: 'def_move', targetInput: 'x' },
+            // InputAxis W/S → Z (forward/back)
+            { id: 'c3', source: 'def_axis_fb', sourceOutput: 'value', target: 'def_move', targetInput: 'z' },
+            // Space pressed → Jump
+            { id: 'c4', source: 'def_jump_key', sourceOutput: 'pressed', target: 'def_jump', targetInput: 'exec' },
+            // Space released → StopJumping
+            { id: 'c5', source: 'def_jump_key', sourceOutput: 'released', target: 'def_stopjump', targetInput: 'exec' },
+          ],
+        },
+      };
+    }
+    if (actorType === 'spectatorPawn') {
+      asset.rootMeshType = 'none';
+      // Spectator pawn is a simple free-flying camera with no components needed
+    }
+    if (actorType === 'playerController') {
+      asset.rootMeshType = 'none';
+      asset.controllerClass = 'PlayerController';
+      // Start with an empty Event Graph containing a BeginPlay event
+      asset.blueprintData.eventGraph = {
+        nodeData: {
+          nodes: [
+            { id: 'def_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+            { id: 'def_tick', type: 'EventTickNode', position: { x: 80, y: 220 }, data: {} },
+          ],
+          connections: [],
+        },
+      };
+    }
+    if (actorType === 'aiController') {
+      asset.rootMeshType = 'none';
+      asset.controllerClass = 'AIController';
+      // Start with an empty Event Graph containing a BeginPlay event
+      asset.blueprintData.eventGraph = {
+        nodeData: {
+          nodes: [
+            { id: 'def_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+            { id: 'def_tick', type: 'EventTickNode', position: { x: 80, y: 220 }, data: {} },
+          ],
+          connections: [],
+        },
+      };
+    }
     this._assets.set(asset.id, asset);
     this._emitChanged();
     return asset;

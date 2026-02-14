@@ -232,9 +232,9 @@ export class ActorPreviewViewport {
     if ((obj as THREE.Mesh).isMesh) {
       ((obj as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(color);
     } else {
-      // Group — find the icon mesh inside
+      // Group — find icon meshes inside (light icons, camera icons, etc.)
       obj.traverse(child => {
-        if (child.userData.__lightIcon && (child as THREE.Mesh).isMesh) {
+        if ((child.userData.__lightIcon || child.userData.__cameraIcon) && (child as THREE.Mesh).isMesh) {
           ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(color);
         }
       });
@@ -246,11 +246,13 @@ export class ActorPreviewViewport {
     if ((obj as THREE.Mesh).isMesh) {
       ((obj as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(defaultColor);
     } else {
-      // Group — reset icon to light color
+      // Group — reset icon meshes to their original colors
       obj.traverse(child => {
         if (child.userData.__lightIcon && (child as THREE.Mesh).isMesh) {
           const lightColor = child.userData.__lightOrigColor ?? 0xffcc00;
           ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(lightColor);
+        } else if (child.userData.__cameraIcon && (child as THREE.Mesh).isMesh) {
+          ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(0x44aaff);
         }
       });
     }
@@ -435,6 +437,217 @@ export class ActorPreviewViewport {
 
         this._scene.add(group);
         this._componentMeshes.set(comp.id, group);
+        continue;
+      }
+
+      // ── Camera component — camera frustum icon ──
+      if (comp.type === 'camera') {
+        const group = new THREE.Group();
+        group.userData.__componentId = comp.id;
+
+        // Determine position: if child of spring arm, place at arm endpoint
+        const springArmComp = comp.parentId
+          ? this._asset.components.find(c => c.id === comp.parentId)
+          : null;
+        let camPos: THREE.Vector3;
+        if (springArmComp && springArmComp.type === 'springArm') {
+          const saOffset = springArmComp.springArm?.targetOffset ?? { x: 0, y: 0.9, z: 0 };
+          const armLen = springArmComp.springArm?.armLength ?? 4.0;
+          camPos = new THREE.Vector3(
+            springArmComp.offset.x + saOffset.x,
+            springArmComp.offset.y + saOffset.y,
+            springArmComp.offset.z + saOffset.z - armLen,
+          );
+        } else {
+          camPos = new THREE.Vector3(comp.offset.x, comp.offset.y, comp.offset.z);
+        }
+        group.position.copy(camPos);
+
+        // Camera body — small box
+        const bodyGeo = new THREE.BoxGeometry(0.2, 0.14, 0.16);
+        const bodyMat = new THREE.MeshBasicMaterial({
+          color: 0x44aaff,
+          transparent: true,
+          opacity: 0.85,
+          depthTest: false,
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.userData.__cameraIcon = true;
+        body.renderOrder = 999;
+        group.add(body);
+
+        // Lens — small cylinder in front
+        const lensGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.08, 12);
+        const lensMat = new THREE.MeshBasicMaterial({
+          color: 0x2288dd,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: false,
+        });
+        const lens = new THREE.Mesh(lensGeo, lensMat);
+        lens.rotation.x = Math.PI / 2;
+        lens.position.z = 0.12;
+        lens.renderOrder = 999;
+        group.add(lens);
+
+        // Wireframe frustum lines showing FOV direction
+        const fov = comp.camera?.fieldOfView ?? 75;
+        const aspect = 16 / 9;
+        const near = 0.3;
+        const far = 1.0;
+        const hNear = Math.tan((fov * Math.PI / 180) / 2) * near;
+        const wNear = hNear * aspect;
+        const hFar = Math.tan((fov * Math.PI / 180) / 2) * far;
+        const wFar = hFar * aspect;
+        const frustumPoints = [
+          // Near plane corners
+          new THREE.Vector3(-wNear, -hNear, near),
+          new THREE.Vector3( wNear, -hNear, near),
+          new THREE.Vector3( wNear,  hNear, near),
+          new THREE.Vector3(-wNear,  hNear, near),
+          // Far plane corners
+          new THREE.Vector3(-wFar, -hFar, far),
+          new THREE.Vector3( wFar, -hFar, far),
+          new THREE.Vector3( wFar,  hFar, far),
+          new THREE.Vector3(-wFar,  hFar, far),
+        ];
+        const lineVerts: number[] = [];
+        // Near quad
+        for (let i = 0; i < 4; i++) {
+          const a = frustumPoints[i], b = frustumPoints[(i + 1) % 4];
+          lineVerts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        }
+        // Far quad
+        for (let i = 4; i < 8; i++) {
+          const a = frustumPoints[i], b = frustumPoints[4 + ((i - 3) % 4)];
+          lineVerts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        }
+        // Connect near to far
+        for (let i = 0; i < 4; i++) {
+          lineVerts.push(frustumPoints[i].x, frustumPoints[i].y, frustumPoints[i].z,
+            frustumPoints[i + 4].x, frustumPoints[i + 4].y, frustumPoints[i + 4].z);
+        }
+        const frustumGeo = new THREE.BufferGeometry();
+        frustumGeo.setAttribute('position', new THREE.Float32BufferAttribute(lineVerts, 3));
+        const frustumMat = new THREE.LineBasicMaterial({
+          color: 0x44aaff,
+          transparent: true,
+          opacity: 0.4,
+          depthTest: false,
+        });
+        const frustumLines = new THREE.LineSegments(frustumGeo, frustumMat);
+        frustumLines.renderOrder = 998;
+        group.add(frustumLines);
+
+        this._scene.add(group);
+        this._componentMeshes.set(comp.id, group);
+        continue;
+      }
+
+      // ── Spring Arm component — target icon + arm line to camera ──
+      if (comp.type === 'springArm') {
+        const group = new THREE.Group();
+        group.userData.__componentId = comp.id;
+        const saOffset = comp.springArm?.targetOffset ?? { x: 0, y: 0.9, z: 0 };
+        const armLen = comp.springArm?.armLength ?? 4.0;
+
+        // Position the group at the spring arm origin (component offset)
+        group.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+
+        // Target icon — small diamond at targetOffset
+        const originPos = new THREE.Vector3(saOffset.x, saOffset.y, saOffset.z);
+        const iconGeo = new THREE.OctahedronGeometry(0.07, 0);
+        const iconMat = new THREE.MeshBasicMaterial({
+          color: 0xff6600,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: false,
+        });
+        const icon = new THREE.Mesh(iconGeo, iconMat);
+        icon.position.copy(originPos);
+        icon.renderOrder = 999;
+        icon.userData.__componentId = comp.id;
+        group.add(icon);
+
+        // Arm line from origin to camera position (extending behind on -Z)
+        const endPos = new THREE.Vector3(saOffset.x, saOffset.y, saOffset.z - armLen);
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([originPos, endPos]);
+        const lineMat = new THREE.LineDashedMaterial({
+          color: 0xff6600,
+          dashSize: 0.15,
+          gapSize: 0.08,
+          transparent: true,
+          opacity: 0.6,
+          depthTest: false,
+        });
+        const armLine = new THREE.Line(lineGeo, lineMat);
+        armLine.computeLineDistances();
+        armLine.renderOrder = 998;
+        group.add(armLine);
+
+        // Small sphere at arm endpoint
+        const endGeo = new THREE.SphereGeometry(0.05, 8, 8);
+        const endMat = new THREE.MeshBasicMaterial({
+          color: 0xff6600,
+          transparent: true,
+          opacity: 0.7,
+          depthTest: false,
+        });
+        const endSphere = new THREE.Mesh(endGeo, endMat);
+        endSphere.position.copy(endPos);
+        endSphere.renderOrder = 999;
+        group.add(endSphere);
+
+        this._scene.add(group);
+        this._componentMeshes.set(comp.id, group);
+        continue;
+      }
+
+      // ── Capsule component — wireframe capsule shape ──
+      if (comp.type === 'capsule') {
+        const group = new THREE.Group();
+        group.userData.__componentId = comp.id;
+        group.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+
+        // Get capsule dimensions from character pawn config
+        const radius = this._asset.characterPawnConfig?.capsule?.radius ?? 0.35;
+        const height = this._asset.characterPawnConfig?.capsule?.height ?? 1.8;
+
+        // Capsule wireframe (cylinder body + half spheres)
+        const bodyHeight = Math.max(0, height - radius * 2);
+        const cylGeo = new THREE.CylinderGeometry(radius, radius, bodyHeight, 16, 1, true);
+        const cylMat = new THREE.MeshBasicMaterial({
+          color: 0x44dd44,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.3,
+          depthTest: true,
+        });
+        const cyl = new THREE.Mesh(cylGeo, cylMat);
+        cyl.position.y = height / 2;
+        group.add(cyl);
+
+        // Top hemisphere
+        const topGeo = new THREE.SphereGeometry(radius, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+        const topMat = new THREE.MeshBasicMaterial({ color: 0x44dd44, wireframe: true, transparent: true, opacity: 0.3, depthTest: true });
+        const top = new THREE.Mesh(topGeo, topMat);
+        top.position.y = height / 2 + bodyHeight / 2;
+        group.add(top);
+
+        // Bottom hemisphere
+        const botGeo = new THREE.SphereGeometry(radius, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+        const botMat = new THREE.MeshBasicMaterial({ color: 0x44dd44, wireframe: true, transparent: true, opacity: 0.3, depthTest: true });
+        const bot = new THREE.Mesh(botGeo, botMat);
+        bot.position.y = height / 2 - bodyHeight / 2;
+        group.add(bot);
+
+        this._scene.add(group);
+        this._componentMeshes.set(comp.id, group);
+        continue;
+      }
+
+      // ── CharacterMovement — no visual representation ──
+      if (comp.type === 'characterMovement') {
         continue;
       }
 

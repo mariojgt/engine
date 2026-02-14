@@ -17,6 +17,9 @@ export class ViewportPanel {
   private _resizeObserver: ResizeObserver;
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
+  /** When non-null, this camera overrides the editor camera (used for CharacterPawn play mode) */
+  private _playCamera: THREE.PerspectiveCamera | null = null;
+
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
     this._engine = engine;
@@ -169,10 +172,40 @@ export class ViewportPanel {
   }
 
   render(): void {
-    if (this._controls) this._controls.update();
+    if (this._controls && !this._playCamera) this._controls.update();
+
+    // Use character pawn camera if available during play
+    const cam = this._playCamera ?? this._camera;
+
     if (this._renderer) {
-      this._renderer.render(this._engine.scene.threeScene, this._camera);
+      this._renderer.render(this._engine.scene.threeScene, cam);
     }
+  }
+
+  /** Set the play-mode camera (character controller camera) */
+  setPlayCamera(cam: THREE.PerspectiveCamera | null): void {
+    this._playCamera = cam;
+    if (cam) {
+      // Match aspect ratio
+      const w = this.container.clientWidth;
+      const h = this.container.clientHeight;
+      if (w > 0 && h > 0) {
+        cam.aspect = w / h;
+        cam.updateProjectionMatrix();
+      }
+      // Disable orbit controls during play
+      if (this._controls) this._controls.enabled = false;
+      // Hide transform gizmo
+      if (this._transformControls) this._transformControls.detach();
+    } else {
+      // Restore orbit controls
+      if (this._controls) this._controls.enabled = true;
+    }
+  }
+
+  /** Get the canvas element for pointer lock etc. */
+  getCanvas(): HTMLCanvasElement | null {
+    return this._renderer?.domElement ?? null;
   }
 
   dispose(): void {

@@ -52,6 +52,9 @@ async function main() {
   // Create editor layout (dockview)
   const editor = new EditorLayout(editorContainer, engine);
 
+  // Wire asset manager into the engine for controller blueprint resolution
+  engine.assetManager = editor.assetManager;
+
   // Create project manager
   const projectManager = new ProjectManager(engine, editor.assetManager);
 
@@ -158,6 +161,10 @@ async function main() {
         asset.compiledCode,
         asset.components,
         asset.rootPhysics,
+        asset.actorType,
+        asset.characterPawnConfig,
+        asset.controllerClass,
+        asset.controllerBlueprintId,
       );
     }
 
@@ -167,6 +174,7 @@ async function main() {
       (go as any)._savedRot = go.mesh.rotation.clone();
       (go as any)._savedScl = go.mesh.scale.clone();
       (go as any)._savedName = go.name;
+      (go as any)._savedVisible = go.mesh.visible; // Save visibility for character pawns
       (go as any)._savedPhysicsCfg = go.physicsConfig
         ? structuredClone(go.physicsConfig)
         : null;
@@ -202,9 +210,19 @@ async function main() {
     outputLog.show();
 
     engine.physics.play(engine.scene);
-    engine.onPlayStarted();
+    const canvas = editor.getCanvas();
+    engine.onPlayStarted(canvas ?? undefined);
+
+    // Switch to character pawn or spectator pawn camera if one exists
+    const pawnCam = engine.characterControllers.getActiveCamera()
+      ?? engine.spectatorControllers.getActiveCamera();
+    if (pawnCam) {
+      editor.setPlayCamera(pawnCam);
+    }
+
     engine.scene.setTriggerHelpersVisible(false);  // hide debug wireframes during play
     engine.scene.setLightHelpersVisible(false);     // hide light editor helpers during play
+    engine.scene.setComponentHelpersVisible(false); // hide camera/springArm/capsule cubes during play
     playBtn.style.display = 'none';
     stopBtn.style.display = '';
   });
@@ -212,8 +230,13 @@ async function main() {
   stopBtn.addEventListener('click', () => {
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
+
+    // Restore editor camera
+    editor.setPlayCamera(null);
+
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     engine.scene.setLightHelpersVisible(true);     // restore light editor helpers
+    engine.scene.setComponentHelpersVisible(true); // restore component helpers
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 
@@ -226,6 +249,9 @@ async function main() {
 
       // Name
       if ((go as any)._savedName !== undefined) go.name = (go as any)._savedName;
+
+      // Restore mesh visibility (character pawn may have hidden it)
+      if ((go as any)._savedVisible !== undefined) go.mesh.visible = (go as any)._savedVisible;
 
       // Physics config
       if ((go as any)._savedPhysicsCfg !== undefined) {
@@ -247,6 +273,7 @@ async function main() {
       delete (go as any)._savedRot;
       delete (go as any)._savedScl;
       delete (go as any)._savedName;
+      delete (go as any)._savedVisible;
       delete (go as any)._savedPhysicsCfg;
       delete (go as any)._savedChildren;
     }

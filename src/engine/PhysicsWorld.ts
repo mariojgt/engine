@@ -149,7 +149,9 @@ export class PhysicsWorld {
     if (!this.world) return;
 
     // Create rigid bodies for objects whose PhysicsConfig has simulate enabled
+    // Skip CharacterPawn and SpectatorPawn actors — they have their own controllers
     for (const go of scene.gameObjects) {
+      if (go.actorType === 'characterPawn' || go.actorType === 'spectatorPawn') continue;
       const cfg = go.physicsConfig;
       if (cfg && cfg.enabled && cfg.simulatePhysics && !go.rigidBody) {
         this.addPhysicsBody(go);
