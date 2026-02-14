@@ -141,13 +141,48 @@ async function main() {
   const stopBtn = document.getElementById('btn-stop')!;
 
   playBtn.addEventListener('click', () => {
-    // Save positions before play
+    // ── 1. Fully re-sync all actor-asset instances from their latest asset ──
+    // This ensures any blueprint edits (code, components, physics, mesh type)
+    // are pushed into scene instances BEFORE we snapshot state.
+    const syncedAssets = new Set<string>();
+    for (const go of engine.scene.gameObjects) {
+      if (!go.actorAssetId || syncedAssets.has(go.actorAssetId)) continue;
+      const asset = editor.assetManager.getAsset(go.actorAssetId);
+      if (!asset) continue;
+      syncedAssets.add(asset.id);
+      engine.scene.syncActorAssetInstances(
+        asset.id,
+        asset.name,
+        asset.rootMeshType,
+        asset.blueprintData,
+        asset.compiledCode,
+        asset.components,
+        asset.rootPhysics,
+      );
+    }
+
+    // ── 2. Save FULL state snapshot before play ──
     for (const go of engine.scene.gameObjects) {
       (go as any)._savedPos = go.mesh.position.clone();
       (go as any)._savedRot = go.mesh.rotation.clone();
+      (go as any)._savedScl = go.mesh.scale.clone();
+      (go as any)._savedName = go.name;
+      (go as any)._savedPhysicsCfg = go.physicsConfig
+        ? structuredClone(go.physicsConfig)
+        : null;
+      // Save child mesh transforms so script-driven component moves are restored
+      const childSnaps: Array<{ pos: any; rot: any; scl: any }> = [];
+      for (const child of go.mesh.children) {
+        childSnaps.push({
+          pos: (child as any).position.clone(),
+          rot: (child as any).rotation.clone(),
+          scl: (child as any).scale.clone(),
+        });
+      }
+      (go as any)._savedChildren = childSnaps;
     }
 
-    // Pre-compile actor-asset instances: copy latest compiled code from asset
+    // ── 3. Ensure compiled code is up-to-date ──
     for (const go of engine.scene.gameObjects) {
       if (go.actorAssetId) {
         const asset = editor.assetManager.getAsset(go.actorAssetId);
@@ -179,13 +214,54 @@ async function main() {
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
-    // Restore saved positions
+
+    // ── Restore FULL saved state ──
     for (const go of engine.scene.gameObjects) {
-      if ((go as any)._savedPos) {
-        go.mesh.position.copy((go as any)._savedPos);
-        go.mesh.rotation.copy((go as any)._savedRot);
+      // Position, rotation, scale
+      if ((go as any)._savedPos) go.mesh.position.copy((go as any)._savedPos);
+      if ((go as any)._savedRot) go.mesh.rotation.copy((go as any)._savedRot);
+      if ((go as any)._savedScl) go.mesh.scale.copy((go as any)._savedScl);
+
+      // Name
+      if ((go as any)._savedName !== undefined) go.name = (go as any)._savedName;
+
+      // Physics config
+      if ((go as any)._savedPhysicsCfg !== undefined) {
+        go.physicsConfig = (go as any)._savedPhysicsCfg;
+      }
+
+      // Child mesh transforms
+      const childSnaps = (go as any)._savedChildren as Array<{ pos: any; rot: any; scl: any }> | undefined;
+      if (childSnaps) {
+        for (let i = 0; i < Math.min(childSnaps.length, go.mesh.children.length); i++) {
+          go.mesh.children[i].position.copy(childSnaps[i].pos);
+          go.mesh.children[i].rotation.copy(childSnaps[i].rot);
+          go.mesh.children[i].scale.copy(childSnaps[i].scl);
+        }
+      }
+
+      // Clean up snapshot data
+      delete (go as any)._savedPos;
+      delete (go as any)._savedRot;
+      delete (go as any)._savedScl;
+      delete (go as any)._savedName;
+      delete (go as any)._savedPhysicsCfg;
+      delete (go as any)._savedChildren;
+    }
+
+    // Re-sync from assets so the editor-side state is authoritative
+    for (const go of engine.scene.gameObjects) {
+      if (!go.actorAssetId) continue;
+      const asset = editor.assetManager.getAsset(go.actorAssetId);
+      if (!asset) continue;
+      // Re-apply compiled code so next Play uses latest
+      if (asset.compiledCode) {
+        if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
+        go.scripts[0].code = asset.compiledCode;
+        go.scripts[0].compile();
       }
     }
+
     playBtn.style.display = '';
     stopBtn.style.display = 'none';
   });

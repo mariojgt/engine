@@ -4,8 +4,8 @@
 // ============================================================
 
 // Shared types & registry
-export { NODE_PALETTE, registerNode, socketColor, socketsCompatible, SOCKET_COLORS, NODE_CATEGORY_COLORS, getCategoryIcon } from './sockets';
-export type { NodeEntry } from './sockets';
+export { NODE_PALETTE, registerNode, socketColor, socketsCompatible, SOCKET_COLORS, NODE_CATEGORY_COLORS, getCategoryIcon, getConversion } from './sockets';
+export type { NodeEntry, ConversionEntry } from './sockets';
 export {
   execSocket,
   numSocket,
@@ -65,6 +65,7 @@ export { SetScaleNode }    from './transform/SetScaleNode';
 
 // ── Utility ─────────────────────────────────────────────────
 export { PrintStringNode } from './utility/PrintStringNode';
+export { RerouteNode } from './utility/RerouteNode';
 
 // ── Physics ─────────────────────────────────────────────────
 export { AddForceNode }   from './physics/AddForceNode';

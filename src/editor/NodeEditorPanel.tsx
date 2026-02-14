@@ -125,14 +125,21 @@ import {
   SetCollisionEnabledNode,
   socketColor,
   socketsCompatible,
+  getConversion,
   NODE_CATEGORY_COLORS,
   getCategoryIcon,
+  execSocket,
+  numSocket,
+  boolSocket,
+  vec3Socket,
+  strSocket,
   BoolToNumberNode,
   NumberToBoolNode,
   BoolToStringNode,
   StringToBoolNode,
   NumberToStringNode,
   StringToNumberNode,
+  RerouteNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -173,6 +180,7 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof GetVariableNode || node instanceof SetVariableNode) return 'Variables';
   if (node instanceof MakeStructNode || node instanceof BreakStructNode) return 'Structs';
   if (node instanceof FunctionEntryNode || node instanceof FunctionReturnNode) return 'Functions';
+  if (node instanceof RerouteNode) return 'Utility';
   if (node instanceof FunctionCallNode) return 'Functions';
   if (node instanceof MacroEntryNode || node instanceof MacroExitNode) return 'Macros';
   if (node instanceof MacroCallNode) return 'Macros';
@@ -328,6 +336,12 @@ function resolveValue(
 ): string {
   const node = nodeMap.get(nodeId);
   if (!node) return '0';
+
+  // ── RerouteNode: pass-through to input ──
+  if (node instanceof RerouteNode) {
+    const s = inputSrc.get(`${nodeId}.in`);
+    return s ? resolveValue(s.nid, s.ok, nodeMap, inputSrc, bp) : '0';
+  }
 
   if (node instanceof GetVariableNode) {
     const vn = sanitizeName(node.varName);
@@ -2329,6 +2343,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof StringToBoolNode) return 'StringToBoolNode';
   if (node instanceof NumberToStringNode) return 'NumberToStringNode';
   if (node instanceof StringToNumberNode) return 'StringToNumberNode';
+  // Reroute
+  if (node instanceof RerouteNode) return 'RerouteNode';
   // Collision / Trigger event nodes
   if (node instanceof OnTriggerBeginOverlapNode) return 'OnTriggerBeginOverlapNode';
   if (node instanceof OnTriggerEndOverlapNode) return 'OnTriggerEndOverlapNode';
@@ -2423,6 +2439,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
+  } else if (node instanceof RerouteNode) {
+    data.socketName = node.passSocket?.name ?? null;
   }
 
   return data;
@@ -2555,7 +2573,25 @@ function createNodeFromData(
     case 'BoolToStringNode':    return new BoolToStringNode();
     case 'StringToBoolNode':    return new StringToBoolNode();
     case 'NumberToStringNode':  return new NumberToStringNode();
-    case 'StringToNumberNode':  return new StringToNumberNode();
+    casReroute
+    case 'RerouteNode': {
+      const sockName = d.socketName || null;
+      let sock: ClassicPreset.Socket | undefined;
+      if (sockName) {
+        // Resolve socket name back to a socket instance
+        const sockMap: Record<string, ClassicPreset.Socket> = {
+          'Exec': execSocket, 'Number': numSocket, 'Boolean': boolSocket,
+          'Vector3': vec3Socket, 'String': strSocket,
+        };
+        sock = sockMap[sockName];
+        // Dynamic sockets (Enum_*, Struct_*) are re-created
+        if (!sock && sockName.startsWith('Enum_')) sock = new ClassicPreset.Socket(sockName);
+        if (!sock && sockName.startsWith('Struct_')) sock = new ClassicPreset.Socket(sockName);
+      }
+      return new RerouteNode(sock);
+    }
+
+    // e 'StringToNumberNode':  return new StringToNumberNode();
 
     // Transform
     case 'SetPositionNode': return new SetPositionNode();
@@ -2711,6 +2747,23 @@ async function createGraphEditor(
     customize: {
       node(context) {
         const node = context.payload;
+
+        // ── RerouteNode: render as a small dot ──
+        if ((node as any).__isReroute) {
+          const rn = node as RerouteNode;
+          return (props: any) => {
+            const dotColor = rn.passSocket ? socketColor(rn.passSocket) : '#8888cc';
+            return React.createElement('div', {
+              className: 'fe-reroute',
+              title: 'Reroute',
+              style: { '--reroute-color': dotColor } as any,
+            },
+              // Invisible sockets rendered by Rete for hit-testing
+              React.createElement(Presets.classic.Node, props),
+            );
+          };
+        }
+
         const category = getNodeCategory(node);
         const color = NODE_CATEGORY_COLORS[category] || '#546E7A';
         const icon = getCategoryIcon(category);
@@ -2860,6 +2913,49 @@ async function createGraphEditor(
             }
           }
         }
+
+        // ── Double-click wire → insert reroute node ──
+        const svg = el.querySelector('svg') || el;
+        if (!(svg as any).__feRerouteBound) {
+          (svg as any).__feRerouteBound = true;
+          svg.addEventListener('dblclick', async (e: Event) => {
+            const me = e as MouseEvent;
+            me.stopPropagation();
+            me.preventDefault();
+            try {
+              const srcN = editor.getNode(conn.source);
+              const tgtN = editor.getNode(conn.target);
+              if (!srcN || !tgtN) return;
+              const srcOut = srcN.outputs[conn.sourceOutput];
+              if (!srcOut?.socket) return;
+
+              // Determine the socket type for the reroute
+              const sock = srcOut.socket;
+              const rerouteNode = new RerouteNode(sock);
+
+              await editor.addNode(rerouteNode);
+
+              // Position: convert screen coordinates to canvas coordinates
+              const t = area.area.transform;
+              const canvasX = (me.clientX - container.getBoundingClientRect().left - t.x) / t.k;
+              const canvasY = (me.clientY - container.getBoundingClientRect().top - t.y) / t.k;
+              await area.translate(rerouteNode.id, { x: canvasX - 10, y: canvasY - 10 });
+
+              // Remove old connection
+              await editor.removeConnection(conn.id);
+
+              // Wire: source → reroute → target
+              await editor.addConnection(
+                new ClassicPreset.Connection(srcN, conn.sourceOutput, rerouteNode, 'in'),
+              );
+              await editor.addConnection(
+                new ClassicPreset.Connection(rerouteNode, 'out', tgtN, conn.targetInput),
+              );
+            } catch (err) {
+              console.error('[Feather] Failed to insert reroute:', err);
+            }
+          });
+        }
       }
       // Add category + ID attributes to rendered node elements
       if (d.type === 'node' && d.data && d.element) {
@@ -2883,7 +2979,7 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Socket type-safety: block connections between incompatible types ──
+  // ── Socket type-safety: auto-insert conversion nodes or block incompatible ──
   editor.addPipe((ctx) => {
     if (ctx.type === 'connectioncreate') {
       const { data } = ctx as any;
@@ -2893,9 +2989,59 @@ async function createGraphEditor(
         const srcOutput = srcNode.outputs[data.sourceOutput];
         const tgtInput  = tgtNode.inputs[data.targetInput];
         if (srcOutput?.socket && tgtInput?.socket) {
+          // --- RerouteNode: adopt socket type from first connection ---
+          if ((srcNode as any).__isReroute && !(srcNode as any).passSocket) {
+            (srcNode as RerouteNode).setSocket(tgtInput.socket);
+          }
+          if ((tgtNode as any).__isReroute && !(tgtNode as any).passSocket) {
+            (tgtNode as RerouteNode).setSocket(srcOutput.socket);
+          }
+
           if (!socketsCompatible(srcOutput.socket, tgtInput.socket)) {
+            // Check for an auto-conversion
+            const conv = getConversion(srcOutput.socket.name, tgtInput.socket.name);
+            if (conv) {
+              // Schedule auto-insertion asynchronously (pipe must return synchronously)
+              setTimeout(async () => {
+                try {
+                  const convNode = conv.factory();
+                  await editor.addNode(convNode);
+
+                  // Position the conversion node between source and target
+                  const srcView = area.nodeViews.get(srcNode.id);
+                  const tgtView = area.nodeViews.get(tgtNode.id);
+                  const sx = srcView?.position.x ?? 0;
+                  const sy = srcView?.position.y ?? 0;
+                  const tx = tgtView?.position.x ?? sx + 300;
+                  const ty = tgtView?.position.y ?? sy;
+                  await area.translate(convNode.id, {
+                    x: (sx + tx) / 2,
+                    y: (sy + ty) / 2,
+                  });
+
+                  // Wire: source → conversion → target
+                  await editor.addConnection(
+                    new ClassicPreset.Connection(srcNode, data.sourceOutput, convNode, 'in'),
+                  );
+                  await editor.addConnection(
+                    new ClassicPreset.Connection(convNode, 'out', tgtNode, data.targetInput),
+                  );
+
+                  if (conv.unsafe) {
+                    console.warn(
+                      `[Feather] Inserted UNSAFE conversion: ${srcOutput.socket.name} → ${tgtInput.socket.name}`,
+                    );
+                  }
+                } catch (err) {
+                  console.error('[Feather] Auto-conversion failed:', err);
+                }
+              }, 0);
+
+              return undefined as any; // block the original (incompatible) connection
+            }
+
             console.warn(
-              `[Feather] Blocked connection: ${srcOutput.socket.name} → ${tgtInput.socket.name}`
+              `[Feather] Blocked connection: ${srcOutput.socket.name} → ${tgtInput.socket.name}`,
             );
             return undefined as any;           // block the connection
           }
@@ -2975,7 +3121,25 @@ async function createGraphEditor(
           pushUndo('Delete nodes');
           (async () => {
             for (const nid of targets) {
+              const node = editor.getNode(nid);
               const conns = editor.getConnections().filter(c => c.source === nid || c.target === nid);
+              // Reroute: reconnect through
+              if (node && (node as any).__isReroute) {
+                const incoming = conns.filter(c => c.target === nid && c.targetInput === 'in');
+                const outgoing = conns.filter(c => c.source === nid && c.sourceOutput === 'out');
+                for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
+                for (const inc of incoming) {
+                  const incSrc = editor.getNode(inc.source);
+                  for (const out of outgoing) {
+                    const outTgt = editor.getNode(out.target);
+                    if (incSrc && outTgt) {
+                      try { await editor.addConnection(new ClassicPreset.Connection(incSrc, inc.sourceOutput, outTgt, out.targetInput)); } catch { /* ok */ }
+                    }
+                  }
+                }
+                try { await editor.removeNode(nid); } catch { /* ok */ }
+                continue;
+              }
               for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
               try { await editor.removeNode(nid); } catch { /* ok */ }
             }
@@ -3393,7 +3557,33 @@ async function createGraphEditor(
         syncSelectionVisuals();
         (async () => {
           for (const nodeId of ids) {
+            const node = editor.getNode(nodeId);
             const conns = editor.getConnections().filter(c => c.source === nodeId || c.target === nodeId);
+
+            // ── Reroute deletion: reconnect wires through ──
+            if (node && (node as any).__isReroute) {
+              const incoming = conns.filter(c => c.target === nodeId && c.targetInput === 'in');
+              const outgoing = conns.filter(c => c.source === nodeId && c.sourceOutput === 'out');
+              // Remove all connections first
+              for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
+              // Reconnect: each incoming source → each outgoing target
+              for (const inc of incoming) {
+                const incSrc = editor.getNode(inc.source);
+                for (const out of outgoing) {
+                  const outTgt = editor.getNode(out.target);
+                  if (incSrc && outTgt) {
+                    try {
+                      await editor.addConnection(
+                        new ClassicPreset.Connection(incSrc, inc.sourceOutput, outTgt, out.targetInput),
+                      );
+                    } catch { /* ok — may fail if types mismatch after chain */ }
+                  }
+                }
+              }
+              try { await editor.removeNode(nodeId); } catch { /* ok */ }
+              continue;
+            }
+
             for (const c of conns) { try { await editor.removeConnection(c.id); } catch { /* ok */ } }
             try { await editor.removeNode(nodeId); } catch { /* ok */ }
           }

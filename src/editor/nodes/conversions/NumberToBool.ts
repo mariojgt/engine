@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { numSocket, boolSocket, registerNode } from '../sockets';
+import { numSocket, boolSocket, registerNode, registerConversion } from '../sockets';
 
 export class NumberToBoolNode extends ClassicPreset.Node {
   constructor() {
@@ -10,3 +10,4 @@ export class NumberToBoolNode extends ClassicPreset.Node {
 }
 
 registerNode('Number → Bool', 'Conversions', () => new NumberToBoolNode());
+registerConversion('Number', 'Boolean', () => new NumberToBoolNode());

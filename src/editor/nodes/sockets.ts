@@ -40,6 +40,8 @@ export function socketsCompatible(
   a: ClassicPreset.Socket,
   b: ClassicPreset.Socket,
 ): boolean {
+  // RerouteNode "Any" socket is compatible with everything
+  if (a.name === 'Any' || b.name === 'Any') return true;
   return a.name === b.name;
 }
 
@@ -136,4 +138,40 @@ export function registerNode(
   factory: () => ClassicPreset.Node,
 ) {
   NODE_PALETTE.push({ label, category, factory });
+}
+
+// ============================================================
+//  Auto-Conversion Registry
+//  Maps sourceSocketName → targetSocketName → factory that
+//  creates the conversion node.  Used by the connection pipe to
+//  automatically insert a conversion node when the user drags a
+//  wire between two incompatible (but convertible) socket types.
+// ============================================================
+export interface ConversionEntry {
+  factory: () => ClassicPreset.Node;
+  /** If true the conversion is lossy / may fail at runtime (show warning). */
+  unsafe?: boolean;
+}
+
+/**
+ * Outer key = source socket name, inner key = target socket name.
+ * Populated by calling `registerConversion()` inside each conversion node file.
+ */
+export const CONVERSION_MAP = new Map<string, Map<string, ConversionEntry>>();
+
+/** Register an auto-conversion (called once per conversion node at import time). */
+export function registerConversion(
+  fromSocket: string,
+  toSocket: string,
+  factory: () => ClassicPreset.Node,
+  unsafe = false,
+): void {
+  let inner = CONVERSION_MAP.get(fromSocket);
+  if (!inner) { inner = new Map(); CONVERSION_MAP.set(fromSocket, inner); }
+  inner.set(toSocket, { factory, unsafe });
+}
+
+/** Look up a conversion entry (or undefined if impossible). */
+export function getConversion(from: string, to: string): ConversionEntry | undefined {
+  return CONVERSION_MAP.get(from)?.get(to);
 }

@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { numSocket, strSocket, registerNode } from '../sockets';
+import { numSocket, strSocket, registerNode, registerConversion } from '../sockets';
 
 export class NumberToStringNode extends ClassicPreset.Node {
   constructor() {
@@ -10,3 +10,4 @@ export class NumberToStringNode extends ClassicPreset.Node {
 }
 
 registerNode('Number → String', 'Conversions', () => new NumberToStringNode());
+registerConversion('Number', 'String', () => new NumberToStringNode());
