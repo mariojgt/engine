@@ -2894,6 +2894,17 @@ async function createGraphEditor(
   let _rcStartX = 0, _rcStartY = 0;
   let _rcStartTx = 0, _rcStartTy = 0;
 
+  // Flag: suppress area zoom when a dblclick was consumed by a reroute insertion
+  let _rerouteDblClickConsumed = false;
+  container.addEventListener('dblclick', (e) => {
+    if (_rerouteDblClickConsumed) {
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      _rerouteDblClickConsumed = false;
+    }
+  }, true); // capture phase — runs before Rete's area listener
+
   // ── Connection wire coloring by socket type ──
   area.addPipe((ctx) => {
     if (ctx.type === 'rendered') {
@@ -2912,7 +2923,9 @@ async function createGraphEditor(
               path.setAttribute('stroke', wireColor);
               path.setAttribute('stroke-width', isExec ? '3.5' : '2');
               if (isExec) path.classList.add('fe-exec-wire');
-            }
+            }stopImmediatePropagation();
+            me.preventDefault();
+            _rerouteDblClickConsumed = true
           }
         }
 
@@ -3024,12 +3037,6 @@ async function createGraphEditor(
                   await editor.addConnection(ca as any);
                   const cb = new ClassicPreset.Connection(convNode, 'out', tgtNode, data.targetInput);
                   await editor.addConnection(cb as any);
-
-                  if (conv.unsafe) {
-                    console.warn(
-                      `[Feather] Inserted UNSAFE conversion: ${srcOutput.socket.name} → ${tgtInput.socket.name}`,
-                    );
-                  }
                 } catch (err) {
                   console.error('[Feather] Auto-conversion failed:', err);
                 }
