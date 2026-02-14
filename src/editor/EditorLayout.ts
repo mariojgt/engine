@@ -66,6 +66,9 @@ export class EditorLayout {
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
 
+  /** Callback for saving the project — wired by main.ts */
+  private _onSave: (() => void) | null = null;
+
   constructor(container: HTMLElement, engine: Engine) {
     this._engine = engine;
     this.assetManager = new ActorAssetManager();
@@ -308,7 +311,7 @@ export class EditorLayout {
       syncInstances();
     };
 
-    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged, this.assetManager);
+    this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged, this.assetManager, this._onSave ?? undefined);
   }
 
   /** Wire up the StructureAssetManager for the content browser and editors */
@@ -444,6 +447,11 @@ export class EditorLayout {
     if (this._properties) {
       this._properties.refresh();
     }
+  }
+
+  /** Set the save handler (called when user clicks Save in blueprint editor) */
+  setSaveHandler(onSave: () => void): void {
+    this._onSave = onSave;
   }
 
   // ---- Camera state for project save/load ----

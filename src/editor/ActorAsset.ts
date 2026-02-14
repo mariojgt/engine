@@ -146,6 +146,8 @@ export interface ActorComponentData {
   camera?: CameraComponentConfig;
   /** Parent component id (for nesting under spring arm, etc.) */
   parentId?: string;
+  /** When true, this component mesh is hidden at runtime (default: true for capsule/springArm/camera/characterMovement) */
+  hiddenInGame?: boolean;
 }
 
 export interface ActorAssetJSON {

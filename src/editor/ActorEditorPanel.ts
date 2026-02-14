@@ -26,10 +26,17 @@ export class ActorEditorPanel {
   private _assetManager: ActorAssetManager | null;
   private _onCompile: (code: string) => void;
   private _onAssetChanged: () => void;
+  private _onSave: (() => void) | null;
 
   // Top-level DOM
   private _tabBar!: HTMLElement;
   private _tabContentArea!: HTMLElement;
+
+  // Compile / Save state
+  private _compileStatus: 'compiled' | 'dirty' | 'error' = 'compiled';
+  private _compileStatusEl: HTMLElement | null = null;
+  private _compileBtnEl: HTMLElement | null = null;
+  private _lastCompileTime: number = 0;
 
   // Viewport tab
   private _viewportTabEl: HTMLElement | null = null;
@@ -50,13 +57,23 @@ export class ActorEditorPanel {
     onCompile: (code: string) => void,
     onAssetChanged?: () => void,
     assetManager?: ActorAssetManager,
+    onSave?: () => void,
   ) {
     this.container = container;
     this._asset = asset;
     this._assetManager = assetManager ?? null;
-    this._onCompile = onCompile;
+    this._onCompile = (code: string) => {
+      onCompile(code);
+      this._setCompileStatus('compiled');
+    };
     this._onAssetChanged = onAssetChanged ?? (() => {});
+    this._onSave = onSave ?? null;
     this._build();
+  }
+
+  /** Mark the blueprint as needing recompilation (called externally when graph changes) */
+  markDirty(): void {
+    this._setCompileStatus('dirty');
   }
 
   // ---- Build ----
@@ -86,16 +103,159 @@ export class ActorEditorPanel {
   private _buildTabBar(): void {
     this._tabBar.innerHTML = '';
 
+    // ── Left side: Viewport + Event Graph tabs ──
+    const tabsLeft = document.createElement('div');
+    tabsLeft.className = 'ae-tab-bar-left';
+
     const makeTab = (label: string, id: 'viewport' | 'graph') => {
       const tab = document.createElement('div');
       tab.className = 'graph-tab' + (this._activeTab === id ? ' active' : '');
       tab.textContent = label;
       tab.addEventListener('click', () => this._switchTab(id));
-      this._tabBar.appendChild(tab);
+      tabsLeft.appendChild(tab);
     };
 
     makeTab('🎮 Viewport', 'viewport');
     makeTab('⬡ Event Graph', 'graph');
+    this._tabBar.appendChild(tabsLeft);
+
+    // ── Right side: Compile + Save buttons (UE-style toolbar) ──
+    const toolbarRight = document.createElement('div');
+    toolbarRight.className = 'ae-toolbar-right';
+
+    // Compile button
+    const compileBtn = document.createElement('button');
+    compileBtn.className = 'ae-toolbar-btn ae-compile-btn';
+    compileBtn.title = 'Compile this blueprint (Ctrl+F7)';
+    this._compileBtnEl = compileBtn;
+    this._updateCompileButton();
+    compileBtn.addEventListener('click', () => this._doCompile());
+    toolbarRight.appendChild(compileBtn);
+
+    // Compile status indicator
+    const statusEl = document.createElement('span');
+    statusEl.className = 'ae-compile-status';
+    this._compileStatusEl = statusEl;
+    this._updateCompileStatus();
+    toolbarRight.appendChild(statusEl);
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.className = 'ae-toolbar-separator';
+    toolbarRight.appendChild(sep);
+
+    // Save button
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'ae-toolbar-btn ae-save-btn';
+    saveBtn.innerHTML = '💾 Save';
+    saveBtn.title = 'Save all (Ctrl+S)';
+    saveBtn.addEventListener('click', () => this._doSave());
+    toolbarRight.appendChild(saveBtn);
+
+    this._tabBar.appendChild(toolbarRight);
+  }
+
+  private _setCompileStatus(status: 'compiled' | 'dirty' | 'error'): void {
+    this._compileStatus = status;
+    if (status === 'compiled') this._lastCompileTime = Date.now();
+    this._updateCompileButton();
+    this._updateCompileStatus();
+  }
+
+  private _updateCompileButton(): void {
+    if (!this._compileBtnEl) return;
+    const btn = this._compileBtnEl;
+    switch (this._compileStatus) {
+      case 'compiled':
+        btn.innerHTML = '✅ Compile';
+        btn.classList.remove('ae-compile-dirty', 'ae-compile-error');
+        btn.classList.add('ae-compile-ok');
+        break;
+      case 'dirty':
+        btn.innerHTML = '🔨 Compile';
+        btn.classList.remove('ae-compile-ok', 'ae-compile-error');
+        btn.classList.add('ae-compile-dirty');
+        break;
+      case 'error':
+        btn.innerHTML = '❌ Compile';
+        btn.classList.remove('ae-compile-ok', 'ae-compile-dirty');
+        btn.classList.add('ae-compile-error');
+        break;
+    }
+  }
+
+  private _updateCompileStatus(): void {
+    if (!this._compileStatusEl) return;
+    switch (this._compileStatus) {
+      case 'compiled': {
+        const ago = this._lastCompileTime ? this._timeSince(this._lastCompileTime) : '';
+        this._compileStatusEl.textContent = ago ? `Blueprint compiled ${ago}` : 'Blueprint up to date';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-ok';
+        break;
+      }
+      case 'dirty':
+        this._compileStatusEl.textContent = 'Blueprint needs recompile';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-dirty';
+        break;
+      case 'error':
+        this._compileStatusEl.textContent = 'Compile error!';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-error';
+        break;
+    }
+  }
+
+  private _timeSince(ts: number): string {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 5) return 'just now';
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    return `${min}m ago`;
+  }
+
+  /** Trigger manual compile — calls the live node editor's compileAndSave without destroying the graph */
+  private _doCompile(): void {
+    if (this._graphTabEl) {
+      // The node editor exposes its compileAndSave on the container div's first child
+      const editorEl = this._graphTabEl.querySelector('[class*="node-editor"], div');
+      const container = this._graphTabEl.children[0] as any;
+      // Try the direct ref first (set by NodeEditorView)
+      if (container && typeof container.__compileAndSave === 'function') {
+        container.__compileAndSave();
+        return;
+      }
+      // Fallback: walk children
+      for (let i = 0; i < this._graphTabEl.children.length; i++) {
+        const child = this._graphTabEl.children[i] as any;
+        if (child && typeof child.__compileAndSave === 'function') {
+          child.__compileAndSave();
+          return;
+        }
+      }
+    }
+    // Last resort: just fire the onCompile with existing code (no-op recompile)
+    this._onCompile(this._asset.compiledCode);
+  }
+
+  /** Trigger manual save */
+  private _doSave(): void {
+    // Ensure compiled before save
+    if (this._compileStatus !== 'compiled') {
+      this._doCompile();
+    }
+    // Call external save handler
+    if (this._onSave) {
+      this._onSave();
+    }
+    // Flash save feedback
+    this._flashSaveStatus();
+  }
+
+  private _flashSaveStatus(): void {
+    if (!this._compileStatusEl) return;
+    const el = this._compileStatusEl;
+    el.textContent = '💾 Saved!';
+    el.className = 'ae-compile-status ae-status-saved';
+    setTimeout(() => this._updateCompileStatus(), 1500);
   }
 
   private _switchTab(tab: 'viewport' | 'graph'): void {
@@ -609,6 +769,14 @@ export class ActorEditorPanel {
         container.appendChild(this._makeNumberRow('Radius', cfg.radius, 0.05, 0.1, 5, (v) => { cfg.radius = v; notifyChanged(); }));
         container.appendChild(this._makeNumberRow('Height', cfg.height, 0.1, 0.2, 10, (v) => { cfg.height = v; notifyChanged(); }));
       }
+
+      // ---- Hidden In Game toggle ----
+      const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
+      const isHidden = comp.hiddenInGame !== false; // default true for capsule
+      container.appendChild(this._makeCheckboxRow('Hidden In Game', isHidden, (v) => {
+        comp.hiddenInGame = v;
+        notifyChanged();
+      }));
     } else if (comp.type === 'characterMovement') {
       // ---- Character Movement component (read-only info, config lives in characterPawnConfig) ----
       const info = document.createElement('div');

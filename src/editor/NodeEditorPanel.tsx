@@ -4535,6 +4535,12 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
       gameObject.scripts[0].code = code;
       gameObject.scripts[0].compile();
 
+      // Expose compile function on the container DOM element so external callers
+      // (e.g. ActorEditorPanel Compile button) can trigger it without destroying the graph.
+      if (containerRef.current) {
+        (containerRef.current as any).__compileAndSave = compileAndSave;
+      }
+
       // ── Persist graph node data into BlueprintData ──
       // Event graph
       bp.eventGraph.nodeData = serializeGraph(evData.editor, evData.area);

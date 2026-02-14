@@ -92,6 +92,15 @@ async function main() {
     }
   }
 
+  // Wire save handler for blueprint editor Compile/Save buttons
+  editor.setSaveHandler(async () => {
+    if (projectManager.isProjectOpen) {
+      await projectManager.saveProject();
+      projectNameEl.textContent = `💾 Saved!`;
+      setTimeout(updateProjectName, 1500);
+    }
+  });
+
   // --- File menu dropdown ---
   const fileBtn = document.getElementById('btn-file')!;
   const fileDropdown = document.getElementById('file-dropdown')!;

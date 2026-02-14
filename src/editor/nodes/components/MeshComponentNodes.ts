@@ -130,3 +130,15 @@ registerComponentRule({
     ];
   },
 });
+
+// ---- Register the capsule component rule (visibility control) ----
+
+registerComponentRule({
+  componentTypes: ['capsule'],
+  getEntries(comp: ActorComponentData, index: number) {
+    const n = comp.name;
+    return [
+      { label: `Set Visibility (${n})`,  factory: () => new SetComponentVisibilityNode(n, index) },
+    ];
+  },
+});

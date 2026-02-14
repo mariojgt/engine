@@ -1489,6 +1489,104 @@ html, body, #app {
   background: var(--bg-darkest);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  justify-content: space-between;
+}
+
+.ae-tab-bar-left {
+  display: flex;
+  align-items: stretch;
+}
+
+.ae-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.ae-toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.ae-toolbar-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-dim);
+}
+
+/* Compile button states */
+.ae-compile-btn.ae-compile-ok {
+  background: #1a3a24;
+  border-color: #2a5a34;
+  color: #4ade80;
+}
+.ae-compile-btn.ae-compile-ok:hover {
+  background: #224a2e;
+}
+.ae-compile-btn.ae-compile-dirty {
+  background: #3a3018;
+  border-color: #5a4a28;
+  color: #fbbf24;
+}
+.ae-compile-btn.ae-compile-dirty:hover {
+  background: #4a3e20;
+}
+.ae-compile-btn.ae-compile-error {
+  background: #3a1a1a;
+  border-color: #5a2a2a;
+  color: #f87171;
+}
+.ae-compile-btn.ae-compile-error:hover {
+  background: #4a2222;
+}
+
+/* Save button */
+.ae-save-btn {
+  background: #1a2a3a;
+  border-color: #2a4a5a;
+  color: #60a5fa;
+}
+.ae-save-btn:hover {
+  background: #223a4a;
+  border-color: #3a5a6a;
+}
+
+/* Compile status text */
+.ae-compile-status {
+  font-size: 10px;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+.ae-compile-status.ae-status-ok {
+  color: #4ade80;
+}
+.ae-compile-status.ae-status-dirty {
+  color: #fbbf24;
+}
+.ae-compile-status.ae-status-error {
+  color: #f87171;
+}
+.ae-compile-status.ae-status-saved {
+  color: #60a5fa;
+}
+
+/* Toolbar separator */
+.ae-toolbar-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
 }
 
 .actor-editor-content {

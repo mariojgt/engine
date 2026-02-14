@@ -490,6 +490,8 @@ export class Scene {
         const editorOnlyTypes = ['camera', 'springArm', 'capsule', 'characterMovement'];
         if (editorOnlyTypes.includes(comp.type)) {
           child.userData.__isComponentHelper = true;
+          // hiddenInGame defaults to true for helper types; user can override per-component
+          child.userData.__hiddenInGame = comp.hiddenInGame !== false;
         }
 
         go.mesh.add(child);
@@ -529,7 +531,13 @@ export class Scene {
     for (const go of this.gameObjects) {
       go.mesh.traverse((child) => {
         if (child.userData.__isComponentHelper) {
-          child.visible = visible;
+          if (visible) {
+            // Restoring to editor mode — always show
+            child.visible = true;
+          } else {
+            // Entering play mode — hide only if hiddenInGame is true (default)
+            child.visible = child.userData.__hiddenInGame === false;
+          }
         }
       });
     }
