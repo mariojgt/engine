@@ -8,18 +8,26 @@
 // ============================================================
 
 import { ActorAssetManager, type ActorAsset } from './ActorAsset';
+import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
 export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: number) => void;
 
+export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums';
+
 export class ActorAssetBrowser {
   public container: HTMLElement;
   private _manager: ActorAssetManager;
+  private _structManager: StructureAssetManager | null = null;
   private _gridEl!: HTMLElement;
   private _contextMenu: HTMLElement | null = null;
   private _onOpenAsset: (asset: ActorAsset) => void;
+  private _onOpenStructure: ((asset: StructureAsset) => void) | null = null;
+  private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _selectedAssetId: string | null = null;
+  private _activeTab: ContentBrowserTab = 'Actors';
+  private _tabBarEl!: HTMLElement;
 
   // Custom mouse-drag state (no HTML5 DnD)
   private _dragAsset: ActorAsset | null = null;
@@ -44,6 +52,20 @@ export class ActorAssetBrowser {
     // Global mouse handlers for custom drag
     window.addEventListener('mousemove', this._onMouseMove);
     window.addEventListener('mouseup', this._onMouseUp);
+  }
+
+  /** Wire up StructureAssetManager + callbacks for opening struct/enum editors */
+  public setStructureManager(
+    mgr: StructureAssetManager,
+    onOpenStructure: (asset: StructureAsset) => void,
+    onOpenEnum: (asset: EnumAsset) => void,
+  ): void {
+    this._structManager = mgr;
+    this._onOpenStructure = onOpenStructure;
+    this._onOpenEnum = onOpenEnum;
+    mgr.onChanged(() => this._refreshGrid());
+    this._rebuildHeader();
+    this._refreshGrid();
   }
 
   private _onMouseMove = (e: MouseEvent) => {
@@ -86,11 +108,16 @@ export class ActorAssetBrowser {
     // Header
     const header = document.createElement('div');
     header.className = 'panel-header';
-    header.innerHTML = `
-      <span>Content Browser</span>
-      <div class="content-browser-add" id="ab-add-btn">+ New Actor</div>
-    `;
+    header.id = 'ab-header';
     this.container.appendChild(header);
+    this._rebuildHeader();
+
+    // Tab bar (shows when struct manager is available)
+    this._tabBarEl = document.createElement('div');
+    this._tabBarEl.className = 'content-browser-tab-bar';
+    this._tabBarEl.style.display = this._structManager ? 'flex' : 'none';
+    this.container.appendChild(this._tabBarEl);
+    this._rebuildTabBar();
 
     // Body
     const body = document.createElement('div');
@@ -100,12 +127,6 @@ export class ActorAssetBrowser {
     this._gridEl.className = 'asset-grid';
     body.appendChild(this._gridEl);
     this.container.appendChild(body);
-
-    // "+ New Actor" button
-    header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._createNewAsset();
-    });
 
     // Right-click on empty space → create new
     body.addEventListener('contextmenu', (e) => {
@@ -120,14 +141,79 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
+  private _rebuildHeader(): void {
+    const header = this.container.querySelector('#ab-header');
+    if (!header) return;
+    header.innerHTML = `
+      <span>Content Browser</span>
+      <div class="content-browser-add" id="ab-add-btn">+ New</div>
+    `;
+    header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._createNewForActiveTab();
+    });
+  }
+
+  private _rebuildTabBar(): void {
+    this._tabBarEl.innerHTML = '';
+    if (!this._structManager) {
+      this._tabBarEl.style.display = 'none';
+      return;
+    }
+    this._tabBarEl.style.display = 'flex';
+    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums'];
+    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋' };
+    for (const tab of tabs) {
+      const btn = document.createElement('div');
+      btn.className = `content-browser-tab${this._activeTab === tab ? ' active' : ''}`;
+      btn.textContent = `${icons[tab]} ${tab}`;
+      btn.addEventListener('click', () => {
+        this._activeTab = tab;
+        this._selectedAssetId = null;
+        this._rebuildTabBar();
+        this._refreshGrid();
+      });
+      this._tabBarEl.appendChild(btn);
+    }
+  }
+
+  private _createNewForActiveTab(): void {
+    if (this._activeTab === 'Actors') {
+      this._createNewAsset();
+    } else if (this._activeTab === 'Structures' && this._structManager) {
+      const name = this._showNameDialog('New Structure', 'F_NewStruct');
+      if (!name) return;
+      const sa = this._structManager.createStructure(name);
+      this._selectedAssetId = sa.id;
+      if (this._onOpenStructure) this._onOpenStructure(sa);
+    } else if (this._activeTab === 'Enums' && this._structManager) {
+      const name = this._showNameDialog('New Enum', 'E_NewEnum');
+      if (!name) return;
+      const ea = this._structManager.createEnum(name);
+      this._selectedAssetId = ea.id;
+      if (this._onOpenEnum) this._onOpenEnum(ea);
+    }
+  }
+
   private _refreshGrid(): void {
     this._gridEl.innerHTML = '';
+
+    if (this._activeTab === 'Actors') {
+      this._renderActorGrid();
+    } else if (this._activeTab === 'Structures') {
+      this._renderStructureGrid();
+    } else if (this._activeTab === 'Enums') {
+      this._renderEnumGrid();
+    }
+  }
+
+  private _renderActorGrid(): void {
     const assets = this._manager.assets;
 
     if (assets.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'prop-empty';
-      empty.textContent = 'No actor assets. Click + New Actor';
+      empty.textContent = 'No actor assets. Click + New';
       empty.style.height = '60px';
       this._gridEl.appendChild(empty);
       return;
@@ -188,6 +274,146 @@ export class ActorAssetBrowser {
     }
   }
 
+  private _renderStructureGrid(): void {
+    if (!this._structManager) return;
+    const structs = this._structManager.structures;
+
+    if (structs.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'prop-empty';
+      empty.textContent = 'No structures. Click + New to create one.';
+      empty.style.height = '60px';
+      this._gridEl.appendChild(empty);
+      return;
+    }
+
+    for (const sa of structs) {
+      const card = this._createTypeCard(
+        sa.id, sa.name, '🔷', `${sa.fields.length} fields`,
+        () => this._onOpenStructure?.(sa),
+        (e) => this._showStructContextMenu(e, sa),
+      );
+      this._gridEl.appendChild(card);
+    }
+  }
+
+  private _renderEnumGrid(): void {
+    if (!this._structManager) return;
+    const enums = this._structManager.enums;
+
+    if (enums.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'prop-empty';
+      empty.textContent = 'No enums. Click + New to create one.';
+      empty.style.height = '60px';
+      this._gridEl.appendChild(empty);
+      return;
+    }
+
+    for (const ea of enums) {
+      const card = this._createTypeCard(
+        ea.id, ea.name, '📋', `${ea.values.length} values`,
+        () => this._onOpenEnum?.(ea),
+        (e) => this._showEnumContextMenu(e, ea),
+      );
+      this._gridEl.appendChild(card);
+    }
+  }
+
+  private _createTypeCard(
+    id: string, name: string, icon: string, subtitle: string,
+    onOpen: () => void, onContextMenu: (e: MouseEvent) => void,
+  ): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'asset-card';
+    if (this._selectedAssetId === id) card.classList.add('selected');
+
+    const iconEl = document.createElement('div');
+    iconEl.className = 'asset-card-icon';
+    iconEl.innerHTML = `<span class="asset-icon-glyph">${icon}</span>`;
+    card.appendChild(iconEl);
+
+    const labelEl = document.createElement('div');
+    labelEl.className = 'asset-card-name';
+    labelEl.textContent = name;
+    labelEl.title = `${name} — ${subtitle}`;
+    card.appendChild(labelEl);
+
+    const subEl = document.createElement('div');
+    subEl.className = 'asset-card-subtitle';
+    subEl.textContent = subtitle;
+    card.appendChild(subEl);
+
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._selectedAssetId = id;
+      this._refreshGrid();
+    });
+    card.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      onOpen();
+    });
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._selectedAssetId = id;
+      this._refreshGrid();
+      onContextMenu(e);
+    });
+
+    return card;
+  }
+
+  // ---- Structure/Enum Context Menus ----
+
+  private _showStructContextMenu(e: MouseEvent, sa: StructureAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenStructure?.(sa));
+    this._addMenuItem(menu, '✏ Rename', () => {
+      const newName = this._showNameDialog('Rename Structure', sa.name);
+      if (newName) this._structManager!.renameStructure(sa.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete structure "${sa.name}"?`)) {
+        this._structManager!.removeStructure(sa.id);
+        if (this._selectedAssetId === sa.id) this._selectedAssetId = null;
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  private _showEnumContextMenu(e: MouseEvent, ea: EnumAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenEnum?.(ea));
+    this._addMenuItem(menu, '✏ Rename', () => {
+      const newName = this._showNameDialog('Rename Enum', ea.name);
+      if (newName) this._structManager!.renameEnum(ea.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete enum "${ea.name}"?`)) {
+        this._structManager!.removeEnum(ea.id);
+        if (this._selectedAssetId === ea.id) this._selectedAssetId = null;
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
   private _getMeshIcon(meshType: string): string {
     switch (meshType) {
       case 'cube': return '<span class="asset-icon-glyph">⬡</span>';
@@ -226,9 +452,43 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
+    // Always show actor creation
     this._addMenuItem(menu, '⬡ New Actor Blueprint', () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
       this._createNewAsset();
     });
+
+    // Structure/Enum creation when manager is available
+    if (this._structManager) {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-separator';
+      menu.appendChild(sep);
+
+      this._addMenuItem(menu, '🔷 New Structure', () => {
+        this._activeTab = 'Structures';
+        this._rebuildTabBar();
+        const name = this._showNameDialog('New Structure', 'F_NewStruct');
+        if (name) {
+          const sa = this._structManager!.createStructure(name);
+          this._selectedAssetId = sa.id;
+          this._onOpenStructure?.(sa);
+        }
+        this._refreshGrid();
+      });
+
+      this._addMenuItem(menu, '📋 New Enumeration', () => {
+        this._activeTab = 'Enums';
+        this._rebuildTabBar();
+        const name = this._showNameDialog('New Enum', 'E_NewEnum');
+        if (name) {
+          const ea = this._structManager!.createEnum(name);
+          this._selectedAssetId = ea.id;
+          this._onOpenEnum?.(ea);
+        }
+        this._refreshGrid();
+      });
+    }
 
     document.body.appendChild(menu);
     this._contextMenu = menu;

@@ -13,6 +13,9 @@ import { mountNodeEditor } from './NodeEditorPanel';
 import { ActorAssetManager, type ActorAsset } from './ActorAsset';
 import { ActorAssetBrowser } from './ActorAssetBrowser';
 import { ActorEditorPanel } from './ActorEditorPanel';
+import type { StructureAssetManager, StructureAsset, EnumAsset } from './StructureAsset';
+import { StructureEditorPanel } from './StructureEditorPanel';
+import { EnumEditorPanel } from './EnumEditorPanel';
 import type { CameraStateJSON } from './SceneSerializer';
 
 // Store renderers by panel id for reliable element access
@@ -56,6 +59,8 @@ export class EditorLayout {
   private _properties: PropertiesPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
+  private _assetBrowser: ActorAssetBrowser | null = null;
+  private _structManager: StructureAssetManager | null = null;
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
@@ -162,7 +167,7 @@ export class EditorLayout {
     if (!renderer) return;
     const el = renderer.element;
 
-    new ActorAssetBrowser(
+    this._assetBrowser = new ActorAssetBrowser(
       el,
       this.assetManager,
       (asset: ActorAsset) => this._openActorEditor(asset),
@@ -285,6 +290,98 @@ export class EditorLayout {
     };
 
     this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged);
+  }
+
+  /** Wire up the StructureAssetManager for the content browser and editors */
+  setStructureManager(mgr: StructureAssetManager): void {
+    this._structManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setStructureManager(
+        mgr,
+        (sa: StructureAsset) => this._openStructureEditor(sa),
+        (ea: EnumAsset) => this._openEnumEditor(ea),
+      );
+    }
+  }
+
+  /** Open a structure editor panel */
+  private _openStructureEditor(sa: StructureAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'struct-editor-' + sa.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `🔷 Struct: ${sa.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._structManager) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    new StructureEditorPanel(wrapper, sa, this._structManager, () => {
+      // Update panel title when name changes
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`🔷 Struct: ${sa.name}`); } catch (_e) {}
+      }
+    });
+  }
+
+  /** Open an enum editor panel */
+  private _openEnumEditor(ea: EnumAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'enum-editor-' + ea.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `📋 Enum: ${ea.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._structManager) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    new EnumEditorPanel(wrapper, ea, this._structManager, () => {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`📋 Enum: ${ea.name}`); } catch (_e) {}
+      }
+    });
+  }
+
+  private _closeTypeEditor(): void {
+    const panels = this._api.panels;
+    for (const p of panels) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-')) {
+        this._api.removePanel(p);
+      }
+    }
   }
 
   private _closeNodeEditor(): void {

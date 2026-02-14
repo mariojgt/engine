@@ -3,7 +3,7 @@
 //  Stores variables, functions, macros, and graph data.
 // ============================================================
 
-export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String' | `Struct:${string}`;
+export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String' | `Struct:${string}` | `Enum:${string}`;
 
 export interface BlueprintVariable {
   name: string;
@@ -217,7 +217,9 @@ export class BlueprintData {
             }
             return obj;
           }
+          return {};
         }
+        if (type.startsWith('Enum:')) return '';
         return null;
     }
   }

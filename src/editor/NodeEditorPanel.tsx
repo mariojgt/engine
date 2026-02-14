@@ -105,11 +105,14 @@ import {
   SetComponentVisibilityNode,
   getComponentNodeEntries,
   // Trigger Component Nodes
+  OnTriggerComponentBeginOverlapNode,
+  OnTriggerComponentEndOverlapNode,
   SetTriggerEnabledNode,
   GetTriggerEnabledNode,
+  IsTriggerOverlappingNode,
+  // Deprecated trigger nodes (kept for deserialization)
   SetTriggerSizeNode,
   GetTriggerOverlapCountNode,
-  IsTriggerOverlappingNode,
   GetTriggerShapeNode,
   // Collision / Trigger Event Nodes
   OnTriggerBeginOverlapNode,
@@ -133,11 +136,23 @@ import {
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
+import type { StructureAssetManager } from './StructureAsset';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
   ClassicPreset.Connection<ClassicPreset.Node, ClassicPreset.Node>
 >;
+
+// ============================================================
+//  Module-level reference to StructureAssetManager
+//  (set once at startup from main.ts)
+// ============================================================
+let _structMgr: StructureAssetManager | null = null;
+
+/** Call once at startup to wire project-level structs/enums into the node editor */
+export function setStructureAssetManager(mgr: StructureAssetManager): void {
+  _structMgr = mgr;
+}
 
 // ============================================================
 //  Graph type identifier
@@ -173,7 +188,10 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof OnCollisionHitNode) return 'Collision';
   if (node instanceof IsOverlappingActorNode || node instanceof GetOverlapCountNode ||
       node instanceof SetCollisionEnabledNode) return 'Collision';
-  // Trigger component nodes
+  // Bound trigger overlap events (per-component, like UE)
+  if (node instanceof OnTriggerComponentBeginOverlapNode ||
+      node instanceof OnTriggerComponentEndOverlapNode) return 'Collision';
+  // Trigger component utility nodes
   if (node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
       node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
       node instanceof IsTriggerOverlappingNode || node instanceof GetTriggerShapeNode) return 'Components';
@@ -239,14 +257,17 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
     default:
       if (v.type.startsWith('Struct:')) {
         const structId = v.type.slice(7);
-        const struct = bp.structs.find(s => s.id === structId);
-        if (struct) {
-          const parts = struct.fields.map(f => {
+        const fields = resolveStructFields(structId, bp);
+        if (fields) {
+          const parts = fields.map(f => {
             const tempVar: BlueprintVariable = { name: f.name, type: f.type, defaultValue: null, id: '' };
             return `${sanitizeName(f.name)}: ${varDefaultStr(tempVar, bp)}`;
           });
           return `{ ${parts.join(', ')} }`;
         }
+      }
+      if (v.type.startsWith('Enum:')) {
+        return JSON.stringify(String(v.defaultValue ?? ''));
       }
       return '0';
   }
@@ -255,6 +276,20 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
 // ============================================================
 //  CODE GENERATOR — shared helpers
 // ============================================================
+
+/** Resolve struct fields from per-actor BlueprintData OR project-level StructureAssetManager */
+function resolveStructFields(structId: string, bp: import('./BlueprintData').BlueprintData): { name: string; type: VarType }[] | undefined {
+  // 1. Per-actor struct
+  const bpStruct = bp.structs.find(s => s.id === structId);
+  if (bpStruct) return bpStruct.fields;
+  // 2. Project-level struct
+  if (_structMgr) {
+    const projStruct = _structMgr.getStructure(structId);
+    if (projStruct) return projStruct.fields.map(f => ({ name: f.name, type: f.type }));
+  }
+  return undefined;
+}
+
 type NodeMap = Map<string, ClassicPreset.Node>;
 type SrcMap  = Map<string, { nid: string; ok: string }>;
 type DstMap  = Map<string, { nid: string; ik: string }[]>;
@@ -298,12 +333,14 @@ function resolveValue(
     const vn = sanitizeName(node.varName);
     if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
     if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
+    // Enum and other types — simple value
     return `__var_${vn}`;
   }
   if (node instanceof SetVariableNode) {
     const vn = sanitizeName(node.varName);
     if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
     if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
+    // Enum and other types — simple value
     return `__var_${vn}`;
   }
   if (node instanceof MakeStructNode) {
@@ -357,6 +394,12 @@ function resolveValue(
     if (outputKey === 'selfComponent') return '__selfComponent';
     return '0';
   }
+  // Bound trigger component overlap event outputs (UE-style per-component)
+  if (node instanceof OnTriggerComponentBeginOverlapNode || node instanceof OnTriggerComponentEndOverlapNode) {
+    if (outputKey === 'otherActorName') return '__otherActorName';
+    if (outputKey === 'otherActorId') return '__otherActorId';
+    return '0';
+  }
   if (node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode) {
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
@@ -406,11 +449,11 @@ function resolveValue(
     return `(((gameObject._triggerComponents || [])[${(node as GetTriggerEnabledNode).compIndex}] || {}).config || {}).enabled ? 1 : 0`;
   }
   if (node instanceof GetTriggerOverlapCountNode) {
-    return `(engine.physics.collision.getOverlappingCount(gameObject.id))`;
+    return `(__physics.collision.getOverlappingCount(gameObject.id))`;
   }
   if (node instanceof IsTriggerOverlappingNode) {
     const idS = inputSrc.get(`${nodeId}.actorId`);
-    return `(engine.physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
+    return `(__physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
   }
   if (node instanceof GetTriggerShapeNode) {
     return `(((gameObject._triggerComponents || [])[${(node as GetTriggerShapeNode).compIndex}] || {}).config || {}).shape || 'box'`;
@@ -418,10 +461,10 @@ function resolveValue(
   // Collision query nodes
   if (node instanceof IsOverlappingActorNode) {
     const idS = inputSrc.get(`${nodeId}.actorId`);
-    return `(engine.physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
+    return `(__physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
   }
   if (node instanceof GetOverlapCountNode) {
-    return `(engine.physics.collision.getOverlappingCount(gameObject.id))`;
+    return `(__physics.collision.getOverlappingCount(gameObject.id))`;
   }
 
   switch (node.label) {
@@ -642,9 +685,9 @@ function genAction(
       lines.push(`__var_${vn}.z = ${zS ? rv(zS.nid, zS.ok) : '0'};`);
     } else if (node.varType.startsWith('Struct:')) {
       const structId = node.varType.slice(7);
-      const struct = bp.structs.find(s => s.id === structId);
-      if (struct && struct.fields.length > 0) {
-        for (const f of struct.fields) {
+      const fields = resolveStructFields(structId, bp);
+      if (fields && fields.length > 0) {
+        for (const f of fields) {
           const fS = inputSrc.get(`${nodeId}.${f.name}`);
           lines.push(`__var_${vn}.${sanitizeName(f.name)} = ${fS ? rv(fS.nid, fS.ok) : fieldDefault(f.type)};`);
         }
@@ -810,14 +853,41 @@ function genAction(
     case 'Set Gravity Enabled': {
       const eS = inputSrc.get(`${nodeId}.enabled`);
       const enabledVal = eS ? rv(eS.nid, eS.ok) : 'true';
-      lines.push(`if (gameObject.rigidBody) { var __ge = !!(${enabledVal}); var __gs = (gameObject.physicsConfig ? gameObject.physicsConfig.gravityScale : 1); gameObject.rigidBody.setGravityScale(__ge ? __gs : 0, true); if (gameObject.physicsConfig) gameObject.physicsConfig.gravityEnabled = __ge; }`);
+      // Auto-create physics body if not present (like Set Simulate Physics)
+      lines.push(`(function() {`);
+      lines.push(`  if (!gameObject.rigidBody && __physics) {`);
+      lines.push(`    if (!gameObject.physicsConfig) gameObject.physicsConfig = { enabled: true, simulatePhysics: true, mass: 1, gravityEnabled: true, gravityScale: 1, linearDamping: 0.01, angularDamping: 0.05, friction: 0.5, restitution: 0.3, lockPositionX: false, lockPositionY: false, lockPositionZ: false, lockRotationX: false, lockRotationY: false, lockRotationZ: false, collisionEnabled: true, collisionChannel: 'WorldDynamic' };`);
+      lines.push(`    gameObject.physicsConfig.enabled = true;`);
+      lines.push(`    gameObject.physicsConfig.simulatePhysics = true;`);
+      lines.push(`    __physics.addPhysicsBody(gameObject);`);
+      lines.push(`  }`);
+      lines.push(`  if (gameObject.rigidBody) {`);
+      lines.push(`    var __ge = !!(${enabledVal});`);
+      lines.push(`    var __gs = (gameObject.physicsConfig ? gameObject.physicsConfig.gravityScale : 1) || 1;`);
+      lines.push(`    gameObject.rigidBody.setGravityScale(__ge ? __gs : 0, true);`);
+      lines.push(`    if (gameObject.physicsConfig) gameObject.physicsConfig.gravityEnabled = __ge;`);
+      lines.push(`  }`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Gravity Scale': {
       const sS = inputSrc.get(`${nodeId}.scale`);
       const scaleVal = sS ? rv(sS.nid, sS.ok) : '1';
-      lines.push(`if (gameObject.rigidBody) { var __gsv = ${scaleVal}; gameObject.rigidBody.setGravityScale(__gsv, true); if (gameObject.physicsConfig) gameObject.physicsConfig.gravityScale = __gsv; }`);
+      // Auto-create physics body if not present
+      lines.push(`(function() {`);
+      lines.push(`  if (!gameObject.rigidBody && __physics) {`);
+      lines.push(`    if (!gameObject.physicsConfig) gameObject.physicsConfig = { enabled: true, simulatePhysics: true, mass: 1, gravityEnabled: true, gravityScale: 1, linearDamping: 0.01, angularDamping: 0.05, friction: 0.5, restitution: 0.3, lockPositionX: false, lockPositionY: false, lockPositionZ: false, lockRotationX: false, lockRotationY: false, lockRotationZ: false, collisionEnabled: true, collisionChannel: 'WorldDynamic' };`);
+      lines.push(`    gameObject.physicsConfig.enabled = true;`);
+      lines.push(`    gameObject.physicsConfig.simulatePhysics = true;`);
+      lines.push(`    __physics.addPhysicsBody(gameObject);`);
+      lines.push(`  }`);
+      lines.push(`  if (gameObject.rigidBody) {`);
+      lines.push(`    var __gsv = ${scaleVal};`);
+      lines.push(`    gameObject.rigidBody.setGravityScale(__gsv, true);`);
+      lines.push(`    if (gameObject.physicsConfig) gameObject.physicsConfig.gravityScale = __gsv;`);
+      lines.push(`  }`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -1037,12 +1107,32 @@ function generateFullCode(
   const actorBeginNodes = nodes.filter(n => n instanceof OnActorBeginOverlapNode);
   const actorEndNodes = nodes.filter(n => n instanceof OnActorEndOverlapNode);
   const collisionHitNodes = nodes.filter(n => n instanceof OnCollisionHitNode);
+  // UE-style per-component bound overlap events
+  const boundBeginNodes = nodes.filter(n => n instanceof OnTriggerComponentBeginOverlapNode) as OnTriggerComponentBeginOverlapNode[];
+  const boundEndNodes   = nodes.filter(n => n instanceof OnTriggerComponentEndOverlapNode)   as OnTriggerComponentEndOverlapNode[];
   const hasCollisionEvents = triggerBeginNodes.length > 0 || triggerEndNodes.length > 0 ||
-    actorBeginNodes.length > 0 || actorEndNodes.length > 0 || collisionHitNodes.length > 0;
+    actorBeginNodes.length > 0 || actorEndNodes.length > 0 || collisionHitNodes.length > 0 ||
+    boundBeginNodes.length > 0 || boundEndNodes.length > 0;
 
   if (hasCollisionEvents) {
-    beginPlayCode.push('var __collCb = engine.physics.collision.registerCallbacks(gameObject.id);');
+    beginPlayCode.push('var __collCb = __physics.collision.registerCallbacks(gameObject.id);');
 
+    // UE-style bound Begin Overlap — filter by selfComponentName
+    for (const n of boundBeginNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+      }
+    }
+    // UE-style bound End Overlap — filter by selfComponentName
+    for (const n of boundEndNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+      }
+    }
+
+    // Generic trigger overlap events (fire for ANY trigger)
     for (const n of triggerBeginNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
@@ -1494,14 +1584,28 @@ function showContextMenu(
       if (items.length) categories.set('Custom Events', items);
     }
 
-    // Structs — Make / Break
-    if (bp.structs.length > 0) {
+    // Structs — Make / Break (per-actor + project-level)
+    {
       const items: { label: string; action: () => void }[] = [];
+      // Per-actor structs
       for (const s of bp.structs) {
         if (!lf || `make ${s.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
           items.push({ label: `Make ${s.name}`, action: () => { onAddStructNode(s, 'make'); menu.remove(); } });
         if (!lf || `break ${s.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
           items.push({ label: `Break ${s.name}`, action: () => { onAddStructNode(s, 'break'); menu.remove(); } });
+      }
+      // Project-level structures
+      if (_structMgr) {
+        for (const ps of _structMgr.structures) {
+          // Skip if already listed from per-actor structs
+          if (bp.structs.some(bs => bs.id === ps.id)) continue;
+          const fields = ps.fields.map(f => ({ name: f.name, type: f.type }));
+          const pseudoStruct = { id: ps.id, name: ps.name, fields };
+          if (!lf || `make ${ps.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
+            items.push({ label: `Make ${ps.name}`, action: () => { onAddStructNode(pseudoStruct as any, 'make'); menu.remove(); } });
+          if (!lf || `break ${ps.name}`.toLowerCase().includes(lf) || 'structs'.includes(lf))
+            items.push({ label: `Break ${ps.name}`, action: () => { onAddStructNode(pseudoStruct as any, 'break'); menu.remove(); } });
+        }
       }
       if (items.length) categories.set('Structs', items);
     }
@@ -1602,9 +1706,24 @@ function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?
   for (const t of base) {
     html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;
   }
+  // Per-actor (legacy) structs
   for (const s of bp.structs) {
     const val = `Struct:${s.id}`;
     html += `<option value="${val}"${selected === val ? ' selected' : ''}>${s.name}</option>`;
+  }
+  // Project-level structures
+  if (_structMgr) {
+    for (const s of _structMgr.structures) {
+      const val: VarType = `Struct:${s.id}`;
+      // Skip if already listed from per-actor structs
+      if (bp.structs.some(bs => bs.id === s.id)) continue;
+      html += `<option value="${val}"${selected === val ? ' selected' : ''}>${s.name} (Struct)</option>`;
+    }
+    // Project-level enums
+    for (const e of _structMgr.enums) {
+      const val: VarType = `Enum:${e.id}`;
+      html += `<option value="${val}"${selected === val ? ' selected' : ''}>${e.name} (Enum)</option>`;
+    }
   }
   return html;
 }
@@ -1612,8 +1731,23 @@ function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?
 /** Returns the display name for a VarType (resolving struct IDs to names) */
 function typeDisplayName(type: VarType, bp: import('./BlueprintData').BlueprintData): string {
   if (type.startsWith('Struct:')) {
-    const struct = bp.structs.find(s => s.id === type.slice(7));
-    return struct ? struct.name : 'Struct?';
+    const structId = type.slice(7);
+    const struct = bp.structs.find(s => s.id === structId);
+    if (struct) return struct.name;
+    // Try project-level
+    if (_structMgr) {
+      const projStruct = _structMgr.getStructure(structId);
+      if (projStruct) return projStruct.name;
+    }
+    return 'Struct?';
+  }
+  if (type.startsWith('Enum:')) {
+    const enumId = type.slice(5);
+    if (_structMgr) {
+      const projEnum = _structMgr.getEnum(enumId);
+      if (projEnum) return projEnum.name;
+    }
+    return 'Enum?';
   }
   return type;
 }
@@ -1621,6 +1755,7 @@ function typeDisplayName(type: VarType, bp: import('./BlueprintData').BlueprintD
 /** CSS class suffix for type dot color */
 function typeDotClass(type: VarType): string {
   if (type.startsWith('Struct:')) return 'mybp-var-struct';
+  if (type.startsWith('Enum:'))   return 'mybp-var-enum';
   return `mybp-var-${type.toLowerCase()}`;
 }
 
@@ -1879,6 +2014,19 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
     if (type.startsWith('Struct:')) {
       return `<span style="color:#888;font-size:11px;">Struct — set field defaults via Set nodes</span>`;
     }
+    if (type.startsWith('Enum:')) {
+      const enumId = type.slice(5);
+      const enumAsset = _structMgr?.getEnum(enumId);
+      if (enumAsset && enumAsset.values.length > 0) {
+        let html = `<select class="mybp-dialog-select" id="dlg-val">`;
+        for (const ev of enumAsset.values) {
+          html += `<option value="${ev.name}"${dv === ev.name ? ' selected' : ''}>${ev.displayName}</option>`;
+        }
+        html += `</select>`;
+        return html;
+      }
+      return `<span style="color:#888;font-size:11px;">Enum — no values defined</span>`;
+    }
     return '';
   }
 
@@ -1890,12 +2038,16 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       case 'String': return '';
       default:
         if (type.startsWith('Struct:')) {
-          const struct = bp.structs.find(s => s.id === type.slice(7));
-          if (struct) {
+          const fields = resolveStructFields(type.slice(7), bp);
+          if (fields) {
             const obj: any = {};
-            for (const f of struct.fields) obj[f.name] = defaultForType(f.type);
+            for (const f of fields) obj[f.name] = defaultForType(f.type);
             return obj;
           }
+        }
+        if (type.startsWith('Enum:')) {
+          const enumAsset = _structMgr?.getEnum(type.slice(5));
+          return enumAsset?.values[0]?.name ?? '';
         }
         return null;
     }
@@ -1945,6 +2097,9 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
         };
       } else if (v.type.startsWith('Struct:')) {
         v.defaultValue = defaultForType(v.type);
+      } else if (v.type.startsWith('Enum:')) {
+        const valEl = dialog.querySelector('#dlg-val') as HTMLSelectElement | null;
+        v.defaultValue = valEl?.value ?? '';
       }
       onChange();
       close();
@@ -2184,6 +2339,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetOverlapCountNode) return 'GetOverlapCountNode';
   if (node instanceof SetCollisionEnabledNode) return 'SetCollisionEnabledNode';
   // Trigger component nodes
+  if (node instanceof OnTriggerComponentBeginOverlapNode) return 'OnTriggerComponentBeginOverlapNode';
+  if (node instanceof OnTriggerComponentEndOverlapNode) return 'OnTriggerComponentEndOverlapNode';
   if (node instanceof SetTriggerEnabledNode) return 'SetTriggerEnabledNode';
   if (node instanceof GetTriggerEnabledNode) return 'GetTriggerEnabledNode';
   if (node instanceof SetTriggerSizeNode) return 'SetTriggerSizeNode';
@@ -2259,6 +2416,7 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
   } else if (
+    node instanceof OnTriggerComponentBeginOverlapNode || node instanceof OnTriggerComponentEndOverlapNode ||
     node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
     node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
     node instanceof IsTriggerOverlappingNode || node instanceof GetTriggerShapeNode
@@ -2320,13 +2478,13 @@ function createNodeFromData(
 
     // Variables
     case 'GetVariableNode': {
-      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? bp.structs.find(s => s.id === d.varType.slice(7))?.fields : undefined);
+      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? resolveStructFields(d.varType.slice(7), bp) : undefined);
       const n = new GetVariableNode(d.varId, d.varName, d.varType, sf);
       if (d.isLocal) (n as any).__isLocal = true;
       return n;
     }
     case 'SetVariableNode': {
-      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? bp.structs.find(s => s.id === d.varType.slice(7))?.fields : undefined);
+      const sf = d.structFields || (d.varType?.startsWith('Struct:') ? resolveStructFields(d.varType.slice(7), bp) : undefined);
       const n = new SetVariableNode(d.varId, d.varName, d.varType, sf);
       if (d.isLocal) (n as any).__isLocal = true;
       return n;
@@ -2465,6 +2623,8 @@ function createNodeFromData(
     case 'SetComponentVisibilityNode': return new SetComponentVisibilityNode(d.compName || 'Root', d.compIndex ?? -1);
 
     // Trigger component nodes
+    case 'OnTriggerComponentBeginOverlapNode': return new OnTriggerComponentBeginOverlapNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'OnTriggerComponentEndOverlapNode':   return new OnTriggerComponentEndOverlapNode(d.compName || 'Trigger', d.compIndex ?? 0);
     case 'SetTriggerEnabledNode':       return new SetTriggerEnabledNode(d.compName || 'Trigger', d.compIndex ?? 0);
     case 'GetTriggerEnabledNode':       return new GetTriggerEnabledNode(d.compName || 'Trigger', d.compIndex ?? 0);
     case 'SetTriggerSizeNode':          return new SetTriggerSizeNode(d.compName || 'Trigger', d.compIndex ?? 0);

@@ -6,6 +6,8 @@ import { OutputLog } from './editor/OutputLog';
 import { ScriptComponent } from './engine/ScriptComponent';
 import { ProjectManager } from './editor/ProjectManager';
 import { showProjectDialog } from './editor/ProjectDialog';
+import { StructureAssetManager } from './editor/StructureAsset';
+import { setStructureAssetManager } from './editor/NodeEditorPanel';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -53,6 +55,14 @@ async function main() {
   // Create project manager
   const projectManager = new ProjectManager(engine, editor.assetManager);
 
+  // Create structure/enum asset manager (project-level types)
+  const structManager = new StructureAssetManager();
+  projectManager.setStructureManager(structManager);
+  setStructureAssetManager(structManager);
+
+  // Wire structure manager into content browser
+  editor.setStructureManager(structManager);
+
   // Wire camera state callbacks
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
@@ -60,6 +70,7 @@ async function main() {
   // Wire auto-save: mark dirty when scene or assets change
   engine.scene.onChanged(() => projectManager.markDirty());
   editor.assetManager.onChanged(() => projectManager.markDirty());
+  structManager.onChanged(() => projectManager.markDirty());
 
   // Output log for Print String nodes
   const outputLog = new OutputLog(app);
@@ -157,6 +168,7 @@ async function main() {
 
     engine.physics.play(engine.scene);
     engine.onPlayStarted();
+    engine.scene.setTriggerHelpersVisible(false);  // hide debug wireframes during play
     playBtn.style.display = 'none';
     stopBtn.style.display = '';
   });
@@ -164,6 +176,7 @@ async function main() {
   stopBtn.addEventListener('click', () => {
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
+    engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
     // Restore saved positions

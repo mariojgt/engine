@@ -125,11 +125,14 @@ export {
   SetComponentVisibilityNode,
 } from './components/MeshComponentNodes';
 export {
+  OnTriggerComponentBeginOverlapNode,
+  OnTriggerComponentEndOverlapNode,
   SetTriggerEnabledNode,
   GetTriggerEnabledNode,
+  IsTriggerOverlappingNode,
+  // Deprecated — kept for backwards-compat deserialization
   SetTriggerSizeNode,
   GetTriggerOverlapCountNode,
-  IsTriggerOverlappingNode,
   GetTriggerShapeNode,
 } from './components/TriggerComponentNodes';
 export { getComponentNodeEntries, registerComponentRule } from './components/ComponentNodeRules';

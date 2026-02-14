@@ -18,11 +18,15 @@ export const SOCKET_COLORS: Record<string, string> = {
   Boolean: '#e74c3c',   // red
   Vector3: '#f5a623',   // yellow-orange
   String:  '#c678dd',   // magenta / purple
+  Enum:    '#00bcd4',   // cyan – enum sockets
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
 
 /** Get the colour for any socket by its name */
 export function socketColor(sock: ClassicPreset.Socket): string {
+  if (SOCKET_COLORS[sock.name]) return SOCKET_COLORS[sock.name];
+  // Enum sockets are named Enum_<id> — use the Enum colour
+  if (sock.name.startsWith('Enum_')) return SOCKET_COLORS['Enum'] ?? DEFAULT_SOCKET_COLOR;
   return SOCKET_COLORS[sock.name] ?? DEFAULT_SOCKET_COLOR;
 }
 
@@ -58,6 +62,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Custom Events': '#B71C1C',
   'Input':         '#880E4F',
   'Structs':       '#00695C',
+  'Enums':         '#00838F',
   'Collision':     '#C62828',
 };
 
@@ -78,6 +83,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Custom Events': return '🎯';
     case 'Input':         return '🎮';
     case 'Structs':       return '🔷';
+    case 'Enums':         return '📋';
     case 'Collision':     return '💥';
     default:              return '●';
   }
@@ -94,6 +100,21 @@ export function getStructSocket(structType: string): ClassicPreset.Socket {
   if (!s) {
     s = new ClassicPreset.Socket(`Struct_${structType.replace('Struct:', '')}`);
     structSocketCache.set(structType, s);
+  }
+  return s;
+}
+
+// ============================================================
+//  Enum Socket Cache (one socket per enum type)
+// ============================================================
+const enumSocketCache = new Map<string, ClassicPreset.Socket>();
+
+/** Returns (or creates) a socket for an enum VarType like `Enum:<id>` */
+export function getEnumSocket(enumType: string): ClassicPreset.Socket {
+  let s = enumSocketCache.get(enumType);
+  if (!s) {
+    s = new ClassicPreset.Socket(`Enum_${enumType.replace('Enum:', '')}`);
+    enumSocketCache.set(enumType, s);
   }
   return s;
 }

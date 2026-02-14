@@ -14,6 +14,7 @@
 // ============================================================
 
 import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
 import type { PhysicsWorld } from './PhysicsWorld';
@@ -63,6 +64,9 @@ export class CollisionSystem {
   /** Rapier collider handle → GameObject ID lookup */
   private _handleToGoId = new Map<number, number>();
 
+  /** Fixed Rapier bodies created for non-physics GameObjects (so sensors can detect them) */
+  private _staticBodies: Array<{ goId: number; rb: RAPIER.RigidBody }> = [];
+
   /** Previous frame's overlapping pairs (stringified "low-high") */
   private _prevOverlaps = new Set<string>();
 
@@ -91,10 +95,14 @@ export class CollisionSystem {
   createSensors(scene: Scene, physics: PhysicsWorld): void {
     if (!physics.world) return;
 
-    // Also register physics body colliders in the handle→go map so we can resolve contacts
+    // Register ALL colliders from physics-enabled GameObjects (root + compound child shapes)
     for (const go of scene.gameObjects) {
-      if (go.collider) {
-        this._handleToGoId.set(go.collider.handle, go.id);
+      if (go.rigidBody) {
+        const rb = go.rigidBody as RAPIER.RigidBody;
+        for (let i = 0; i < rb.numColliders(); i++) {
+          const col = rb.collider(i);
+          this._handleToGoId.set(col.handle, go.id);
+        }
       }
     }
 
@@ -147,6 +155,49 @@ export class CollisionSystem {
         };
         this._sensors.push(entry);
         this._handleToGoId.set(collider.handle, go.id);
+      }
+    }
+
+    // -----------------------------------------------------------------
+    //  Create fixed colliders for non-physics GameObjects so sensors
+    //  (triggers) can detect overlaps with them.
+    // -----------------------------------------------------------------
+    for (const go of scene.gameObjects) {
+      if (go.rigidBody) continue; // already has a physics body + colliders
+
+      const geo = go.mesh.geometry;
+      if (!geo) continue;
+
+      const pos = go.mesh.position;
+      const rot = go.mesh.quaternion;
+
+      const rbDesc = RAPIER.RigidBodyDesc.fixed()
+        .setTranslation(pos.x, pos.y, pos.z)
+        .setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w });
+      const rb = physics.world!.createRigidBody(rbDesc);
+
+      const colDesc = this._colliderDescFromGeometry(geo);
+      const collider = physics.world!.createCollider(colDesc, rb);
+      this._handleToGoId.set(collider.handle, go.id);
+      this._staticBodies.push({ goId: go.id, rb });
+
+      // Also create colliders for child component meshes (skip trigger helper visuals)
+      for (const child of go.mesh.children) {
+        if (child.userData?.__isTriggerHelper) continue;
+        if (!(child as any).isMesh) continue;
+        const mesh = child as THREE.Mesh;
+        const childGeo = mesh.geometry;
+        if (!childGeo) continue;
+        const childColDesc = this._colliderDescFromGeometry(childGeo);
+        childColDesc.setTranslation(mesh.position.x, mesh.position.y, mesh.position.z);
+        if (mesh.quaternion) {
+          childColDesc.setRotation({
+            x: mesh.quaternion.x, y: mesh.quaternion.y,
+            z: mesh.quaternion.z, w: mesh.quaternion.w,
+          });
+        }
+        const childCol = physics.world!.createCollider(childColDesc, rb);
+        this._handleToGoId.set(childCol.handle, go.id);
       }
     }
   }
@@ -225,6 +276,7 @@ export class CollisionSystem {
   reset(): void {
     this._callbacks.clear();
     this._sensors = [];
+    this._staticBodies = [];
     this._handleToGoId.clear();
     this._prevOverlaps.clear();
     this._activeOverlaps.clear();
@@ -414,6 +466,22 @@ export class CollisionSystem {
         try { cb(evt); } catch (e) { console.error('[CollisionSystem] onEndOverlap error:', e); }
       }
     }
+  }
+
+  /** Build a RAPIER.ColliderDesc from a Three.js BufferGeometry (for static colliders). */
+  private _colliderDescFromGeometry(geo: THREE.BufferGeometry): RAPIER.ColliderDesc {
+    if (geo.type === 'BoxGeometry') {
+      const p = (geo as any).parameters;
+      return RAPIER.ColliderDesc.cuboid(p.width / 2, p.height / 2, p.depth / 2);
+    } else if (geo.type === 'SphereGeometry') {
+      const p = (geo as any).parameters;
+      return RAPIER.ColliderDesc.ball(p.radius);
+    } else if (geo.type === 'CylinderGeometry') {
+      const p = (geo as any).parameters;
+      return RAPIER.ColliderDesc.cylinder(p.height / 2, p.radiusTop);
+    }
+    // Fallback: unit cube
+    return RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
   }
 
   /** Create a Rapier ColliderDesc from a CollisionConfig */

@@ -11,6 +11,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import type { Engine } from '../engine/Engine';
 import type { ActorAssetManager, ActorAssetJSON } from './ActorAsset';
+import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from './StructureAsset';
 import {
   serializeScene,
   deserializeScene,
@@ -66,6 +67,8 @@ const ENGINE_VERSION = '0.1.0';
 const PROJECT_FILE = 'project.json';
 const SCENES_DIR = 'Scenes';
 const ACTORS_DIR = 'Actors';
+const STRUCTURES_DIR = 'Structures';
+const ENUMS_DIR = 'Enums';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const DEFAULT_SCENE = 'DefaultScene';
@@ -75,6 +78,7 @@ export class ProjectManager {
   private _meta: ProjectMeta | null = null;
   private _engine: Engine;
   private _assetManager: ActorAssetManager;
+  private _structManager: StructureAssetManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -98,6 +102,11 @@ export class ProjectManager {
   constructor(engine: Engine, assetManager: ActorAssetManager) {
     this._engine = engine;
     this._assetManager = assetManager;
+  }
+
+  /** Wire up the StructureAssetManager for saving/loading structures and enums */
+  setStructureManager(mgr: StructureAssetManager): void {
+    this._structManager = mgr;
   }
 
   // ============================================================
@@ -218,6 +227,10 @@ export class ProjectManager {
       this._projectPath = projectRoot;
       this._meta = meta;
 
+      // Load structures and enums first (actors may reference them)
+      await this._loadStructures();
+      await this._loadEnums();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -255,6 +268,10 @@ export class ProjectManager {
 
       // Save actors
       await this._saveActors();
+
+      // Save structures and enums
+      await this._saveStructures();
+      await this._saveEnums();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -382,6 +399,140 @@ export class ProjectManager {
 
     if (allActors.length > 0) {
       this._assetManager.importAll(allActors);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Structures
+  // ============================================================
+
+  private async _saveStructures(): Promise<void> {
+    if (!this._projectPath || !this._structManager) return;
+
+    const structDir = `${this._projectPath}/${STRUCTURES_DIR}`;
+    const structs = this._structManager.exportStructures();
+
+    for (const json of structs) {
+      const safeName = json.structureName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${structDir}/${safeName}_${json.structureId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+
+    // Index file
+    const index = structs.map(s => ({
+      id: s.structureId,
+      name: s.structureName,
+      file: `${s.structureName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${s.structureId}.json`,
+    }));
+    await fsWrite(`${structDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadStructures(): Promise<void> {
+    if (!this._projectPath || !this._structManager) return;
+
+    const structDir = `${this._projectPath}/${STRUCTURES_DIR}`;
+    const dirFound = await fsExists(structDir);
+    if (!dirFound) return;
+
+    const allStructs: StructureAssetJSON[] = [];
+    const indexPath = `${structDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${structDir}/${entry.file}`);
+          allStructs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load structure ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(structDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${structDir}/${name}`);
+          allStructs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load structure file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allStructs.length > 0) {
+      this._structManager.importStructures(allStructs);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Enums
+  // ============================================================
+
+  private async _saveEnums(): Promise<void> {
+    if (!this._projectPath || !this._structManager) return;
+
+    const enumDir = `${this._projectPath}/${ENUMS_DIR}`;
+    const enums = this._structManager.exportEnums();
+
+    for (const json of enums) {
+      const safeName = json.enumName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${enumDir}/${safeName}_${json.enumId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+
+    // Index file
+    const index = enums.map(e => ({
+      id: e.enumId,
+      name: e.enumName,
+      file: `${e.enumName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${e.enumId}.json`,
+    }));
+    await fsWrite(`${enumDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadEnums(): Promise<void> {
+    if (!this._projectPath || !this._structManager) return;
+
+    const enumDir = `${this._projectPath}/${ENUMS_DIR}`;
+    const dirFound = await fsExists(enumDir);
+    if (!dirFound) return;
+
+    const allEnums: EnumAssetJSON[] = [];
+    const indexPath = `${enumDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${enumDir}/${entry.file}`);
+          allEnums.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load enum ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(enumDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${enumDir}/${name}`);
+          allEnums.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load enum file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allEnums.length > 0) {
+      this._structManager.importEnums(allEnums);
     }
   }
 

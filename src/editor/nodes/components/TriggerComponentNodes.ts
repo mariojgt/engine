@@ -1,16 +1,21 @@
 // ============================================================
-//  TriggerComponentNodes — Get/Set properties for trigger
-//  collision components (box, sphere, capsule).
+//  TriggerComponentNodes — UE-style trigger component event
+//  binding & utility nodes.
 //
-//  These nodes let the blueprint graph manipulate trigger volumes
-//  at runtime: enable/disable, change shape, resize, and read
-//  the current overlap state.
+//  Like Unreal Engine, each trigger component gets its own
+//  OnBeginOverlap and OnEndOverlap event nodes that are
+//  *bound* to that specific trigger.  This lets the developer
+//  place a red "Event" header node per trigger and handle the
+//  overlap directly in the graph — exactly like dragging a
+//  trigger component in UE and selecting "Add Event →
+//  On Component Begin Overlap".
 //
-//  At runtime trigger components live as sensor colliders managed
-//  by CollisionSystem.  The component index stored on each node is
-//  used by the code generator to address the correct trigger:
-//    index === -1  →  root trigger (if the root has a trigger)
-//    index >= 0    →  child trigger component at that index
+//  Only the essential pins/lines are shown:
+//    Event nodes:  ▶ exec, Other Actor Name, Other Actor ID
+//    Utility:      Set Enabled, Is Enabled, Is Overlapping
+//
+//  At runtime the code generator filters overlap callbacks by
+//  selfComponentName so only the bound trigger fires each node.
 // ============================================================
 
 import { ClassicPreset } from 'rete';
@@ -18,9 +23,45 @@ import { execSocket, numSocket, boolSocket, strSocket } from '../sockets';
 import { registerComponentRule } from './ComponentNodeRules';
 import type { ActorComponentData } from '../../ActorAsset';
 
-// ---- Node classes ----
+// ============================================================
+//  Event: On Begin Overlap (bound to a specific trigger)
+//  Fires when another actor ENTERS this trigger volume.
+//  Outputs:  ▶ exec, Other Actor Name, Other Actor ID
+// ============================================================
+export class OnTriggerComponentBeginOverlapNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`On Begin Overlap (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket, 'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket, 'Other Actor ID'));
+  }
+}
 
-/** Enable or disable a trigger component at runtime */
+// ============================================================
+//  Event: On End Overlap (bound to a specific trigger)
+//  Fires when another actor LEAVES this trigger volume.
+//  Outputs:  ▶ exec, Other Actor Name, Other Actor ID
+// ============================================================
+export class OnTriggerComponentEndOverlapNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`On End Overlap (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket, 'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket, 'Other Actor ID'));
+  }
+}
+
+// ============================================================
+//  Utility: Enable or disable a trigger at runtime
+// ============================================================
 export class SetTriggerEnabledNode extends ClassicPreset.Node {
   public compName: string;
   public compIndex: number;
@@ -34,7 +75,9 @@ export class SetTriggerEnabledNode extends ClassicPreset.Node {
   }
 }
 
-/** Check if a trigger component is currently enabled */
+// ============================================================
+//  Utility: Check if a trigger is currently enabled
+// ============================================================
 export class GetTriggerEnabledNode extends ClassicPreset.Node {
   public compName: string;
   public compIndex: number;
@@ -46,7 +89,23 @@ export class GetTriggerEnabledNode extends ClassicPreset.Node {
   }
 }
 
-/** Set the size/dimensions of a trigger at runtime */
+// ============================================================
+//  Utility: Check if this trigger is currently overlapping
+// ============================================================
+export class IsTriggerOverlappingNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`Is Overlapping (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addOutput('result', new ClassicPreset.Output(boolSocket, 'Is Overlapping'));
+  }
+}
+
+// ---- Backwards-compat: keep old classes around so saved graphs still load ----
+
+/** @deprecated Use OnTriggerComponentBeginOverlapNode. Kept for deserialization. */
 export class SetTriggerSizeNode extends ClassicPreset.Node {
   public compName: string;
   public compIndex: number;
@@ -62,7 +121,7 @@ export class SetTriggerSizeNode extends ClassicPreset.Node {
   }
 }
 
-/** Get how many actors are currently overlapping this trigger */
+/** @deprecated Kept for deserialization. */
 export class GetTriggerOverlapCountNode extends ClassicPreset.Node {
   public compName: string;
   public compIndex: number;
@@ -74,19 +133,7 @@ export class GetTriggerOverlapCountNode extends ClassicPreset.Node {
   }
 }
 
-/** Check if this trigger is currently overlapping any actor */
-export class IsTriggerOverlappingNode extends ClassicPreset.Node {
-  public compName: string;
-  public compIndex: number;
-  constructor(compName: string, compIndex: number) {
-    super(`Is Overlapping (${compName})`);
-    this.compName = compName;
-    this.compIndex = compIndex;
-    this.addOutput('result', new ClassicPreset.Output(boolSocket, 'Is Overlapping'));
-  }
-}
-
-/** Get the shape type of this trigger component */
+/** @deprecated Kept for deserialization. */
 export class GetTriggerShapeNode extends ClassicPreset.Node {
   public compName: string;
   public compIndex: number;
@@ -98,19 +145,24 @@ export class GetTriggerShapeNode extends ClassicPreset.Node {
   }
 }
 
-// ---- Register the trigger component rule ----
+// ============================================================
+//  Register the trigger component rule
+//  Shows only the relevant event bindings + essential utilities
+//  in the right-click palette, like UE's component context menu.
+// ============================================================
 
 registerComponentRule({
   componentTypes: ['trigger'],
   getEntries(comp: ActorComponentData, index: number) {
     const n = comp.name;
     return [
+      // ── Event bindings (like UE "Add Event → On Component Begin/End Overlap") ──
+      { label: `On Begin Overlap (${n})`,        factory: () => new OnTriggerComponentBeginOverlapNode(n, index) },
+      { label: `On End Overlap (${n})`,          factory: () => new OnTriggerComponentEndOverlapNode(n, index) },
+      // ── Essential utilities ──
       { label: `Set Trigger Enabled (${n})`,     factory: () => new SetTriggerEnabledNode(n, index) },
       { label: `Is Trigger Enabled (${n})`,      factory: () => new GetTriggerEnabledNode(n, index) },
-      { label: `Set Trigger Size (${n})`,        factory: () => new SetTriggerSizeNode(n, index) },
-      { label: `Get Overlap Count (${n})`,       factory: () => new GetTriggerOverlapCountNode(n, index) },
       { label: `Is Overlapping (${n})`,          factory: () => new IsTriggerOverlappingNode(n, index) },
-      { label: `Get Trigger Shape (${n})`,       factory: () => new GetTriggerShapeNode(n, index) },
     ];
   },
 });

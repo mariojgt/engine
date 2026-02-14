@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
 import type { PhysicsConfig, ActorComponentData } from '../editor/ActorAsset';
-import type { CollisionConfig } from './CollisionTypes';
+import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
@@ -249,6 +249,60 @@ export class Scene {
   //  Apply child components (mesh + trigger) from ActorComponentData[]
   // ------------------------------------------------------------------
 
+  /** Translucent green wireframe material for trigger volumes (UE-style) */
+  private static _triggerWireMat = new THREE.LineBasicMaterial({
+    color: 0x00e676,
+    transparent: true,
+    opacity: 0.6,
+    depthTest: true,
+  });
+
+  /** Semi-transparent fill for trigger volumes so they're easy to spot */
+  private static _triggerFillMat = new THREE.MeshBasicMaterial({
+    color: 0x00e676,
+    transparent: true,
+    opacity: 0.08,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  /** Build a wireframe + translucent fill group for a trigger's collision shape */
+  private _createTriggerHelper(cfg: CollisionConfig): THREE.Group {
+    const group = new THREE.Group();
+    group.userData.__isTriggerHelper = true;
+
+    let geo: THREE.BufferGeometry;
+    switch (cfg.shape) {
+      case 'sphere': {
+        const d = cfg.dimensions as SphereShapeDimensions;
+        geo = new THREE.SphereGeometry(d.radius, 20, 12);
+        break;
+      }
+      case 'capsule': {
+        const d = cfg.dimensions as CapsuleShapeDimensions;
+        geo = new THREE.CapsuleGeometry(d.radius, d.height, 8, 16);
+        break;
+      }
+      case 'box':
+      default: {
+        const d = cfg.dimensions as BoxShapeDimensions;
+        geo = new THREE.BoxGeometry(d.width, d.height, d.depth);
+        break;
+      }
+    }
+
+    // Wireframe edges
+    const edges = new THREE.EdgesGeometry(geo);
+    const wire = new THREE.LineSegments(edges, Scene._triggerWireMat);
+    group.add(wire);
+
+    // Translucent fill
+    const fill = new THREE.Mesh(geo, Scene._triggerFillMat);
+    group.add(fill);
+
+    return group;
+  }
+
   private _applyComponents(go: GameObject, components: ActorComponentData[]): void {
     const toRad = (d: number) => (d * Math.PI) / 180;
     const triggers: Array<{ config: CollisionConfig; name: string; index: number; offset: { x: number; y: number; z: number } }> = [];
@@ -266,6 +320,12 @@ export class Scene {
           index: triggerIdx++,
           offset: { x: comp.offset.x, y: comp.offset.y, z: comp.offset.z },
         });
+
+        // Create a visible wireframe helper so the trigger is visible in the viewport
+        const helper = this._createTriggerHelper(cfg);
+        helper.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+        helper.userData.__triggerCompName = comp.name;
+        go.mesh.add(helper);
       } else {
         // Mesh component — add as child mesh
         const geo = geometries[comp.meshType]();
@@ -282,5 +342,16 @@ export class Scene {
 
     // Store trigger data on the GO so CollisionSystem.createSensors() can read it
     (go as any)._triggerComponents = triggers;
+  }
+
+  /** Hide or show trigger wireframe helpers (e.g., hide during Play for cleaner view) */
+  setTriggerHelpersVisible(visible: boolean): void {
+    for (const go of this.gameObjects) {
+      go.mesh.traverse((child) => {
+        if (child.userData.__isTriggerHelper) {
+          child.visible = visible;
+        }
+      });
+    }
   }
 }
