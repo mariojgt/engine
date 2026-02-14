@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
-import type { PhysicsConfig } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorComponentData } from '../editor/ActorAsset';
+import type { CollisionConfig } from './CollisionTypes';
+import { defaultCollisionConfig } from './CollisionTypes';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -103,7 +105,7 @@ export class Scene {
     meshType: MeshType,
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     position?: { x: number; y: number; z: number },
-    components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
+    components?: ActorComponentData[],
     compiledCode?: string,
     physicsConfig?: PhysicsConfig,
   ): GameObject {
@@ -130,20 +132,9 @@ export class Scene {
       go.mesh.position.set(position.x, position.y, position.z);
     }
 
-    // Add child component meshes as children of the root mesh
+    // Add child component meshes & collect trigger component data
     if (components) {
-      const toRad = (d: number) => (d * Math.PI) / 180;
-      for (const comp of components) {
-        const geo = geometries[comp.meshType]();
-        const mat = defaultMaterial.clone();
-        const child = new THREE.Mesh(geo, mat);
-        child.castShadow = true;
-        child.receiveShadow = true;
-        child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
-        child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
-        child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
-        go.mesh.add(child);
-      }
+      this._applyComponents(go, components);
     }
 
     // Apply compiled blueprint code so the script runs at play time
@@ -166,11 +157,9 @@ export class Scene {
     meshType: MeshType,
     blueprintData: import('../editor/BlueprintData').BlueprintData,
     compiledCode?: string,
-    components?: Array<{ meshType: MeshType; offset: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>,
+    components?: ActorComponentData[],
     physicsConfig?: PhysicsConfig,
   ): void {
-    const toRad = (d: number) => (d * Math.PI) / 180;
-
     for (const go of this.gameObjects) {
       if (go.actorAssetId !== assetId) continue;
       go.name = assetName;
@@ -180,7 +169,7 @@ export class Scene {
       go.mesh.geometry.dispose();
       go.mesh.geometry = newGeo;
 
-      // --- Rebuild child component meshes ---
+      // --- Rebuild child component meshes & trigger data ---
       // Remove all existing children
       while (go.mesh.children.length > 0) {
         const child = go.mesh.children[0];
@@ -189,17 +178,9 @@ export class Scene {
       }
       // Add fresh children from the components list
       if (components) {
-        for (const comp of components) {
-          const geo = geometries[comp.meshType]();
-          const mat = defaultMaterial.clone();
-          const child = new THREE.Mesh(geo, mat);
-          child.castShadow = true;
-          child.receiveShadow = true;
-          child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
-          child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
-          child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
-          go.mesh.add(child);
-        }
+        this._applyComponents(go, components);
+      } else {
+        (go as any)._triggerComponents = [];
       }
 
       // --- Re-clone the blueprint data ---
@@ -262,5 +243,44 @@ export class Scene {
 
   private _emitChanged(): void {
     for (const cb of this._onChanged) cb();
+  }
+
+  // ------------------------------------------------------------------
+  //  Apply child components (mesh + trigger) from ActorComponentData[]
+  // ------------------------------------------------------------------
+
+  private _applyComponents(go: GameObject, components: ActorComponentData[]): void {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const triggers: Array<{ config: CollisionConfig; name: string; index: number; offset: { x: number; y: number; z: number } }> = [];
+    let triggerIdx = 0;
+
+    for (const comp of components) {
+      if (comp.type === 'trigger') {
+        // Collect trigger component data for the collision system
+        const cfg = comp.collision
+          ? structuredClone(comp.collision)
+          : defaultCollisionConfig();
+        triggers.push({
+          config: cfg,
+          name: comp.name,
+          index: triggerIdx++,
+          offset: { x: comp.offset.x, y: comp.offset.y, z: comp.offset.z },
+        });
+      } else {
+        // Mesh component — add as child mesh
+        const geo = geometries[comp.meshType]();
+        const mat = defaultMaterial.clone();
+        const child = new THREE.Mesh(geo, mat);
+        child.castShadow = true;
+        child.receiveShadow = true;
+        child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+        child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+        child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+        go.mesh.add(child);
+      }
+    }
+
+    // Store trigger data on the GO so CollisionSystem.createSensors() can read it
+    (go as any)._triggerComponents = triggers;
   }
 }

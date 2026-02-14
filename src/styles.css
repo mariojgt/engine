@@ -257,6 +257,21 @@ html, body, #app {
   color: var(--text-bright);
 }
 
+.context-menu-header {
+  padding: 4px 14px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+.context-menu-header:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
 /* =========================================
    Properties Panel
    ========================================= */

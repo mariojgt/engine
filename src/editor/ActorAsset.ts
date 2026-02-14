@@ -7,6 +7,8 @@
 import { BlueprintData, type VarType, type BlueprintVariable, type BlueprintFunction,
   type BlueprintMacro, type BlueprintCustomEvent, type BlueprintStruct,
   type BlueprintStructField, type BlueprintGraphData } from './BlueprintData';
+import type { CollisionConfig } from '../engine/CollisionTypes';
+import { defaultCollisionConfig } from '../engine/CollisionTypes';
 
 // ---- Physics configuration (UE-style per-component) ----
 
@@ -73,7 +75,7 @@ export function defaultPhysicsConfig(): PhysicsConfig {
 export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
-  type: 'mesh';
+  type: 'mesh' | 'trigger';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -85,6 +87,8 @@ export interface ActorComponentData {
   scale: { x: number; y: number; z: number };
   /** Per-component physics configuration */
   physics?: PhysicsConfig;
+  /** Collision / trigger configuration (for type='trigger') */
+  collision?: CollisionConfig;
 }
 
 export interface ActorAssetJSON {
@@ -198,6 +202,7 @@ export class ActorAsset {
     asset.components = (json.components || []).map(c => ({
       ...c,
       physics: c.physics ? { ...defaultPhysicsConfig(), ...c.physics } : undefined,
+      collision: c.collision ? { ...defaultCollisionConfig(), ...c.collision } : undefined,
     }));
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();

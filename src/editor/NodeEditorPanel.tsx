@@ -104,6 +104,22 @@ import {
   SetComponentScaleNode,
   SetComponentVisibilityNode,
   getComponentNodeEntries,
+  // Trigger Component Nodes
+  SetTriggerEnabledNode,
+  GetTriggerEnabledNode,
+  SetTriggerSizeNode,
+  GetTriggerOverlapCountNode,
+  IsTriggerOverlappingNode,
+  GetTriggerShapeNode,
+  // Collision / Trigger Event Nodes
+  OnTriggerBeginOverlapNode,
+  OnTriggerEndOverlapNode,
+  OnActorBeginOverlapNode,
+  OnActorEndOverlapNode,
+  OnCollisionHitNode,
+  IsOverlappingActorNode,
+  GetOverlapCountNode,
+  SetCollisionEnabledNode,
   socketColor,
   socketsCompatible,
   NODE_CATEGORY_COLORS,
@@ -151,6 +167,16 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
       node instanceof OnComponentSleepNode) return 'Events';
+  // Collision / trigger event & query nodes
+  if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode ||
+      node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode ||
+      node instanceof OnCollisionHitNode) return 'Collision';
+  if (node instanceof IsOverlappingActorNode || node instanceof GetOverlapCountNode ||
+      node instanceof SetCollisionEnabledNode) return 'Collision';
+  // Trigger component nodes
+  if (node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
+      node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
+      node instanceof IsTriggerOverlappingNode || node instanceof GetTriggerShapeNode) return 'Components';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -324,6 +350,35 @@ function resolveValue(
     return `(__inputKeys[${JSON.stringify(kc)}] || false)`;
   }
 
+  // Collision / Trigger event output data (variables set inside the callback closure)
+  if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode) {
+    if (outputKey === 'otherActorName') return '__otherActorName';
+    if (outputKey === 'otherActorId') return '__otherActorId';
+    if (outputKey === 'selfComponent') return '__selfComponent';
+    return '0';
+  }
+  if (node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode) {
+    if (outputKey === 'otherActorName') return '__otherActorName';
+    if (outputKey === 'otherActorId') return '__otherActorId';
+    return '0';
+  }
+  if (node instanceof OnCollisionHitNode) {
+    if (outputKey === 'otherActorName') return '__otherActorName';
+    if (outputKey === 'otherActorId') return '__otherActorId';
+    if (outputKey === 'selfComponent') return '__selfComponent';
+    if (outputKey === 'impactX') return '__impactX';
+    if (outputKey === 'impactY') return '__impactY';
+    if (outputKey === 'impactZ') return '__impactZ';
+    if (outputKey === 'normalX') return '__normalX';
+    if (outputKey === 'normalY') return '__normalY';
+    if (outputKey === 'normalZ') return '__normalZ';
+    if (outputKey === 'velocityX') return '__velX';
+    if (outputKey === 'velocityY') return '__velY';
+    if (outputKey === 'velocityZ') return '__velZ';
+    if (outputKey === 'impulse') return '__impulse';
+    return '0';
+  }
+
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
 
   // Component getter nodes
@@ -344,6 +399,29 @@ function resolveValue(
       ? 'gameObject.mesh'
       : `gameObject.mesh.children[${(node as GetComponentScaleNode).compIndex}]`;
     return `${ref}.scale.${outputKey}`;
+  }
+
+  // Trigger component getter nodes
+  if (node instanceof GetTriggerEnabledNode) {
+    return `(((gameObject._triggerComponents || [])[${(node as GetTriggerEnabledNode).compIndex}] || {}).config || {}).enabled ? 1 : 0`;
+  }
+  if (node instanceof GetTriggerOverlapCountNode) {
+    return `(engine.physics.collision.getOverlappingCount(gameObject.id))`;
+  }
+  if (node instanceof IsTriggerOverlappingNode) {
+    const idS = inputSrc.get(`${nodeId}.actorId`);
+    return `(engine.physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
+  }
+  if (node instanceof GetTriggerShapeNode) {
+    return `(((gameObject._triggerComponents || [])[${(node as GetTriggerShapeNode).compIndex}] || {}).config || {}).shape || 'box'`;
+  }
+  // Collision query nodes
+  if (node instanceof IsOverlappingActorNode) {
+    const idS = inputSrc.get(`${nodeId}.actorId`);
+    return `(engine.physics.collision.isOverlapping(gameObject.id, ${idS ? rv(idS.nid, idS.ok) : '0'}) ? 1 : 0)`;
+  }
+  if (node instanceof GetOverlapCountNode) {
+    return `(engine.physics.collision.getOverlappingCount(gameObject.id))`;
   }
 
   switch (node.label) {
@@ -525,6 +603,29 @@ function genAction(
       : `gameObject.mesh.children[${(node as SetComponentVisibilityNode).compIndex}]`;
     const vS = inputSrc.get(`${nodeId}.visible`);
     lines.push(`${ref}.visible = ${vS ? rv(vS.nid, vS.ok) : 'true'};`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Trigger component setter nodes
+  if (node instanceof SetTriggerEnabledNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _tc = (gameObject._triggerComponents || [])[${(node as SetTriggerEnabledNode).compIndex}]; if (_tc) _tc.config.enabled = ${eS ? rv(eS.nid, eS.ok) : 'true'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetTriggerSizeNode) {
+    const ci = (node as SetTriggerSizeNode).compIndex;
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const zS = inputSrc.get(`${nodeId}.z`);
+    lines.push(`{ const _tc = (gameObject._triggerComponents || [])[${ci}]; if (_tc) { const d = _tc.config.dimensions; if (d.halfExtentX !== undefined) { d.halfExtentX = ${xS ? rv(xS.nid, xS.ok) : '1'}; d.halfExtentY = ${yS ? rv(yS.nid, yS.ok) : '1'}; d.halfExtentZ = ${zS ? rv(zS.nid, zS.ok) : '1'}; } else if (d.radius !== undefined) { d.radius = ${xS ? rv(xS.nid, xS.ok) : '1'}; } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCollisionEnabledNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _tcs = gameObject._triggerComponents || []; for (const _tc of _tcs) _tc.config.enabled = ${eS ? rv(eS.nid, eS.ok) : 'true'}; }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -928,6 +1029,50 @@ function generateFullCode(
 
     // Cleanup in onDestroy
     onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
+  }
+
+  // ── Collision / Trigger event nodes ─────────────────────────
+  const triggerBeginNodes = nodes.filter(n => n instanceof OnTriggerBeginOverlapNode);
+  const triggerEndNodes = nodes.filter(n => n instanceof OnTriggerEndOverlapNode);
+  const actorBeginNodes = nodes.filter(n => n instanceof OnActorBeginOverlapNode);
+  const actorEndNodes = nodes.filter(n => n instanceof OnActorEndOverlapNode);
+  const collisionHitNodes = nodes.filter(n => n instanceof OnCollisionHitNode);
+  const hasCollisionEvents = triggerBeginNodes.length > 0 || triggerEndNodes.length > 0 ||
+    actorBeginNodes.length > 0 || actorEndNodes.length > 0 || collisionHitNodes.length > 0;
+
+  if (hasCollisionEvents) {
+    beginPlayCode.push('var __collCb = engine.physics.collision.registerCallbacks(gameObject.id);');
+
+    for (const n of triggerBeginNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of triggerEndNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of actorBeginNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of actorEndNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of collisionHitNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
+      }
+    }
   }
 
   const sections: string[] = [];
@@ -2029,6 +2174,22 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof StringToBoolNode) return 'StringToBoolNode';
   if (node instanceof NumberToStringNode) return 'NumberToStringNode';
   if (node instanceof StringToNumberNode) return 'StringToNumberNode';
+  // Collision / Trigger event nodes
+  if (node instanceof OnTriggerBeginOverlapNode) return 'OnTriggerBeginOverlapNode';
+  if (node instanceof OnTriggerEndOverlapNode) return 'OnTriggerEndOverlapNode';
+  if (node instanceof OnActorBeginOverlapNode) return 'OnActorBeginOverlapNode';
+  if (node instanceof OnActorEndOverlapNode) return 'OnActorEndOverlapNode';
+  if (node instanceof OnCollisionHitNode) return 'OnCollisionHitNode';
+  if (node instanceof IsOverlappingActorNode) return 'IsOverlappingActorNode';
+  if (node instanceof GetOverlapCountNode) return 'GetOverlapCountNode';
+  if (node instanceof SetCollisionEnabledNode) return 'SetCollisionEnabledNode';
+  // Trigger component nodes
+  if (node instanceof SetTriggerEnabledNode) return 'SetTriggerEnabledNode';
+  if (node instanceof GetTriggerEnabledNode) return 'GetTriggerEnabledNode';
+  if (node instanceof SetTriggerSizeNode) return 'SetTriggerSizeNode';
+  if (node instanceof GetTriggerOverlapCountNode) return 'GetTriggerOverlapCountNode';
+  if (node instanceof IsTriggerOverlappingNode) return 'IsTriggerOverlappingNode';
+  if (node instanceof GetTriggerShapeNode) return 'GetTriggerShapeNode';
 
   return 'Unknown';
 }
@@ -2094,6 +2255,13 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     node instanceof GetComponentRotationNode || node instanceof SetComponentRotationNode ||
     node instanceof GetComponentScaleNode || node instanceof SetComponentScaleNode ||
     node instanceof SetComponentVisibilityNode
+  ) {
+    data.compName = (node as any).compName;
+    data.compIndex = (node as any).compIndex;
+  } else if (
+    node instanceof SetTriggerEnabledNode || node instanceof GetTriggerEnabledNode ||
+    node instanceof SetTriggerSizeNode || node instanceof GetTriggerOverlapCountNode ||
+    node instanceof IsTriggerOverlappingNode || node instanceof GetTriggerShapeNode
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
@@ -2296,6 +2464,24 @@ function createNodeFromData(
     case 'SetComponentScaleNode':     return new SetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
     case 'SetComponentVisibilityNode': return new SetComponentVisibilityNode(d.compName || 'Root', d.compIndex ?? -1);
 
+    // Trigger component nodes
+    case 'SetTriggerEnabledNode':       return new SetTriggerEnabledNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'GetTriggerEnabledNode':       return new GetTriggerEnabledNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'SetTriggerSizeNode':          return new SetTriggerSizeNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'GetTriggerOverlapCountNode':  return new GetTriggerOverlapCountNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'IsTriggerOverlappingNode':    return new IsTriggerOverlappingNode(d.compName || 'Trigger', d.compIndex ?? 0);
+    case 'GetTriggerShapeNode':         return new GetTriggerShapeNode(d.compName || 'Trigger', d.compIndex ?? 0);
+
+    // Collision / Trigger event nodes
+    case 'OnTriggerBeginOverlapNode':   return new OnTriggerBeginOverlapNode();
+    case 'OnTriggerEndOverlapNode':     return new OnTriggerEndOverlapNode();
+    case 'OnActorBeginOverlapNode':     return new OnActorBeginOverlapNode();
+    case 'OnActorEndOverlapNode':       return new OnActorEndOverlapNode();
+    case 'OnCollisionHitNode':          return new OnCollisionHitNode();
+    case 'IsOverlappingActorNode':      return new IsOverlappingActorNode();
+    case 'GetOverlapCountNode':         return new GetOverlapCountNode();
+    case 'SetCollisionEnabledNode':     return new SetCollisionEnabledNode();
+
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -2430,6 +2616,36 @@ async function createGraphEditor(
               React.createElement('option', { value: 1, style: { color: '#4caf50' } }, 'True'),
               React.createElement('option', { value: 0, style: { color: '#e74c3c' } }, 'False'),
             );
+          };
+        }
+        if (data.payload instanceof ClassicPreset.InputControl) {
+          const ctrl = data.payload as ClassicPreset.InputControl<'number' | 'text'>;
+          return (props: any) => {
+            const [val, setVal] = React.useState<string | number>(ctrl.value ?? (ctrl.type === 'number' ? 0 : ''));
+            return React.createElement('input', {
+              type: ctrl.type === 'number' ? 'number' : 'text',
+              value: val,
+              onChange: (e: any) => {
+                const raw = e.target.value;
+                const parsed = ctrl.type === 'number' ? (raw === '' ? 0 : Number(raw)) : raw;
+                ctrl.setValue(parsed as any);
+                setVal(raw);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              onDoubleClick: (e: any) => e.stopPropagation(),
+              onKeyDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#e0e0e0',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                outline: 'none',
+                boxSizing: 'border-box' as const,
+              },
+            });
           };
         }
         return null;

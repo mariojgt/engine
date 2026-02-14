@@ -124,5 +124,25 @@ export {
   SetComponentScaleNode,
   SetComponentVisibilityNode,
 } from './components/MeshComponentNodes';
+export {
+  SetTriggerEnabledNode,
+  GetTriggerEnabledNode,
+  SetTriggerSizeNode,
+  GetTriggerOverlapCountNode,
+  IsTriggerOverlappingNode,
+  GetTriggerShapeNode,
+} from './components/TriggerComponentNodes';
 export { getComponentNodeEntries, registerComponentRule } from './components/ComponentNodeRules';
 export type { ComponentNodeEntry, ComponentRule } from './components/ComponentNodeRules';
+
+// ── Collision / Trigger Events ──────────────────────────────
+export {
+  OnTriggerBeginOverlapNode,
+  OnTriggerEndOverlapNode,
+  OnActorBeginOverlapNode,
+  OnActorEndOverlapNode,
+  OnCollisionHitNode,
+  IsOverlappingActorNode,
+  GetOverlapCountNode,
+  SetCollisionEnabledNode,
+} from './collision/CollisionEventNodes';

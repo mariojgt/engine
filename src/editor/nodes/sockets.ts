@@ -58,6 +58,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Custom Events': '#B71C1C',
   'Input':         '#880E4F',
   'Structs':       '#00695C',
+  'Collision':     '#C62828',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -77,6 +78,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Custom Events': return '🎯';
     case 'Input':         return '🎮';
     case 'Structs':       return '🔷';
+    case 'Collision':     return '💥';
     default:              return '●';
   }
 }

@@ -4,11 +4,16 @@ import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
 import type { PhysicsConfig } from '../editor/ActorAsset';
 import { defaultPhysicsConfig } from '../editor/ActorAsset';
+import { CollisionSystem } from './CollisionSystem';
 
 export class PhysicsWorld {
   public world: RAPIER.World | null = null;
   public isPlaying: boolean = false;
+  public collision: CollisionSystem = new CollisionSystem();
   private _initialized = false;
+
+  /** Map Rapier collider handle → GameObject id (for contact/intersection queries) */
+  private _colliderToGoId = new Map<number, number>();
 
   async init(): Promise<void> {
     await RAPIER.init();
@@ -68,6 +73,9 @@ export class PhysicsWorld {
     go.collider = collider;
     go.hasPhysics = true;
 
+    // Register in collider→gameObject lookup
+    this._colliderToGoId.set(collider.handle, go.id);
+
     // Compound colliders for child component meshes
     for (const child of go.mesh.children) {
       if (!(child as any).isMesh) continue;
@@ -81,7 +89,8 @@ export class PhysicsWorld {
       childColDesc.setFriction(cfg.friction);
       childColDesc.setRestitution(cfg.restitution);
       if (!cfg.collisionEnabled) childColDesc.setSensor(true);
-      this.world.createCollider(childColDesc, rigidBody);
+      const childCol = this.world.createCollider(childColDesc, rigidBody);
+      this._colliderToGoId.set(childCol.handle, go.id);
     }
   }
 
@@ -117,6 +126,9 @@ export class PhysicsWorld {
   step(scene: Scene): void {
     if (!this.world || !this.isPlaying) return;
 
+    // Sync trigger sensor positions before the physics step
+    this.collision.syncSensorPositions(scene, this);
+
     this.world.step();
 
     // Sync physics → Three.js
@@ -128,6 +140,9 @@ export class PhysicsWorld {
         go.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
       }
     }
+
+    // Process collision / overlap events after step
+    this.collision.processEvents(scene, this);
   }
 
   play(scene: Scene): void {
@@ -141,17 +156,26 @@ export class PhysicsWorld {
       }
     }
 
+    // Create sensor colliders for all trigger components
+    this.collision.createSensors(scene, this);
+
     this.isPlaying = true;
   }
 
   stop(scene: Scene): void {
     this.isPlaying = false;
 
+    // Reset collision system
+    this.collision.reset();
+    this._colliderToGoId.clear();
+
     // Clear all physics body references from game objects
     for (const go of scene.gameObjects) {
       go.rigidBody = null;
       go.collider = null;
       go.hasPhysics = false;
+      // Clean up trigger body references
+      (go as any)._triggerBodies = undefined;
     }
 
     // Recreate a fresh physics world
