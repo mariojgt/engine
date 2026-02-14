@@ -2573,7 +2573,9 @@ function createNodeFromData(
     case 'BoolToStringNode':    return new BoolToStringNode();
     case 'StringToBoolNode':    return new StringToBoolNode();
     case 'NumberToStringNode':  return new NumberToStringNode();
-    casReroute
+    case 'StringToNumberNode':  return new StringToNumberNode();
+
+    // Reroute
     case 'RerouteNode': {
       const sockName = d.socketName || null;
       let sock: ClassicPreset.Socket | undefined;
@@ -2944,12 +2946,11 @@ async function createGraphEditor(
               // Remove old connection
               await editor.removeConnection(conn.id);
 
-              // Wire: source → reroute → target
               await editor.addConnection(
-                new ClassicPreset.Connection(srcN, conn.sourceOutput, rerouteNode, 'in'),
+                new ClassicPreset.Connection(srcN, conn.sourceOutput, rerouteNode, 'in') as any,
               );
               await editor.addConnection(
-                new ClassicPreset.Connection(rerouteNode, 'out', tgtN, conn.targetInput),
+                new ClassicPreset.Connection(rerouteNode, 'out', tgtN, conn.targetInput) as any,
               );
             } catch (err) {
               console.error('[Feather] Failed to insert reroute:', err);
@@ -3019,13 +3020,10 @@ async function createGraphEditor(
                     y: (sy + ty) / 2,
                   });
 
-                  // Wire: source → conversion → target
-                  await editor.addConnection(
-                    new ClassicPreset.Connection(srcNode, data.sourceOutput, convNode, 'in'),
-                  );
-                  await editor.addConnection(
-                    new ClassicPreset.Connection(convNode, 'out', tgtNode, data.targetInput),
-                  );
+                  const ca = new ClassicPreset.Connection(srcNode, data.sourceOutput, convNode, 'in');
+                  await editor.addConnection(ca as any);
+                  const cb = new ClassicPreset.Connection(convNode, 'out', tgtNode, data.targetInput);
+                  await editor.addConnection(cb as any);
 
                   if (conv.unsafe) {
                     console.warn(
