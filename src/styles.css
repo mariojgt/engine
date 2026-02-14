@@ -498,7 +498,9 @@ html, body, #app {
 }
 
 /* ── Rete classic preset Node body ── */
+/* styled-components renders [data-testid="node"], not .node class */
 .fe-node .node,
+.fe-node [data-testid="node"],
 .rete-node {
   background: linear-gradient(180deg, #2e2e50 0%, #262642 100%) !important;
   border: 1.5px solid #4a4a70 !important;
@@ -510,6 +512,7 @@ html, body, #app {
 }
 
 .fe-node .node .title,
+.fe-node [data-testid="node"] .title,
 .rete-node .title {
   background: rgba(255,255,255,0.06) !important;
   color: #e8e8f0 !important;
@@ -521,13 +524,21 @@ html, body, #app {
   letter-spacing: 0.3px;
 }
 
+/* ── Hover effect on nodes (placed BEFORE selection so selection wins) ── */
+.fe-node:hover .node,
+.fe-node:hover [data-testid="node"],
+.rete-node:hover {
+  border-color: #5a5a80 !important;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.7), 0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08) !important;
+}
+
 /* ── Selected node — neon yellow UE-style ── */
-/* Node body glow */
-.node-editor-container [data-testid="node"].selected .fe-node .node,
-.node-editor-container [data-testid="node"].selected .rete-node,
-.fe-node .node.selected,
+/* Node body glow — placed AFTER hover so selection always wins with same specificity */
 .fe-selected .fe-node .node,
-.fe-selected .rete-node {
+.fe-selected .fe-node [data-testid="node"],
+.fe-selected .rete-node,
+.fe-node .node.selected,
+.fe-node [data-testid="node"].selected {
   border-color: #FFE600 !important;
   box-shadow: 0 0 30px rgba(255,230,0,0.6), 0 0 8px rgba(255,230,0,0.35), 0 4px 16px rgba(0,0,0,0.45) !important;
 }
@@ -537,20 +548,13 @@ html, body, #app {
   outline-offset: 3px;
   border-radius: 8px;
   filter: drop-shadow(0 0 14px rgba(255, 230, 0, 0.7)) drop-shadow(0 0 5px rgba(255, 230, 0, 0.5));
+  z-index: 5;
 }
 /* Category strip highlight */
-.node-editor-container [data-testid="node"].selected .fe-node-cat-strip,
 .fe-selected .fe-node-cat-strip {
   box-shadow: inset 0 0 0 2px #FFE600;
   border-color: #FFE600 !important;
   filter: brightness(1.3);
-}
-
-/* ── Hover effect on nodes ── */
-.fe-node:hover .node,
-.rete-node:hover {
-  border-color: #5a5a80 !important;
-  box-shadow: 0 6px 28px rgba(0,0,0,0.7), 0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08) !important;
 }
 
 /* ── Socket styling (type-coloured pins) ── */

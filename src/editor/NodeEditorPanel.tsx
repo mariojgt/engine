@@ -3603,7 +3603,11 @@ async function createGraphEditor(
         // Apply initial selection state on BOTH elements
         const isSel = selectedNodeIds.has(nodeObj.id);
         outerEl.classList.toggle('fe-selected', isSel);
-        if (innerEl) innerEl.classList.toggle('fe-selected', isSel);
+        outerEl.setAttribute('data-selected', isSel ? 'true' : 'false');
+        if (innerEl) {
+          innerEl.classList.toggle('fe-selected', isSel);
+          innerEl.classList.toggle('selected', isSel);
+        }
       }
     }
     return ctx;
@@ -4118,26 +4122,27 @@ async function createGraphEditor(
       }
     }
     syncSelectionVisuals();
+    requestAnimationFrame(() => syncSelectionVisuals());
   });
-
-  // ── Visual selection sync: apply/remove .fe-selected class on node elements ──
   function syncSelectionVisuals() {
-    // We need to apply .fe-selected on BOTH:
-    // 1. The outer wrapper div (NodeView.element) — has data-node-id from rendered pipe
-    // 2. The inner [data-testid="node"] React element — for CSS selectors to match
-    const outerEls = container.querySelectorAll('[data-node-id]');
-    outerEls.forEach((outerEl) => {
-      const nodeId = outerEl.getAttribute('data-node-id');
-      if (!nodeId) return;
-      const isSel = selectedNodeIds.has(nodeId);
-      (outerEl as HTMLElement).classList.toggle('fe-selected', isSel);
-      // Find the inner [data-testid="node"] inside this wrapper
+    // Apply .fe-selected on the outer wrapper (NodeView.element that has data-node-id).
+    // Use the area's nodeViews to get ALL node outer elements reliably.
+    // Also stamp data-selected attribute so CSS attribute selectors work even if
+    // styled-components doesn't generate a .node class.
+    for (const node of editor.getNodes()) {
+      const view = area.nodeViews.get(node.id);
+      if (!view) continue;
+      const outerEl = view.element as HTMLElement;
+      const isSel = selectedNodeIds.has(node.id);
+      outerEl.classList.toggle('fe-selected', isSel);
+      outerEl.setAttribute('data-selected', isSel ? 'true' : 'false');
+      // Also mark the inner [data-testid="node"] element (styled-components node body)
       const innerEl = outerEl.querySelector('[data-testid="node"]') as HTMLElement | null;
       if (innerEl) {
         innerEl.classList.toggle('fe-selected', isSel);
         innerEl.classList.toggle('selected', isSel);
       }
-    });
+    }
   }
 
   // ── Prevent wheel events on UI overlays from zooming the canvas ──
@@ -4407,6 +4412,8 @@ async function createGraphEditor(
         if (!isMulti) selectedNodeIds.clear();
         selectedNodeIds.add(nodeId);
         syncSelectionVisuals();
+        // Re-sync after a frame in case Rete re-renders the picked node (z-order change)
+        requestAnimationFrame(() => syncSelectionVisuals());
       }
       return ctx;
     });
