@@ -11,3 +11,4 @@ export { MovementComponent } from './MovementComponent';
 export { CharacterMovementComponent } from './CharacterMovementComponent';
 export { FloatingPawnMovement, defaultFloatingPawnConfig, type FloatingPawnConfig } from './FloatingPawnMovement';
 export { AnimationInstance } from './AnimationInstance';
+export { UIManager, type RuntimeWidgetBlueprint, type RuntimeWidgetNode } from './UIManager';

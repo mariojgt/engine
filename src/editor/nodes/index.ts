@@ -276,3 +276,26 @@ export {
   SetAnimVarNode,
   GetAnimVarNode,
 } from './animation/AnimBPNodes';
+
+// ── UI / Widget Nodes ───────────────────────────────────────
+export {
+  WidgetBPSelectControl,
+  CreateWidgetNode,
+  AddToViewportNode,
+  RemoveFromViewportNode,
+  SetWidgetTextNode,
+  GetWidgetTextNode,
+  SetWidgetVisibilityNode,
+  SetWidgetColorNode,
+  SetWidgetOpacityNode,
+  SetProgressBarPercentNode,
+  GetProgressBarPercentNode,
+  SetSliderValueNode,
+  GetSliderValueNode,
+  SetCheckBoxStateNode,
+  GetCheckBoxStateNode,
+  IsWidgetVisibleNode,
+  PlayWidgetAnimationNode,
+  SetInputModeNode,
+  ShowMouseCursorNode,
+} from './ui/WidgetNodes';

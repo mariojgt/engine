@@ -14,6 +14,7 @@ import type { ActorAssetManager, ActorAssetJSON } from './ActorAsset';
 import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from './StructureAsset';
 import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
+import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import {
   serializeScene,
   deserializeScene,
@@ -73,6 +74,7 @@ const STRUCTURES_DIR = 'Structures';
 const ENUMS_DIR = 'Enums';
 const MESHES_DIR = 'Meshes';
 const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
+const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const DEFAULT_SCENE = 'DefaultScene';
@@ -85,6 +87,7 @@ export class ProjectManager {
   private _structManager: StructureAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
+  private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -123,6 +126,11 @@ export class ProjectManager {
   /** Wire up the AnimBlueprintManager for saving/loading animation blueprints */
   setAnimBPManager(mgr: AnimBlueprintManager): void {
     this._animBPManager = mgr;
+  }
+
+  /** Wire up the WidgetBlueprintManager for saving/loading widget blueprints */
+  setWidgetBPManager(mgr: WidgetBlueprintManager): void {
+    this._widgetBPManager = mgr;
   }
 
   // ============================================================
@@ -253,6 +261,9 @@ export class ProjectManager {
       // Load animation blueprints
       await this._loadAnimBlueprints();
 
+      // Load widget blueprints
+      await this._loadWidgetBlueprints();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -300,6 +311,9 @@ export class ProjectManager {
 
       // Save animation blueprints
       await this._saveAnimBlueprints();
+
+      // Save widget blueprints
+      await this._saveWidgetBlueprints();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -712,6 +726,67 @@ export class ProjectManager {
 
     if (allAnimBPs.length > 0) {
       this._animBPManager.importAll(allAnimBPs);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Widget Blueprints
+  // ============================================================
+
+  private async _saveWidgetBlueprints(): Promise<void> {
+    if (!this._projectPath || !this._widgetBPManager) return;
+    const wbpDir = `${this._projectPath}/${WIDGET_BLUEPRINTS_DIR}`;
+    const widgetBPs = this._widgetBPManager.exportAll();
+    for (const json of widgetBPs) {
+      const safeName = json.widgetBlueprintName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${wbpDir}/${safeName}_${json.widgetBlueprintId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = widgetBPs.map(w => ({
+      id: w.widgetBlueprintId,
+      name: w.widgetBlueprintName,
+      file: `${w.widgetBlueprintName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${w.widgetBlueprintId}.json`,
+    }));
+    await fsWrite(`${wbpDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadWidgetBlueprints(): Promise<void> {
+    if (!this._projectPath || !this._widgetBPManager) return;
+    const wbpDir = `${this._projectPath}/${WIDGET_BLUEPRINTS_DIR}`;
+    if (!(await fsExists(wbpDir))) return;
+
+    const allWidgetBPs: WidgetBlueprintJSON[] = [];
+    const indexPath = `${wbpDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${wbpDir}/${entry.file}`);
+          allWidgetBPs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load widget blueprint ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(wbpDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${wbpDir}/${name}`);
+          allWidgetBPs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load widget blueprint file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allWidgetBPs.length > 0) {
+      this._widgetBPManager.importAll(allWidgetBPs);
     }
   }
 

@@ -9,6 +9,7 @@ import { PlayerControllerManager, PlayerController } from './PlayerController';
 import { AIControllerManager, AIController } from './AIController';
 import type { Controller } from './Controller';
 import type { AnimationInstance } from './AnimationInstance';
+import { UIManager } from './UIManager';
 
 export class Engine {
   public scene: Scene;
@@ -17,6 +18,7 @@ export class Engine {
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
+  public uiManager: UIManager = new UIManager();
 
   /** All controllers created this play session (for central cleanup) */
   private _activeControllers: Controller[] = [];
@@ -57,6 +59,11 @@ export class Engine {
     this._elapsedTime = 0;
     this._playStarted = true;
     const print = (v: any) => this.onPrint(v);
+
+    // ── 0. Initialize UI overlay ──
+    if (canvas) {
+      this.uiManager.init(canvas);
+    }
 
     // ── 1. Create pawn controllers (CharacterController / SpectatorController) ──
     if (canvas) {
@@ -148,14 +155,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
         script.beginPlay(ctx);
       }
     }
     // Fire BeginPlay on controller blueprint scripts
     for (const { go, script } of this._controllerScripts) {
       scriptCount++;
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene };
+      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
       script.beginPlay(ctx);
     }
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
@@ -168,14 +175,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
         script.onDestroy(ctx);
         script.reset();
       }
     }
     // OnDestroy for controller scripts
     for (const { go, script } of this._controllerScripts) {
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
+      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
       script.onDestroy(ctx);
       script.reset();
     }
@@ -193,6 +200,9 @@ export class Engine {
       go.controller = null;
     }
 
+    // Destroy UI overlay
+    this.uiManager.destroy();
+
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
     this._elapsedTime = 0;
@@ -207,13 +217,13 @@ export class Engine {
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
         for (const script of go.scripts) {
-          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
+          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
           script.tick(ctx);
         }
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
-        const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
         script.tick(ctx);
       }
 

@@ -247,11 +247,32 @@ import {
   TryGetPawnOwnerNode,
   SetAnimVarNode,
   GetAnimVarNode,
+  // Widget / UI Nodes
+  WidgetBPSelectControl,
+  CreateWidgetNode,
+  AddToViewportNode,
+  RemoveFromViewportNode,
+  SetWidgetTextNode,
+  GetWidgetTextNode,
+  SetWidgetVisibilityNode,
+  SetWidgetColorNode,
+  SetWidgetOpacityNode,
+  SetProgressBarPercentNode,
+  GetProgressBarPercentNode,
+  SetSliderValueNode,
+  GetSliderValueNode,
+  SetCheckBoxStateNode,
+  GetCheckBoxStateNode,
+  IsWidgetVisibleNode,
+  PlayWidgetAnimationNode,
+  SetInputModeNode,
+  ShowMouseCursorNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
 import type { StructureAssetManager } from './StructureAsset';
+import type { WidgetBlueprintManager } from './WidgetBlueprintData';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
@@ -278,6 +299,17 @@ let _actorAssetMgr: ActorAssetManager | null = null;
 /** Call once at startup to wire actor asset browser data into the node editor */
 export function setActorAssetManager(mgr: ActorAssetManager): void {
   _actorAssetMgr = mgr;
+}
+
+// ============================================================
+//  Module-level reference to WidgetBlueprintManager
+//  (set once at startup so Create Widget picker can list widgets)
+// ============================================================
+let _widgetBPMgr: WidgetBlueprintManager | null = null;
+
+/** Call once at startup to wire widget blueprint data into the node editor */
+export function setWidgetBPManager(mgr: WidgetBlueprintManager): void {
+  _widgetBPMgr = mgr;
 }
 
 // ============================================================
@@ -341,6 +373,16 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof AnimUpdateEventNode) return 'Events';
   if (node instanceof TryGetPawnOwnerNode || node instanceof SetAnimVarNode ||
       node instanceof GetAnimVarNode) return 'Animation';
+  // Widget / UI nodes
+  if (node instanceof CreateWidgetNode || node instanceof AddToViewportNode ||
+      node instanceof RemoveFromViewportNode || node instanceof SetWidgetTextNode ||
+      node instanceof GetWidgetTextNode || node instanceof SetWidgetVisibilityNode ||
+      node instanceof SetWidgetColorNode || node instanceof SetWidgetOpacityNode ||
+      node instanceof SetProgressBarPercentNode || node instanceof GetProgressBarPercentNode ||
+      node instanceof SetSliderValueNode || node instanceof GetSliderValueNode ||
+      node instanceof SetCheckBoxStateNode || node instanceof GetCheckBoxStateNode ||
+      node instanceof IsWidgetVisibleNode || node instanceof PlayWidgetAnimationNode ||
+      node instanceof SetInputModeNode || node instanceof ShowMouseCursorNode) return 'UI';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -821,6 +863,13 @@ function resolveValue(
     if (outputKey === 'dt') return 'deltaTime';
     return 'null';
   }
+  // Create Widget node — the 'widget' output resolves to the temp variable set in genAction
+  if (node instanceof CreateWidgetNode) {
+    if (outputKey === 'widget') {
+      return `__wh_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    }
+    return '""';
+  }
   if (node instanceof PureCastNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
     const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
@@ -964,6 +1013,47 @@ function resolveValue(
     case 'String \u2192 Color': {
       const s = inputSrc.get(`${nodeId}.in`);
       return s ? rv(s.nid, s.ok) : '"#ffffff"';
+    }
+
+    // ── Widget / UI getters ───────────────────────────────────
+    case 'Get Widget Text': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
+      return `(__uiManager ? __uiManager.getText(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : '')`;
+    }
+    case 'Get Progress Bar Percent': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
+      return `(__uiManager ? __uiManager.getProgressBarPercent(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : 0)`;
+    }
+    case 'Get Slider Value': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
+      return `(__uiManager ? __uiManager.getSliderValue(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : 0)`;
+    }
+    case 'Get CheckBox State': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
+      return `(__uiManager ? __uiManager.getCheckBoxState(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : false)`;
+    }
+    case 'Is Widget Visible': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
+      return `(__uiManager ? __uiManager.isVisible(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : false)`;
+    }
+    case 'Create Widget': {
+      const wn = node as CreateWidgetNode;
+      return `(__uiManager ? __uiManager.createWidget(${JSON.stringify(wn.widgetBPId || '')}) : '')`;
     }
 
     default: return '0';
@@ -1696,6 +1786,138 @@ function genAction(
       lines.push(`setTimeout(function() {`);
       lines.push(...completedLines.map(l => '  ' + l));
       lines.push(`}, (${duration}) * 1000);`);
+      break;
+    }
+
+    // ── Widget / UI action nodes ─────────────────────────────
+    case 'Create Widget': {
+      const wn = node as CreateWidgetNode;
+      const bpId = JSON.stringify(wn.widgetBPId || '');
+      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}) : '';`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add to Viewport': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
+      lines.push(`if (__uiManager) __uiManager.addToViewport(${widgetHandle});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove from Viewport': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
+      lines.push(`if (__uiManager) __uiManager.removeFromViewport(${widgetHandle});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Widget Text': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const tS = inputSrc.get(`${nodeId}.text`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const tCtrl = node.controls['fallbackText'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const text = tS ? rv(tS.nid, tS.ok) : JSON.stringify(String(tCtrl?.value ?? 'Hello'));
+      lines.push(`if (__uiManager) __uiManager.setText(${wh}, ${wName}, ${text});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Widget Visibility': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const vS = inputSrc.get(`${nodeId}.visible`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const vis = vS ? rv(vS.nid, vS.ok) : 'true';
+      lines.push(`if (__uiManager) __uiManager.setVisibility(${wh}, ${wName}, ${vis});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Widget Color': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const cS = inputSrc.get(`${nodeId}.color`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const color = cS ? rv(cS.nid, cS.ok) : '"#ffffff"';
+      lines.push(`if (__uiManager) __uiManager.setColor(${wh}, ${wName}, ${color});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Widget Opacity': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const oS = inputSrc.get(`${nodeId}.opacity`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const opacity = oS ? rv(oS.nid, oS.ok) : '1';
+      lines.push(`if (__uiManager) __uiManager.setOpacity(${wh}, ${wName}, ${opacity});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Progress Bar Percent': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const pS = inputSrc.get(`${nodeId}.percent`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const pct = pS ? rv(pS.nid, pS.ok) : '0';
+      lines.push(`if (__uiManager) __uiManager.setProgressBarPercent(${wh}, ${wName}, ${pct});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Slider Value': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const vS = inputSrc.get(`${nodeId}.value`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const val = vS ? rv(vS.nid, vS.ok) : '0';
+      lines.push(`if (__uiManager) __uiManager.setSliderValue(${wh}, ${wName}, ${val});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set CheckBox State': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const cS = inputSrc.get(`${nodeId}.checked`);
+      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const checked = cS ? rv(cS.nid, cS.ok) : 'false';
+      lines.push(`if (__uiManager) __uiManager.setCheckBoxState(${wh}, ${wName}, ${checked});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Play Widget Animation': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const aS = inputSrc.get(`${nodeId}.animName`);
+      const aCtrl = node.controls['fallbackAnim'] as ClassicPreset.InputControl<'text'>;
+      const wh = wS ? rv(wS.nid, wS.ok) : '""';
+      const animName = aS ? rv(aS.nid, aS.ok) : JSON.stringify(String(aCtrl?.value ?? ''));
+      lines.push(`if (__uiManager) __uiManager.playAnimation(${wh}, ${animName});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Input Mode': {
+      const uS = inputSrc.get(`${nodeId}.uiOnly`);
+      const uiOnly = uS ? rv(uS.nid, uS.ok) : 'false';
+      lines.push(`if (__uiManager) __uiManager.setInputMode(${uiOnly});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Show Mouse Cursor': {
+      const sS = inputSrc.get(`${nodeId}.show`);
+      const show = sS ? rv(sS.nid, sS.ok) : 'true';
+      lines.push(`if (__uiManager) __uiManager.showMouseCursor(${show});`);
+      lines.push(...we(nodeId, 'exec'));
       break;
     }
   }
@@ -3539,6 +3761,25 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof TryGetPawnOwnerNode) return 'TryGetPawnOwnerNode';
   if (node instanceof SetAnimVarNode) return 'SetAnimVarNode';
   if (node instanceof GetAnimVarNode) return 'GetAnimVarNode';
+  // Widget / UI nodes
+  if (node instanceof CreateWidgetNode) return 'CreateWidgetNode';
+  if (node instanceof AddToViewportNode) return 'AddToViewportNode';
+  if (node instanceof RemoveFromViewportNode) return 'RemoveFromViewportNode';
+  if (node instanceof SetWidgetTextNode) return 'SetWidgetTextNode';
+  if (node instanceof GetWidgetTextNode) return 'GetWidgetTextNode';
+  if (node instanceof SetWidgetVisibilityNode) return 'SetWidgetVisibilityNode';
+  if (node instanceof SetWidgetColorNode) return 'SetWidgetColorNode';
+  if (node instanceof SetWidgetOpacityNode) return 'SetWidgetOpacityNode';
+  if (node instanceof SetProgressBarPercentNode) return 'SetProgressBarPercentNode';
+  if (node instanceof GetProgressBarPercentNode) return 'GetProgressBarPercentNode';
+  if (node instanceof SetSliderValueNode) return 'SetSliderValueNode';
+  if (node instanceof GetSliderValueNode) return 'GetSliderValueNode';
+  if (node instanceof SetCheckBoxStateNode) return 'SetCheckBoxStateNode';
+  if (node instanceof GetCheckBoxStateNode) return 'GetCheckBoxStateNode';
+  if (node instanceof IsWidgetVisibleNode) return 'IsWidgetVisibleNode';
+  if (node instanceof PlayWidgetAnimationNode) return 'PlayWidgetAnimationNode';
+  if (node instanceof SetInputModeNode) return 'SetInputModeNode';
+  if (node instanceof ShowMouseCursorNode) return 'ShowMouseCursorNode';
 
   return 'Unknown';
 }
@@ -3552,6 +3793,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   for (const [key, ctrl] of Object.entries(node.controls)) {
     if (ctrl instanceof BoolSelectControl) {
       controls[key] = (ctrl as BoolSelectControl).value;
+    } else if (ctrl instanceof WidgetBPSelectControl) {
+      controls[key] = { id: (ctrl as WidgetBPSelectControl).value, name: (ctrl as WidgetBPSelectControl).displayName };
     } else if (ctrl instanceof MovementModeSelectControl) {
       controls[key] = (ctrl as MovementModeSelectControl).value;
     } else if (ctrl instanceof KeySelectControl) {
@@ -3675,6 +3918,12 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof SetAnimVarNode || node instanceof GetAnimVarNode) {
     data.varName = (node as any).varName;
     data.varType = (node as any).varType;
+  }
+
+  // Widget nodes
+  if (node instanceof CreateWidgetNode) {
+    data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
+    data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
   }
 
   return data;
@@ -4003,6 +4252,25 @@ function createNodeFromData(
     case 'TryGetPawnOwnerNode':             return new TryGetPawnOwnerNode();
     case 'SetAnimVarNode':                  return new SetAnimVarNode(d.varName || 'speed', d.varType || 'number');
     case 'GetAnimVarNode':                  return new GetAnimVarNode(d.varName || 'speed', d.varType || 'number');
+    // Widget / UI nodes
+    case 'CreateWidgetNode':                return new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
+    case 'AddToViewportNode':               return new AddToViewportNode();
+    case 'RemoveFromViewportNode':          return new RemoveFromViewportNode();
+    case 'SetWidgetTextNode':               return new SetWidgetTextNode();
+    case 'GetWidgetTextNode':               return new GetWidgetTextNode();
+    case 'SetWidgetVisibilityNode':         return new SetWidgetVisibilityNode();
+    case 'SetWidgetColorNode':              return new SetWidgetColorNode();
+    case 'SetWidgetOpacityNode':            return new SetWidgetOpacityNode();
+    case 'SetProgressBarPercentNode':       return new SetProgressBarPercentNode();
+    case 'GetProgressBarPercentNode':       return new GetProgressBarPercentNode();
+    case 'SetSliderValueNode':              return new SetSliderValueNode();
+    case 'GetSliderValueNode':              return new GetSliderValueNode();
+    case 'SetCheckBoxStateNode':            return new SetCheckBoxStateNode();
+    case 'GetCheckBoxStateNode':            return new GetCheckBoxStateNode();
+    case 'IsWidgetVisibleNode':             return new IsWidgetVisibleNode();
+    case 'PlayWidgetAnimationNode':         return new PlayWidgetAnimationNode();
+    case 'SetInputModeNode':                return new SetInputModeNode();
+    case 'ShowMouseCursorNode':             return new ShowMouseCursorNode();
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
@@ -4186,6 +4454,166 @@ async function createGraphEditor(
             },
               ...MOVEMENT_MODES.map(m =>
                 React.createElement('option', { key: m, value: m }, m.charAt(0).toUpperCase() + m.slice(1)),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof WidgetBPSelectControl) {
+          const ctrl = data.payload as WidgetBPSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            // Gather widget blueprints from the manager
+            const widgets: { id: string; name: string }[] = [];
+            if (_widgetBPMgr) {
+              for (const asset of _widgetBPMgr.assets) {
+                widgets.push({ id: asset.id, name: asset.name });
+              }
+            }
+            const filtered = search
+              ? widgets.filter(w => w.name.toLowerCase().includes(search.toLowerCase()))
+              : widgets;
+
+            // Close on outside click
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            const dropdownStyle: any = {
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              maxHeight: 160,
+              overflowY: 'auto',
+              background: '#1a1a2e',
+              border: '1px solid #4a9eff',
+              borderRadius: '0 0 4px 4px',
+              zIndex: 9999,
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              // Button showing current selection
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#e0e0e0',
+                  border: open ? '1px solid #4a9eff' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+              ),
+              // Dropdown panel
+              open && React.createElement('div', { style: dropdownStyle },
+                // Search input
+                React.createElement('input', {
+                  type: 'text',
+                  placeholder: '🔍 Search widgets...',
+                  value: search,
+                  autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%',
+                    padding: '5px 8px',
+                    background: '#141422',
+                    color: '#e0e0e0',
+                    border: 'none',
+                    borderBottom: '1px solid #333',
+                    fontSize: 11,
+                    outline: 'none',
+                    boxSizing: 'border-box' as const,
+                  },
+                }),
+                // Option: (none)
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '(none)');
+                    setSelected('(none)');
+                    setOpen(false);
+                    setSearch('');
+                    // Sync node fields
+                    const parentNode = ctrl as any;
+                    if (parentNode._parentNode) {
+                      parentNode._parentNode.widgetBPId = '';
+                      parentNode._parentNode.widgetBPName = '(none)';
+                    }
+                  },
+                  style: {
+                    padding: '5px 8px',
+                    fontSize: 11,
+                    color: '#888',
+                    fontStyle: 'italic' as const,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid #222',
+                  },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                // Widget options
+                ...filtered.map(w =>
+                  React.createElement('div', {
+                    key: w.id,
+                    onClick: () => {
+                      ctrl.setValue(w.id, w.name);
+                      setSelected(w.name);
+                      setOpen(false);
+                      setSearch('');
+                      // Sync node fields
+                      if ((ctrl as any)._parentNode) {
+                        (ctrl as any)._parentNode.widgetBPId = w.id;
+                        (ctrl as any)._parentNode.widgetBPName = w.name;
+                      }
+                    },
+                    style: {
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      color: w.id === ctrl.value ? '#4a9eff' : '#e0e0e0',
+                      fontWeight: w.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, '🎨'),
+                    w.name,
+                  ),
+                ),
+                filtered.length === 0 && widgets.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching widgets'),
+                widgets.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No widget blueprints yet'),
               ),
             );
           };

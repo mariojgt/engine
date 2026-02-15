@@ -9,7 +9,8 @@ import { showProjectDialog } from './editor/ProjectDialog';
 import { StructureAssetManager } from './editor/StructureAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
-import { setStructureAssetManager, setActorAssetManager } from './editor/NodeEditorPanel';
+import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
+import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager } from './editor/NodeEditorPanel';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -81,6 +82,27 @@ async function main() {
   projectManager.setAnimBPManager(animBPManager);
   editor.setAnimBPManager(animBPManager);
 
+  // Create widget blueprint asset manager
+  const widgetBPManager = new WidgetBlueprintManager();
+  projectManager.setWidgetBPManager(widgetBPManager);
+  editor.setWidgetBPManager(widgetBPManager);
+
+  // Wire widget BP manager into node editor for Create Widget picker
+  setWidgetBPManager(widgetBPManager);
+
+  // Wire widget blueprint resolver so UIManager can create widgets at runtime
+  engine.uiManager.setBlueprintResolver((id: string) => {
+    const asset = widgetBPManager.getAsset(id);
+    if (!asset) return null;
+    const json = asset.toJSON();
+    return {
+      id: asset.id,
+      name: asset.name,
+      rootWidgetId: json.rootWidgetId,
+      widgets: json.widgets,
+    };
+  });
+
   // Wire camera state callbacks
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
@@ -91,6 +113,7 @@ async function main() {
   structManager.onChanged(() => projectManager.markDirty());
   meshManager.onChanged(() => projectManager.markDirty());
   animBPManager.onChanged(() => projectManager.markDirty());
+  widgetBPManager.onChanged(() => projectManager.markDirty());
 
   // Output log for Print String nodes
   const outputLog = new OutputLog(app);
