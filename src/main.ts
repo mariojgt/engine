@@ -8,6 +8,7 @@ import { ProjectManager } from './editor/ProjectManager';
 import { showProjectDialog } from './editor/ProjectDialog';
 import { StructureAssetManager } from './editor/StructureAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
+import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { setStructureAssetManager } from './editor/NodeEditorPanel';
 
 async function main() {
@@ -72,6 +73,11 @@ async function main() {
   projectManager.setMeshManager(meshManager);
   editor.setMeshManager(meshManager);
 
+  // Create animation blueprint asset manager
+  const animBPManager = new AnimBlueprintManager();
+  projectManager.setAnimBPManager(animBPManager);
+  editor.setAnimBPManager(animBPManager);
+
   // Wire camera state callbacks
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
@@ -81,6 +87,7 @@ async function main() {
   editor.assetManager.onChanged(() => projectManager.markDirty());
   structManager.onChanged(() => projectManager.markDirty());
   meshManager.onChanged(() => projectManager.markDirty());
+  animBPManager.onChanged(() => projectManager.markDirty());
 
   // Output log for Print String nodes
   const outputLog = new OutputLog(app);

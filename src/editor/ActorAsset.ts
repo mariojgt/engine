@@ -164,6 +164,8 @@ export interface SkeletalMeshConfig {
   loopAnimation: boolean;
   /** Animation playback speed multiplier */
   animationSpeed: number;
+  /** Animation Blueprint asset ID (when set, overrides animationName) */
+  animationBlueprintId?: string;
 }
 
 export interface ActorAssetJSON {

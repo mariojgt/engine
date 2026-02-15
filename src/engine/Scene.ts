@@ -8,6 +8,8 @@ import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
 import { MeshAssetManager, type MeshAsset } from '../editor/MeshAsset';
 import { loadMeshFromAsset } from '../editor/MeshImporter';
+import { AnimationInstance } from './AnimationInstance';
+import { AnimBlueprintManager } from '../editor/AnimBlueprintData';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
@@ -163,6 +165,15 @@ export class Scene {
 
       // Store animations if any
       if (animations.length > 0) {
+        // Rename clip names to match stored AnimationAssetJSON.assetName
+        if (meshAsset.animations && meshAsset.animations.length > 0) {
+          for (const clip of animations) {
+            const match = meshAsset.animations.find(
+              (a: any) => a.assetName === clip.name || a.assetName.endsWith('_' + clip.name)
+            );
+            if (match) clip.name = match.assetName;
+          }
+        }
         (go as any)._animationClips = animations;
         (go as any)._animationMixer = new THREE.AnimationMixer(group);
       }
@@ -449,6 +460,8 @@ export class Scene {
 
     // Clear any existing skeletal mesh mixers — they'll be re-populated below
     (go as any)._skeletalMeshMixers = [];
+    // Clear any existing animation instances — they'll be re-populated below
+    (go as any)._animationInstances = [];
 
     for (const comp of components) {
       if (comp.type === 'trigger') {
@@ -619,6 +632,22 @@ export class Scene {
             loadMeshFromAsset(meshAsset).then(({ scene: loadedScene, animations }) => {
               if (!wrapper.parent) return; // GO removed while loading
 
+              // ── Rename loaded AnimationClip names to match stored asset names ──
+              // The GLB stores clips with their original names (e.g. "Idle"),
+              // but the MeshAsset prefixes them (e.g. "Character_Idle").
+              // The AnimBP editor and single-anim picker both use the prefixed
+              // assetName, so we must align the runtime clip names.
+              if (meshAsset.animations.length > 0) {
+                for (const clip of animations) {
+                  const match = meshAsset.animations.find(
+                    a => a.assetName === clip.name || a.assetName.endsWith('_' + clip.name)
+                  );
+                  if (match) {
+                    clip.name = match.assetName;
+                  }
+                }
+              }
+
               // Move children from loaded scene into wrapper.
               // Keep the scene graph intact so SkinnedMesh → Skeleton bindings remain valid.
               // loadMeshFromAsset already normalised root transforms and enabled shadows.
@@ -639,7 +668,25 @@ export class Scene {
                 wrapper.userData.__animationMixer = mixer;
                 wrapper.userData.__animations = animations;
 
-                if (cfg.animationName) {
+                // Check if an Animation Blueprint is assigned
+                const abpId = cfg.animationBlueprintId;
+                const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
+
+                if (abpAsset) {
+                  // Create AnimationInstance driven by the state machine
+                  const animInstance = new AnimationInstance(abpAsset, mixer, animations);
+                  wrapper.userData.__animationInstance = animInstance;
+
+                  // Wire character controller if available
+                  if (go.characterController) {
+                    animInstance.characterController = go.characterController;
+                  }
+
+                  // Push to go's animation instances array
+                  if (!(go as any)._animationInstances) (go as any)._animationInstances = [];
+                  (go as any)._animationInstances.push(animInstance);
+                } else if (cfg.animationName) {
+                  // Fallback: play single animation (no AnimBP)
                   const clip = animations.find(a => a.name === cfg.animationName);
                   if (clip) {
                     const action = mixer.clipAction(clip);

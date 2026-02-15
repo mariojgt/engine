@@ -8,6 +8,7 @@
 import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType, SkeletalMeshConfig } from './ActorAsset';
 import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
 import type { MeshAssetManager, MeshAsset } from './MeshAsset';
+import type { AnimBlueprintManager, AnimBlueprintAsset } from './AnimBlueprintData';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 import { defaultCollisionConfig, defaultDimensionsForShape } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
@@ -26,6 +27,7 @@ export class ActorEditorPanel {
   private _asset: ActorAsset;
   private _assetManager: ActorAssetManager | null;
   private _meshManager: MeshAssetManager | null = null;
+  private _animBPManager: AnimBlueprintManager | null = null;
   private _onCompile: (code: string) => void;
   private _onAssetChanged: () => void;
   private _onSave: (() => void) | null;
@@ -76,6 +78,11 @@ export class ActorEditorPanel {
   /** Wire up MeshAssetManager for skeletal mesh picker */
   setMeshManager(mgr: MeshAssetManager): void {
     this._meshManager = mgr;
+  }
+
+  /** Wire up AnimBlueprintManager for animation blueprint picker on skeletal meshes */
+  setAnimBPManager(mgr: AnimBlueprintManager): void {
+    this._animBPManager = mgr;
   }
 
   /** Mark the blueprint as needing recompilation (called externally when graph changes) */
@@ -831,9 +838,48 @@ export class ActorEditorPanel {
         this._onAssetChanged();
       }));
 
-      // Animation picker (only if a mesh is selected and has animations)
+      // ---- Animation Blueprint picker ----
+      if (this._animBPManager && this._animBPManager.assets.length > 0) {
+        const abpHeader = document.createElement('div');
+        abpHeader.className = 'prop-section-title';
+        abpHeader.textContent = '🎬 Animation Blueprint';
+        container.appendChild(abpHeader);
+
+        const abpAssets = this._animBPManager.assets;
+        const abpOptions = ['(None)', ...abpAssets.map(a => a.name)];
+        const currentBP = cfg.animationBlueprintId
+          ? (abpAssets.find(a => a.id === cfg.animationBlueprintId)?.name ?? '(None)')
+          : '(None)';
+
+        container.appendChild(this._makeDropdownRow('Anim BP', currentBP, abpOptions, (v) => {
+          if (v === '(None)') {
+            cfg.animationBlueprintId = undefined;
+          } else {
+            const abp = abpAssets.find(a => a.name === v);
+            if (abp) cfg.animationBlueprintId = abp.id;
+          }
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._refreshComponentProps(); // re-render to toggle single-anim vs BP mode
+          this._onAssetChanged();
+        }));
+
+        // If an anim BP is assigned, show its info and hide single-animation picker
+        if (cfg.animationBlueprintId) {
+          const abp = abpAssets.find(a => a.id === cfg.animationBlueprintId);
+          if (abp) {
+            const info = document.createElement('div');
+            info.style.cssText = 'font-size:10px;color:var(--text-dim);padding:4px 12px;line-height:1.5;';
+            info.innerHTML = `States: <b>${abp.stateMachine.states.length}</b> · Transitions: <b>${abp.stateMachine.transitions.length}</b><br>` +
+              `Variables: <b>${abp.eventVariables.length}</b> · Blend Spaces: <b>${abp.blendSpaces1D.length}</b>`;
+            container.appendChild(info);
+          }
+        }
+      }
+
+      // Animation picker (only if NO anim BP is assigned and mesh has animations)
       const selectedMeshAsset = meshAssets.find(m => m.id === cfg.meshAssetId);
-      if (selectedMeshAsset && selectedMeshAsset.animations.length > 0) {
+      if (!cfg.animationBlueprintId && selectedMeshAsset && selectedMeshAsset.animations.length > 0) {
         const animHeader = document.createElement('div');
         animHeader.className = 'prop-section-title';
         animHeader.textContent = 'Animation';

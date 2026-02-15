@@ -14,6 +14,8 @@ import { mountNodeEditor } from './NodeEditorPanel';
 import { ActorAssetManager, type ActorAsset } from './ActorAsset';
 import { ActorAssetBrowser } from './ActorAssetBrowser';
 import { ActorEditorPanel } from './ActorEditorPanel';
+import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
+import { AnimBlueprintEditorPanel } from './AnimBlueprintEditorPanel';
 import type { StructureAssetManager, StructureAsset, EnumAsset } from './StructureAsset';
 import type { MeshAssetManager } from './MeshAsset';
 import type { MeshAsset } from './MeshAsset';
@@ -62,9 +64,11 @@ export class EditorLayout {
   private _properties: PropertiesPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
+  private _animBPEditor: AnimBlueprintEditorPanel | null = null;
   private _assetBrowser: ActorAssetBrowser | null = null;
   private _structManager: StructureAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
+  private _animBPManager: AnimBlueprintManager | null = null;
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
@@ -319,6 +323,10 @@ export class EditorLayout {
     if (this._meshManager) {
       this._actorEditor.setMeshManager(this._meshManager);
     }
+    // Wire up animation blueprint manager for anim BP picker
+    if (this._animBPManager) {
+      this._actorEditor.setAnimBPManager(this._animBPManager);
+    }
   }
 
   /** Wire up the StructureAssetManager for the content browser and editors */
@@ -347,6 +355,48 @@ export class EditorLayout {
         this._engine.scene.addGameObjectFromMeshAsset(meshAsset, { x: 0, y: 3, z: 0 });
       });
     }
+  }
+
+  /** Wire up the AnimBlueprintManager for the content browser */
+  setAnimBPManager(mgr: AnimBlueprintManager): void {
+    this._animBPManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setAnimBPManager(mgr, (asset: AnimBlueprintAsset) => this._openAnimBlueprintEditor(asset));
+    }
+  }
+
+  /** Open an animation blueprint editor panel */
+  private _openAnimBlueprintEditor(asset: AnimBlueprintAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'anim-bp-editor-' + asset.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `🎬 AnimBP: ${asset.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._animBPEditor = new AnimBlueprintEditorPanel(
+      wrapper,
+      asset,
+      this._onSave ?? undefined,
+    );
+    if (this._meshManager) this._animBPEditor.setMeshManager(this._meshManager);
   }
 
   /** Open a structure editor panel */
@@ -421,9 +471,14 @@ export class EditorLayout {
   }
 
   private _closeTypeEditor(): void {
+    if (this._animBPEditor) {
+      this._animBPEditor.dispose();
+      this._animBPEditor = null;
+    }
+
     const panels = this._api.panels;
     for (const p of panels) {
-      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-')) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-')) {
         this._api.removePanel(p);
       }
     }

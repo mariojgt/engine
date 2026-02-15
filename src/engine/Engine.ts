@@ -8,6 +8,7 @@ import { defaultSpectatorPawnConfig } from './SpectatorController';
 import { PlayerControllerManager, PlayerController } from './PlayerController';
 import { AIControllerManager, AIController } from './AIController';
 import type { Controller } from './Controller';
+import type { AnimationInstance } from './AnimationInstance';
 
 export class Engine {
   public scene: Scene;
@@ -210,6 +211,16 @@ export class Engine {
       this.spectatorControllers.update(dt);
       // Update AI controllers
       this.aiControllers.update(dt);
+
+      // Update animation blueprint instances (after controllers, before mixers)
+      for (const go of this.scene.gameObjects) {
+        const instances = (go as any)._animationInstances as AnimationInstance[] | undefined;
+        if (instances) {
+          for (const inst of instances) {
+            inst.update(dt);
+          }
+        }
+      }
 
       // Update skeletal mesh animation mixers
       for (const go of this.scene.gameObjects) {

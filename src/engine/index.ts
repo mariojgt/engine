@@ -10,3 +10,4 @@ export { AIController, AIControllerManager, type AIControllerConfig, type Patrol
 export { MovementComponent } from './MovementComponent';
 export { CharacterMovementComponent } from './CharacterMovementComponent';
 export { FloatingPawnMovement, defaultFloatingPawnConfig, type FloatingPawnConfig } from './FloatingPawnMovement';
+export { AnimationInstance } from './AnimationInstance';

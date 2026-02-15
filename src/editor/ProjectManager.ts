@@ -13,6 +13,7 @@ import type { Engine } from '../engine/Engine';
 import type { ActorAssetManager, ActorAssetJSON } from './ActorAsset';
 import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from './StructureAsset';
 import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
+import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
 import {
   serializeScene,
   deserializeScene,
@@ -71,6 +72,7 @@ const ACTORS_DIR = 'Actors';
 const STRUCTURES_DIR = 'Structures';
 const ENUMS_DIR = 'Enums';
 const MESHES_DIR = 'Meshes';
+const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const DEFAULT_SCENE = 'DefaultScene';
@@ -82,6 +84,7 @@ export class ProjectManager {
   private _assetManager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
+  private _animBPManager: AnimBlueprintManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -115,6 +118,11 @@ export class ProjectManager {
   /** Wire up the MeshAssetManager for saving/loading imported mesh assets */
   setMeshManager(mgr: MeshAssetManager): void {
     this._meshManager = mgr;
+  }
+
+  /** Wire up the AnimBlueprintManager for saving/loading animation blueprints */
+  setAnimBPManager(mgr: AnimBlueprintManager): void {
+    this._animBPManager = mgr;
   }
 
   // ============================================================
@@ -242,6 +250,9 @@ export class ProjectManager {
       // Load mesh assets
       await this._loadMeshes();
 
+      // Load animation blueprints
+      await this._loadAnimBlueprints();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -286,6 +297,9 @@ export class ProjectManager {
 
       // Save mesh assets
       await this._saveMeshes();
+
+      // Save animation blueprints
+      await this._saveAnimBlueprints();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -637,6 +651,67 @@ export class ProjectManager {
         textures: allTextures,
         animations: allAnimations,
       });
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Animation Blueprints
+  // ============================================================
+
+  private async _saveAnimBlueprints(): Promise<void> {
+    if (!this._projectPath || !this._animBPManager) return;
+    const abpDir = `${this._projectPath}/${ANIM_BLUEPRINTS_DIR}`;
+    const animBPs = this._animBPManager.exportAll();
+    for (const json of animBPs) {
+      const safeName = json.animBlueprintName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${abpDir}/${safeName}_${json.animBlueprintId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = animBPs.map(a => ({
+      id: a.animBlueprintId,
+      name: a.animBlueprintName,
+      file: `${a.animBlueprintName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${a.animBlueprintId}.json`,
+    }));
+    await fsWrite(`${abpDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadAnimBlueprints(): Promise<void> {
+    if (!this._projectPath || !this._animBPManager) return;
+    const abpDir = `${this._projectPath}/${ANIM_BLUEPRINTS_DIR}`;
+    if (!(await fsExists(abpDir))) return;
+
+    const allAnimBPs: AnimBlueprintJSON[] = [];
+    const indexPath = `${abpDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${abpDir}/${entry.file}`);
+          allAnimBPs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load animation blueprint ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(abpDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${abpDir}/${name}`);
+          allAnimBPs.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load animation blueprint file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allAnimBPs.length > 0) {
+      this._animBPManager.importAll(allAnimBPs);
     }
   }
 

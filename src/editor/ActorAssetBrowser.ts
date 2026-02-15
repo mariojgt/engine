@@ -10,6 +10,7 @@
 import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
 import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
 import { MeshAssetManager, type MeshAsset, isImportableFile } from './MeshAsset';
+import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { importMeshFile } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
 
@@ -19,18 +20,20 @@ export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: numb
 /** Callback fired when a mesh asset is dropped onto the viewport */
 export type MeshDropCallback = (meshAsset: MeshAsset, mouseX: number, mouseY: number) => void;
 
-export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes';
+export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP';
 
 export class ActorAssetBrowser {
   public container: HTMLElement;
   private _manager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
+  private _animBPManager: AnimBlueprintManager | null = null;
   private _gridEl!: HTMLElement;
   private _contextMenu: HTMLElement | null = null;
   private _onOpenAsset: (asset: ActorAsset) => void;
   private _onOpenStructure: ((asset: StructureAsset) => void) | null = null;
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
+  private _onOpenAnimBP: ((asset: AnimBlueprintAsset) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
   private _selectedAssetId: string | null = null;
@@ -84,6 +87,17 @@ export class ActorAssetBrowser {
     this._onMeshDrop = onMeshDrop ?? null;
     mgr.onChanged(() => {
       if (this._activeTab === 'Meshes') this._refreshGrid();
+    });
+    this._rebuildTabBar();
+    this._refreshGrid();
+  }
+
+  /** Wire up AnimBlueprintManager + open callback */
+  public setAnimBPManager(mgr: AnimBlueprintManager, onOpenAnimBP: (asset: AnimBlueprintAsset) => void): void {
+    this._animBPManager = mgr;
+    this._onOpenAnimBP = onOpenAnimBP;
+    mgr.onChanged(() => {
+      if (this._activeTab === 'AnimBP') this._refreshGrid();
     });
     this._rebuildTabBar();
     this._refreshGrid();
@@ -199,8 +213,8 @@ export class ActorAssetBrowser {
       return;
     }
     this._tabBarEl.style.display = 'flex';
-    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums', 'Meshes'];
-    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋', Meshes: '📦' };
+    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums', 'Meshes', 'AnimBP'];
+    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋', Meshes: '📦', AnimBP: '🎬' };
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.className = `content-browser-tab${this._activeTab === tab ? ' active' : ''}`;
@@ -231,6 +245,12 @@ export class ActorAssetBrowser {
       const ea = this._structManager.createEnum(name);
       this._selectedAssetId = ea.id;
       if (this._onOpenEnum) this._onOpenEnum(ea);
+    } else if (this._activeTab === 'AnimBP' && this._animBPManager) {
+      const name = this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+      if (!name) return;
+      const abp = this._animBPManager.createAsset(name);
+      this._selectedAssetId = abp.id;
+      if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
     }
   }
 
@@ -245,6 +265,8 @@ export class ActorAssetBrowser {
       this._renderEnumGrid();
     } else if (this._activeTab === 'Meshes') {
       this._renderMeshGrid();
+    } else if (this._activeTab === 'AnimBP') {
+      this._renderAnimBPGrid();
     }
   }
 
@@ -488,6 +510,66 @@ export class ActorAssetBrowser {
     // Append drop zone at end (smaller when assets exist)
     dropZone.classList.add('compact');
     this._gridEl.appendChild(dropZone);
+  }
+
+  // ---- Animation Blueprint Grid ----
+
+  private _renderAnimBPGrid(): void {
+    if (!this._animBPManager) {
+      const empty = document.createElement('div');
+      empty.className = 'prop-empty';
+      empty.textContent = 'Animation Blueprint manager not initialized.';
+      empty.style.height = '60px';
+      this._gridEl.appendChild(empty);
+      return;
+    }
+
+    const assets = this._animBPManager.assets;
+
+    if (assets.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'prop-empty';
+      empty.textContent = 'No animation blueprints. Click + New to create one.';
+      empty.style.height = '60px';
+      this._gridEl.appendChild(empty);
+      return;
+    }
+
+    for (const abp of assets) {
+      const card = this._createTypeCard(
+        abp.id,
+        abp.name,
+        '🎬',
+        `${abp.stateMachine.states.length} states`,
+        () => this._onOpenAnimBP?.(abp),
+        (e) => this._showAnimBPContextMenu(e, abp),
+      );
+      this._gridEl.appendChild(card);
+    }
+  }
+
+  private _showAnimBPContextMenu(e: MouseEvent, abp: AnimBlueprintAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenAnimBP?.(abp));
+    this._addMenuItem(menu, '✏ Rename', () => {
+      const newName = this._showNameDialog('Rename Animation Blueprint', abp.name);
+      if (newName) this._animBPManager!.renameAsset(abp.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete animation blueprint "${abp.name}"?`)) {
+        this._animBPManager!.removeAsset(abp.id);
+        if (this._selectedAssetId === abp.id) this._selectedAssetId = null;
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
   }
 
   // ---- Mesh Import ----
@@ -802,6 +884,26 @@ export class ActorAssetBrowser {
           const ea = this._structManager!.createEnum(name);
           this._selectedAssetId = ea.id;
           this._onOpenEnum?.(ea);
+        }
+        this._refreshGrid();
+      });
+    }
+
+    // Animation Blueprint creation
+    if (this._animBPManager) {
+      const sepAnimBP = document.createElement('div');
+      sepAnimBP.className = 'context-menu-separator';
+      menu.appendChild(sepAnimBP);
+
+      this._addMenuItem(menu, '🎬 New Animation Blueprint', () => {
+        this._activeTab = 'AnimBP';
+        this._rebuildTabBar();
+        this._rebuildHeader();
+        const name = this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+        if (name) {
+          const abp = this._animBPManager!.createAsset(name);
+          this._selectedAssetId = abp.id;
+          this._onOpenAnimBP?.(abp);
         }
         this._refreshGrid();
       });
