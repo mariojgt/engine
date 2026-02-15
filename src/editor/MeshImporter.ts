@@ -646,8 +646,32 @@ export async function loadMeshFromAsset(asset: { glbDataBase64: string }): Promi
     loader.parse(bytes.buffer, '', resolve, reject);
   });
 
+  const scene = gltf.scene as THREE.Group;
+
+  // ── Normalize root transform ──
+  // Many DCC tools (Blender, Maya) export GLB with transforms baked into the
+  // root node. Reset to identity so component transforms work correctly.
+  scene.position.set(0, 0, 0);
+  scene.rotation.set(0, 0, 0);
+  scene.scale.set(1, 1, 1);
+  scene.updateMatrixWorld(true);
+
+  // ── Ensure all meshes have proper settings ──
+  scene.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+
+      // Fix frustum culling issues with skinned meshes — their bounding
+      // box can get stale when animated, causing them to disappear.
+      if ((child as THREE.SkinnedMesh).isSkinnedMesh) {
+        (child as THREE.SkinnedMesh).frustumCulled = false;
+      }
+    }
+  });
+
   return {
-    scene: gltf.scene,
+    scene,
     animations: gltf.animations || [],
   };
 }

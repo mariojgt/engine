@@ -122,6 +122,24 @@ export class CharacterController implements Pawn {
   public rigidBody: RAPIER.RigidBody | null = null;
   public collider: RAPIER.Collider | null = null;
 
+  /**
+   * Vertical offset from body origin to capsule center.
+   * Body position = feet; capsule center is at feet + _capsuleCenterY.
+   * Like UE where the capsule half-height extends above the root position.
+   */
+  private _capsuleCenterY: number = 0;
+
+  /** Full capsule half-height (cylinder half + radius) — used for crouch resizing */
+  private _standingHalfHeight: number = 0;
+  private _standingCapsuleHalfCyl: number = 0;
+
+  /** Coyote time — grace period for jumping after leaving ground (seconds) */
+  private _coyoteTimer: number = 0;
+  private _coyoteTime: number = 0.12;  // 120ms grace
+
+  /** Horizontal velocity with momentum/friction (replaces instant movement) */
+  private _horizontalVelocity: THREE.Vector3 = new THREE.Vector3();
+
   // ---- Debug capsule wireframe (play mode) ----
   private _debugCapsule: THREE.Group | null = null;
 
@@ -264,26 +282,60 @@ export class CharacterController implements Pawn {
     const cap = this.config.capsule;
     const pos = this.gameObject.mesh.position;
 
-    // Create kinematic rigid body
+    // ── Capsule geometry ──
+    // Rapier capsule: half_height = half of cylindrical middle, radius = hemisphere.
+    // Total height = 2 * halfCyl + 2 * radius = cap.height
+    const halfCyl = Math.max(0.01, (cap.height - cap.radius * 2) / 2);
+    this._standingHalfHeight = cap.height / 2;
+    this._standingCapsuleHalfCyl = halfCyl;
+
+    // ── UE-style offset: body position = character feet ──
+    // The capsule collider is offset upward so its bottom is at the body origin.
+    // This means the character's position in the world = their foot position.
+    this._capsuleCenterY = cap.height / 2;
+
+    // Create kinematic rigid body at the actor's placed position
     const rbDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(pos.x, pos.y, pos.z);
+      .setTranslation(pos.x, pos.y, pos.z)
+      .setCcdEnabled(true);  // Continuous collision detection — prevent tunneling
     this.rigidBody = world.createRigidBody(rbDesc);
 
-    //  ALWAYS use capsule collider  (Fix 2: never cube)
-    const halfHeight = Math.max(0.05, (cap.height - cap.radius * 2) / 2);
-    const colDesc = RAPIER.ColliderDesc.capsule(halfHeight, cap.radius);
+    // ALWAYS use capsule collider — offset upward so body pos = feet
+    const colDesc = RAPIER.ColliderDesc.capsule(halfCyl, cap.radius)
+      .setTranslation(0, this._capsuleCenterY, 0);
 
-    //  Set collision groups so camera raycasts ignore this collider  (Fix 1)
+    // Collision groups: camera raycasts ignore this collider
     colDesc.setCollisionGroups(characterCapsuleGroups());
+
+    // Higher friction for ground contact stability
+    colDesc.setFriction(1.0);
+    colDesc.setRestitution(0.0);
 
     this.collider = world.createCollider(colDesc, this.rigidBody);
 
-    // Kinematic character controller with offset
-    this.rapierController = world.createCharacterController(0.02);
-    this.rapierController.enableAutostep(this.config.movement.maxStepHeight, 0.15, true);
-    this.rapierController.enableSnapToGround(0.3);
-    this.rapierController.setMaxSlopeClimbAngle(this.config.movement.maxSlopeAngle * Math.PI / 180);
+    // ── Kinematic Character Controller ──
+    // Skin width (offset) — larger value = more reliable but characters float slightly.
+    // UE uses ~2.4 units (scaled). 0.05 is a good balance at this scale.
+    const skinWidth = 0.05;
+    this.rapierController = world.createCharacterController(skinWidth);
+
+    // Auto-step: step over small obstacles (stairs, curbs)
+    // (maxStepHeight, minStepWidth, stepOnDynamic)
+    const stepHeight = this.config.movement.maxStepHeight;
+    this.rapierController.enableAutostep(stepHeight, stepHeight * 0.5, true);
+
+    // Snap to ground: keep character grounded on slopes and small drops
+    // Distance = 1.5x step height for reliable snapping on uneven terrain
+    this.rapierController.enableSnapToGround(stepHeight * 1.5);
+
+    // Slope limits — prevent climbing steep slopes, allow sliding on them
+    const maxSlopeRad = this.config.movement.maxSlopeAngle * Math.PI / 180;
+    this.rapierController.setMaxSlopeClimbAngle(maxSlopeRad);
+    this.rapierController.setMinSlopeSlideAngle(maxSlopeRad);
     this.rapierController.setSlideEnabled(true);
+
+    // Apply Rapier's built-in force on slopes beyond max angle
+    this.rapierController.setApplyImpulsesToDynamicBodies(true);
   }
 
   // ---- Create debug capsule wireframe for play mode ----
@@ -307,16 +359,18 @@ export class CharacterController implements Pawn {
 
     const cylGeo = new THREE.CylinderGeometry(cap.radius, cap.radius, bodyHeight, 16, 1, true);
     const cyl = new THREE.Mesh(cylGeo, wireMat.clone());
+    // Offset upward to match the capsule center offset
+    cyl.position.y = this._capsuleCenterY;
     group.add(cyl);
 
     const topGeo = new THREE.SphereGeometry(cap.radius, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
     const top = new THREE.Mesh(topGeo, wireMat.clone());
-    top.position.y = bodyHeight / 2;
+    top.position.y = this._capsuleCenterY + bodyHeight / 2;
     group.add(top);
 
     const botGeo = new THREE.SphereGeometry(cap.radius, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
     const bot = new THREE.Mesh(botGeo, wireMat.clone());
-    bot.position.y = -bodyHeight / 2;
+    bot.position.y = this._capsuleCenterY - bodyHeight / 2;
     group.add(bot);
 
     this._debugCapsule = group;
@@ -347,21 +401,64 @@ export class CharacterController implements Pawn {
       this._updateMouseLook(dt);
     }
 
-    // 3. Calculate desired movement
+    // 3. Calculate desired movement direction
     const moveDir = this.config.useBuiltInMovement
       ? this._calculateMovementDirection()
       : new THREE.Vector3();
 
-    // 4–9. Delegate to movement component for displacement
-    const displacement = this.movementComponent.computeDisplacement(
-      dt,
-      moveDir,
-      this.pendingMovement,
-      this.config.useBuiltInMovement && this.input.jump,
-      this.config.useBuiltInMovement && this.input.crouch,
-      this.config.useBuiltInMovement && this.input.run,
-    );
+    // 4. Coyote time — allow jumping for a short grace period after leaving ground
+    if (this.isGrounded) {
+      this._coyoteTimer = this._coyoteTime;
+    } else {
+      this._coyoteTimer = Math.max(0, this._coyoteTimer - dt);
+    }
+
+    // 5. Allow coyote-time jumps
+    const canCoyoteJump = this._coyoteTimer > 0 && !this.isJumping;
+    const jumpInput = this.config.useBuiltInMovement && this.input.jump;
+    const effectiveGroundedForJump = this.isGrounded || canCoyoteJump;
+
+    // 6. Crouch capsule resizing
+    this._updateCrouchCapsule(physics, dt);
+
+    const isRunning = this.config.useBuiltInMovement ? this.input.run : this.movementMode === 'running';
+    const isCrouching = this.config.useBuiltInMovement && this.input.crouch;
+
+    // 7–9. Build displacement differently for ground-based vs flying/swimming
+    let displacement: THREE.Vector3;
+
+    if (this.movementMode === 'flying' || this.movementMode === 'swimming') {
+      // Flying/Swimming: use full 3D displacement from movement component (no momentum override)
+      displacement = this.movementComponent.computeDisplacement(
+        dt, moveDir, this.pendingMovement,
+        jumpInput && effectiveGroundedForJump, isCrouching, isRunning,
+      );
+      // Track horizontal velocity for orient-to-movement
+      this._horizontalVelocity.set(displacement.x / (dt || 0.016), 0, displacement.z / (dt || 0.016));
+    } else {
+      // Walking/Running/Crouching/Falling/Jumping: momentum-based horizontal velocity
+      // Feed pendingMovement into the velocity system so addMovementInput works
+      this._applyHorizontalPhysics(moveDir, this.pendingMovement, dt, isRunning);
+
+      // Vertical-only from movement component (gravity, jump)
+      const zeroDir = new THREE.Vector3();
+      const zeroPending = new THREE.Vector3();
+      displacement = this.movementComponent.computeDisplacement(
+        dt, zeroDir, zeroPending,
+        jumpInput && effectiveGroundedForJump, isCrouching, isRunning,
+      );
+
+      // Override horizontal with momentum-based velocity
+      displacement.x = this._horizontalVelocity.x * dt;
+      displacement.z = this._horizontalVelocity.z * dt;
+    }
+
     this.pendingMovement.set(0, 0, 0);
+
+    // Reset coyote timer if jump was consumed
+    if (jumpInput && canCoyoteJump && !this.isGrounded) {
+      this._coyoteTimer = 0;
+    }
 
     // 10. Move via Rapier kinematic character controller
     this.rapierController.computeColliderMovement(
@@ -382,12 +479,11 @@ export class CharacterController implements Pawn {
     const grounded = this.rapierController.computedGrounded();
     this.movementComponent.onGroundResult(grounded, this.input.run);
 
-    // 12. Orient mesh rotation to movement direction (Fix 7)
-    // Recover moveVel for rotation (displacement / dt)
-    const moveVel = displacement.clone().divideScalar(dt || 0.016);
+    // 12. Orient mesh rotation to movement direction
+    const moveVel = new THREE.Vector3(this._horizontalVelocity.x, 0, this._horizontalVelocity.z);
     this._updateMeshRotation(moveVel, dt);
 
-    // 13. Sync mesh to physics body position
+    // 13. Sync mesh to physics body position (body pos = feet position)
     this.gameObject.mesh.position.set(nextPos.x, nextPos.y, nextPos.z);
 
     // 14. Update debug capsule position
@@ -401,6 +497,95 @@ export class CharacterController implements Pawn {
     // 16. Clear mouse deltas for next frame
     this.input.mouseDeltaX = 0;
     this.input.mouseDeltaY = 0;
+  }
+
+  // ---- Horizontal velocity with ground friction and braking (UE-style) ----
+
+  private _applyHorizontalPhysics(
+    moveDir: THREE.Vector3,
+    pending: THREE.Vector3,
+    dt: number,
+    isRunning: boolean,
+  ): void {
+    const m = this.config.movement;
+
+    // Speed based on actual run/crouch state
+    const speed = this._currentSpeedForRun(isRunning);
+
+    // Target horizontal velocity from WASD input direction
+    let targetVelX = moveDir.x * speed;
+    let targetVelZ = moveDir.z * speed;
+
+    // Add blueprint pendingMovement (addMovementInput already has speed baked in)
+    targetVelX += pending.x;
+    targetVelZ += pending.z;
+
+    const hasInput = Math.abs(targetVelX) > 0.001 || Math.abs(targetVelZ) > 0.001;
+
+    if (this.isGrounded) {
+      if (hasInput) {
+        // Accelerate toward target velocity — fast response like UE
+        const accelRate = m.groundFriction * speed;
+        const interpFactor = Math.min(1, accelRate * dt);
+        this._horizontalVelocity.x += (targetVelX - this._horizontalVelocity.x) * interpFactor;
+        this._horizontalVelocity.z += (targetVelZ - this._horizontalVelocity.z) * interpFactor;
+      } else {
+        // Braking deceleration — character slows to a stop
+        const brakingForce = m.brakingDeceleration * dt;
+        const currentSpeed = Math.sqrt(this._horizontalVelocity.x ** 2 + this._horizontalVelocity.z ** 2);
+        if (currentSpeed > 0.01) {
+          const newSpeed = Math.max(0, currentSpeed - brakingForce);
+          const scale = newSpeed / currentSpeed;
+          this._horizontalVelocity.x *= scale;
+          this._horizontalVelocity.z *= scale;
+        } else {
+          this._horizontalVelocity.x = 0;
+          this._horizontalVelocity.z = 0;
+        }
+      }
+    } else {
+      // Airborne — apply air control (reduced influence)
+      const airAccel = speed * m.airControl;
+      this._horizontalVelocity.x += (targetVelX - this._horizontalVelocity.x) * Math.min(1, airAccel * dt);
+      this._horizontalVelocity.z += (targetVelZ - this._horizontalVelocity.z) * Math.min(1, airAccel * dt);
+    }
+  }
+
+  // ---- Crouch capsule resizing ----
+
+  private _updateCrouchCapsule(physics: PhysicsWorld, _dt: number): void {
+    if (!this.collider || !physics.world) return;
+
+    const wantCrouch = this.isCrouching;
+    const cap = this.config.capsule;
+
+    // Capsule during crouch: 60% of standing height (UE default ratio)
+    const crouchRatio = 0.6;
+    const targetHalfCyl = wantCrouch
+      ? Math.max(0.01, this._standingCapsuleHalfCyl * crouchRatio)
+      : this._standingCapsuleHalfCyl;
+
+    const targetCenterY = wantCrouch
+      ? (targetHalfCyl + cap.radius)          // shorter capsule
+      : this._capsuleCenterY;
+
+    // Replace the collider with the new capsule dimensions
+    const currentShape = this.collider.shape;
+    const currentHalfCyl = (currentShape as any).halfHeight ?? this._standingCapsuleHalfCyl;
+
+    if (Math.abs(currentHalfCyl - targetHalfCyl) > 0.01) {
+      // Remove old collider and create new one with updated dimensions
+      const groups = this.collider.collisionGroups();
+      physics.world.removeCollider(this.collider, false);
+
+      const colDesc = RAPIER.ColliderDesc.capsule(targetHalfCyl, cap.radius)
+        .setTranslation(0, targetCenterY, 0)
+        .setCollisionGroups(groups)
+        .setFriction(1.0)
+        .setRestitution(0.0);
+
+      this.collider = physics.world.createCollider(colDesc, this.rigidBody!);
+    }
   }
 
   // ---- Input reading ----
@@ -507,11 +692,8 @@ export class CharacterController implements Pawn {
     const euler = new THREE.Euler(0, this.yaw, 0, 'YXZ');
     dir.applyEuler(euler);
 
-    // Apply air control if airborne
-    if (!this.isGrounded) {
-      dir.multiplyScalar(this.config.movement.airControl);
-    }
-
+    // Air control is now handled in _applyHorizontalPhysics —
+    // just return the raw direction for the velocity system.
     return dir;
   }
 
@@ -519,6 +701,16 @@ export class CharacterController implements Pawn {
 
   private _currentSpeed(): number {
     return this.movementComponent.getSpeed();
+  }
+
+  /** Speed that respects the actual run state (used by momentum system) */
+  private _currentSpeedForRun(isRunning: boolean): number {
+    const m = this.config.movement;
+    if (this.movementMode === 'flying') return m.flySpeed;
+    if (this.movementMode === 'swimming') return m.swimSpeed;
+    if (this.isCrouching) return m.crouchSpeed;
+    if (isRunning && m.canRun) return m.runSpeed;
+    return m.walkSpeed;
   }
 
   // ---- Camera update ----

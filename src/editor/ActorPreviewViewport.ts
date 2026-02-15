@@ -723,18 +723,17 @@ export class ActorPreviewViewport {
           loadMeshFromAsset(meshAsset).then(({ scene: loadedScene, animations }) => {
             if (this._disposed || this._rebuildCounter !== currentRebuild) return;
 
-            // Move children from loaded scene into group (preserves internal structure)
+            // Move children from loaded scene into group.
+            // loadMeshFromAsset already normalised root transforms, enabled shadows,
+            // and disabled frustum culling on SkinnedMesh.
             while (loadedScene.children.length > 0) {
               const child = loadedScene.children[0];
               loadedScene.remove(child);
-              child.traverse((obj) => {
-                if ((obj as THREE.Mesh).isMesh) {
-                  obj.castShadow = true;
-                  obj.receiveShadow = true;
-                }
-              });
               group.add(child);
             }
+
+            // Rebuild world matrices so skinned mesh bones resolve correctly
+            group.updateMatrixWorld(true);
 
             // Setup animation mixer for preview
             if (animations.length > 0 && cfg.animationName) {

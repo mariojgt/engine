@@ -67,10 +67,10 @@ export function makeInteractionGroups(membership: number, filter: number): numbe
   return (membership << 16) | filter;
 }
 
-/** Character capsule collision groups: belongs to Pawn, collides with WorldStatic + WorldDynamic + Pawn, ignores Camera */
+/** Character capsule collision groups: belongs to Pawn+Player, collides with WorldStatic + WorldDynamic + Pawn + Player, ignores Camera */
 export function characterCapsuleGroups(): number {
-  const membership = CollisionGroupBits.Pawn;
-  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic | CollisionGroupBits.Pawn;
+  const membership = CollisionGroupBits.Pawn | CollisionGroupBits.Player;
+  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic | CollisionGroupBits.Pawn | CollisionGroupBits.Player;
   return makeInteractionGroups(membership, filter);
 }
 

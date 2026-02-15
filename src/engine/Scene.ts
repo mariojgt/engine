@@ -146,17 +146,11 @@ export class Scene {
       group.rotation.copy(placeholder.rotation);
       group.scale.copy(placeholder.scale);
 
-      // Add all children from the loaded scene
+      // Add all children from the loaded scene.
+      // loadMeshFromAsset already normalises root transforms and enables shadows.
       while (loadedScene.children.length > 0) {
         const child = loadedScene.children[0];
         loadedScene.remove(child);
-        // Enable shadows on meshes
-        child.traverse((obj) => {
-          if ((obj as THREE.Mesh).isMesh) {
-            obj.castShadow = true;
-            obj.receiveShadow = true;
-          }
-        });
         group.add(child);
       }
 
@@ -453,6 +447,9 @@ export class Scene {
     const lightComps: Array<{ light: THREE.Light; config: LightConfig; name: string; index: number }> = [];
     let lightIdx = 0;
 
+    // Clear any existing skeletal mesh mixers — they'll be re-populated below
+    (go as any)._skeletalMeshMixers = [];
+
     for (const comp of components) {
       if (comp.type === 'trigger') {
         // Collect trigger component data for the collision system
@@ -622,20 +619,21 @@ export class Scene {
             loadMeshFromAsset(meshAsset).then(({ scene: loadedScene, animations }) => {
               if (!wrapper.parent) return; // GO removed while loading
 
-              // Move children from loaded scene into wrapper (preserves internal structure)
+              // Move children from loaded scene into wrapper.
+              // Keep the scene graph intact so SkinnedMesh → Skeleton bindings remain valid.
+              // loadMeshFromAsset already normalised root transforms and enabled shadows.
               while (loadedScene.children.length > 0) {
                 const child = loadedScene.children[0];
                 loadedScene.remove(child);
-                child.traverse((obj) => {
-                  if ((obj as THREE.Mesh).isMesh) {
-                    obj.castShadow = true;
-                    obj.receiveShadow = true;
-                  }
-                });
                 wrapper.add(child);
               }
 
-              // Setup animation mixer if there are animations
+              // Rebuild world matrices so skinned mesh bones resolve correctly
+              wrapper.updateMatrixWorld(true);
+
+              // Setup animation mixer if there are animations.
+              // Use the wrapper as root — animations reference bone names, and
+              // Three.js AnimationMixer.findNode walks the full subtree.
               if (animations.length > 0) {
                 const mixer = new THREE.AnimationMixer(wrapper);
                 wrapper.userData.__animationMixer = mixer;
@@ -652,7 +650,7 @@ export class Scene {
                   }
                 }
 
-                if (!(go as any)._skeletalMeshMixers) (go as any)._skeletalMeshMixers = [];
+                // Push to go's mixer array (already cleared above)
                 (go as any)._skeletalMeshMixers.push(mixer);
               }
             }).catch(err => {
