@@ -229,6 +229,8 @@ export class Engine {
         const instances = (go as any)._animationInstances as AnimationInstance[] | undefined;
         if (instances) {
           for (const inst of instances) {
+            // Ensure physics reference is available for event graph scripts
+            if (!inst.physicsRef) inst.physicsRef = this.physics;
             inst.update(dt);
           }
         }

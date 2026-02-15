@@ -184,6 +184,18 @@ export class CharacterController implements Pawn {
     // Create the extracted movement component
     this.movementComponent = new CharacterMovementComponent(config.movement);
 
+    // Apply default movement mode from config (like UE's DefaultLandMovementMode)
+    const defaultMode = config.defaultMovementMode ?? 'walking';
+    if (defaultMode === 'flying') {
+      this.movementComponent.startFlying();
+    } else if (defaultMode === 'swimming') {
+      this.movementComponent.startSwimming();
+    } else if (defaultMode === 'crouching') {
+      this.movementComponent.crouch();
+    } else {
+      this.movementComponent.movementMode = defaultMode;
+    }
+
     // Lock camera mode at startup (from cameraSettings or camera config)
     this.activeCameraMode = config.cameraSettings?.defaultMode ?? config.camera.cameraMode;
 
@@ -974,16 +986,38 @@ export class CharacterController implements Pawn {
     this.movementComponent.setMaxWalkSpeed(speed);
   }
 
+  /**
+   * Full velocity vector (horizontal from momentum + vertical from gravity/jump).
+   * Like UE's GetVelocity() — returns the real velocity, not the broken
+   * movementComponent.velocity which only tracks vertical.
+   */
   getVelocity(): THREE.Vector3 {
-    return this.movementComponent.getVelocity();
+    return new THREE.Vector3(
+      this._horizontalVelocity.x,
+      this.movementComponent.velocity.y,
+      this._horizontalVelocity.z,
+    );
   }
 
+  /** Actual horizontal speed (units/sec) from momentum system. */
   getSpeed(): number {
-    return this.movementComponent.getHorizontalSpeed();
+    return Math.sqrt(this._horizontalVelocity.x ** 2 + this._horizontalVelocity.z ** 2);
+  }
+
+  /**
+   * Returns normalised speed 0–1 (like UE's GetVelocity().Size() / MaxSpeed).
+   * Uses the actual momentum-based horizontal speed divided by the current
+   * movement-mode max speed (walk/run/crouch/fly/swim).
+   */
+  getNormalizedSpeed(): number {
+    const hSpeed = this.getSpeed();
+    const maxSpeed = this._currentSpeedForRun(this.input.run);
+    if (maxSpeed <= 0) return 0;
+    return Math.min(1, hSpeed / maxSpeed);
   }
 
   isMoving(): boolean {
-    return this.movementComponent.isMoving();
+    return this.getSpeed() > 0.01;
   }
 
   launchCharacter(launchVelocity: {x: number; y: number; z: number}, overrideXY: boolean, overrideZ: boolean): void {

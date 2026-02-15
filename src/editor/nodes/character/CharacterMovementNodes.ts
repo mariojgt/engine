@@ -9,6 +9,35 @@
 import { ClassicPreset } from 'rete';
 import { execSocket, numSocket, boolSocket, vec3Socket, strSocket } from '../sockets';
 import { registerNode } from '../sockets';
+import { KeySelectControl } from '../events/InputKeyNodes';
+
+// ---- Movement Mode preset list (matches engine MovementMode type) ----
+export const MOVEMENT_MODES = [
+  'walking',
+  'running',
+  'crouching',
+  'jumping',
+  'falling',
+  'flying',
+  'swimming',
+] as const;
+
+/**
+ * Custom control that stores a MovementMode string.
+ * Rendered as a dropdown by the React preset customisation.
+ */
+export class MovementModeSelectControl extends ClassicPreset.Control {
+  public value: string;
+
+  constructor(initial: string = 'walking') {
+    super();
+    this.value = initial;
+  }
+
+  setValue(v: string) {
+    this.value = v;
+  }
+}
 
 // ================================================================
 //  ACTION NODES (exec-flow)
@@ -63,12 +92,12 @@ export class UncrouchNode extends ClassicPreset.Node {
   }
 }
 
-/** Set Movement Mode */
+/** Set Movement Mode — UE-style dropdown selector */
 export class SetMovementModeNode extends ClassicPreset.Node {
-  constructor() {
+  constructor(mode: string = 'walking') {
     super('Set Movement Mode');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('mode', new ClassicPreset.Input(strSocket, 'Mode'));
+    this.addControl('mode', new MovementModeSelectControl(mode));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -121,13 +150,11 @@ export class SetCameraFOVNode extends ClassicPreset.Node {
 //  QUERY NODES (pure — no exec pins)
 // ================================================================
 
-/** Get Character Velocity */
+/** Get Character Velocity — normalised 0‒1 scalar (speed / maxSpeed) like UE */
 export class GetCharacterVelocityNode extends ClassicPreset.Node {
   constructor() {
     super('Get Character Velocity');
-    this.addOutput('x', new ClassicPreset.Output(numSocket, 'X'));
-    this.addOutput('y', new ClassicPreset.Output(numSocket, 'Y'));
-    this.addOutput('z', new ClassicPreset.Output(numSocket, 'Z'));
+    this.addOutput('velocity', new ClassicPreset.Output(numSocket, 'Velocity'));
   }
 }
 
@@ -267,9 +294,9 @@ export class InputAxisNode extends ClassicPreset.Node {
     super('Input Axis');
     this.positiveKey = positiveKey;
     this.negativeKey = negativeKey;
-    // Text controls so the user can see/edit key names directly on the node
-    this.addControl('posKey', new ClassicPreset.InputControl('text', { initial: positiveKey }));
-    this.addControl('negKey', new ClassicPreset.InputControl('text', { initial: negativeKey }));
+    // Key dropdown controls so the user can change keys directly on the node
+    this.addControl('posKey', new KeySelectControl(positiveKey));
+    this.addControl('negKey', new KeySelectControl(negativeKey));
     this.addOutput('value', new ClassicPreset.Output(numSocket, 'Axis Value'));
   }
 }

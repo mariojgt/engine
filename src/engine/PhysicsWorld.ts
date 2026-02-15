@@ -140,7 +140,20 @@ export class PhysicsWorld {
     // Sync trigger sensor positions before the physics step
     this.collision.syncSensorPositions(scene, this);
 
-    this.world.step();
+    // Step the physics world WITH the EventQueue so Rapier feeds
+    // collision/intersection events directly into it.  This is far
+    // more reliable than polling intersectionPairsWith() — the
+    // EventQueue hooks into the narrow-phase and catches ALL
+    // events including kinematic↔kinematic sensor pairs.
+    if (this.collision.eventQueue) {
+      this.world.step(this.collision.eventQueue);
+    } else {
+      this.world.step();
+    }
+
+    // Ensure collider transforms are synchronized with their parent rigid
+    // bodies after the step.  Needed for subsequent raycasts / queries.
+    this.world.propagateModifiedBodyPositionsToColliders();
 
     // Sync physics → Three.js
     for (const go of scene.gameObjects) {
@@ -152,7 +165,7 @@ export class PhysicsWorld {
       }
     }
 
-    // Process collision / overlap events after step
+    // Drain the EventQueue and dispatch overlap / hit callbacks
     this.collision.processEvents(scene, this);
   }
 
@@ -171,6 +184,8 @@ export class PhysicsWorld {
 
     // Create sensor colliders for all trigger components
     this.collision.createSensors(scene, this);
+
+    console.log(`[PhysicsWorld] play() — sensors created: ${this.collision.getSensorCount()}, world colliders: ${this.world.colliders.len()}, world bodies: ${this.world.bodies.len()}`);
 
     this.isPlaying = true;
   }

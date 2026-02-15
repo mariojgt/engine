@@ -18,6 +18,7 @@ import type {
   AnimEventVariable,
 } from '../editor/AnimBlueprintData';
 import type { CharacterController } from './CharacterController';
+import { ScriptComponent, type ScriptContext } from './ScriptComponent';
 
 /** Runtime state for a single AnimationInstance */
 export class AnimationInstance {
@@ -44,6 +45,16 @@ export class AnimationInstance {
   /** Reference to character controller for auto-populating common variables */
   public characterController: CharacterController | null = null;
 
+  /** Compiled event graph script (if the AnimBP has a blueprint event graph) */
+  private _eventScript: ScriptComponent | null = null;
+  private _eventScriptStarted = false;
+
+  /** Scene & physics references for script execution context */
+  public sceneRef: any = null;
+  public physicsRef: any = null;
+  /** Elapsed time accumulator for script context */
+  private _elapsedTime = 0;
+
   constructor(
     asset: AnimBlueprintAsset,
     mixer: THREE.AnimationMixer,
@@ -66,14 +77,41 @@ export class AnimationInstance {
     if (entryState) {
       this._enterState(entryState);
     }
+
+    // Compile event graph code if present
+    if (asset.compiledCode) {
+      this.setEventGraphCode(asset.compiledCode);
+    }
+  }
+
+  /** Compile and set the event graph code for per-frame execution */
+  setEventGraphCode(code: string): void {
+    if (!code || !code.trim()) {
+      this._eventScript = null;
+      return;
+    }
+    const sc = new ScriptComponent();
+    sc.code = code;
+    if (sc.compile()) {
+      this._eventScript = sc;
+      this._eventScriptStarted = false;
+    } else {
+      console.warn('[AnimationInstance] Failed to compile event graph code');
+      this._eventScript = null;
+    }
   }
 
   /** Main update — called every frame with delta time */
   update(dt: number): void {
     this._stateTime += dt;
+    this._elapsedTime += dt;
 
-    // 1. Update event variables from character controller
-    this._updateEventVariables();
+    // 1. Update event variables — either from event graph script or auto-populate
+    if (this._eventScript) {
+      this._executeEventGraph(dt);
+    } else {
+      this._updateEventVariables();
+    }
 
     // 2. Handle ongoing transitions
     if (this._transitioning) {
@@ -119,6 +157,33 @@ export class AnimationInstance {
 
     // Movement mode
     this.variables.set('movementMode', cc.movementMode);
+  }
+
+  /** Execute the compiled event graph code each frame */
+  private _executeEventGraph(dt: number): void {
+    if (!this._eventScript) return;
+
+    // Build script context — gameObject is the owning pawn
+    const go = this.characterController?.gameObject ?? null;
+    if (!go) return;
+
+    const ctx: ScriptContext = {
+      gameObject: go,
+      deltaTime: dt,
+      elapsedTime: this._elapsedTime,
+      print: (v: any) => console.log('[AnimBP]', v),
+      physics: this.physicsRef,
+      scene: this.sceneRef,
+    };
+
+    // Run beginPlay once
+    if (!this._eventScriptStarted) {
+      this._eventScript.beginPlay(ctx);
+      this._eventScriptStarted = true;
+    }
+
+    // Run tick every frame
+    this._eventScript.tick(ctx);
   }
 
   /** Evaluate all transitions from current state, pick highest-priority match */

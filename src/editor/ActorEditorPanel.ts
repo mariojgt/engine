@@ -1627,6 +1627,12 @@ export class ActorEditorPanel {
       cfg.movement.canCrouch = v; notifyChanged();
     }));
 
+    // Default Movement Mode
+    container.appendChild(this._makeDropdownRow('Default Movement Mode', cfg.defaultMovementMode ?? 'walking',
+      ['walking', 'running', 'crouching', 'flying', 'swimming'], (v) => {
+      cfg.defaultMovementMode = v as any; notifyChanged();
+    }));
+
     // ---- Input Bindings ----
     const inputHeader = document.createElement('div');
     inputHeader.className = 'physics-section-header';

@@ -23,6 +23,23 @@ export const INPUT_KEYS = [
   'Mouse Wheel Up','Mouse Wheel Down',
 ] as const;
 
+/**
+ * Custom control that stores a key name string.
+ * Rendered as a dropdown with all INPUT_KEYS by the React preset.
+ */
+export class KeySelectControl extends ClassicPreset.Control {
+  public value: string;
+
+  constructor(initial: string = 'Space') {
+    super();
+    this.value = initial;
+  }
+
+  setValue(v: string) {
+    this.value = v;
+  }
+}
+
 /** Returns the input category: 'keyboard', 'mouse', or 'wheel' */
 export function inputType(key: string): 'keyboard' | 'mouse' | 'wheel' {
   if (key === 'Mouse Left' || key === 'Mouse Right' || key === 'Mouse Middle') return 'mouse';
@@ -62,6 +79,7 @@ export class InputKeyEventNode extends ClassicPreset.Node {
   constructor(key: string = 'Space') {
     super('Input Key Event');
     this.selectedKey = key;
+    this.addControl('key', new KeySelectControl(key));
     this.addOutput('pressed', new ClassicPreset.Output(execSocket, 'Pressed'));
     this.addOutput('released', new ClassicPreset.Output(execSocket, 'Released'));
   }
@@ -76,6 +94,7 @@ export class IsKeyDownNode extends ClassicPreset.Node {
   constructor(key: string = 'Space') {
     super('Is Key Down');
     this.selectedKey = key;
+    this.addControl('key', new KeySelectControl(key));
     const boolSocket = new ClassicPreset.Socket('Boolean');
     this.addOutput('value', new ClassicPreset.Output(boolSocket, 'Is Down'));
   }

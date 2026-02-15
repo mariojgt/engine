@@ -7,7 +7,7 @@
 //  identical to ActorAsset / StructureAsset / MeshAsset.
 // ============================================================
 
-import type { BlueprintGraphData } from './BlueprintData';
+import { BlueprintData, type BlueprintGraphData } from './BlueprintData';
 
 // ---- Unique ID helper ----
 let _uid = 0;
@@ -149,6 +149,10 @@ export interface AnimBlueprintJSON {
   eventVariables: AnimEventVariable[];
   /** Event Graph node data (Rete-style, same format as actor blueprint graphs) */
   eventGraph: BlueprintGraphData | null;
+  /** Compiled JS code from the event graph */
+  compiledCode?: string;
+  /** Serialized Rete node graph for the event graph editor */
+  blueprintGraphNodeData?: any;
 }
 
 // ---- Default Helpers ----
@@ -220,6 +224,11 @@ export class AnimBlueprintAsset {
   public eventVariables: AnimEventVariable[];
   public eventGraph: BlueprintGraphData | null;
 
+  /** BlueprintData for the event graph Rete editor (variables, functions, graph data) */
+  public blueprintData: BlueprintData;
+  /** Compiled JS code string from the event graph (stored for runtime execution) */
+  public compiledCode: string = '';
+
   private _dirty = false;
 
   constructor(id: string, name: string) {
@@ -243,6 +252,9 @@ export class AnimBlueprintAsset {
       { name: 'isCrouching', type: 'boolean', defaultValue: false },
     ];
     this.eventGraph = null;
+
+    // Create BlueprintData for the event graph Rete editor
+    this.blueprintData = new BlueprintData();
   }
 
   touch(): void {
@@ -259,6 +271,8 @@ export class AnimBlueprintAsset {
       blendSpaces2D: structuredClone(this.blendSpaces2D),
       eventVariables: structuredClone(this.eventVariables),
       eventGraph: this.eventGraph ? structuredClone(this.eventGraph) : null,
+      compiledCode: this.compiledCode,
+      blueprintGraphNodeData: this.blueprintData.eventGraph.nodeData ?? null,
     };
   }
 
@@ -274,6 +288,13 @@ export class AnimBlueprintAsset {
     asset.blendSpaces2D = json.blendSpaces2D ?? [];
     asset.eventVariables = json.eventVariables ?? [];
     asset.eventGraph = json.eventGraph ?? null;
+    asset.compiledCode = (json as any).compiledCode ?? '';
+
+    // Restore blueprint graph node data
+    if ((json as any).blueprintGraphNodeData) {
+      asset.blueprintData.eventGraph.nodeData = (json as any).blueprintGraphNodeData;
+    }
+
     return asset;
   }
 }

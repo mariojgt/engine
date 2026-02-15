@@ -290,6 +290,8 @@ export interface CharacterPawnConfig {
    * Default: false — new pawns have pre-populated movement nodes.
    */
   useBuiltInMovement: boolean;
+  /** Default movement mode at spawn — like UE's DefaultLandMovementMode */
+  defaultMovementMode: MovementMode;
 }
 
 export function defaultCharacterPawnConfig(): CharacterPawnConfig {
@@ -303,5 +305,6 @@ export function defaultCharacterPawnConfig(): CharacterPawnConfig {
     cameraSettings: defaultCameraModeSettings(),
     topDownCamera: defaultTopDownCameraConfig(),
     useBuiltInMovement: false,
+    defaultMovementMode: 'walking',
   };
 }

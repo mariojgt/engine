@@ -8,6 +8,7 @@
 
 import { ClassicPreset } from 'rete';
 import { execSocket, numSocket, boolSocket, strSocket } from '../sockets';
+import { MovementModeSelectControl } from './CharacterMovementNodes';
 import { registerNode } from '../sockets';
 
 // ================================================================
@@ -138,9 +139,9 @@ export class CameraModeLiteralNode extends ClassicPreset.Node {
 
 /** Movement Mode Literal — Outputs a movement mode value */
 export class MovementModeLiteralNode extends ClassicPreset.Node {
-  constructor() {
+  constructor(mode: string = 'walking') {
     super('Movement Mode');
-    this.addControl('mode', new ClassicPreset.InputControl('text', { initial: 'walking' }));
+    this.addControl('mode', new MovementModeSelectControl(mode));
     this.addOutput('mode', new ClassicPreset.Output(strSocket, 'Mode'));
   }
 }

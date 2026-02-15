@@ -98,6 +98,7 @@ import {
   INPUT_KEYS,
   keyEventCode,
   inputType,
+  KeySelectControl,
   GetComponentLocationNode,
   SetComponentLocationNode,
   GetComponentRotationNode,
@@ -166,6 +167,8 @@ import {
   GetMovementModeNode,
   GetCameraLocationNode,
   InputAxisNode,
+  MovementModeSelectControl,
+  MOVEMENT_MODES,
   // Camera & Spring Arm Nodes
   SetSpringArmLengthNode,
   SetSpringArmTargetOffsetNode,
@@ -216,6 +219,8 @@ import {
   GetOwnerNode,
   GetAnimInstanceNode,
   PureCastNode,
+  CallActorFunctionNode,
+  socketForType,
   objectSocket,
   getClassRefSocket,
   socketColor,
@@ -237,6 +242,11 @@ import {
   StringToNumberNode,
   ColorToStringNode,
   StringToColorNode,
+  // Animation BP Nodes
+  AnimUpdateEventNode,
+  TryGetPawnOwnerNode,
+  SetAnimVarNode,
+  GetAnimVarNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -325,7 +335,12 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof GetActorByNameNode || node instanceof GetAllActorsOfClassNode ||
       node instanceof IsValidNode || node instanceof GetActorNameNode ||
       node instanceof GetActorVariableNode || node instanceof SetActorVariableNode ||
-      node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode) return 'Casting';
+      node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode ||
+      node instanceof CallActorFunctionNode) return 'Casting';
+  // Animation BP nodes
+  if (node instanceof AnimUpdateEventNode) return 'Events';
+  if (node instanceof TryGetPawnOwnerNode || node instanceof SetAnimVarNode ||
+      node instanceof GetAnimVarNode) return 'Animation';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -493,6 +508,10 @@ function resolveValue(
   if (node instanceof FunctionCallNode) {
     return `__fn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
   }
+  // CallActorFunctionNode — remote function call outputs (resolved via temp var)
+  if (node instanceof CallActorFunctionNode) {
+    return `__rfn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
+  }
 
   // FunctionEntryNode — parameters
   if (node instanceof FunctionEntryNode) {
@@ -509,8 +528,10 @@ function resolveValue(
   // IsKeyDownNode — poll key state
   if (node instanceof IsKeyDownNode) {
     const ikd = node as IsKeyDownNode;
-    const itype = inputType(ikd.selectedKey);
-    const kc = keyEventCode(ikd.selectedKey);
+    const keyCtrl = ikd.controls['key'] as KeySelectControl | undefined;
+    const key = keyCtrl?.value ?? ikd.selectedKey;
+    const itype = inputType(key);
+    const kc = keyEventCode(key);
     if (itype === 'mouse') {
       return `(__inputKeys["__mouse${kc}"] || false)`;
     }
@@ -523,11 +544,11 @@ function resolveValue(
   // InputAxisNode — two-key axis: positive key → +1, negative key → -1
   if (node instanceof InputAxisNode) {
     const ia = node as InputAxisNode;
-    // Read from controls (user may have edited them on the node)
-    const posCtrl = ia.controls['posKey'] as ClassicPreset.InputControl<'text'> | undefined;
-    const negCtrl = ia.controls['negKey'] as ClassicPreset.InputControl<'text'> | undefined;
-    const posKey = posCtrl?.value as string || ia.positiveKey;
-    const negKey = negCtrl?.value as string || ia.negativeKey;
+    // Read from controls (user may have changed them via dropdown)
+    const posCtrl = ia.controls['posKey'] as KeySelectControl | undefined;
+    const negCtrl = ia.controls['negKey'] as KeySelectControl | undefined;
+    const posKey = posCtrl?.value ?? ia.positiveKey;
+    const negKey = negCtrl?.value ?? ia.negativeKey;
     const posCode = keyEventCode(posKey);
     const negCode = keyEventCode(negKey);
     return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
@@ -634,10 +655,7 @@ function resolveValue(
   // Character movement query nodes
   if (node instanceof GetCharacterVelocityNode) {
     const cc = `gameObject.characterController`;
-    if (outputKey === 'x') return `(${cc} ? ${cc}.velocity.x : 0)`;
-    if (outputKey === 'y') return `(${cc} ? ${cc}.velocity.y : 0)`;
-    if (outputKey === 'z') return `(${cc} ? ${cc}.velocity.z : 0)`;
-    return '0';
+    return `(${cc} ? ${cc}.getNormalizedSpeed() : 0)`;
   }
   if (node instanceof GetMovementSpeedNode) {
     return `(gameObject.characterController ? gameObject.characterController.getSpeed() : 0)`;
@@ -742,7 +760,7 @@ function resolveValue(
     return `'${ctrl?.value ?? 'thirdPerson'}'`;
   }
   if (node instanceof MovementModeLiteralNode) {
-    const ctrl = node.controls['mode'] as ClassicPreset.InputControl<'text'>;
+    const ctrl = node.controls['mode'] as MovementModeSelectControl;
     return `'${ctrl?.value ?? 'walking'}'`;
   }
 
@@ -786,6 +804,21 @@ function resolveValue(
     const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
     if (outputKey === 'animInstance') return `(${objVal} && ${objVal}._animationInstances ? ${objVal}._animationInstances[0] || null : null)`;
     if (outputKey === 'valid') return `(!!(${objVal} && ${objVal}._animationInstances && ${objVal}._animationInstances[0]))`;
+    return 'null';
+  }
+  // ── AnimBP-specific nodes ──
+  if (node instanceof TryGetPawnOwnerNode) {
+    if (outputKey === 'pawn') return 'gameObject';
+    if (outputKey === 'valid') return '(!!gameObject)';
+    return 'null';
+  }
+  if (node instanceof GetAnimVarNode) {
+    const an = node as GetAnimVarNode;
+    const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '""';
+    return `(gameObject && gameObject._animationInstances && gameObject._animationInstances[0] ? gameObject._animationInstances[0].variables.get(${JSON.stringify(an.varName)}) : ${defaultVal})`;
+  }
+  if (node instanceof AnimUpdateEventNode) {
+    if (outputKey === 'dt') return 'deltaTime';
     return 'null';
   }
   if (node instanceof PureCastNode) {
@@ -1019,7 +1052,7 @@ function genAction(
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
-    lines.push(`{ const _tc = (gameObject._triggerComponents || [])[${ci}]; if (_tc) { const d = _tc.config.dimensions; if (d.halfExtentX !== undefined) { d.halfExtentX = ${xS ? rv(xS.nid, xS.ok) : '1'}; d.halfExtentY = ${yS ? rv(yS.nid, yS.ok) : '1'}; d.halfExtentZ = ${zS ? rv(zS.nid, zS.ok) : '1'}; } else if (d.radius !== undefined) { d.radius = ${xS ? rv(xS.nid, xS.ok) : '1'}; } } }`);
+    lines.push(`{ const _tc = (gameObject._triggerComponents || [])[${ci}]; if (_tc) { const d = _tc.config.dimensions; if (d.width !== undefined) { d.width = ${xS ? rv(xS.nid, xS.ok) : '1'}; d.height = ${yS ? rv(yS.nid, yS.ok) : '1'}; d.depth = ${zS ? rv(zS.nid, zS.ok) : '1'}; } else if (d.radius !== undefined) { d.radius = ${xS ? rv(xS.nid, xS.ok) : '1'}; } __physics.collision.resizeSensor(__physics, gameObject.id, ${ci}, _tc.config); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1150,8 +1183,9 @@ function genAction(
     return lines;
   }
   if (node instanceof SetMovementModeNode) {
-    const mS = inputSrc.get(`${nodeId}.mode`);
-    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setMovementMode(${mS ? rv(mS.nid, mS.ok) : "'walking'"}); }`);
+    const ctrl = node.controls['mode'] as MovementModeSelectControl;
+    const mode = ctrl?.value ?? 'walking';
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setMovementMode('${mode}'); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1342,6 +1376,26 @@ function genAction(
     return lines;
   }
 
+  // Call Actor Function (remote)
+  if (node instanceof CallActorFunctionNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const targetVal = tS ? rv(tS.nid, tS.ok) : 'null';
+    const cafn = node as CallActorFunctionNode;
+    const fnName = cafn.funcName;
+    const resultVar = `__rfn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    // Collect input args (skip exec and target)
+    const argKeys = Object.keys(node.inputs).filter(k => k !== 'exec' && k !== 'target');
+    const args = argKeys.map(k => {
+      const s = inputSrc.get(`${nodeId}.${k}`);
+      return s ? rv(s.nid, s.ok) : '0';
+    });
+    // Remote function call: look up the target's _scriptFunctions dictionary
+    lines.push(`var ${resultVar} = {};`);
+    lines.push(`{ var _rtgt = ${targetVal}; if (_rtgt && _rtgt._scriptFunctions && _rtgt._scriptFunctions[${JSON.stringify(fnName)}]) { ${resultVar} = _rtgt._scriptFunctions[${JSON.stringify(fnName)}](${args.join(', ')}) || {}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
   // Function Return
   if (node instanceof FunctionReturnNode) {
     const fn = bp.functions.find(f => f.id === node.funcId);
@@ -1412,6 +1466,16 @@ function genAction(
     const valCode = vS ? rv(vS.nid, vS.ok) : '0';
     const vn = (node as SetActorVariableNode).varName;
     lines.push(`{ var _tgt = ${targetVal}; if (_tgt) { if (!_tgt._scriptVars) _tgt._scriptVars = {}; _tgt._scriptVars[${JSON.stringify(vn)}] = ${valCode}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // ── SetAnimVarNode — sets an animation variable on the anim instance ──
+  if (node instanceof SetAnimVarNode) {
+    const vS = inputSrc.get(`${nodeId}.value`);
+    const an = node as SetAnimVarNode;
+    const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '""';
+    const valCode = vS ? rv(vS.nid, vS.ok) : defaultVal;
+    lines.push(`{ var _ai = gameObject && gameObject._animationInstances && gameObject._animationInstances[0]; if (_ai) { _ai.variables.set(${JSON.stringify(an.varName)}, ${valCode}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1706,7 +1770,7 @@ function generateFullCode(
 
   const bpEvts = nodes.filter(n => n.label === 'Event BeginPlay');
   for (const ev of bpEvts) beginPlayCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
-  const tkEvts = nodes.filter(n => n.label === 'Event Tick');
+  const tkEvts = nodes.filter(n => n.label === 'Event Tick' || n.label === 'Anim Update Event');
   for (const ev of tkEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
   const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
   for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
@@ -1726,8 +1790,10 @@ function generateFullCode(
 
     // Per InputKeyEventNode listeners
     for (const ikNode of inputKeyNodes) {
-      const kc = keyEventCode(ikNode.selectedKey);
-      const itype = inputType(ikNode.selectedKey);
+      const keyCtrl = ikNode.controls['key'] as KeySelectControl | undefined;
+      const key = keyCtrl?.value ?? ikNode.selectedKey;
+      const kc = keyEventCode(key);
+      const itype = inputType(key);
       const pressedBody = walkExec(ikNode.id, 'pressed', nodeMap, inputSrc, outputDst, bp);
       const releasedBody = walkExec(ikNode.id, 'released', nodeMap, inputSrc, outputDst, bp);
 
@@ -1822,6 +1888,22 @@ function generateFullCode(
       if (body.length > 0) {
         beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
       }
+    }
+  }
+
+  // Expose blueprint functions & variables on the gameObject for remote access
+  if (bp.functions.length > 0) {
+    const fnExports: string[] = [];
+    for (const fn of bp.functions) {
+      fnExports.push(`${JSON.stringify(fn.name)}: __fn_${sanitizeName(fn.name)}`);
+    }
+    beginPlayCode.push(`if (!gameObject._scriptFunctions) gameObject._scriptFunctions = {};`);
+    beginPlayCode.push(`Object.assign(gameObject._scriptFunctions, { ${fnExports.join(', ')} });`);
+  }
+  if (bp.variables.length > 0) {
+    beginPlayCode.push(`if (!gameObject._scriptVars) gameObject._scriptVars = {};`);
+    for (const v of bp.variables) {
+      beginPlayCode.push(`gameObject._scriptVars[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
     }
   }
 
@@ -2130,6 +2212,322 @@ function buildGraphTabBar(
     btn.addEventListener('click', () => onSwitch(tab));
     container.appendChild(btn);
   }
+}
+
+// ============================================================
+//  Drag-from-Pin Context Menu (UE-style)
+//  Shows only nodes compatible with the dragged socket type.
+//  For ClassRef pins, shows target actor's variables, functions,
+//  component nodes, and actor-type-specific nodes (character, camera, etc.)
+// ============================================================
+function showDragPinContextMenu(
+  container: HTMLElement,
+  x: number, y: number,
+  draggedSocket: ClassicPreset.Socket,
+  initial: { nodeId: string; side: 'input' | 'output'; key: string },
+  targetActorId: string | null,
+  targetActorName: string | null,
+  targetBp: import('./BlueprintData').BlueprintData | null,
+  isObjectPin: boolean,
+  currentBp: import('./BlueprintData').BlueprintData,
+  graphType: GraphType,
+  onCreateNode: (node: ClassicPreset.Node, connectToKey: string | null) => void,
+  targetActorType?: string,
+  targetComponents?: ActorComponentData[],
+  targetRootMeshType?: string,
+) {
+  const existing = container.querySelector('.bp-context-menu');
+  if (existing) existing.remove();
+
+  const menu = document.createElement('div');
+  menu.className = 'bp-context-menu';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+
+  const header = document.createElement('div');
+  header.className = 'bp-context-header';
+  if (targetActorName) {
+    header.textContent = `${targetActorName} Members`;
+  } else if (isObjectPin) {
+    header.textContent = 'Object Actions';
+  } else {
+    header.textContent = `${draggedSocket.name} Actions`;
+  }
+  menu.appendChild(header);
+
+  const searchInput = document.createElement('input');
+  searchInput.className = 'bp-context-search';
+  searchInput.placeholder = 'Search...';
+  searchInput.type = 'text';
+  menu.appendChild(searchInput);
+
+  const listEl = document.createElement('div');
+  listEl.className = 'bp-context-list';
+  menu.appendChild(listEl);
+
+  // Determine which side we're coming from to pick the right connect key
+  const dragSide = initial.side; // 'output' = dragged from output, need to connect to input
+  const dragSocketName = draggedSocket.name;
+
+  function renderList(filter: string) {
+    listEl.innerHTML = '';
+    const lf = filter.toLowerCase();
+    const categories = new Map<string, { label: string; action: () => void }[]>();
+
+    // --- Target actor variables (Get / Set) ---
+    if (targetBp && targetActorId) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const v of targetBp.variables) {
+        const getLabel = `Get ${v.name}`;
+        const setLabel = `Set ${v.name}`;
+        if (!lf || getLabel.toLowerCase().includes(lf) || 'variables'.includes(lf)) {
+          items.push({ label: getLabel, action: () => {
+            const node = new GetActorVariableNode(v.name, v.type, targetActorId!);
+            // If dragged from output, connect to 'target' input
+            const connectKey = dragSide === 'output' ? 'target' : 'value';
+            onCreateNode(node, connectKey);
+            menu.remove();
+          }});
+        }
+        if (!lf || setLabel.toLowerCase().includes(lf) || 'variables'.includes(lf)) {
+          items.push({ label: setLabel, action: () => {
+            const node = new SetActorVariableNode(v.name, v.type, targetActorId!);
+            const connectKey = dragSide === 'output' ? 'target' : 'exec';
+            onCreateNode(node, connectKey);
+            menu.remove();
+          }});
+        }
+      }
+      if (items.length) categories.set(`📋 ${targetActorName} Variables`, items);
+    }
+
+    // --- Target actor functions (Call) ---
+    if (targetBp && targetActorId) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const fn of targetBp.functions) {
+        const label = `Call ${fn.name}`;
+        if (!lf || label.toLowerCase().includes(lf) || 'functions'.includes(lf)) {
+          items.push({ label, action: () => {
+            const node = new CallActorFunctionNode(fn.id, fn.name, targetActorId!, fn.inputs, fn.outputs);
+            const connectKey = dragSide === 'output' ? 'target' : 'exec';
+            onCreateNode(node, connectKey);
+            menu.remove();
+          }});
+        }
+      }
+      if (items.length) categories.set(`ƒ ${targetActorName} Functions`, items);
+    }
+
+    // --- Target actor custom events (Call remotely) ---
+    if (targetBp && targetActorId) {
+      const items: { label: string; action: () => void }[] = [];
+      for (const evt of targetBp.customEvents) {
+        const label = `Call ${evt.name}`;
+        if (!lf || label.toLowerCase().includes(lf) || 'events'.includes(lf)) {
+          items.push({ label, action: () => {
+            // For simplicity, create a CallCustomEventNode — remote event call
+            // Note: this fires the event on the target actor
+            const node = new CallCustomEventNode(evt.id, evt.name, evt.params);
+            onCreateNode(node, null);
+            menu.remove();
+          }});
+        }
+      }
+      if (items.length) categories.set(`⚡ ${targetActorName} Events`, items);
+    }
+
+    // --- Target actor component nodes (light, trigger, mesh, etc.) ---
+    if (targetActorId && targetComponents && targetRootMeshType) {
+      const compEntries = getComponentNodeEntries(targetComponents, targetRootMeshType);
+      if (compEntries.length > 0) {
+        const items: { label: string; action: () => void }[] = [];
+        for (const ce of compEntries) {
+          if (!lf || ce.label.toLowerCase().includes(lf) || 'components'.includes(lf)) {
+            items.push({ label: ce.label, action: () => {
+              const node = ce.factory();
+              onCreateNode(node, null);
+              menu.remove();
+            }});
+          }
+        }
+        if (items.length) categories.set(`⬡ ${targetActorName || ''} Components`, items);
+      }
+    }
+
+    // --- Actor-type-specific nodes (Character, Camera, Physics, Transform) ---
+    if (targetActorId && isObjectPin) {
+      const isCharacter = targetActorType === 'characterPawn';
+
+      // Collect relevant NODE_PALETTE categories for this actor type
+      const relevantCategories = new Set(['Physics', 'Transform', 'Collision']);
+      if (isCharacter) {
+        relevantCategories.add('Character');
+      }
+
+      for (const cat of relevantCategories) {
+        const items: { label: string; action: () => void }[] = [];
+        for (const entry of NODE_PALETTE) {
+          if (entry.category !== cat) continue;
+          if (lf && !entry.label.toLowerCase().includes(lf) && !cat.toLowerCase().includes(lf)) continue;
+          items.push({ label: entry.label, action: () => {
+            const node = entry.factory();
+            onCreateNode(node, null);
+            menu.remove();
+          }});
+        }
+        if (items.length) {
+          const icon = cat === 'Character' ? '🏃' : cat === 'Physics' ? '☄' : cat === 'Transform' ? '↕' : '💥';
+          categories.set(`${icon} ${cat}`, items);
+        }
+      }
+    }
+
+    // --- Generic object actions (for any ObjectRef / ClassRef pin) ---
+    if (isObjectPin) {
+      const objItems: { label: string; action: () => void }[] = [];
+
+      // Get Actor Name
+      if (!lf || 'get actor name'.includes(lf)) {
+        objItems.push({ label: 'Get Actor Name', action: () => {
+          const node = new GetActorNameNode();
+          onCreateNode(node, dragSide === 'output' ? 'object' : 'name');
+          menu.remove();
+        }});
+      }
+      // Is Valid
+      if (!lf || 'is valid'.includes(lf)) {
+        objItems.push({ label: 'Is Valid', action: () => {
+          const node = new IsValidNode();
+          onCreateNode(node, dragSide === 'output' ? 'object' : null);
+          menu.remove();
+        }});
+      }
+
+      // Cast To entries — only for generic ObjectRef (ClassRef already know the type)
+      if (dragSocketName === 'ObjectRef' && _actorAssetMgr) {
+        for (const asset of _actorAssetMgr.assets) {
+          if (!lf || `cast to ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf)) {
+            objItems.push({ label: `Cast to ${asset.name}`, action: () => {
+              const node = new CastToNode(asset.id, asset.name);
+              onCreateNode(node, dragSide === 'output' ? 'object' : 'castedObject');
+              menu.remove();
+            }});
+          }
+          if (!lf || `pure cast to ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf)) {
+            objItems.push({ label: `Pure Cast to ${asset.name}`, action: () => {
+              const node = new PureCastNode(asset.id, asset.name);
+              onCreateNode(node, dragSide === 'output' ? 'object' : 'castedObject');
+              menu.remove();
+            }});
+          }
+        }
+      }
+
+      if (objItems.length) categories.set('🎯 Object Actions', objItems);
+    }
+
+    // --- Standard palette nodes filtered by socket compatibility ---
+    if (!isObjectPin) {
+      const stdItems: { label: string; action: () => void }[] = [];
+      for (const entry of NODE_PALETTE) {
+        if (graphType !== 'event' && entry.category === 'Events') continue;
+        if (!lf && !entry.label.toLowerCase().includes(lf) && lf) continue;
+        if (lf && !entry.label.toLowerCase().includes(lf) && !entry.category.toLowerCase().includes(lf)) continue;
+
+        // Create a temp node to check socket compatibility
+        const tempNode = entry.factory();
+        let compatKey: string | null = null;
+        if (dragSide === 'output') {
+          // Find an input on the new node that's compatible with our dragged socket
+          for (const [key, inp] of Object.entries(tempNode.inputs)) {
+            if (inp?.socket && socketsCompatible(draggedSocket, inp.socket)) {
+              compatKey = key;
+              break;
+            }
+          }
+        } else {
+          // Find an output on the new node that's compatible
+          for (const [key, out] of Object.entries(tempNode.outputs)) {
+            if (out?.socket && socketsCompatible(draggedSocket, out.socket)) {
+              compatKey = key;
+              break;
+            }
+          }
+        }
+        if (compatKey !== null) {
+          const ck = compatKey;
+          stdItems.push({ label: entry.label, action: () => {
+            const node = entry.factory();
+            onCreateNode(node, ck);
+            menu.remove();
+          }});
+        }
+      }
+      if (stdItems.length) categories.set('Compatible Nodes', stdItems);
+    }
+
+    // Render categories
+    for (const [cat, entries] of categories) {
+      const catEl = document.createElement('div');
+      catEl.className = 'bp-context-category';
+      catEl.textContent = cat;
+      listEl.appendChild(catEl);
+      for (const e of entries) {
+        const item = document.createElement('div');
+        item.className = 'bp-context-item';
+        item.textContent = e.label;
+        item.addEventListener('click', e.action);
+        listEl.appendChild(item);
+      }
+    }
+    if (categories.size === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'bp-context-empty';
+      empty.textContent = 'No matching nodes';
+      listEl.appendChild(empty);
+    }
+  }
+
+  renderList('');
+  searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+  // Keyboard navigation
+  let _selectedIdx = -1;
+  searchInput.addEventListener('keydown', (e) => {
+    const items = listEl.querySelectorAll('.bp-context-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _selectedIdx = Math.min(_selectedIdx + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === _selectedIdx));
+      items[_selectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _selectedIdx = Math.max(_selectedIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === _selectedIdx));
+      items[_selectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (_selectedIdx >= 0 && _selectedIdx < items.length) {
+        (items[_selectedIdx] as HTMLElement).click();
+      }
+    } else if (e.key === 'Escape') {
+      menu.remove();
+    } else {
+      _selectedIdx = -1;
+    }
+  });
+
+  container.appendChild(menu);
+  menu.addEventListener('wheel', (e) => { e.stopPropagation(); }, true);
+  requestAnimationFrame(() => searchInput.focus());
+
+  const closeHandler = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) {
+      menu.remove();
+      document.removeEventListener('mousedown', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
 }
 
 // ============================================================
@@ -3135,6 +3533,12 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetOwnerNode) return 'GetOwnerNode';
   if (node instanceof GetAnimInstanceNode) return 'GetAnimInstanceNode';
   if (node instanceof PureCastNode) return 'PureCastNode';
+  if (node instanceof CallActorFunctionNode) return 'CallActorFunctionNode';
+  // Animation BP nodes
+  if (node instanceof AnimUpdateEventNode) return 'AnimUpdateEventNode';
+  if (node instanceof TryGetPawnOwnerNode) return 'TryGetPawnOwnerNode';
+  if (node instanceof SetAnimVarNode) return 'SetAnimVarNode';
+  if (node instanceof GetAnimVarNode) return 'GetAnimVarNode';
 
   return 'Unknown';
 }
@@ -3148,6 +3552,10 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   for (const [key, ctrl] of Object.entries(node.controls)) {
     if (ctrl instanceof BoolSelectControl) {
       controls[key] = (ctrl as BoolSelectControl).value;
+    } else if (ctrl instanceof MovementModeSelectControl) {
+      controls[key] = (ctrl as MovementModeSelectControl).value;
+    } else if (ctrl instanceof KeySelectControl) {
+      controls[key] = (ctrl as KeySelectControl).value;
     } else if (ctrl instanceof ColorPickerControl) {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof ClassicPreset.InputControl) {
@@ -3172,15 +3580,17 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.eventName = node.eventName;
     data.eventParams = node.eventParams;
   } else if (node instanceof InputKeyEventNode) {
-    data.selectedKey = (node as InputKeyEventNode).selectedKey;
+    const keyCtrl = (node as InputKeyEventNode).controls['key'] as KeySelectControl | undefined;
+    data.selectedKey = keyCtrl?.value ?? (node as InputKeyEventNode).selectedKey;
   } else if (node instanceof IsKeyDownNode) {
-    data.selectedKey = (node as IsKeyDownNode).selectedKey;
+    const keyCtrl = (node as IsKeyDownNode).controls['key'] as KeySelectControl | undefined;
+    data.selectedKey = keyCtrl?.value ?? (node as IsKeyDownNode).selectedKey;
   } else if (node instanceof InputAxisNode) {
     const ia = node as InputAxisNode;
-    const posCtrl = ia.controls['posKey'] as ClassicPreset.InputControl<'text'> | undefined;
-    const negCtrl = ia.controls['negKey'] as ClassicPreset.InputControl<'text'> | undefined;
-    data.positiveKey = (posCtrl?.value as string) || ia.positiveKey;
-    data.negativeKey = (negCtrl?.value as string) || ia.negativeKey;
+    const posCtrl = ia.controls['posKey'] as KeySelectControl | undefined;
+    const negCtrl = ia.controls['negKey'] as KeySelectControl | undefined;
+    data.positiveKey = posCtrl?.value ?? ia.positiveKey;
+    data.negativeKey = negCtrl?.value ?? ia.negativeKey;
   } else if (node instanceof FunctionEntryNode) {
     data.funcId = node.funcId;
   } else if (node instanceof FunctionReturnNode) {
@@ -3240,6 +3650,31 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.targetClassName = (node as any).targetClassName;
   } else if (node instanceof GetActorVariableNode || node instanceof SetActorVariableNode) {
     data.varName = (node as any).varName;
+    data.varType = (node as any).varType;
+    data.targetActorId = (node as any).targetActorId;
+  } else if (node instanceof CallActorFunctionNode) {
+    data.funcId = (node as any).funcId;
+    data.funcName = (node as any).funcName;
+    data.targetActorId = (node as any).targetActorId;
+    // Serialize input/output definitions so we can reconstruct with correct sockets
+    const inputs: { name: string; type: string }[] = [];
+    const outputs: { name: string; type: string }[] = [];
+    for (const [key, inp] of Object.entries(node.inputs)) {
+      if (key === 'exec' || key === 'target') continue;
+      inputs.push({ name: key, type: (inp as any)?.socket?.name ?? 'Number' });
+    }
+    for (const [key, out] of Object.entries(node.outputs)) {
+      if (key === 'exec') continue;
+      outputs.push({ name: key, type: (out as any)?.socket?.name ?? 'Number' });
+    }
+    data.fnInputs = inputs;
+    data.fnOutputs = outputs;
+  }
+
+  // Animation BP nodes
+  if (node instanceof SetAnimVarNode || node instanceof GetAnimVarNode) {
+    data.varName = (node as any).varName;
+    data.varType = (node as any).varType;
   }
 
   return data;
@@ -3485,7 +3920,7 @@ function createNodeFromData(
     case 'StopJumpingNode':             return new StopJumpingNode();
     case 'CrouchNode':                  return new CrouchNode();
     case 'UncrouchNode':                return new UncrouchNode();
-    case 'SetMovementModeNode':         return new SetMovementModeNode();
+    case 'SetMovementModeNode':         return new SetMovementModeNode(d.controls?.mode ?? 'walking');
     case 'SetMaxWalkSpeedNode':         return new SetMaxWalkSpeedNode();
     case 'LaunchCharacterNode':         return new LaunchCharacterNode();
     case 'SetCameraModeNode':           return new SetCameraModeNode();
@@ -3517,7 +3952,7 @@ function createNodeFromData(
     case 'GetSpringArmTargetOffsetNode':    return new GetSpringArmTargetOffsetNode();
     case 'GetSpringArmSocketOffsetNode':    return new GetSpringArmSocketOffsetNode();
     case 'CameraModeLiteralNode':           return new CameraModeLiteralNode();
-    case 'MovementModeLiteralNode':         return new MovementModeLiteralNode();
+    case 'MovementModeLiteralNode':         return new MovementModeLiteralNode(d.controls?.mode ?? 'walking');
     case 'GetCameraRotationNode':           return new GetCameraRotationNode();
     // Player Controller nodes
     case 'PossessPawnNode':                 return new PossessPawnNode();
@@ -3551,11 +3986,23 @@ function createNodeFromData(
     case 'GetAllActorsOfClassNode':         return new GetAllActorsOfClassNode(d.targetClassId || '', d.targetClassName || 'Unknown');
     case 'IsValidNode':                     return new IsValidNode();
     case 'GetActorNameNode':                return new GetActorNameNode();
-    case 'GetActorVariableNode':            return new GetActorVariableNode(d.varName || 'Unknown');
-    case 'SetActorVariableNode':            return new SetActorVariableNode(d.varName || 'Unknown');
+    case 'GetActorVariableNode':            return new GetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
+    case 'SetActorVariableNode':            return new SetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
     case 'GetOwnerNode':                    return new GetOwnerNode();
     case 'GetAnimInstanceNode':             return new GetAnimInstanceNode();
     case 'PureCastNode':                    return new PureCastNode(d.targetClassId || '', d.targetClassName || 'Unknown');
+    case 'CallActorFunctionNode': {
+      // Reconstruct inputs/outputs from serialized data
+      const fnInputs = (d.fnInputs || []).map((i: any) => ({ name: i.name, type: i.type as VarType }));
+      const fnOutputs = (d.fnOutputs || []).map((o: any) => ({ name: o.name, type: o.type as VarType }));
+      return new CallActorFunctionNode(d.funcId || '', d.funcName || 'Unknown', d.targetActorId || '', fnInputs, fnOutputs);
+    }
+
+    // Animation BP nodes
+    case 'AnimUpdateEventNode':             return new AnimUpdateEventNode();
+    case 'TryGetPawnOwnerNode':             return new TryGetPawnOwnerNode();
+    case 'SetAnimVarNode':                  return new SetAnimVarNode(d.varName || 'speed', d.varType || 'number');
+    case 'GetAnimVarNode':                  return new GetAnimVarNode(d.varName || 'speed', d.varType || 'number');
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
@@ -3716,6 +4163,60 @@ async function createGraphEditor(
             );
           };
         }
+        if (data.payload instanceof MovementModeSelectControl) {
+          const ctrl = data.payload as MovementModeSelectControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#64b5f6',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              ...MOVEMENT_MODES.map(m =>
+                React.createElement('option', { key: m, value: m }, m.charAt(0).toUpperCase() + m.slice(1)),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof KeySelectControl) {
+          const ctrl = data.payload as KeySelectControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#e0e0e0',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              ...INPUT_KEYS.map(k =>
+                React.createElement('option', { key: k, value: k }, k),
+              ),
+            );
+          };
+        }
         if (data.payload instanceof ClassicPreset.InputControl) {
           const ctrl = data.payload as ClassicPreset.InputControl<'number' | 'text'>;
           return (props: any) => {
@@ -3754,6 +4255,122 @@ async function createGraphEditor(
   editor.use(area);
   area.use(connection);
   area.use(reactPlugin);
+
+  // ── Track last pointer position for connectiondrop menu placement ──
+  let _lastPointerX = 0;
+  let _lastPointerY = 0;
+  container.addEventListener('pointermove', (e) => {
+    const rect = container.getBoundingClientRect();
+    _lastPointerX = e.clientX - rect.left;
+    _lastPointerY = e.clientY - rect.top;
+  }, true);
+
+  // ── Drag-from-pin context menu (UE-style) ──
+  // When user drags a wire from a pin and drops on empty space,
+  // show a context menu filtered to compatible nodes.
+  // For ClassRef_<id> pins, show the target actor's variables, functions, events.
+  connection.addPipe((ctx) => {
+    if (ctx.type !== 'connectiondrop') return ctx;
+    const { initial, socket, created } = ctx.data as {
+      initial: { nodeId: string; side: 'input' | 'output'; key: string; element: HTMLElement };
+      socket: { nodeId: string; side: string; key: string } | null;
+      created: boolean;
+    };
+    // Only handle drops on empty space (no target socket, no connection created)
+    if (socket || created) return ctx;
+
+    // Find the source node and its socket
+    const srcNode = editor.getNode(initial.nodeId);
+    if (!srcNode) return ctx;
+
+    let srcSocket: ClassicPreset.Socket | null = null;
+    if (initial.side === 'output') {
+      const out = srcNode.outputs[initial.key];
+      srcSocket = out?.socket ?? null;
+    } else {
+      const inp = srcNode.inputs[initial.key];
+      srcSocket = inp?.socket ?? null;
+    }
+    if (!srcSocket) return ctx;
+
+    // Don't show menu for exec pins — they just want to wire to execution
+    if (srcSocket.name === 'Exec') return ctx;
+
+    // Determine screen position for the context menu
+    const cx = _lastPointerX;
+    const cy = _lastPointerY;
+
+    // Determine if this is a typed class reference pin
+    let targetActorId: string | null = null;
+    let targetActorName: string | null = null;
+    if (srcSocket.name.startsWith('ClassRef_')) {
+      targetActorId = srcSocket.name.replace('ClassRef_', '');
+    }
+    // If it's a generic ObjectRef, we can still offer generic casting options
+    const isObjectPin = srcSocket.name === 'ObjectRef' || srcSocket.name.startsWith('ClassRef_');
+
+    // Look up the target actor's blueprint data if we have a class ref
+    let targetBp: import('./BlueprintData').BlueprintData | null = null;
+    let targetActorType: string | undefined;
+    let targetComponents: ActorComponentData[] | undefined;
+    let targetRootMeshType: string | undefined;
+    if (targetActorId && _actorAssetMgr) {
+      const asset = _actorAssetMgr.assets.find(a => a.id === targetActorId);
+      if (asset) {
+        targetBp = asset.blueprintData;
+        targetActorName = asset.name;
+        targetActorType = asset.actorType;
+        targetComponents = asset.components;
+        targetRootMeshType = asset.rootMeshType;
+      }
+    }
+
+    // Show the drag-from-pin context menu
+    setTimeout(() => {
+      showDragPinContextMenu(
+        container, cx, cy,
+        srcSocket!,
+        initial,
+        targetActorId,
+        targetActorName,
+        targetBp,
+        isObjectPin,
+        bp,
+        graphType,
+        async (node, connectToKey) => {
+          // Add the node and position it
+          await editor.addNode(node);
+          const t = area.area.transform;
+          await area.translate(node.id, { x: (cx - t.x) / t.k, y: (cy - t.y) / t.k });
+
+          // Auto-connect: wire the new node to the original pin
+          if (connectToKey) {
+            try {
+              if (initial.side === 'output') {
+                // Dragged from an output — connect to the new node's input
+                await editor.addConnection(
+                  new ClassicPreset.Connection(srcNode, initial.key, node, connectToKey)
+                );
+              } else {
+                // Dragged from an input — connect new node's output to the original input
+                await editor.addConnection(
+                  new ClassicPreset.Connection(node, connectToKey, srcNode, initial.key)
+                );
+              }
+            } catch (e) {
+              // Connection might fail if sockets are incompatible — that's OK
+            }
+          }
+          onChanged();
+        },
+        targetActorType,
+        targetComponents,
+        targetRootMeshType,
+      );
+    }, 10);
+
+    return ctx;
+  });
 
   // ── Selection state (declared early so area pipes can reference it) ──
   const selectedNodeIds = new Set<string>();

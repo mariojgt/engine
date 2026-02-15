@@ -21,6 +21,7 @@ import {
   defaultBlendSpace1D,
 } from './AnimBlueprintData';
 import { MeshAssetManager } from './MeshAsset';
+import { mountNodeEditorForAsset } from './NodeEditorPanel';
 
 type EditorTab = 'animGraph' | 'eventGraph' | 'blendSpaces';
 
@@ -62,6 +63,9 @@ export class AnimBlueprintEditorPanel {
   // Animation frame handle
   private _animFrame = 0;
 
+  // Event graph Rete editor cleanup
+  private _eventGraphCleanup: (() => void) | null = null;
+
   constructor(
     container: HTMLElement,
     asset: AnimBlueprintAsset,
@@ -79,6 +83,10 @@ export class AnimBlueprintEditorPanel {
 
   dispose(): void {
     if (this._animFrame) cancelAnimationFrame(this._animFrame);
+    if (this._eventGraphCleanup) {
+      this._eventGraphCleanup();
+      this._eventGraphCleanup = null;
+    }
   }
 
   // ============================================================
@@ -153,6 +161,11 @@ export class AnimBlueprintEditorPanel {
     if (this._animFrame) {
       cancelAnimationFrame(this._animFrame);
       this._animFrame = 0;
+    }
+    // Clean up Rete editor when switching away from event graph
+    if (this._eventGraphCleanup) {
+      this._eventGraphCleanup();
+      this._eventGraphCleanup = null;
     }
 
     switch (tab) {
@@ -1001,28 +1014,38 @@ export class AnimBlueprintEditorPanel {
 
   private _buildEventGraphTab(): void {
     const wrapper = document.createElement('div');
-    wrapper.className = 'anim-event-graph';
-    wrapper.style.padding = '16px';
-    wrapper.style.overflowY = 'auto';
+    wrapper.style.display = 'flex';
+    wrapper.style.flex = '1';
+    wrapper.style.overflow = 'hidden';
+
+    // ── Left panel: Animation Variables ──
+    const varPanel = document.createElement('div');
+    varPanel.className = 'anim-event-var-panel';
+    varPanel.style.width = '240px';
+    varPanel.style.minWidth = '200px';
+    varPanel.style.borderRight = '1px solid #333';
+    varPanel.style.overflowY = 'auto';
+    varPanel.style.padding = '12px';
+    varPanel.style.background = '#1a1a2e';
 
     const header = document.createElement('div');
     header.className = 'anim-props-header';
-    header.textContent = 'Event Variables';
-    wrapper.appendChild(header);
+    header.textContent = 'Anim Variables';
+    varPanel.appendChild(header);
 
     const desc = document.createElement('div');
     desc.className = 'anim-props-help';
-    desc.innerHTML = `These variables are automatically computed each frame from the character's state 
-      and used in transition conditions. The runtime <code>AnimationInstance</code> auto-populates 
-      <code>speed</code>, <code>isInAir</code>, <code>isCrouching</code>, etc. from the CharacterController.<br><br>
-      Add custom variables here for use in transition conditions.`;
-    wrapper.appendChild(desc);
+    desc.style.fontSize = '11px';
+    desc.style.marginBottom = '8px';
+    desc.innerHTML = `Define variables here, then use <b>Set / Get Anim Var</b> nodes
+      in the event graph to drive them. State machine transitions read these variables.`;
+    varPanel.appendChild(desc);
 
     // Add Variable button
     const addBtn = document.createElement('button');
     addBtn.className = 'toolbar-btn';
     addBtn.textContent = '+ Add Variable';
-    addBtn.style.marginTop = '8px';
+    addBtn.style.marginBottom = '8px';
     addBtn.addEventListener('click', () => {
       const name = prompt('Variable name:', 'myVar');
       if (!name) return;
@@ -1032,14 +1055,46 @@ export class AnimBlueprintEditorPanel {
         defaultValue: 0,
       });
       this._asset.touch();
-      this._buildEventGraphTab();
+      this._buildEventGraphTabVarList(varTable);
     });
-    wrapper.appendChild(addBtn);
+    varPanel.appendChild(addBtn);
 
-    // Variable list
-    const table = document.createElement('div');
-    table.className = 'anim-var-table';
-    table.style.marginTop = '12px';
+    // Variable table
+    const varTable = document.createElement('div');
+    varTable.className = 'anim-var-table';
+    varPanel.appendChild(varTable);
+    this._buildEventGraphTabVarList(varTable);
+
+    wrapper.appendChild(varPanel);
+
+    // ── Right panel: Rete Node Editor ──
+    const editorContainer = document.createElement('div');
+    editorContainer.style.flex = '1';
+    editorContainer.style.position = 'relative';
+    editorContainer.style.overflow = 'hidden';
+    editorContainer.style.minHeight = '300px';
+    wrapper.appendChild(editorContainer);
+
+    this._contentArea.appendChild(wrapper);
+
+    // Mount the Rete node editor using the AnimBP's BlueprintData
+    const bp = this._asset.blueprintData;
+    this._eventGraphCleanup = mountNodeEditorForAsset(
+      editorContainer,
+      bp,
+      `${this._asset.name} Event Graph`,
+      (code: string) => {
+        // Store compiled code on the asset for runtime use
+        this._asset.compiledCode = code;
+        this._asset.touch();
+        this._onSave?.();
+      },
+    );
+  }
+
+  /** Build/rebuild the variable list inside the Event Graph tab */
+  private _buildEventGraphTabVarList(container: HTMLElement): void {
+    container.innerHTML = '';
 
     for (let i = 0; i < this._asset.eventVariables.length; i++) {
       const v = this._asset.eventVariables[i];
@@ -1074,7 +1129,7 @@ export class AnimBlueprintEditorPanel {
         else if (v.type === 'boolean') v.defaultValue = false;
         else v.defaultValue = '';
         this._asset.touch();
-        this._buildEventGraphTab();
+        this._buildEventGraphTabVarList(container);
       });
       row.appendChild(typeSel);
 
@@ -1109,15 +1164,12 @@ export class AnimBlueprintEditorPanel {
       delBtn.addEventListener('click', () => {
         this._asset.eventVariables.splice(i, 1);
         this._asset.touch();
-        this._buildEventGraphTab();
+        this._buildEventGraphTabVarList(container);
       });
       row.appendChild(delBtn);
 
-      table.appendChild(row);
+      container.appendChild(row);
     }
-
-    wrapper.appendChild(table);
-    this._contentArea.appendChild(wrapper);
   }
 
   // ============================================================

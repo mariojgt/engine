@@ -23,6 +23,8 @@ import {
   registerNode,
   getClassRefSocket,
 } from '../sockets';
+import { socketForType } from '../variables/VariableNodes';
+import type { VarType } from '../../BlueprintData';
 
 // ============================================================
 //  Cast To Node (dynamic — created with target class info)
@@ -137,14 +139,19 @@ registerNode('Get Actor Name', 'Casting', () => new GetActorNameNode());
 // ============================================================
 export class GetActorVariableNode extends ClassicPreset.Node {
   public varName: string;
+  public varType: VarType;
+  /** Actor asset ID of the target class (for context) */
+  public targetActorId: string;
 
-  constructor(varName: string) {
+  constructor(varName: string, varType: VarType = 'Float', targetActorId: string = '') {
     super(`Get ${varName} (Remote)`);
     this.varName = varName;
+    this.varType = varType;
+    this.targetActorId = targetActorId;
 
     this.addInput('target', new ClassicPreset.Input(objectSocket, 'Target'));
-    // Output as generic number — the codegen resolves actual runtime value
-    this.addOutput('value', new ClassicPreset.Output(numSocket, 'Value'));
+    // Output uses the correct socket type for this variable
+    this.addOutput('value', new ClassicPreset.Output(socketForType(varType), 'Value'));
   }
 }
 
@@ -153,14 +160,19 @@ export class GetActorVariableNode extends ClassicPreset.Node {
 // ============================================================
 export class SetActorVariableNode extends ClassicPreset.Node {
   public varName: string;
+  public varType: VarType;
+  /** Actor asset ID of the target class (for context) */
+  public targetActorId: string;
 
-  constructor(varName: string) {
+  constructor(varName: string, varType: VarType = 'Float', targetActorId: string = '') {
     super(`Set ${varName} (Remote)`);
     this.varName = varName;
+    this.varType = varType;
+    this.targetActorId = targetActorId;
 
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addInput('target', new ClassicPreset.Input(objectSocket, 'Target'));
-    this.addInput('value', new ClassicPreset.Input(numSocket, 'Value'));
+    this.addInput('value', new ClassicPreset.Input(socketForType(varType), 'Value'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -213,5 +225,39 @@ export class PureCastNode extends ClassicPreset.Node {
       `As ${targetClassName}`,
     ));
     this.addOutput('success', new ClassicPreset.Output(boolSocket, 'Success'));
+  }
+}
+
+// ============================================================
+//  Call Actor Function — call a function defined on another actor's blueprint
+// ============================================================
+export class CallActorFunctionNode extends ClassicPreset.Node {
+  public funcId: string;
+  public funcName: string;
+  /** Actor asset ID of the target class (for context) */
+  public targetActorId: string;
+
+  constructor(
+    funcId: string,
+    funcName: string,
+    targetActorId: string,
+    inputs: { name: string; type: VarType }[],
+    outputs: { name: string; type: VarType }[],
+  ) {
+    super(`${funcName} (Remote)`);
+    this.funcId = funcId;
+    this.funcName = funcName;
+    this.targetActorId = targetActorId;
+
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('target', new ClassicPreset.Input(objectSocket, 'Target'));
+    for (const inp of inputs) {
+      this.addInput(inp.name, new ClassicPreset.Input(socketForType(inp.type), inp.name));
+    }
+
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    for (const out of outputs) {
+      this.addOutput(out.name, new ClassicPreset.Output(socketForType(out.type), out.name));
+    }
   }
 }

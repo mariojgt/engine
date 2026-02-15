@@ -684,6 +684,9 @@ export class Scene {
                     animInstance.characterController = go.characterController;
                   }
 
+                  // Pass scene reference for event graph script context
+                  animInstance.sceneRef = this;
+
                   // Push to go's animation instances array
                   if (!(go as any)._animationInstances) (go as any)._animationInstances = [];
                   (go as any)._animationInstances.push(animInstance);

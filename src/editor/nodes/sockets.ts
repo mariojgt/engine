@@ -80,6 +80,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Collision':     '#C62828',
   'Character':     '#2E7D32',
   'Casting':       '#0D47A1',
+  'Animation':     '#E65100',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -103,6 +104,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Collision':     return '💥';
     case 'Character':     return '🏃';
     case 'Casting':       return '🎯';
+    case 'Animation':     return '🎬';
     default:              return '●';
   }
 }

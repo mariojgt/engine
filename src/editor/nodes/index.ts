@@ -20,7 +20,7 @@ export { EventBeginPlayNode } from './events/EventBeginPlayNode';
 export { EventTickNode }      from './events/EventTickNode';
 export { EventOnDestroyNode } from './events/EventOnDestroyNode';
 export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes';
-export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode, inputType } from './events/InputKeyNodes';
+export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode, inputType, KeySelectControl } from './events/InputKeyNodes';
 
 // ── Flow Control ────────────────────────────────────────────
 export { BranchNode }   from './flow-control/BranchNode';
@@ -198,6 +198,8 @@ export {
   StopFlyingNode,
   StartSwimmingNode,
   StopSwimmingNode,
+  MovementModeSelectControl,
+  MOVEMENT_MODES,
 } from './character/CharacterMovementNodes';
 
 // ── Player Controller ───────────────────────────────────────
@@ -263,5 +265,14 @@ export {
   GetOwnerNode,
   GetAnimInstanceNode,
   PureCastNode,
+  CallActorFunctionNode,
 } from './casting/CastingNodes';
 export { objectSocket, getClassRefSocket } from './sockets';
+
+// ── Animation BP Nodes ──────────────────────────────────────
+export {
+  AnimUpdateEventNode,
+  TryGetPawnOwnerNode,
+  SetAnimVarNode,
+  GetAnimVarNode,
+} from './animation/AnimBPNodes';
