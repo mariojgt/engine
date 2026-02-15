@@ -67,10 +67,17 @@ export function makeInteractionGroups(membership: number, filter: number): numbe
   return (membership << 16) | filter;
 }
 
-/** Character capsule collision groups: belongs to Pawn+Player, collides with WorldStatic + WorldDynamic + Pawn + Player, ignores Camera */
+/** Character capsule collision groups: belongs to Pawn+Player, collides with WorldStatic + WorldDynamic + Pawn + Player + Trigger, ignores Camera */
 export function characterCapsuleGroups(): number {
   const membership = CollisionGroupBits.Pawn | CollisionGroupBits.Player;
-  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic | CollisionGroupBits.Pawn | CollisionGroupBits.Player;
+  const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic | CollisionGroupBits.Pawn | CollisionGroupBits.Player | CollisionGroupBits.Trigger;
+  return makeInteractionGroups(membership, filter);
+}
+
+/** Trigger sensor collision groups: belongs to Trigger, collides with everything */
+export function triggerSensorGroups(): number {
+  const membership = CollisionGroupBits.Trigger;
+  const filter = CollisionGroupBits.All;
   return makeInteractionGroups(membership, filter);
 }
 
@@ -79,6 +86,75 @@ export function cameraRayGroups(): number {
   const membership = CollisionGroupBits.Camera;
   const filter = CollisionGroupBits.WorldStatic | CollisionGroupBits.WorldDynamic;
   return makeInteractionGroups(membership, filter);
+}
+
+// ---- Collision Profile (UE-style presets) ----
+
+/**
+ * A collision profile defines per-channel Block / Overlap / Ignore responses,
+ * similar to UE's Collision Presets.  The character controller uses these to
+ * build Rapier collision groups and to decide which colliders are obstacles
+ * (block) vs overlap-only (sensor pass-through).
+ */
+export interface CollisionProfile {
+  /** Human-readable name of the preset (e.g. "Pawn", "OverlapAll") */
+  name: string;
+  /** The channel this collider belongs to (its object type) */
+  objectType: CollisionChannelName;
+  /** Per-channel response overrides. Channels not listed default to 'ignore'. */
+  responses: Record<CollisionChannelName, CollisionResponse>;
+}
+
+/** Default "Pawn" collision profile — matches UE Pawn preset.
+ *  Block walls/floors/other pawns, Overlap triggers, Ignore camera. */
+export function defaultPawnCollisionProfile(): CollisionProfile {
+  return {
+    name: 'Pawn',
+    objectType: 'Pawn',
+    responses: {
+      WorldStatic:  'block',
+      WorldDynamic: 'block',
+      Pawn:         'block',
+      Player:       'block',
+      Projectile:   'block',
+      Trigger:      'overlap',
+      Camera:       'ignore',
+    },
+  };
+}
+
+/** Default "Camera" collision profile — matches UE Camera preset.
+ *  Block WorldStatic + WorldDynamic only (camera ray retracts against walls/floors).
+ *  Ignore Pawn, Player, Trigger, Camera, Projectile. */
+export function defaultCameraCollisionProfile(): CollisionProfile {
+  return {
+    name: 'Camera',
+    objectType: 'Camera',
+    responses: {
+      WorldStatic:  'block',
+      WorldDynamic: 'block',
+      Pawn:         'ignore',
+      Player:       'ignore',
+      Projectile:   'ignore',
+      Trigger:      'ignore',
+      Camera:       'ignore',
+    },
+  };
+}
+
+/**
+ * Build Rapier interaction groups from a CollisionProfile.
+ * membership = objectType bit, filter = all channels that are NOT 'ignore'.
+ */
+export function collisionGroupsFromProfile(profile: CollisionProfile): number {
+  const objBit = CollisionGroupBits[profile.objectType] ?? CollisionGroupBits.WorldDynamic;
+  let filter = 0;
+  for (const [channel, response] of Object.entries(profile.responses) as [CollisionChannelName, CollisionResponse][]) {
+    if (response !== 'ignore') {
+      filter |= CollisionGroupBits[channel] ?? 0;
+    }
+  }
+  return makeInteractionGroups(objBit, filter);
 }
 
 // ---- Collision Type — what the component does ----

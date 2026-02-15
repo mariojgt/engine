@@ -457,6 +457,8 @@ export class Scene {
     let triggerIdx = 0;
     const lightComps: Array<{ light: THREE.Light; config: LightConfig; name: string; index: number }> = [];
     let lightIdx = 0;
+    const meshComps: Array<{ mesh: THREE.Object3D; name: string; index: number }> = [];
+    let meshIdx = 0;
 
     // Clear any existing skeletal mesh mixers — they'll be re-populated below
     (go as any)._skeletalMeshMixers = [];
@@ -726,6 +728,11 @@ export class Scene {
         }
 
         go.mesh.add(child);
+
+        // Track mesh-type children for blueprint codegen (Get/Set Location, etc.)
+        // Editor-only helpers (camera, capsule, etc.) are also tracked so
+        // Set Visibility nodes can toggle them.
+        meshComps.push({ mesh: child, name: comp.name, index: meshIdx++ });
       }
     }
 
@@ -733,6 +740,8 @@ export class Scene {
     (go as any)._triggerComponents = triggers;
     // Store light data on the GO so blueprint codegen can read it
     (go as any)._lightComponents = lightComps;
+    // Store mesh component children so codegen can index them reliably
+    (go as any)._meshComponents = meshComps;
   }
 
   /** Hide or show trigger wireframe helpers (e.g., hide during Play for cleaner view) */

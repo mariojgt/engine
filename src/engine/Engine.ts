@@ -76,6 +76,18 @@ export class Engine {
       }
     }
 
+    // ── 1b. Register character-pawn colliders with the collision system ──
+    // Character capsule colliders are created above, AFTER createSensors() already
+    // ran during physics.play().  Register them now so triggers can detect pawns.
+    for (const go of this.scene.gameObjects) {
+      if (go.actorType === 'characterPawn' && go.characterController) {
+        const ctrl = go.characterController;
+        if (ctrl.collider) {
+          this.physics.collision.registerColliderHandle(ctrl.collider.handle, go.id);
+        }
+      }
+    }
+
     // ── 2. Assign Controllers based on each pawn's controllerClass ──
     let defaultPlayerIndex = 0;
     for (const go of this.scene.gameObjects) {
@@ -136,14 +148,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene };
         script.beginPlay(ctx);
       }
     }
     // Fire BeginPlay on controller blueprint scripts
     for (const { go, script } of this._controllerScripts) {
       scriptCount++;
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics };
+      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene };
       script.beginPlay(ctx);
     }
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
@@ -156,14 +168,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
         script.onDestroy(ctx);
         script.reset();
       }
     }
     // OnDestroy for controller scripts
     for (const { go, script } of this._controllerScripts) {
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics };
+      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
       script.onDestroy(ctx);
       script.reset();
     }
@@ -195,13 +207,13 @@ export class Engine {
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
         for (const script of go.scripts) {
-          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics };
+          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
           script.tick(ctx);
         }
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
-        const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics };
+        const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene };
         script.tick(ctx);
       }
 

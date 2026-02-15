@@ -58,6 +58,17 @@ export class SetSpringArmCollisionNode extends ClassicPreset.Node {
   }
 }
 
+/** Set Camera Collision Enabled — Enable/disable the camera boom collision test.
+ *  When disabled the camera will never retract — it passes through all geometry. */
+export class SetCameraCollisionEnabledNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Camera Collision Enabled');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('enabled', new ClassicPreset.Input(boolSocket, 'Enabled'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+
 /** Set Camera Lag — Enable/disable camera position lag */
 export class SetCameraLagNode extends ClassicPreset.Node {
   constructor() {
@@ -155,6 +166,7 @@ registerNode('Set Spring Arm Length', 'Character', () => new SetSpringArmLengthN
 registerNode('Set Spring Arm Target Offset', 'Character', () => new SetSpringArmTargetOffsetNode());
 registerNode('Set Spring Arm Socket Offset', 'Character', () => new SetSpringArmSocketOffsetNode());
 registerNode('Set Spring Arm Collision', 'Character', () => new SetSpringArmCollisionNode());
+registerNode('Set Camera Collision Enabled', 'Character', () => new SetCameraCollisionEnabledNode());
 registerNode('Set Camera Lag', 'Character', () => new SetCameraLagNode());
 registerNode('Set Camera Rotation Lag', 'Character', () => new SetCameraRotationLagNode());
 registerNode('Get Spring Arm Length', 'Character', () => new GetSpringArmLengthNode());

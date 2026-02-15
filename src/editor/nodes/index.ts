@@ -238,6 +238,7 @@ export {
   SetSpringArmTargetOffsetNode,
   SetSpringArmSocketOffsetNode,
   SetSpringArmCollisionNode,
+  SetCameraCollisionEnabledNode,
   SetCameraLagNode,
   SetCameraRotationLagNode,
   GetSpringArmLengthNode,
@@ -247,3 +248,20 @@ export {
   MovementModeLiteralNode,
   GetCameraRotationNode,
 } from './character/CameraSpringArmNodes';
+
+// ── Casting & References ────────────────────────────────────
+export {
+  CastToNode,
+  GetSelfReferenceNode,
+  GetPlayerPawnNode,
+  GetActorByNameNode,
+  GetAllActorsOfClassNode,
+  IsValidNode,
+  GetActorNameNode,
+  GetActorVariableNode,
+  SetActorVariableNode,
+  GetOwnerNode,
+  GetAnimInstanceNode,
+  PureCastNode,
+} from './casting/CastingNodes';
+export { objectSocket, getClassRefSocket } from './sockets';

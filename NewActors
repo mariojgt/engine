@@ -1,768 +1,830 @@
-I want to build a complete mesh import system exactly like Unreal Engine, where we can drag and drop mesh files (compatible with Three.js) into the Content Browser and automatically import the mesh, materials, textures, and animations. The system should support all Three.js compatible formats and show previews in the Content Browser.
+Prompt: Class Inheritance System with Parent-Child Relationships (Unreal Engine Style)
+I want to build a complete class inheritance system exactly like Unreal Engine, where each Actor class can have a parent class and child classes. You can create a parent class, assign it to other classes, or right-click in the Content Browser to create a child class from any existing class. The most important part is that when we update a parent class, all changes must automatically reflect in all child classes while preserving child-specific overrides.
 IMPORTANT: Please consider the current architecture and what we've already implemented:
 
 Actor system with components
+Blueprint/Node editor
 Content Browser
 Component system
-Material/texture system
-Animation system (needs to be built)
+Variables and structures
 Project save/load system
 JSON storage
 
-The mesh importer should integrate seamlessly with all existing systems.
+The inheritance system should integrate seamlessly with all existing systems.
 
 Core Concept (Unreal Engine Style)
-Mesh Import Workflow:
+Class Hierarchy:
+Actor (Base Engine Class)
+├── Character Pawn (Engine Class)
+│   ├── PlayerCharacter (Your Parent Class)
+│   │   ├── WarriorCharacter (Child Class)
+│   │   ├── MageCharacter (Child Class)
+│   │   └── ArcherCharacter (Child Class)
+│   │
+│   └── EnemyCharacter (Your Parent Class)
+│       ├── ZombieEnemy (Child Class)
+│       ├── SkeletonEnemy (Child Class)
+│       └── BossEnemy (Child Class)
+│
+├── Item (Your Parent Class)
+│   ├── Weapon (Child Class)
+│   │   ├── Sword (Child of Weapon)
+│   │   ├── Axe (Child of Weapon)
+│   │   └── Bow (Child of Weapon)
+│   │
+│   └── Consumable (Child Class)
+│       ├── HealthPotion (Child of Consumable)
+│       └── ManaPotion (Child of Consumable)
+│
+└── Vehicle (Your Parent Class)
+    ├── Car (Child Class)
+    └── Motorcycle (Child Class)
+Key Rules:
 
-Drag & drop mesh file into Content Browser (or use Import button)
-System automatically detects file format
-Imports mesh geometry, materials, textures, skeleton, animations
-Creates asset files in Content Browser
-Shows preview thumbnail
-Can drag mesh from Content Browser into scene or onto actors
-Animations are separate assets linked to skeleton
+Child inherits EVERYTHING from parent (components, variables, nodes, properties)
+Child can OVERRIDE parent values (but keeps parent structure)
+Child can ADD new components, variables, nodes (extends parent)
+Child CANNOT REMOVE parent's components or variables
+Parent changes propagate to ALL children automatically
+Overrides are preserved when parent updates
 
-Supported Formats (Three.js Compatible):
-3D Model Formats:
-├── .gltf / .glb (Recommended - full support)
-│   ├── Geometry ✓
-│   ├── Materials ✓
-│   ├── Textures (embedded or external) ✓
-│   ├── Skeleton ✓
-│   ├── Animations ✓
-│   ├── Morph targets ✓
-│   └── PBR materials ✓
-│
-├── .fbx (via FBXLoader)
-│   ├── Geometry ✓
-│   ├── Materials ✓
-│   ├── Textures ✓
-│   ├── Skeleton ✓
-│   └── Animations ✓
-│
-├── .obj (via OBJLoader)
-│   ├── Geometry ✓
-│   ├── Materials (via .mtl) ✓
-│   └── Textures ✓
-│   └── No animations
-│
-├── .dae / Collada (via ColladaLoader)
-│   ├── Geometry ✓
-│   ├── Animations ✓
-│   └── Skeleton ✓
-│
-├── .stl (via STLLoader)
-│   └── Geometry only ✓
-│
-└── .ply (via PLYLoader)
-    └── Geometry only ✓
-RECOMMENDED: Use GLTF/GLB for best results (full feature support in Three.js)
 
 Content Browser Integration
-Import Methods:
-Method 1: Drag & Drop
-User Action:
-1. Drag file from OS file explorer
-2. Drop onto Content Browser
-3. System detects format
-4. Import dialog appears
-5. Configure import settings
-6. Import completes
-7. Asset appears in Content Browser
-Method 2: Import Button
+Creating Parent Class:
 Content Browser:
-├── [Import] button
-│   └── Opens file picker
-│       ├── Filter: .gltf, .glb, .fbx, .obj, .dae, .stl, .ply
-│       └── Multi-select supported
-Content Browser Display:
+└── Right-click → Create → Actor
+    ├── Empty Actor
+    ├── Character Pawn
+    └── Custom Actor
+
+Name: PlayerCharacter
+Parent Class: CharacterPawn (or none for base)
+Creating Child Class:
+Method 1: Right-click existing class
 Content Browser:
-├── Meshes/
-│   ├── 📦 Character.glb
-│   │   └── Thumbnail: 3D preview (rotating)
-│   │
-│   ├── 📦 Weapon.fbx
-│   │   └── Thumbnail: 3D preview
-│   │
-│   ├── 🎬 Character_Idle.anim
-│   │   └── Animation asset (linked to Character skeleton)
-│   │
-│   ├── 🎬 Character_Walk.anim
-│   │   └── Animation asset
-│   │
-│   ├── 🖼️ Character_Diffuse.png
-│   │   └── Texture asset
-│   │
-│   └── 🎨 Character_Material.mat
-│       └── Material asset
+└── Right-click "PlayerCharacter" → Create Child Class
+    └── Enter Name: "WarriorCharacter"
+        └── Creates child with PlayerCharacter as parent
 
-Import Dialog (Like Unreal Engine)
-Import Settings Dialog:
-Import Mesh: Character.glb
+Method 2: Create with parent selection
+Content Browser:
+└── Right-click → Create → Actor
+    └── Parent Class: [PlayerCharacter ▼]
+        └── Name: "WarriorCharacter"
+Visual Indicators in Content Browser:
+Content Browser - Actors/
 
-├── General:
-│   ├── Import As: [Skeletal Mesh ▼]
-│   │   ├── Static Mesh (no skeleton/animations)
-│   │   ├── Skeletal Mesh (with skeleton, can animate)
-│   │   └── Auto-detect (default)
-│   └── Asset Name: [Character]
-│
-├── Mesh:
-│   ├── [✓] Import Mesh
-│   ├── Scale: [1.0]
-│   ├── [✓] Generate Lightmap UVs
-│   └── [✓] Combine Meshes (if multiple in file)
-│
-├── Materials:
-│   ├── [✓] Import Materials
-│   ├── [✓] Import Textures
-│   ├── Material Import Method:
-│   │   ├── (•) Create New Materials
-│   │   ├── ( ) Use Existing Materials
-│   │   └── ( ) Don't Import Materials
-│   └── Texture Folder: [Textures/]
-│
-├── Skeleton & Animation:
-│   ├── [✓] Import Skeleton
-│   ├── [✓] Import Animations
-│   ├── Skeleton: [Create New ▼]
-│   │   ├── Create New
-│   │   └── Use Existing: [Select skeleton...]
-│   └── Animation Import:
-│       ├── [✓] Import All Animations
-│       ├── Animation Names:
-│       │   ├── Idle [✓]
-│       │   ├── Walk [✓]
-│       │   ├── Run [✓]
-│       │   └── Jump [✓]
-│       └── [✓] Remove Root Motion
-│
-├── Transform:
-│   ├── Position Offset: X[0] Y[0] Z[0]
-│   ├── Rotation Offset: X[0] Y[0] Z[0]
-│   └── Scale: [1.0]
-│
-└── Advanced:
-    ├── [✓] Convert to Y-Up (if Z-Up detected)
-    ├── [✓] Generate Normals (if missing)
-    ├── [✓] Generate Tangents (for normal maps)
-    └── [✓] Optimize Mesh (remove duplicates)
+📦 PlayerCharacter (Parent)
+  └── Inherited from: CharacterPawn
 
-[Import] [Cancel]
+    📦 WarriorCharacter (Child)
+      └── Inherited from: PlayerCharacter
+      └── 🔗 Parent: PlayerCharacter
 
-JSON Structure for Imported Assets
-Mesh Asset (Static Mesh):
+    📦 MageCharacter (Child)
+      └── Inherited from: PlayerCharacter
+      └── 🔗 Parent: PlayerCharacter
+
+📦 EnemyBase (Parent)
+  └── Inherited from: Actor
+
+    📦 Zombie (Child)
+      └── 🔗 Parent: EnemyBase
+
+JSON Structure with Inheritance
+Parent Class JSON:
 json{
-  "assetId": "mesh-001",
-  "assetType": "staticMesh",
-  "assetName": "Cube",
-  "sourceFile": "Meshes/Cube.glb",
-  "importDate": "2024-01-15T10:30:00Z",
-  "importSettings": {
-    "scale": 1.0,
-    "generateLightmapUVs": true,
-    "generateNormals": false,
-    "generateTangents": true,
-    "optimizeMesh": true
-  },
-  "meshData": {
-    "format": "gltf",
-    "vertexCount": 24,
-    "triangleCount": 12,
-    "boundingBox": {
-      "min": {"x": -1, "y": -1, "z": -1},
-      "max": {"x": 1, "y": 1, "z": 1}
-    },
-    "hasUVs": true,
-    "hasNormals": true,
-    "hasTangents": true,
-    "hasVertexColors": false
-  },
-  "materials": ["mat-001"],
-  "textures": ["tex-001", "tex-002"],
-  "thumbnail": "Thumbnails/Cube.png"
-}
-Skeletal Mesh Asset:
-json{
-  "assetId": "skelmesh-001",
-  "assetType": "skeletalMesh",
-  "assetName": "Character",
-  "sourceFile": "Meshes/Character.glb",
-  "importDate": "2024-01-15T10:30:00Z",
-  "meshData": {
-    "format": "gltf",
-    "vertexCount": 5420,
-    "triangleCount": 3210,
-    "boundingBox": {
-      "min": {"x": -0.5, "y": 0, "z": -0.5},
-      "max": {"x": 0.5, "y": 2.0, "z": 0.5}
-    },
-    "hasSkin": true,
-    "hasUVs": true,
-    "hasNormals": true,
-    "morphTargets": []
-  },
-  "skeleton": "skel-001",
-  "materials": ["mat-002", "mat-003"],
-  "textures": ["tex-003", "tex-004", "tex-005"],
-  "animations": ["anim-001", "anim-002", "anim-003"],
-  "thumbnail": "Thumbnails/Character.png"
-}
-Skeleton Asset:
-json{
-  "assetId": "skel-001",
-  "assetType": "skeleton",
-  "assetName": "Character_Skeleton",
-  "sourceFile": "Meshes/Character.glb",
-  "bones": [
+  "actorId": "player-character-class",
+  "actorName": "PlayerCharacter",
+  "actorType": "CharacterPawn",
+  "isParentClass": true,
+  "parentClass": "CharacterPawn",
+  "childClasses": [
+    "warrior-character-class",
+    "mage-character-class",
+    "archer-character-class"
+  ],
+  "classVersion": 1,
+  "components": [
     {
-      "name": "Root",
-      "parentIndex": -1,
-      "position": {"x": 0, "y": 0, "z": 0},
-      "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
-      "scale": {"x": 1, "y": 1, "z": 1}
+      "componentId": "capsule-collision",
+      "type": "collision",
+      "collisionShape": "capsule",
+      "radius": 0.5,
+      "height": 2.0,
+      "isInherited": false,
+      "canOverride": true
     },
     {
-      "name": "Spine",
-      "parentIndex": 0,
-      "position": {"x": 0, "y": 1.0, "z": 0},
-      "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
-      "scale": {"x": 1, "y": 1, "z": 1}
+      "componentId": "character-mesh",
+      "type": "mesh",
+      "path": null,
+      "isInherited": false,
+      "canOverride": true
     },
     {
-      "name": "Head",
-      "parentIndex": 1,
-      "position": {"x": 0, "y": 0.5, "z": 0},
-      "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
-      "scale": {"x": 1, "y": 1, "z": 1}
+      "componentId": "health-component",
+      "type": "custom",
+      "isInherited": false,
+      "canOverride": true
     }
   ],
-  "boneCount": 3,
-  "thumbnail": "Thumbnails/Character_Skeleton.png"
-}
-Animation Asset:
-json{
-  "assetId": "anim-001",
-  "assetType": "animation",
-  "assetName": "Character_Idle",
-  "sourceFile": "Meshes/Character.glb",
-  "skeleton": "skel-001",
-  "animationData": {
-    "duration": 2.0,
-    "fps": 30,
-    "frameCount": 60,
-    "loop": true,
-    "tracks": [
-      {
-        "boneName": "Spine",
-        "type": "position",
-        "times": [0, 0.5, 1.0, 1.5, 2.0],
-        "values": [
-          {"x": 0, "y": 1.0, "z": 0},
-          {"x": 0, "y": 1.05, "z": 0},
-          {"x": 0, "y": 1.0, "z": 0},
-          {"x": 0, "y": 1.05, "z": 0},
-          {"x": 0, "y": 1.0, "z": 0}
-        ]
-      },
-      {
-        "boneName": "Spine",
-        "type": "rotation",
-        "times": [0, 1.0, 2.0],
-        "values": [
-          {"x": 0, "y": 0, "z": 0, "w": 1},
-          {"x": 0, "y": 0.1, "z": 0, "w": 0.995},
-          {"x": 0, "y": 0, "z": 0, "w": 1}
-        ]
-      }
-    ]
-  },
-  "thumbnail": "Thumbnails/Character_Idle.gif"
-}
-Material Asset:
-json{
-  "assetId": "mat-001",
-  "assetType": "material",
-  "assetName": "Character_Material",
-  "sourceFile": "Meshes/Character.glb",
-  "materialData": {
-    "type": "PBR",
-    "baseColor": "#ffffff",
-    "baseColorMap": "tex-003",
-    "normalMap": "tex-004",
-    "metallicRoughnessMap": "tex-005",
-    "metalness": 0.0,
-    "roughness": 0.8,
-    "emissive": "#000000",
-    "emissiveIntensity": 0.0,
-    "opacity": 1.0,
-    "doubleSided": false,
-    "alphaMode": "OPAQUE"
-  },
-  "thumbnail": "Thumbnails/Character_Material.png"
-}
-Texture Asset:
-json{
-  "assetId": "tex-001",
-  "assetType": "texture",
-  "assetName": "Character_Diffuse",
-  "sourceFile": "Textures/Character_Diffuse.png",
-  "textureData": {
-    "width": 2048,
-    "height": 2048,
-    "format": "RGBA",
-    "mipMaps": true,
-    "wrapS": "repeat",
-    "wrapT": "repeat",
-    "magFilter": "linear",
-    "minFilter": "linearMipmapLinear"
-  },
-  "thumbnail": "Thumbnails/Character_Diffuse.png"
-}
-
-Three.js Import Implementation
-GLTF/GLB Import (Recommended):
-javascriptimport { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-
-const loader = new GLTFLoader();
-
-loader.load('assets/meshes/Character.glb', (gltf) => {
-  const scene = gltf.scene;
-  const animations = gltf.animations;
-
-  // Extract mesh
-  const mesh = scene.children[0];
-
-  // Extract skeleton (if skeletal mesh)
-  const skinnedMesh = mesh.isSkinnedMesh ? mesh : null;
-  const skeleton = skinnedMesh ? skinnedMesh.skeleton : null;
-
-  // Extract materials
-  const materials = [];
-  scene.traverse((child) => {
-    if (child.isMesh && child.material) {
-      materials.push(child.material);
+  "variables": [
+    {
+      "variableId": "var-health",
+      "variableName": "maxHealth",
+      "variableType": "float",
+      "defaultValue": 100.0,
+      "isInherited": false,
+      "canOverride": true,
+      "category": "Stats"
+    },
+    {
+      "variableId": "var-speed",
+      "variableName": "walkSpeed",
+      "variableType": "float",
+      "defaultValue": 600.0,
+      "isInherited": false,
+      "canOverride": true,
+      "category": "Movement"
     }
-  });
-
-  // Extract textures
-  const textures = [];
-  materials.forEach(material => {
-    if (material.map) textures.push(material.map);
-    if (material.normalMap) textures.push(material.normalMap);
-    if (material.roughnessMap) textures.push(material.roughnessMap);
-    // ... other maps
-  });
-
-  // Create animation mixer (if animations exist)
-  if (animations.length > 0) {
-    const mixer = new THREE.AnimationMixer(scene);
-    animations.forEach(clip => {
-      const action = mixer.clipAction(clip);
-      // Store animation for later use
-    });
-  }
-
-  // Save assets to project
-  saveAssets({
-    mesh: mesh,
-    skeleton: skeleton,
-    animations: animations,
-    materials: materials,
-    textures: textures
-  });
-});
-FBX Import:
-javascriptimport { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-
-const loader = new FBXLoader();
-
-loader.load('assets/meshes/Character.fbx', (fbx) => {
-  // Similar extraction process as GLTF
-  const mesh = fbx;
-  const animations = fbx.animations;
-
-  // Process and save...
-});
-OBJ Import:
-javascriptimport { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
-
-// Load materials first (if .mtl exists)
-const mtlLoader = new MTLLoader();
-mtlLoader.load('assets/meshes/Model.mtl', (materials) => {
-  materials.preload();
-
-  // Then load OBJ with materials
-  const objLoader = new OBJLoader();
-  objLoader.setMaterials(materials);
-  objLoader.load('assets/meshes/Model.obj', (obj) => {
-    // Process and save...
-  });
-});
-```
-
----
-
-## Content Browser Asset Display
-
-**Asset Card in Content Browser:**
-```
-┌─────────────────────┐
-│   [3D Preview]      │ ← Rotating 3D thumbnail
-│                     │
-├─────────────────────┤
-│ 📦 Character        │ ← Asset name
-│ Skeletal Mesh      │ ← Asset type
-├─────────────────────┤
-│ 🎬 3 Animations     │ ← Extra info
-│ 🎨 2 Materials      │
-│ 🖼️ 5 Textures       │
-└─────────────────────┘
-
-Right-click menu:
-├── Edit
-├── Rename
-├── Duplicate
-├── Delete
-├── Re-import
-├── Show in Folder
-└── Properties
-```
-
-**Asset Details Panel (When Selected):**
-```
-Asset Details: Character
-
-├── Info:
-│   ├── Name: Character
-│   ├── Type: Skeletal Mesh
-│   ├── File: Meshes/Character.glb
-│   ├── Size: 2.5 MB
-│   └── Imported: 2024-01-15 10:30 AM
-│
-├── Mesh Data:
-│   ├── Vertices: 5,420
-│   ├── Triangles: 3,210
-│   ├── Bones: 45
-│   └── LODs: 1
-│
-├── Materials (2):
-│   ├── Body_Material
-│   └── Face_Material
-│
-├── Textures (5):
-│   ├── Body_Diffuse (2048x2048)
-│   ├── Body_Normal (2048x2048)
-│   ├── Body_MetallicRoughness (2048x2048)
-│   ├── Face_Diffuse (1024x1024)
-│   └── Face_Normal (1024x1024)
-│
-├── Animations (3):
-│   ├── Idle (2.0s, 60 frames, loop)
-│   ├── Walk (1.5s, 45 frames, loop)
-│   └── Jump (0.8s, 24 frames, no loop)
-│
-└── Actions:
-    ├── [Edit Mesh]
-    ├── [View Skeleton]
-    ├── [Preview Animations]
-    └── [Re-import]
-```
-
----
-
-## Using Imported Meshes
-
-**Method 1: Drag to Scene**
-```
-Content Browser → Drag mesh → Scene Viewport
-Result: Creates new Actor with mesh component
-```
-
-**Method 2: Add to Existing Actor**
-```
-Actor Editor:
-├── Components Panel
-│   └── [+ Add Component] → Mesh Component
-│       └── Select Mesh: [Character ▼]
-```
-
-**Method 3: Reference in Blueprint**
-```
-Blueprint:
-[Spawn Actor from Class]
-├── Class: Character Actor
-└── Mesh: Character (from Content Browser)
-
-Animation System Integration
-Animation Component:
+  ],
+  "nodes": [
+    {
+      "nodeId": "node-001",
+      "nodeType": "OnBeginPlay",
+      "isInherited": false,
+      "canOverride": true,
+      "outputs": ["node-002"]
+    },
+    {
+      "nodeId": "node-002",
+      "nodeType": "PrintString",
+      "parameters": {
+        "message": "Character spawned"
+      },
+      "isInherited": false,
+      "canOverride": true
+    }
+  ]
+}
+Child Class JSON:
 json{
-  "componentId": "anim-001",
-  "type": "animation",
-  "skeletalMesh": "skelmesh-001",
-  "skeleton": "skel-001",
-  "currentAnimation": "anim-001",
-  "animationMode": "single",
-  "properties": {
-    "loop": true,
-    "speed": 1.0,
-    "blendTime": 0.2,
-    "autoPlay": true
-  },
-  "availableAnimations": [
+  "actorId": "warrior-character-class",
+  "actorName": "WarriorCharacter",
+  "actorType": "CharacterPawn",
+  "isChildClass": true,
+  "parentClass": "player-character-class",
+  "parentVersion": 1,
+  "classVersion": 1,
+  "components": [
     {
-      "name": "Idle",
-      "asset": "anim-001",
-      "duration": 2.0
+      "componentId": "capsule-collision",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": false
     },
     {
-      "name": "Walk",
-      "asset": "anim-002",
-      "duration": 1.5
+      "componentId": "character-mesh",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": true,
+      "overrideData": {
+        "path": "assets/models/warrior.glb"
+      }
     },
     {
-      "name": "Run",
-      "asset": "anim-003",
-      "duration": 1.0
+      "componentId": "health-component",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": false
+    },
+    {
+      "componentId": "armor-component",
+      "type": "custom",
+      "isInherited": false,
+      "addedInChild": true
+    }
+  ],
+  "variables": [
+    {
+      "variableId": "var-health",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": true,
+      "overrideValue": 150.0
+    },
+    {
+      "variableId": "var-speed",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": false
+    },
+    {
+      "variableId": "var-armor",
+      "variableName": "armorValue",
+      "variableType": "float",
+      "defaultValue": 50.0,
+      "isInherited": false,
+      "addedInChild": true,
+      "category": "Stats"
+    }
+  ],
+  "nodes": [
+    {
+      "nodeId": "node-001",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": false
+    },
+    {
+      "nodeId": "node-002",
+      "isInherited": true,
+      "inheritedFrom": "player-character-class",
+      "overridden": true,
+      "overrideData": {
+        "parameters": {
+          "message": "Warrior spawned!"
+        }
+      }
+    },
+    {
+      "nodeId": "node-003",
+      "nodeType": "PlaySound",
+      "parameters": {
+        "sound": "warrior_spawn.wav"
+      },
+      "isInherited": false,
+      "addedInChild": true
     }
   ]
 }
 ```
 
-**Animation Blueprint Nodes:**
+---
+
+## Class Editor with Inheritance Indicators
+
+**Parent Class Editor:**
 ```
-[Play Animation]
-├── Input Exec
-├── Input: Skeletal Mesh Component
-├── Input: Animation Asset
-├── Input: Loop (Boolean)
-├── Input: Speed (Float)
-└── Output Exec
+Class Editor: PlayerCharacter
 
-[Stop Animation]
-├── Input Exec
-├── Input: Skeletal Mesh Component
-└── Output Exec
+├── Class Info:
+│   ├── Name: PlayerCharacter
+│   ├── Parent: CharacterPawn
+│   ├── Type: Parent Class
+│   ├── Children: 3 (Warrior, Mage, Archer)
+│   └── ⚠️ Changes will affect all child classes
+│
+├── Components Panel:
+│   ├── 📦 CapsuleCollision
+│   ├── 📦 CharacterMesh
+│   └── 📦 HealthComponent
+│       └── [Can be overridden by children]
+│
+├── Variables Panel:
+│   ├── maxHealth (Float) = 100.0
+│   │   └── [Can be overridden by children]
+│   └── walkSpeed (Float) = 600.0
+│       └── [Can be overridden by children]
+│
+└── Blueprint Editor:
+    └── [Node graph]
+        └── [Can be overridden by children]
+```
 
-[Blend to Animation]
-├── Input Exec
-├── Input: Skeletal Mesh Component
-├── Input: Target Animation
-├── Input: Blend Time (seconds)
-└── Output Exec
+**Child Class Editor:**
+```
+Class Editor: WarriorCharacter
 
-[Get Current Animation]
-├── Input: Skeletal Mesh Component
-└── Output: Animation Asset
+├── Class Info:
+│   ├── Name: WarriorCharacter
+│   ├── Parent: PlayerCharacter 🔗
+│   ├── Type: Child Class
+│   └── [Open Parent Class]
+│
+├── Components Panel:
+│   ├── 🔗 CapsuleCollision (Inherited)
+│   │   └── [Using parent values]
+│   │
+│   ├── 🔗 CharacterMesh (Inherited, Overridden) ✏️
+│   │   └── Path: warrior.glb (child override)
+│   │   └── [Reset to Parent Value]
+│   │
+│   ├── 🔗 HealthComponent (Inherited)
+│   │   └── [Using parent values]
+│   │
+│   └── ➕ ArmorComponent (Added in child)
+│       └── [New in WarriorCharacter]
+│
+├── Variables Panel:
+│   ├── 🔗 maxHealth (Inherited, Overridden) ✏️
+│   │   └── Value: 150.0 (was 100.0 in parent)
+│   │   └── [Reset to Parent Value: 100.0]
+│   │
+│   ├── 🔗 walkSpeed (Inherited)
+│   │   └── Value: 600.0 (from parent)
+│   │
+│   └── ➕ armorValue (Added in child)
+│       └── Value: 50.0 (new variable)
+│
+└── Blueprint Editor:
+    ├── 🔗 OnBeginPlay → PrintString (Inherited, Overridden) ✏️
+    │   └── Message: "Warrior spawned!" (was "Character spawned")
+    │   └── [Reset to Parent Logic]
+    │
+    └── ➕ PlaySound (Added in child)
+        └── Sound: warrior_spawn.wav
+```
 
-[Is Playing Animation]
-├── Input: Skeletal Mesh Component
+**Visual Indicators:**
+- 🔗 = Inherited from parent
+- ✏️ = Overridden in child
+- ➕ = Added in child (not in parent)
+- [Reset to Parent Value] = Button to remove override
+
+---
+
+## Inheritance Rules & Behavior
+
+**What Happens When Parent Updates:**
+
+**Scenario 1: Parent adds new component**
+```
+Parent (PlayerCharacter):
+├── Add new component: "StaminaComponent"
+└── Save
+
+System Action:
+└── Automatically adds "StaminaComponent" to ALL children:
+    ├── WarriorCharacter: + StaminaComponent (inherited)
+    ├── MageCharacter: + StaminaComponent (inherited)
+    └── ArcherCharacter: + StaminaComponent (inherited)
+```
+
+**Scenario 2: Parent changes variable default value**
+```
+Parent (PlayerCharacter):
+├── Change: maxHealth = 100.0 → 120.0
+└── Save
+
+System Action:
+├── WarriorCharacter:
+│   └── maxHealth = 150.0 (overridden, UNCHANGED)
+├── MageCharacter:
+│   └── maxHealth = 120.0 (inherited, UPDATED)
+└── ArcherCharacter:
+    └── maxHealth = 120.0 (inherited, UPDATED)
+
+Rule: Children with overrides keep their values
+      Children without overrides get new parent value
+```
+
+**Scenario 3: Parent removes component**
+```
+Parent (PlayerCharacter):
+├── Remove: "HealthComponent"
+└── Save
+
+System Action:
+└── Removes "HealthComponent" from ALL children:
+    ├── WarriorCharacter: - HealthComponent
+    ├── MageCharacter: - HealthComponent
+    └── ArcherCharacter: - HealthComponent
+
+⚠️ Warning shown: "This will remove HealthComponent from 3 child classes"
+```
+
+**Scenario 4: Parent modifies blueprint logic**
+```
+Parent (PlayerCharacter):
+├── Modify: OnBeginPlay node graph
+└── Save
+
+System Action:
+├── WarriorCharacter:
+│   └── OnBeginPlay: Custom logic (overridden, UNCHANGED)
+├── MageCharacter:
+│   └── OnBeginPlay: Updated to new parent logic
+└── ArcherCharacter:
+    └── OnBeginPlay: Updated to new parent logic
+```
+
+---
+
+## Override System
+
+**Overriding in Child Class:**
+
+**Method 1: Override Variable Value**
+```
+Child Class Editor:
+├── Variables Panel
+│   └── maxHealth (Inherited: 100.0)
+│       └── Click value → Edit → 150.0
+│           └── Now marked as "Overridden" ✏️
+│           └── [Reset to Parent Value] button appears
+```
+
+**Method 2: Override Component Property**
+```
+Child Class Editor:
+├── Components Panel
+│   └── CharacterMesh (Inherited)
+│       └── Properties:
+│           └── Mesh Path: null (from parent)
+│               └── Click → Select mesh → warrior.glb
+│                   └── Now marked as "Overridden" ✏️
+```
+
+**Method 3: Override Blueprint Logic**
+```
+Child Class Editor:
+├── Blueprint Editor
+│   └── Right-click inherited node
+│       └── "Override in Child Class"
+│           └── Node becomes editable
+│           └── Marked as "Overridden" ✏️
+│           └── Can modify parameters/connections
+```
+
+**Reset Override:**
+```
+Any overridden item:
+└── Right-click → "Reset to Parent Value"
+    └── Removes override
+    └── Reverts to parent's value
+    └── Future parent changes will apply again
+```
+
+---
+
+## Class Browser / Hierarchy View
+
+**New Panel: Class Hierarchy Browser**
+```
+Class Hierarchy:
+
+└── 📁 Engine Classes
+    ├── Actor
+    │   ├── CharacterPawn
+    │   └── StaticMeshActor
+    └── Object
+
+└── 📁 Project Classes
+    ├── PlayerCharacter (extends CharacterPawn)
+    │   ├── WarriorCharacter
+    │   ├── MageCharacter
+    │   └── ArcherCharacter
+    │
+    ├── EnemyBase (extends Actor)
+    │   ├── Zombie
+    │   ├── Skeleton
+    │   └── Boss
+    │
+    └── Item (extends Actor)
+        ├── Weapon
+        │   ├── Sword
+        │   ├── Axe
+        │   └── Bow
+        └── Consumable
+            ├── HealthPotion
+            └── ManaPotion
+
+Filters:
+├── [✓] Show Engine Classes
+├── [✓] Show Parent Classes Only
+└── [ ] Show All Classes
+
+Right-click on class:
+├── Create Child Class
+├── Open in Editor
+├── Show Children (3)
+├── Show Parent
+└── Find References
+```
+
+---
+
+## Warning System for Parent Changes
+
+**When Modifying Parent Class:**
+```
+⚠️ Warning Dialog:
+
+You are editing a Parent Class: PlayerCharacter
+
+This class has 3 child classes:
+├── WarriorCharacter
+├── MageCharacter
+└── ArcherCharacter
+
+Changes you make will affect all child classes unless they have overridden the specific property.
+
+Do you want to continue?
+
+[✓] Don't show this again for this session
+[Continue] [Cancel]
+```
+
+**When Saving Parent Class:**
+```
+💾 Saving Parent Class: PlayerCharacter
+
+Changes detected:
+├── ✓ Added component: StaminaComponent
+│   └── Will be added to 3 child classes
+│
+├── ✓ Modified variable: maxHealth (100.0 → 120.0)
+│   └── Will update 2 child classes
+│   └── WarriorCharacter has override (will not change)
+│
+└── ✓ Modified blueprint: OnBeginPlay node
+    └── Will update 2 child classes
+    └── WarriorCharacter has override (will not change)
+
+Affected classes:
+├── WarriorCharacter (1 change)
+├── MageCharacter (3 changes)
+└── ArcherCharacter (3 changes)
+
+[Save] [Cancel] [Review Changes]
+```
+
+---
+
+## Blueprint Nodes for Class System
+
+**Class Query Nodes:**
+```
+[Get Parent Class]
+├── Input: Actor Reference
+└── Output: Class Reference
+
+[Get Child Classes]
+├── Input: Class Reference
+└── Output: Array of Class References
+
+[Is Child Of]
+├── Input: Class Reference
+├── Input: Parent Class Reference
 └── Output: Boolean
+
+[Cast to Class]
+├── Input: Object Reference
+├── Input: Target Class
+└── Outputs:
+    ├── Success Exec
+    ├── Fail Exec
+    └── Casted Object
 ```
 
-**Example Animation Blueprint:**
+**Example Usage:**
 ```
-[Get Movement Speed]
+[Get Actor Class]
     ↓
-[If Speed > 500]
-    ↓ (True - Running)
-    [Blend to Animation]
-    └── Animation: Run
-    ↓ (False)
-    [If Speed > 100]
-        ↓ (True - Walking)
-        [Blend to Animation]
-        └── Animation: Walk
-        ↓ (False - Idle)
-        [Blend to Animation]
-        └── Animation: Idle
+[Is Child Of]
+├── Class: [This actor's class]
+└── Parent: PlayerCharacter
+    ↓
+    [If True]
+        ↓
+        [Print] "This is a player character type"
 ```
 
 ---
 
-## Mesh Preview Window
+## Reparenting (Change Parent Class)
 
-**3D Preview Panel (When Double-Click Asset):**
+**Reparent Child Class:**
 ```
-Mesh Preview: Character
+Right-click child class → "Change Parent Class"
 
-┌─────────────────────────────────────┐
-│                                     │
-│        [3D Viewport]                │
-│     Rotating 3D model               │
-│     with lighting                   │
-│                                     │
-│  Controls:                          │
-│  - Left Mouse: Rotate               │
-│  - Middle Mouse: Pan                │
-│  - Scroll: Zoom                     │
-│  - Right Mouse: Context menu        │
-│                                     │
-└─────────────────────────────────────┘
+⚠️ Warning: Changing Parent Class
 
-├── Viewport Options:
-│   ├── Wireframe: [ ]
-│   ├── Show Skeleton: [ ]
-│   ├── Show Normals: [ ]
-│   └── Show Bounds: [✓]
-│
-├── Animation Preview (if skeletal):
-│   ├── Animation: [Idle ▼]
-│   ├── Play/Pause: [▶️]
-│   ├── Speed: [1.0x]
-│   └── Timeline: ━━━━━●━━━━━
-│
-├── Material Preview:
-│   ├── Material 1: Body_Material [Edit]
-│   └── Material 2: Face_Material [Edit]
-│
-└── Statistics:
-    ├── Vertices: 5,420
-    ├── Triangles: 3,210
-    ├── Draw Calls: 2
-    └── Texture Memory: 16 MB
+Current parent: PlayerCharacter
+New parent: [Select new parent ▼]
+
+⚠️ This may cause data loss:
+├── Components from old parent will be removed
+├── Variables from old parent will be removed
+├── Overrides may be lost
+└── Blueprint logic may break
+
+Backup will be created automatically.
+
+[Change Parent] [Cancel]
 ```
 
 ---
 
-## File Organization After Import
+## Propagation System (Parent → Children Updates)
+
+**Update Propagation Flow:**
 ```
-Project/
-├── Content/
-│   ├── Meshes/
-│   │   ├── Character.glb (original file)
-│   │   ├── Character.mesh (processed mesh asset)
-│   │   └── Weapon.obj
-│   │
-│   ├── Skeletons/
-│   │   └── Character_Skeleton.skel
-│   │
-│   ├── Animations/
-│   │   ├── Character_Idle.anim
-│   │   ├── Character_Walk.anim
-│   │   └── Character_Run.anim
-│   │
-│   ├── Materials/
-│   │   ├── Character_Body.mat
-│   │   └── Character_Face.mat
-│   │
-│   ├── Textures/
-│   │   ├── Character_Diffuse.png
-│   │   ├── Character_Normal.png
-│   │   └── Character_MetallicRoughness.png
-│   │
-│   └── Thumbnails/
-│       ├── Character.png
-│       ├── Character_Idle.gif
-│       └── ...
-│
-└── project.json (references all assets)
+1. User saves parent class
+   ↓
+2. System detects changes:
+   - New components
+   - Removed components
+   - Modified default values
+   - Blueprint changes
+   ↓
+3. For each child class:
+   ├── Load child class
+   ├── Check for overrides
+   ├── Apply non-overridden changes
+   ├── Keep overridden values
+   ├── Validate integrity
+   └── Save child class
+   ↓
+4. Show summary:
+   "Updated 3 child classes successfully"
 ```
 
----
-
-## Batch Import Support
-
-**Import Multiple Files:**
+**Propagation Rules Table:**
 ```
-User Action:
-1. Select multiple files in file picker
-2. Import all at once
-3. Shows progress bar
-4. Import settings apply to all (or individually)
+| Change Type          | Child w/o Override | Child w/ Override |
+|----------------------|-------------------|-------------------|
+| Add component        | ✓ Added           | ✓ Added           |
+| Remove component     | ✓ Removed         | ✓ Removed         |
+| Add variable         | ✓ Added           | ✓ Added           |
+| Remove variable      | ✓ Removed         | ✓ Removed         |
+| Change default value | ✓ Updated         | ✗ Keep override   |
+| Modify blueprint     | ✓ Updated         | ✗ Keep override   |
+| Add node             | ✓ Added           | ✓ Added           |
+| Remove node          | ✓ Removed         | ✓ Removed*        |
 
-Progress Dialog:
-┌─────────────────────────────────┐
-│ Importing Assets...             │
-│                                 │
-│ [████████████░░░░░░░] 65%      │
-│                                 │
-│ Character.glb ✓                 │
-│ Weapon.fbx ✓                    │
-│ Enemy.glb ... (processing)      │
-│ Props.obj (waiting)             │
-│                                 │
-│ 2 of 4 complete                 │
-└─────────────────────────────────┘
+* Warning shown if child references removed node
 ```
 
 ---
 
-## Re-Import System
+## Instance vs Class
 
-**Re-import Asset (Update from Source):**
+**Important Distinction:**
 ```
-Right-click asset → Re-import
+CLASS (Blueprint/Template):
+├── Defines structure and default values
+├── Stored in Content Browser
+├── Can be parent or child
+└── Changes affect all instances
 
-System:
-1. Checks if source file changed
-2. Re-imports with same settings
-3. Updates all instances automatically
-4. Preserves material overrides
-5. Shows what changed (diff)
+INSTANCE (Spawned in Scene):
+├── Created from a class
+├── Placed in scene
+├── Can override class values
+└── Changes only affect this instance
 
 Example:
-"Character.glb has been updated
- - Added 2 new animations
- - Updated mesh geometry
- - Material count unchanged
+├── Class: WarriorCharacter (in Content Browser)
+│   └── Default health: 150
+│
+└── Instances in Scene:
+    ├── Warrior_01 (health: 150 from class)
+    ├── Warrior_02 (health: 200 overridden in instance)
+    └── Warrior_03 (health: 150 from class)
 
- Re-import will update all instances.
- Continue?"
+Version Control & Conflict Resolution
+Version Tracking:
+json{
+  "actorId": "warrior-character-class",
+  "actorName": "WarriorCharacter",
+  "parentClass": "player-character-class",
+  "parentVersion": 1,
+  "classVersion": 1,
+  "lastSyncedWithParent": "2024-01-15T10:30:00Z",
+  "parentVersionHistory": [
+    {
+      "version": 1,
+      "syncDate": "2024-01-15T10:30:00Z",
+      "changes": ["Added StaminaComponent", "Updated maxHealth"]
+    }
+  ]
+}
+```
 
- [Yes] [No] [Review Changes]
+**Out-of-Sync Warning:**
+```
+⚠️ Parent Class Updated
 
-The Point (Like Unreal Engine with Three.js)
-Mesh Import System:
+WarriorCharacter is based on an older version of PlayerCharacter.
 
-Drag & drop mesh files into Content Browser
-Auto-detect format (GLTF, FBX, OBJ, etc.)
-Import everything: mesh, skeleton, animations, materials, textures
-Show 3D previews in Content Browser (thumbnails)
-Preview animations in preview window
-Drag to scene or add to actors
-Re-import support (update from source file)
+Parent changes since last sync:
+├── Added: StaminaComponent
+├── Modified: maxHealth (100 → 120)
+└── Removed: OldComponent
 
-Asset Management:
+[Update from Parent] [Review Changes] [Ignore]
+```
 
-Separate assets (mesh, skeleton, animations, materials)
-Link relationships (animation → skeleton → mesh)
-Reusable assets (one skeleton, many animations)
-Organized folders (Meshes/, Animations/, Materials/, Textures/)
+---
 
-Animation Support:
+## Complete Example: Creating Class Hierarchy
 
-Import animations from GLTF/FBX
-Play animations via blueprint nodes
-Blend animations smoothly
-Preview animations in editor
-Animation timeline control
+**Step 1: Create Parent Class**
+```
+Content Browser → Right-click → Create Actor
+├── Name: "Enemy"
+├── Parent: Actor
+├── Add components:
+│   ├── CapsuleCollision
+│   ├── Mesh
+│   └── HealthComponent
+├── Add variables:
+│   ├── health (float) = 100
+│   ├── speed (float) = 400
+│   └── damage (float) = 10
+└── Save
+```
 
-Integration with Systems:
+**Step 2: Create Child Class**
+```
+Content Browser → Right-click "Enemy" → Create Child Class
+├── Name: "ZombieEnemy"
+├── Inherits all from Enemy:
+│   ├── Components ✓
+│   ├── Variables ✓
+│   └── Logic ✓
+├── Override:
+│   └── Mesh: zombie.glb
+├── Add new:
+│   └── Variable: infectionRadius (float) = 5
+└── Save
+```
 
-Works with Actor system (mesh components)
-Works with Material system (PBR materials)
-Works with Animation system (skeletal animation)
-Works with Blueprint system (animation nodes)
-Saves to JSON (asset metadata)
-Works with project save/load
+**Step 3: Create Another Child**
+```
+Content Browser → Right-click "Enemy" → Create Child Class
+├── Name: "SkeletonEnemy"
+├── Override:
+│   ├── Mesh: skeleton.glb
+│   └── health: 80 (less health than parent's 100)
+├── Add new:
+│   └── Variable: hasBow (boolean) = true
+└── Save
+```
+
+**Step 4: Update Parent (Propagation Test)**
+```
+Open "Enemy" class
+├── Change: health = 100 → 120
+├── Add: Component: LootDropComponent
+└── Save
+
+System propagates:
+├── ZombieEnemy:
+│   ├── health: 100 (unchanged, has override)
+│   └── LootDropComponent: Added ✓
+└── SkeletonEnemy:
+    ├── health: 80 (unchanged, has override)
+    └── LootDropComponent: Added ✓
+
+Result: All children get new component, but keep their health overrides
+
+The Point (Like Unreal Engine Inheritance)
+Class Inheritance System:
+
+Create parent classes as templates
+Create child classes that inherit everything
+Children can override parent values (but structure stays)
+Children can add new components/variables/logic
+Parent updates propagate to all children automatically
+Overrides are preserved during propagation
+Right-click to create child in Content Browser
+
+Key Features:
+
+Visual inheritance indicators (🔗 inherited, ✏️ overridden, ➕ added)
+Override system with reset capability
+Warning system for parent modifications
+Class hierarchy browser
+Version tracking and sync
+Propagation with conflict resolution
+
+Use Cases:
+
+Enemy types (Enemy → Zombie, Skeleton, Boss)
+Character classes (Player → Warrior, Mage, Archer)
+Item types (Item → Weapon → Sword, Axe, Bow)
+Vehicle variants (Vehicle → Car → SportsCar, Truck)
 
 Integration Requirements:
 
-Must use Three.js loaders (GLTFLoader, FBXLoader, OBJLoader)
+Must work with existing Actor system
+Must work with Component system
+Must work with Variables and Structures
+Must work with Blueprint/Node editor
+Must save inheritance data to JSON
 Must work with Content Browser
-Must show 3D preview thumbnails
-Must extract and save all sub-assets (materials, textures, animations)
-Must create proper asset hierarchy
-Must support animation playback
 Must work with project save/load system
+Propagation must be automatic and safe
 
 Benefits:
 
-Easy asset import (drag & drop)
-Professional asset management
-Full animation support
-Three.js powered rendering
-Reusable assets
-Exactly like Unreal Engine workflow
+DRY principle (Don't Repeat Yourself)
+Easy to maintain (change parent, update all children)
+Clear hierarchy and organization
+Override system for customization
+Exactly like Unreal Engine
+Professional class architecture

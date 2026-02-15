@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { numSocket, boolSocket, vec3Socket, strSocket, colorSocket, execSocket, registerNode, getStructSocket, getEnumSocket } from '../sockets';
+import { numSocket, boolSocket, vec3Socket, strSocket, colorSocket, execSocket, objectSocket, registerNode, getStructSocket, getEnumSocket, getClassRefSocket } from '../sockets';
 import type { VarType } from '../../BlueprintData';
 
 // ============================================================
@@ -12,9 +12,11 @@ export function socketForType(type: VarType): ClassicPreset.Socket {
     case 'Vector3': return vec3Socket;
     case 'String':  return strSocket;
     case 'Color':   return colorSocket;
+    case 'ObjectRef': return objectSocket;
     default:
       if (type.startsWith('Struct:')) return getStructSocket(type);
       if (type.startsWith('Enum:'))   return getEnumSocket(type);
+      if (type.startsWith('ClassRef:')) return getClassRefSocket(type);
       return numSocket;
   }
 }

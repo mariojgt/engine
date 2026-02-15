@@ -67,6 +67,9 @@ export class PhysicsWorld {
     rootColDesc.setFriction(cfg.friction);
     rootColDesc.setRestitution(cfg.restitution);
     if (!cfg.collisionEnabled) rootColDesc.setSensor(true);
+    // Enable collision with ALL body types (so trigger sensors detect dynamic bodies)
+    rootColDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+    rootColDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
     const collider = this.world.createCollider(rootColDesc, rigidBody);
     go.rigidBody = rigidBody;
@@ -77,7 +80,13 @@ export class PhysicsWorld {
     this._colliderToGoId.set(collider.handle, go.id);
 
     // Compound colliders for child component meshes
+    // Skip non-gameplay children (trigger helpers, light helpers, etc.)
     for (const child of go.mesh.children) {
+      if (child.userData?.__isTriggerHelper) continue;
+      if (child.userData?.__isLightHelper) continue;
+      if (child.userData?.__isComponentHelper) continue;
+      if (child.userData?.__lightCompName) continue;
+      if (child.userData?.__isSkeletalMesh) continue;
       if (!(child as any).isMesh) continue;
       const mesh = child as THREE.Mesh;
       const childColDesc = this._colliderDescFromGeometry(mesh.geometry);
@@ -89,6 +98,8 @@ export class PhysicsWorld {
       childColDesc.setFriction(cfg.friction);
       childColDesc.setRestitution(cfg.restitution);
       if (!cfg.collisionEnabled) childColDesc.setSensor(true);
+      childColDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+      childColDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
       const childCol = this.world.createCollider(childColDesc, rigidBody);
       this._colliderToGoId.set(childCol.handle, go.id);
     }

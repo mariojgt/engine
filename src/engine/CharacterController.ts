@@ -26,6 +26,10 @@ import type {
 } from './CharacterPawnData';
 import {
   characterCapsuleGroups,
+  collisionGroupsFromProfile,
+  defaultPawnCollisionProfile,
+  defaultCameraCollisionProfile,
+  type CollisionProfile,
 } from './CollisionTypes';
 import { CharacterMovementComponent } from './CharacterMovementComponent';
 import type { Controller, Pawn } from './Controller';
@@ -304,8 +308,14 @@ export class CharacterController implements Pawn {
     const colDesc = RAPIER.ColliderDesc.capsule(halfCyl, cap.radius)
       .setTranslation(0, this._capsuleCenterY, 0);
 
-    // Collision groups: camera raycasts ignore this collider
-    colDesc.setCollisionGroups(characterCapsuleGroups());
+    // Build collision groups from the capsule's collision profile.
+    // The profile determines which channels this capsule can interact with.
+    const profile: CollisionProfile = cap.collisionProfile ?? defaultPawnCollisionProfile();
+    colDesc.setCollisionGroups(collisionGroupsFromProfile(profile));
+
+    // Enable collision detection with ALL body types (including kinematic trigger sensors)
+    colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+    colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
     // Higher friction for ground contact stability
     colDesc.setFriction(1.0);
@@ -461,9 +471,14 @@ export class CharacterController implements Pawn {
     }
 
     // 10. Move via Rapier kinematic character controller
+    //     EXCLUDE_SENSORS = 8 → ignore trigger/sensor colliders so the
+    //     character passes through overlap volumes instead of getting
+    //     blocked by them. The narrow-phase still detects intersection
+    //     pairs for overlap events.
     this.rapierController.computeColliderMovement(
       this.collider,
       { x: displacement.x, y: displacement.y, z: displacement.z },
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,   // Don't treat sensors as obstacles
     );
 
     const corr = this.rapierController.computedMovement();
@@ -784,14 +799,18 @@ export class CharacterController implements Pawn {
           { x: armDir.x, y: armDir.y, z: armDir.z },
         );
 
-        // Use predicate to exclude own character's collider
+        // Build collision groups from the spring arm's camera collision profile.
+        // Only channels marked "block" will cause the arm to retract.
+        // EXCLUDE_SENSORS prevents the ray from hitting trigger volumes.
+        const camProfile = sa.collisionProfile ?? defaultCameraCollisionProfile();
+        const camGroups = collisionGroupsFromProfile(camProfile);
         const ownCollider = this.collider;
         const hit = physics.world.castRay(
           ray,
           sa.armLength + sa.probeSize,
           true,
-          undefined,
-          undefined,
+          RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,  // Never hit sensor/trigger colliders
+          camGroups,                                  // Only hit channels the profile blocks
           undefined,
           undefined,
           (collider: RAPIER.Collider) => {

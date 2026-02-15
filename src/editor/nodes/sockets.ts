@@ -9,6 +9,7 @@ export const boolSocket  = new ClassicPreset.Socket('Boolean'); // red
 export const vec3Socket  = new ClassicPreset.Socket('Vector3'); // yellow
 export const strSocket   = new ClassicPreset.Socket('String');  // magenta
 export const colorSocket = new ClassicPreset.Socket('Color');   // coral – hex colour
+export const objectSocket = new ClassicPreset.Socket('ObjectRef'); // blue – generic object reference
 
 // ============================================================
 //  Socket Type Colours  (UE-style)
@@ -21,6 +22,7 @@ export const SOCKET_COLORS: Record<string, string> = {
   String:  '#c678dd',   // magenta / purple
   Color:   '#ff6b9d',   // coral / pink – hex colour
   Enum:    '#00bcd4',   // cyan – enum sockets
+  ObjectRef: '#0099ff', // bright blue – object references
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
 
@@ -29,6 +31,8 @@ export function socketColor(sock: ClassicPreset.Socket): string {
   if (SOCKET_COLORS[sock.name]) return SOCKET_COLORS[sock.name];
   // Enum sockets are named Enum_<id> — use the Enum colour
   if (sock.name.startsWith('Enum_')) return SOCKET_COLORS['Enum'] ?? DEFAULT_SOCKET_COLOR;
+  // Class reference sockets are named ClassRef_<id> — use ObjectRef colour
+  if (sock.name.startsWith('ClassRef_')) return SOCKET_COLORS['ObjectRef'] ?? DEFAULT_SOCKET_COLOR;
   return SOCKET_COLORS[sock.name] ?? DEFAULT_SOCKET_COLOR;
 }
 
@@ -36,14 +40,21 @@ export function socketColor(sock: ClassicPreset.Socket): string {
  * Return true when two sockets are compatible for connection.
  *  – same socket type name → OK
  *  – both are struct sockets with the same struct id → OK
+ *  – ObjectRef is compatible with any ClassRef_<id> socket → OK
  *  – everything else → blocked
  */
 export function socketsCompatible(
   a: ClassicPreset.Socket,
   b: ClassicPreset.Socket,
 ): boolean {
-  // RerouteNode "Any" socket is compatible with everything
-  return a.name === b.name;
+  if (a.name === b.name) return true;
+  // ObjectRef ↔ ClassRef_<id> compatibility (generic ↔ typed)
+  if ((a.name === 'ObjectRef' && b.name.startsWith('ClassRef_')) ||
+      (b.name === 'ObjectRef' && a.name.startsWith('ClassRef_'))) return true;
+  // ClassRef_<id> ↔ ClassRef_<id> — allow any class ref to connect
+  // (the Cast node handles type safety at runtime)
+  if (a.name.startsWith('ClassRef_') && b.name.startsWith('ClassRef_')) return true;
+  return false;
 }
 
 // ============================================================
@@ -68,6 +79,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Enums':         '#00838F',
   'Collision':     '#C62828',
   'Character':     '#2E7D32',
+  'Casting':       '#0D47A1',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -90,6 +102,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Enums':         return '📋';
     case 'Collision':     return '💥';
     case 'Character':     return '🏃';
+    case 'Casting':       return '🎯';
     default:              return '●';
   }
 }
@@ -120,6 +133,23 @@ export function getEnumSocket(enumType: string): ClassicPreset.Socket {
   if (!s) {
     s = new ClassicPreset.Socket(`Enum_${enumType.replace('Enum:', '')}`);
     enumSocketCache.set(enumType, s);
+  }
+  return s;
+}
+
+// ============================================================
+//  Class Reference Socket Cache (one per class/actor type)
+// ============================================================
+const classRefSocketCache = new Map<string, ClassicPreset.Socket>();
+
+/** Returns (or creates) a typed socket for a ClassRef VarType like `ClassRef:<actorId>` */
+export function getClassRefSocket(classRefType: string): ClassicPreset.Socket {
+  // Accept either "ClassRef:<id>" or just the raw actorId
+  const key = classRefType.startsWith('ClassRef:') ? classRefType : `ClassRef:${classRefType}`;
+  let s = classRefSocketCache.get(key);
+  if (!s) {
+    s = new ClassicPreset.Socket(`ClassRef_${key.replace('ClassRef:', '')}`);
+    classRefSocketCache.set(key, s);
   }
   return s;
 }

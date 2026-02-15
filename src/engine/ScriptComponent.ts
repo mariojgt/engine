@@ -7,6 +7,8 @@ export interface ScriptContext {
   print: (value: any) => void;
   /** PhysicsWorld reference so blueprint nodes can add/remove physics at runtime */
   physics?: any;
+  /** Scene reference so casting/reference nodes can query actors at runtime */
+  scene?: any;
 }
 
 /**
@@ -90,7 +92,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-var gameObject, deltaTime, elapsedTime, print, __physics;
+var gameObject, deltaTime, elapsedTime, print, __physics, __scene;
 
 ${preamble}
 
@@ -104,6 +106,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
   __physics = ctx.physics || null;
+  __scene = ctx.scene || null;
   ${beginPlay}
 };` : ''}
 
@@ -113,6 +116,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
   __physics = ctx.physics || null;
+  __scene = ctx.scene || null;
   ${tick}
 };` : ''}
 
@@ -122,6 +126,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   print = ctx.print;
   __physics = ctx.physics || null;
+  __scene = ctx.scene || null;
   ${onDestroy}
 };` : ''}
 

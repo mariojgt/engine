@@ -64,12 +64,16 @@ export function getComponentNodeEntries(
     }
   }
 
-  // Child components
+  // Child components — compute per-type indices so they match the
+  // separate runtime arrays (_triggerComponents, _lightComponents, etc.)
+  const typeCounters: Record<string, number> = {};
   for (let i = 0; i < components.length; i++) {
     const comp = components[i];
+    const typeIdx = typeCounters[comp.type] ?? 0;
+    typeCounters[comp.type] = typeIdx + 1;
     for (const rule of _rules) {
       if (rule.componentTypes.includes(comp.type)) {
-        entries.push(...rule.getEntries(comp, i));
+        entries.push(...rule.getEntries(comp, typeIdx));
       }
     }
   }

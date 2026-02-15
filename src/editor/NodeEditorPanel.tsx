@@ -171,6 +171,7 @@ import {
   SetSpringArmTargetOffsetNode,
   SetSpringArmSocketOffsetNode,
   SetSpringArmCollisionNode,
+  SetCameraCollisionEnabledNode,
   SetCameraLagNode,
   SetCameraRotationLagNode,
   GetSpringArmLengthNode,
@@ -202,6 +203,21 @@ import {
   GetPawnNode,
   IsPlayerControlledNode,
   IsAIControlledNode,
+  // Casting & Reference Nodes
+  CastToNode,
+  GetSelfReferenceNode,
+  GetPlayerPawnNode,
+  GetActorByNameNode,
+  GetAllActorsOfClassNode,
+  IsValidNode,
+  GetActorNameNode,
+  GetActorVariableNode,
+  SetActorVariableNode,
+  GetOwnerNode,
+  GetAnimInstanceNode,
+  PureCastNode,
+  objectSocket,
+  getClassRefSocket,
   socketColor,
   socketsCompatible,
   getConversion,
@@ -224,6 +240,7 @@ import {
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
+import type { ActorAssetManager } from './ActorAsset';
 import type { StructureAssetManager } from './StructureAsset';
 
 type Schemes = GetSchemes<
@@ -240,6 +257,17 @@ let _structMgr: StructureAssetManager | null = null;
 /** Call once at startup to wire project-level structs/enums into the node editor */
 export function setStructureAssetManager(mgr: StructureAssetManager): void {
   _structMgr = mgr;
+}
+
+// ============================================================
+//  Module-level reference to ActorAssetManager
+//  (set once at startup from main.ts so context menu can list actor classes)
+// ============================================================
+let _actorAssetMgr: ActorAssetManager | null = null;
+
+/** Call once at startup to wire actor asset browser data into the node editor */
+export function setActorAssetManager(mgr: ActorAssetManager): void {
+  _actorAssetMgr = mgr;
 }
 
 // ============================================================
@@ -291,6 +319,13 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof GetLightPositionNode || node instanceof SetLightTargetNode ||
       node instanceof SetCastShadowNode || node instanceof SetSpotAngleNode ||
       node instanceof SetSpotPenumbraNode) return 'Components';
+  // Casting & Reference nodes
+  if (node instanceof CastToNode || node instanceof PureCastNode ||
+      node instanceof GetSelfReferenceNode || node instanceof GetPlayerPawnNode ||
+      node instanceof GetActorByNameNode || node instanceof GetAllActorsOfClassNode ||
+      node instanceof IsValidNode || node instanceof GetActorNameNode ||
+      node instanceof GetActorVariableNode || node instanceof SetActorVariableNode ||
+      node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode) return 'Casting';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -539,19 +574,19 @@ function resolveValue(
   if (node instanceof GetComponentLocationNode) {
     const ref = (node as GetComponentLocationNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as GetComponentLocationNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as GetComponentLocationNode).compIndex}] || {}).mesh`;
     return `${ref}.position.${outputKey}`;
   }
   if (node instanceof GetComponentRotationNode) {
     const ref = (node as GetComponentRotationNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as GetComponentRotationNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as GetComponentRotationNode).compIndex}] || {}).mesh`;
     return `${ref}.rotation.${outputKey}`;
   }
   if (node instanceof GetComponentScaleNode) {
     const ref = (node as GetComponentScaleNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as GetComponentScaleNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as GetComponentScaleNode).compIndex}] || {}).mesh`;
     return `${ref}.scale.${outputKey}`;
   }
 
@@ -711,6 +746,72 @@ function resolveValue(
     return `'${ctrl?.value ?? 'walking'}'`;
   }
 
+  // ── Casting & Reference data nodes ──
+  if (node instanceof GetSelfReferenceNode) {
+    return 'gameObject';
+  }
+  if (node instanceof GetPlayerPawnNode) {
+    if (outputKey === 'pawn') return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
+    if (outputKey === 'valid') return `(!!(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) : null))`;
+    return 'null';
+  }
+  if (node instanceof GetActorByNameNode) {
+    const nS = inputSrc.get(`${nodeId}.name`);
+    const nameVal = nS ? rv(nS.nid, nS.ok) : '""';
+    if (outputKey === 'actor') return `(__scene ? __scene.gameObjects.find(function(g) { return g.name === ${nameVal}; }) || null : null)`;
+    if (outputKey === 'valid') return `(!!(__scene ? __scene.gameObjects.find(function(g) { return g.name === ${nameVal}; }) : null))`;
+    return 'null';
+  }
+  if (node instanceof GetAllActorsOfClassNode) {
+    const cn = node as GetAllActorsOfClassNode;
+    if (outputKey === 'count') return `(__scene ? __scene.gameObjects.filter(function(g) { return g.actorAssetId === ${JSON.stringify(cn.targetClassId)}; }).length : 0)`;
+    return '0';
+  }
+  if (node instanceof GetActorNameNode) {
+    const oS = inputSrc.get(`${nodeId}.object`);
+    const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
+    return `(${objVal} ? ${objVal}.name : '')`;
+  }
+  if (node instanceof GetActorVariableNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const targetVal = tS ? rv(tS.nid, tS.ok) : 'null';
+    const vn = (node as GetActorVariableNode).varName;
+    return `(${targetVal} && ${targetVal}._scriptVars ? ${targetVal}._scriptVars[${JSON.stringify(vn)}] : 0)`;
+  }
+  if (node instanceof GetOwnerNode) {
+    return `(gameObject.owner || gameObject)`;
+  }
+  if (node instanceof GetAnimInstanceNode) {
+    const oS = inputSrc.get(`${nodeId}.object`);
+    const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
+    if (outputKey === 'animInstance') return `(${objVal} && ${objVal}._animationInstances ? ${objVal}._animationInstances[0] || null : null)`;
+    if (outputKey === 'valid') return `(!!(${objVal} && ${objVal}._animationInstances && ${objVal}._animationInstances[0]))`;
+    return 'null';
+  }
+  if (node instanceof PureCastNode) {
+    const oS = inputSrc.get(`${nodeId}.object`);
+    const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
+    const cn = node as PureCastNode;
+    if (outputKey === 'castedObject') return `(${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)} ? ${objVal} : null)`;
+    if (outputKey === 'success') return `(!!(${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)}))`;
+    return 'null';
+  }
+  if (node instanceof CastToNode) {
+    // The castedObject output from a CastToNode — resolved via a temp variable set in genAction
+    if (outputKey === 'castedObject') {
+      const castVar = `__cast_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      return castVar;
+    }
+    return 'null';
+  }
+  if (node instanceof IsValidNode) {
+    if (outputKey === 'result') {
+      const oS = inputSrc.get(`${nodeId}.object`);
+      return `(!!(${oS ? rv(oS.nid, oS.ok) : 'null'}))`;
+    }
+    return 'false';
+  }
+
   switch (node.label) {
     case 'Float': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
@@ -866,7 +967,7 @@ function genAction(
   if (node instanceof SetComponentLocationNode) {
     const ref = (node as SetComponentLocationNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as SetComponentLocationNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as SetComponentLocationNode).compIndex}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
@@ -877,7 +978,7 @@ function genAction(
   if (node instanceof SetComponentRotationNode) {
     const ref = (node as SetComponentRotationNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as SetComponentRotationNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as SetComponentRotationNode).compIndex}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
@@ -888,7 +989,7 @@ function genAction(
   if (node instanceof SetComponentScaleNode) {
     const ref = (node as SetComponentScaleNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as SetComponentScaleNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as SetComponentScaleNode).compIndex}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
@@ -899,7 +1000,7 @@ function genAction(
   if (node instanceof SetComponentVisibilityNode) {
     const ref = (node as SetComponentVisibilityNode).compIndex === -1
       ? 'gameObject.mesh'
-      : `gameObject.mesh.children[${(node as SetComponentVisibilityNode).compIndex}]`;
+      : `((gameObject._meshComponents || [])[${(node as SetComponentVisibilityNode).compIndex}] || {}).mesh`;
     const vS = inputSrc.get(`${nodeId}.visible`);
     lines.push(`${ref}.visible = ${vS ? rv(vS.nid, vS.ok) : 'true'};`);
     lines.push(...we(nodeId, 'exec'));
@@ -1135,7 +1236,7 @@ function genAction(
   if (node instanceof AIStartFollowingNode) {
     const tS = inputSrc.get(`${nodeId}.targetName`);
     const dS = inputSrc.get(`${nodeId}.distance`);
-    lines.push(`{ const _ai = gameObject.aiController; if (_ai) { const _tn = ${tS ? rv(tS.nid, tS.ok) : "''"}; const _tgo = scene.gameObjects.find(g => g.name === _tn); if (_tgo) _ai.startFollowing(_tgo, ${dS ? rv(dS.nid, dS.ok) : '3'}); } }`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) { const _tn = ${tS ? rv(tS.nid, tS.ok) : "''"}; const _tgo = __scene && __scene.gameObjects.find(g => g.name === _tn); if (_tgo) _ai.startFollowing(_tgo, ${dS ? rv(dS.nid, dS.ok) : '3'}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -1168,6 +1269,12 @@ function genAction(
     return lines;
   }
   if (node instanceof SetSpringArmCollisionNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmCollision(${eS ? rv(eS.nid, eS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetCameraCollisionEnabledNode) {
     const eS = inputSrc.get(`${nodeId}.enabled`);
     lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setSpringArmCollision(${eS ? rv(eS.nid, eS.ok) : 'true'}); }`);
     lines.push(...we(nodeId, 'exec'));
@@ -1268,6 +1375,43 @@ function genAction(
       }
     }
     lines.push(`__custom_evt_${sanitizeName(node.eventName)}(${args.join(', ')});`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── Casting action nodes ──
+  if (node instanceof CastToNode) {
+    const oS = inputSrc.get(`${nodeId}.object`);
+    const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
+    const cn = node as CastToNode;
+    const castVar = `__cast_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${castVar} = null;`);
+    lines.push(`if (${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)}) {`);
+    lines.push(`  ${castVar} = ${objVal};`);
+    lines.push(...we(nodeId, 'success').map(l => '  ' + l));
+    const failBody = we(nodeId, 'fail');
+    if (failBody.length) { lines.push('} else {'); lines.push(...failBody.map(l => '  ' + l)); }
+    lines.push('}');
+    return lines;
+  }
+  if (node instanceof IsValidNode) {
+    const oS = inputSrc.get(`${nodeId}.object`);
+    const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
+    const validBody = we(nodeId, 'valid');
+    const invalidBody = we(nodeId, 'invalid');
+    lines.push(`if (${objVal} != null) {`);
+    lines.push(...validBody.map(l => '  ' + l));
+    if (invalidBody.length) { lines.push('} else {'); lines.push(...invalidBody.map(l => '  ' + l)); }
+    lines.push('}');
+    return lines;
+  }
+  if (node instanceof SetActorVariableNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const vS = inputSrc.get(`${nodeId}.value`);
+    const targetVal = tS ? rv(tS.nid, tS.ok) : 'null';
+    const valCode = vS ? rv(vS.nid, vS.ok) : '0';
+    const vn = (node as SetActorVariableNode).varName;
+    lines.push(`{ var _tgt = ${targetVal}; if (_tgt) { if (!_tgt._scriptVars) _tgt._scriptVars = {}; _tgt._scriptVars[${JSON.stringify(vn)}] = ${valCode}; } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2150,6 +2294,35 @@ function showContextMenu(
       if (items.length) categories.set('Components', items);
     }
 
+    // Casting — dynamic "Cast to <ClassName>" entries per actor asset
+    if (_actorAssetMgr) {
+      const castItems: { label: string; action: () => void }[] = [];
+      for (const asset of _actorAssetMgr.assets) {
+        // Cast To (exec-based)
+        if (!lf || `cast to ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf))
+          castItems.push({ label: `Cast to ${asset.name}`, action: () => {
+            onSelect({ label: `Cast to ${asset.name}`, category: 'Casting', factory: () => new CastToNode(asset.id, asset.name) });
+            menu.remove();
+          }});
+        // Pure Cast (data-only)
+        if (!lf || `pure cast to ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf))
+          castItems.push({ label: `Pure Cast to ${asset.name}`, action: () => {
+            onSelect({ label: `Pure Cast to ${asset.name}`, category: 'Casting', factory: () => new PureCastNode(asset.id, asset.name) });
+            menu.remove();
+          }});
+        // Get All Actors Of Class
+        if (!lf || `get all actors of class ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf))
+          castItems.push({ label: `Get All ${asset.name}`, action: () => {
+            onSelect({ label: `Get All ${asset.name}`, category: 'Casting', factory: () => new GetAllActorsOfClassNode(asset.id, asset.name) });
+            menu.remove();
+          }});
+      }
+      if (castItems.length) {
+        const existing = categories.get('Casting') || [];
+        categories.set('Casting', [...existing, ...castItems]);
+      }
+    }
+
     for (const [cat, entries] of categories) {
       const catEl = document.createElement('div');
       catEl.className = 'bp-context-category';
@@ -2917,6 +3090,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SetSpringArmTargetOffsetNode) return 'SetSpringArmTargetOffsetNode';
   if (node instanceof SetSpringArmSocketOffsetNode) return 'SetSpringArmSocketOffsetNode';
   if (node instanceof SetSpringArmCollisionNode) return 'SetSpringArmCollisionNode';
+  if (node instanceof SetCameraCollisionEnabledNode) return 'SetCameraCollisionEnabledNode';
   if (node instanceof SetCameraLagNode) return 'SetCameraLagNode';
   if (node instanceof SetCameraRotationLagNode) return 'SetCameraRotationLagNode';
   if (node instanceof GetSpringArmLengthNode) return 'GetSpringArmLengthNode';
@@ -2948,6 +3122,19 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetPawnNode) return 'GetPawnNode';
   if (node instanceof IsPlayerControlledNode) return 'IsPlayerControlledNode';
   if (node instanceof IsAIControlledNode) return 'IsAIControlledNode';
+  // Casting & Reference nodes
+  if (node instanceof CastToNode) return 'CastToNode';
+  if (node instanceof GetSelfReferenceNode) return 'GetSelfReferenceNode';
+  if (node instanceof GetPlayerPawnNode) return 'GetPlayerPawnNode';
+  if (node instanceof GetActorByNameNode) return 'GetActorByNameNode';
+  if (node instanceof GetAllActorsOfClassNode) return 'GetAllActorsOfClassNode';
+  if (node instanceof IsValidNode) return 'IsValidNode';
+  if (node instanceof GetActorNameNode) return 'GetActorNameNode';
+  if (node instanceof GetActorVariableNode) return 'GetActorVariableNode';
+  if (node instanceof SetActorVariableNode) return 'SetActorVariableNode';
+  if (node instanceof GetOwnerNode) return 'GetOwnerNode';
+  if (node instanceof GetAnimInstanceNode) return 'GetAnimInstanceNode';
+  if (node instanceof PureCastNode) return 'PureCastNode';
 
   return 'Unknown';
 }
@@ -3043,6 +3230,16 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
+  }
+  // Casting & Reference nodes — dynamic data
+  if (node instanceof CastToNode || node instanceof PureCastNode) {
+    data.targetClassId = (node as any).targetClassId;
+    data.targetClassName = (node as any).targetClassName;
+  } else if (node instanceof GetAllActorsOfClassNode) {
+    data.targetClassId = (node as any).targetClassId;
+    data.targetClassName = (node as any).targetClassName;
+  } else if (node instanceof GetActorVariableNode || node instanceof SetActorVariableNode) {
+    data.varName = (node as any).varName;
   }
 
   return data;
@@ -3313,6 +3510,7 @@ function createNodeFromData(
     case 'SetSpringArmTargetOffsetNode':    return new SetSpringArmTargetOffsetNode();
     case 'SetSpringArmSocketOffsetNode':    return new SetSpringArmSocketOffsetNode();
     case 'SetSpringArmCollisionNode':       return new SetSpringArmCollisionNode();
+    case 'SetCameraCollisionEnabledNode':    return new SetCameraCollisionEnabledNode();
     case 'SetCameraLagNode':                return new SetCameraLagNode();
     case 'SetCameraRotationLagNode':        return new SetCameraRotationLagNode();
     case 'GetSpringArmLengthNode':          return new GetSpringArmLengthNode();
@@ -3344,6 +3542,20 @@ function createNodeFromData(
     case 'GetPawnNode':                     return new GetPawnNode();
     case 'IsPlayerControlledNode':          return new IsPlayerControlledNode();
     case 'IsAIControlledNode':              return new IsAIControlledNode();
+
+    // Casting & Reference nodes
+    case 'CastToNode':                      return new CastToNode(d.targetClassId || '', d.targetClassName || 'Unknown');
+    case 'GetSelfReferenceNode':            return new GetSelfReferenceNode();
+    case 'GetPlayerPawnNode':               return new GetPlayerPawnNode();
+    case 'GetActorByNameNode':              return new GetActorByNameNode();
+    case 'GetAllActorsOfClassNode':         return new GetAllActorsOfClassNode(d.targetClassId || '', d.targetClassName || 'Unknown');
+    case 'IsValidNode':                     return new IsValidNode();
+    case 'GetActorNameNode':                return new GetActorNameNode();
+    case 'GetActorVariableNode':            return new GetActorVariableNode(d.varName || 'Unknown');
+    case 'SetActorVariableNode':            return new SetActorVariableNode(d.varName || 'Unknown');
+    case 'GetOwnerNode':                    return new GetOwnerNode();
+    case 'GetAnimInstanceNode':             return new GetAnimInstanceNode();
+    case 'PureCastNode':                    return new PureCastNode(d.targetClassId || '', d.targetClassName || 'Unknown');
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);

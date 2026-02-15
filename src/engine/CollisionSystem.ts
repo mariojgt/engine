@@ -18,14 +18,15 @@ import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
 import type { PhysicsWorld } from './PhysicsWorld';
-import type {
-  CollisionConfig,
-  CollisionShapeType,
-  BoxShapeDimensions,
-  SphereShapeDimensions,
-  CapsuleShapeDimensions,
-  OverlapEvent,
-  HitEvent,
+import {
+  triggerSensorGroups,
+  type CollisionConfig,
+  type CollisionShapeType,
+  type BoxShapeDimensions,
+  type SphereShapeDimensions,
+  type CapsuleShapeDimensions,
+  type OverlapEvent,
+  type HitEvent,
 } from './CollisionTypes';
 
 // ---- Callback signatures ----
@@ -91,6 +92,12 @@ export class CollisionSystem {
     return this._callbacks.get(goId);
   }
 
+  /** Register an external collider handle → gameObject ID mapping.
+   *  Used for character-pawn capsule colliders that are created after createSensors(). */
+  registerColliderHandle(colliderHandle: number, goId: number): void {
+    this._handleToGoId.set(colliderHandle, goId);
+  }
+
   /** Create sensor colliders for all trigger components.  Called when Play starts. */
   createSensors(scene: Scene, physics: PhysicsWorld): void {
     if (!physics.world) return;
@@ -135,6 +142,15 @@ export class CollisionSystem {
           colDesc.setSensor(true);
         }
 
+        // Enable intersection detection between kinematic bodies (sensor vs pawn)
+        // and kinematic vs fixed (sensor vs static meshes).  By default Rapier
+        // only computes pairs involving dynamic bodies.
+        colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+        colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+
+        // Use Trigger collision groups so channel-based filtering works
+        colDesc.setCollisionGroups(triggerSensorGroups());
+
         // Create a kinematic body to host the sensor collider
         // (sensors need a body in Rapier; kinematic so it follows the mesh)
         const rbDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
@@ -177,13 +193,22 @@ export class CollisionSystem {
       const rb = physics.world!.createRigidBody(rbDesc);
 
       const colDesc = this._colliderDescFromGeometry(geo);
+      // Enable collision detection with kinematic bodies (character pawns) and sensors
+      colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+      colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
       const collider = physics.world!.createCollider(colDesc, rb);
       this._handleToGoId.set(collider.handle, go.id);
       this._staticBodies.push({ goId: go.id, rb });
 
-      // Also create colliders for child component meshes (skip trigger helper visuals)
+      // Also create colliders for child component meshes.
+      // Skip non-gameplay children: trigger helpers, light helpers,
+      // light objects, editor-only helpers, skeletal meshes, groups.
       for (const child of go.mesh.children) {
         if (child.userData?.__isTriggerHelper) continue;
+        if (child.userData?.__isLightHelper) continue;
+        if (child.userData?.__isComponentHelper) continue;
+        if (child.userData?.__lightCompName) continue;   // Three.js light object
+        if (child.userData?.__isSkeletalMesh) continue;  // skeletal mesh wrapper
         if (!(child as any).isMesh) continue;
         const mesh = child as THREE.Mesh;
         const childGeo = mesh.geometry;
@@ -196,6 +221,8 @@ export class CollisionSystem {
             z: mesh.quaternion.z, w: mesh.quaternion.w,
           });
         }
+        childColDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+        childColDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
         const childCol = physics.world!.createCollider(childColDesc, rb);
         this._handleToGoId.set(childCol.handle, go.id);
       }

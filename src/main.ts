@@ -9,7 +9,7 @@ import { showProjectDialog } from './editor/ProjectDialog';
 import { StructureAssetManager } from './editor/StructureAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
-import { setStructureAssetManager } from './editor/NodeEditorPanel';
+import { setStructureAssetManager, setActorAssetManager } from './editor/NodeEditorPanel';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -64,6 +64,9 @@ async function main() {
   const structManager = new StructureAssetManager();
   projectManager.setStructureManager(structManager);
   setStructureAssetManager(structManager);
+
+  // Wire actor asset manager into node editor for Cast To context menu entries
+  setActorAssetManager(editor.assetManager);
 
   // Wire structure manager into content browser
   editor.setStructureManager(structManager);

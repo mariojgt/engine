@@ -10,7 +10,7 @@ import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './A
 import type { MeshAssetManager, MeshAsset } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintAsset } from './AnimBlueprintData';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
-import { defaultCollisionConfig, defaultDimensionsForShape } from '../engine/CollisionTypes';
+import { defaultCollisionConfig, defaultDimensionsForShape, defaultPawnCollisionProfile, defaultCameraCollisionProfile } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType, RootMeshType } from '../engine/Scene';
@@ -782,6 +782,59 @@ export class ActorEditorPanel {
         const notifyChanged = () => { this._asset.touch(); this._onAssetChanged(); };
         container.appendChild(this._makeNumberRow('Radius', cfg.radius, 0.05, 0.1, 5, (v) => { cfg.radius = v; notifyChanged(); }));
         container.appendChild(this._makeNumberRow('Height', cfg.height, 0.1, 0.2, 10, (v) => { cfg.height = v; notifyChanged(); }));
+
+        // ---- Collision Profile Section ----
+        if (!cfg.collisionProfile) {
+          cfg.collisionProfile = defaultPawnCollisionProfile();
+        }
+        const profile = cfg.collisionProfile;
+        const profileSection = document.createElement('div');
+        profileSection.className = 'physics-section';
+        profileSection.style.marginTop = '8px';
+
+        const profileHeader = document.createElement('div');
+        profileHeader.className = 'physics-section-header';
+        profileHeader.textContent = '🛡️ Collision Profile';
+        profileSection.appendChild(profileHeader);
+
+        const profileBody = document.createElement('div');
+        profileBody.className = 'physics-section-body';
+        profileSection.appendChild(profileBody);
+
+        // Profile name (read-only display)
+        const nameRow = document.createElement('div');
+        nameRow.className = 'prop-row';
+        nameRow.style.color = '#ccc';
+        nameRow.style.fontSize = '11px';
+        nameRow.textContent = `Preset: ${profile.name}`;
+        profileBody.appendChild(nameRow);
+
+        // Object Type display
+        const objRow = document.createElement('div');
+        objRow.className = 'prop-row';
+        objRow.style.color = '#ccc';
+        objRow.style.fontSize = '11px';
+        objRow.textContent = `Object Type: ${profile.objectType}`;
+        profileBody.appendChild(objRow);
+
+        // Per-channel responses
+        const chHeader = document.createElement('div');
+        chHeader.className = 'physics-subsection-header';
+        chHeader.textContent = 'Channel Responses';
+        profileBody.appendChild(chHeader);
+
+        const channelNames: CollisionChannelName[] = ['WorldStatic', 'WorldDynamic', 'Pawn', 'Player', 'Projectile', 'Trigger', 'Camera'];
+        const responses: CollisionResponse[] = ['block', 'overlap', 'ignore'];
+        for (const ch of channelNames) {
+          const current = profile.responses[ch] ?? 'ignore';
+          profileBody.appendChild(this._makeDropdownRow(ch, current, responses, (v) => {
+            profile.responses[ch] = v as CollisionResponse;
+            profile.name = 'Custom'; // Mark as customized
+            notifyChanged();
+          }));
+        }
+
+        container.appendChild(profileSection);
       }
 
       // ---- Hidden In Game toggle ----
@@ -1652,6 +1705,30 @@ export class ActorEditorPanel {
       sa.probeSize = v; notifyChanged();
       if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.springArm.probeSize = v;
     }));
+
+    // Camera Collision Profile — per-channel responses for the spring arm ray
+    if (!sa.collisionProfile) {
+      sa.collisionProfile = defaultCameraCollisionProfile();
+    }
+    const camProfile = sa.collisionProfile;
+    const camChHeader = document.createElement('div');
+    camChHeader.className = 'physics-subsection-header';
+    camChHeader.textContent = 'Camera Collision Channels';
+    container.appendChild(camChHeader);
+
+    const camChannelNames: CollisionChannelName[] = ['WorldStatic', 'WorldDynamic', 'Pawn', 'Player', 'Projectile', 'Trigger', 'Camera'];
+    const camResponses: CollisionResponse[] = ['block', 'overlap', 'ignore'];
+    for (const ch of camChannelNames) {
+      const current = camProfile.responses[ch] ?? 'ignore';
+      container.appendChild(this._makeDropdownRow(ch, current, camResponses, (v) => {
+        camProfile.responses[ch] = v as CollisionResponse;
+        camProfile.name = 'Custom';
+        notifyChanged();
+        if (this._asset.characterPawnConfig) {
+          this._asset.characterPawnConfig.springArm.collisionProfile = camProfile;
+        }
+      }));
+    }
 
     // Camera Lag
     const lagHeader = document.createElement('div');

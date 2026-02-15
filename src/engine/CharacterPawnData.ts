@@ -107,6 +107,10 @@ export interface SpringArmConfig {
   doCollisionTest: boolean;
   /** Probe size for collision test (sphere radius) */
   probeSize: number;
+  /** UE-style collision profile for the camera boom ray.
+   *  Controls which channels the camera ray blocks against (retracts)
+   *  and which it ignores (passes through). */
+  collisionProfile: CollisionProfile;
   /** Camera lag — smooth follow (0 = instant, higher = more lag) */
   enableCameraLag: boolean;
   cameraLagSpeed: number;
@@ -126,6 +130,7 @@ export function defaultSpringArmConfig(): SpringArmConfig {
     armLength: 4.0,
     doCollisionTest: true,
     probeSize: 0.12,
+    collisionProfile: defaultCameraCollisionProfile(),
     enableCameraLag: false,
     cameraLagSpeed: 10,
     enableCameraRotationLag: false,
@@ -159,6 +164,12 @@ export function defaultRotationConfig(): CharacterRotationConfig {
   };
 }
 
+import {
+  type CollisionProfile,
+  defaultPawnCollisionProfile,
+  defaultCameraCollisionProfile,
+} from './CollisionTypes';
+
 // ---- Capsule Collision Configuration ----
 
 export interface CharacterCapsuleConfig {
@@ -168,10 +179,18 @@ export interface CharacterCapsuleConfig {
   showInEditor: boolean;
   /** Show debug wireframe capsule during play */
   showInPlay: boolean;
+  /** UE-style collision profile — per-channel Block/Overlap/Ignore responses */
+  collisionProfile: CollisionProfile;
 }
 
 export function defaultCapsuleConfig(): CharacterCapsuleConfig {
-  return { radius: 0.35, height: 1.8, showInEditor: true, showInPlay: false };
+  return {
+    radius: 0.35,
+    height: 1.8,
+    showInEditor: true,
+    showInPlay: false,
+    collisionProfile: defaultPawnCollisionProfile(),
+  };
 }
 
 // ---- Camera Mode Lock Settings ----
