@@ -210,6 +210,16 @@ export class Engine {
       this.spectatorControllers.update(dt);
       // Update AI controllers
       this.aiControllers.update(dt);
+
+      // Update skeletal mesh animation mixers
+      for (const go of this.scene.gameObjects) {
+        const mixers = (go as any)._skeletalMeshMixers as THREE.AnimationMixer[] | undefined;
+        if (mixers) {
+          for (const mixer of mixers) {
+            mixer.update(dt);
+          }
+        }
+      }
     }
 
     // Step physics

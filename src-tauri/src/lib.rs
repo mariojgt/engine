@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[tauri::command]
 fn create_project_structure(base_path: String, name: String) -> Result<String, String> {
     let root = PathBuf::from(&base_path).join(&name);
-    let dirs = ["Scenes", "Actors", "Structures", "Enums", "Config"];
+    let dirs = ["Scenes", "Actors", "Structures", "Enums", "Meshes", "Config"];
 
     for dir in &dirs {
         fs::create_dir_all(root.join(dir)).map_err(|e| format!("Failed to create {}: {}", dir, e))?;

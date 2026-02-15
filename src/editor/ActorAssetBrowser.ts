@@ -9,28 +9,37 @@
 
 import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
 import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
+import { MeshAssetManager, type MeshAsset, isImportableFile } from './MeshAsset';
+import { importMeshFile } from './MeshImporter';
+import { showImportDialog, showImportProgress } from './ImportDialog';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
 export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: number) => void;
 
-export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums';
+/** Callback fired when a mesh asset is dropped onto the viewport */
+export type MeshDropCallback = (meshAsset: MeshAsset, mouseX: number, mouseY: number) => void;
+
+export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes';
 
 export class ActorAssetBrowser {
   public container: HTMLElement;
   private _manager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
+  private _meshManager: MeshAssetManager | null = null;
   private _gridEl!: HTMLElement;
   private _contextMenu: HTMLElement | null = null;
   private _onOpenAsset: (asset: ActorAsset) => void;
   private _onOpenStructure: ((asset: StructureAsset) => void) | null = null;
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
   private _onDrop: AssetDropCallback;
+  private _onMeshDrop: MeshDropCallback | null = null;
   private _selectedAssetId: string | null = null;
   private _activeTab: ContentBrowserTab = 'Actors';
   private _tabBarEl!: HTMLElement;
 
   // Custom mouse-drag state (no HTML5 DnD)
   private _dragAsset: ActorAsset | null = null;
+  private _dragMeshAsset: MeshAsset | null = null;
   private _dragGhost: HTMLElement | null = null;
   private _dragStarted = false;
   private _startX = 0;
@@ -65,11 +74,23 @@ export class ActorAssetBrowser {
     this._onOpenEnum = onOpenEnum;
     mgr.onChanged(() => this._refreshGrid());
     this._rebuildHeader();
+    this._rebuildTabBar();
+    this._refreshGrid();
+  }
+
+  /** Wire up MeshAssetManager + drop callback */
+  public setMeshManager(mgr: MeshAssetManager, onMeshDrop?: MeshDropCallback): void {
+    this._meshManager = mgr;
+    this._onMeshDrop = onMeshDrop ?? null;
+    mgr.onChanged(() => {
+      if (this._activeTab === 'Meshes') this._refreshGrid();
+    });
+    this._rebuildTabBar();
     this._refreshGrid();
   }
 
   private _onMouseMove = (e: MouseEvent) => {
-    if (!this._dragAsset) return;
+    if (!this._dragAsset && !this._dragMeshAsset) return;
     // Only start showing ghost after 5px movement (avoids accidental drags)
     const dx = e.clientX - this._startX;
     const dy = e.clientY - this._startY;
@@ -79,7 +100,7 @@ export class ActorAssetBrowser {
     if (!this._dragGhost) {
       this._dragGhost = document.createElement('div');
       this._dragGhost.className = 'asset-drag-ghost';
-      this._dragGhost.textContent = this._dragAsset.name;
+      this._dragGhost.textContent = this._dragAsset?.name ?? this._dragMeshAsset?.name ?? '';
       document.body.appendChild(this._dragGhost);
     }
     this._dragGhost.style.left = e.clientX + 12 + 'px';
@@ -87,17 +108,20 @@ export class ActorAssetBrowser {
   };
 
   private _onMouseUp = (e: MouseEvent) => {
-    if (!this._dragAsset) return;
+    if (!this._dragAsset && !this._dragMeshAsset) return;
     const asset = this._dragAsset;
+    const meshAsset = this._dragMeshAsset;
     const started = this._dragStarted;
     this._dragAsset = null;
+    this._dragMeshAsset = null;
     this._dragStarted = false;
     if (this._dragGhost) {
       this._dragGhost.remove();
       this._dragGhost = null;
     }
     if (started) {
-      this._onDrop(asset, e.clientX, e.clientY);
+      if (asset) this._onDrop(asset, e.clientX, e.clientY);
+      if (meshAsset && this._onMeshDrop) this._onMeshDrop(meshAsset, e.clientX, e.clientY);
     }
   };
 
@@ -144,25 +168,39 @@ export class ActorAssetBrowser {
   private _rebuildHeader(): void {
     const header = this.container.querySelector('#ab-header');
     if (!header) return;
-    header.innerHTML = `
-      <span>Content Browser</span>
-      <div class="content-browser-add" id="ab-add-btn">+ New</div>
-    `;
-    header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._createNewForActiveTab();
-    });
+
+    if (this._activeTab === 'Meshes') {
+      header.innerHTML = `
+        <span>Content Browser</span>
+        <div style="display:flex;gap:4px;">
+          <div class="content-browser-add" id="ab-import-btn">📦 Import</div>
+        </div>
+      `;
+      header.querySelector('#ab-import-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._triggerMeshFileImport();
+      });
+    } else {
+      header.innerHTML = `
+        <span>Content Browser</span>
+        <div class="content-browser-add" id="ab-add-btn">+ New</div>
+      `;
+      header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._createNewForActiveTab();
+      });
+    }
   }
 
   private _rebuildTabBar(): void {
     this._tabBarEl.innerHTML = '';
-    if (!this._structManager) {
+    if (!this._structManager && !this._meshManager) {
       this._tabBarEl.style.display = 'none';
       return;
     }
     this._tabBarEl.style.display = 'flex';
-    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums'];
-    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋' };
+    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums', 'Meshes'];
+    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋', Meshes: '📦' };
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.className = `content-browser-tab${this._activeTab === tab ? ' active' : ''}`;
@@ -171,6 +209,7 @@ export class ActorAssetBrowser {
         this._activeTab = tab;
         this._selectedAssetId = null;
         this._rebuildTabBar();
+        this._rebuildHeader();
         this._refreshGrid();
       });
       this._tabBarEl.appendChild(btn);
@@ -204,6 +243,8 @@ export class ActorAssetBrowser {
       this._renderStructureGrid();
     } else if (this._activeTab === 'Enums') {
       this._renderEnumGrid();
+    } else if (this._activeTab === 'Meshes') {
+      this._renderMeshGrid();
     }
   }
 
@@ -326,6 +367,237 @@ export class ActorAssetBrowser {
       );
       this._gridEl.appendChild(card);
     }
+  }
+
+  // ---- Mesh Grid ----
+
+  private _renderMeshGrid(): void {
+    if (!this._meshManager) {
+      const empty = document.createElement('div');
+      empty.className = 'prop-empty';
+      empty.textContent = 'Mesh manager not initialized.';
+      empty.style.height = '60px';
+      this._gridEl.appendChild(empty);
+      return;
+    }
+
+    // Drop zone hint
+    const dropZone = document.createElement('div');
+    dropZone.className = 'mesh-drop-zone';
+    dropZone.innerHTML = '<span>📦 Drag & drop mesh files here<br>or click <b>Import</b></span>';
+
+    // File drag-and-drop support
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('drag-over');
+      if (e.dataTransfer?.files) {
+        this._handleMeshFileDrop(e.dataTransfer.files);
+      }
+    });
+
+    // Also allow drop on the entire grid
+    this._gridEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    this._gridEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer?.files) {
+        this._handleMeshFileDrop(e.dataTransfer.files);
+      }
+    });
+
+    const assets = this._meshManager.assets;
+
+    if (assets.length === 0) {
+      this._gridEl.appendChild(dropZone);
+      return;
+    }
+
+    // Show mesh asset cards
+    for (const meshAsset of assets) {
+      const card = document.createElement('div');
+      card.className = 'asset-card mesh-asset-card';
+      if (this._selectedAssetId === meshAsset.id) card.classList.add('selected');
+
+      // Thumbnail
+      const thumbEl = document.createElement('div');
+      thumbEl.className = 'asset-card-icon mesh-thumbnail';
+      if (meshAsset.thumbnail) {
+        thumbEl.style.backgroundImage = `url(${meshAsset.thumbnail})`;
+        thumbEl.style.backgroundSize = 'cover';
+        thumbEl.style.backgroundPosition = 'center';
+      } else {
+        thumbEl.innerHTML = '<span style="font-size:28px;">📦</span>';
+      }
+      card.appendChild(thumbEl);
+
+      // Name
+      const label = document.createElement('div');
+      label.className = 'asset-card-name';
+      label.textContent = meshAsset.name;
+      label.title = meshAsset.name;
+      card.appendChild(label);
+
+      // Subtitle (vertex/tri count)
+      const sub = document.createElement('div');
+      sub.className = 'asset-card-subtitle';
+      const verts = meshAsset.meshData.vertexCount.toLocaleString();
+      const tris = meshAsset.meshData.triangleCount.toLocaleString();
+      sub.textContent = `${verts} verts · ${tris} tris`;
+      card.appendChild(sub);
+
+      // Click → select
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._selectedAssetId = meshAsset.id;
+        this._refreshGrid();
+      });
+
+      // Mouse drag → drop into scene
+      card.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        this._dragMeshAsset = meshAsset;
+        this._dragStarted = false;
+        this._startX = e.clientX;
+        this._startY = e.clientY;
+      });
+
+      // Right-click → context menu
+      card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._selectedAssetId = meshAsset.id;
+        this._refreshGrid();
+        this._showMeshContextMenu(e, meshAsset);
+      });
+
+      this._gridEl.appendChild(card);
+    }
+
+    // Append drop zone at end (smaller when assets exist)
+    dropZone.classList.add('compact');
+    this._gridEl.appendChild(dropZone);
+  }
+
+  // ---- Mesh Import ----
+
+  private _triggerMeshFileImport(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gltf,.glb,.fbx,.obj,.dae,.stl,.ply';
+    input.multiple = true;
+    input.addEventListener('change', () => {
+      if (input.files && input.files.length > 0) {
+        this._handleMeshFileDrop(input.files);
+      }
+    });
+    input.click();
+  }
+
+  private async _handleMeshFileDrop(fileList: FileList): Promise<void> {
+    if (!this._meshManager) return;
+
+    // Collect importable files and extra files (like .mtl)
+    const importables: File[] = [];
+    const extras = new Map<string, File>();
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      if (isImportableFile(file.name)) {
+        importables.push(file);
+      } else {
+        extras.set(file.name, file);
+      }
+    }
+
+    if (importables.length === 0) return;
+
+    for (const file of importables) {
+      // Show import dialog
+      const dialogResult = await showImportDialog(file);
+      if (dialogResult.cancelled) continue;
+
+      // Show progress
+      const progress = showImportProgress();
+
+      try {
+        const result = await importMeshFile(
+          file,
+          dialogResult.settings,
+          extras.size > 0 ? extras : undefined,
+          (msg) => progress.update(msg),
+        );
+
+        // Add to mesh manager
+        this._meshManager.addImportedAsset(
+          result.meshAsset,
+          result.materials,
+          result.textures,
+          result.animations,
+        );
+
+        progress.update('Import complete!', 100);
+        setTimeout(() => progress.close(), 800);
+      } catch (err: any) {
+        progress.close();
+        console.error('[MeshImport] Failed:', err);
+        alert(`Failed to import ${file.name}:\n${err.message || err}`);
+      }
+    }
+
+    // Switch to meshes tab and refresh
+    this._activeTab = 'Meshes';
+    this._rebuildTabBar();
+    this._rebuildHeader();
+    this._refreshGrid();
+  }
+
+  private _showMeshContextMenu(e: MouseEvent, meshAsset: MeshAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '✏ Rename', () => {
+      const newName = this._showNameDialog('Rename Mesh Asset', meshAsset.name);
+      if (newName) this._meshManager!.renameAsset(meshAsset.id, newName);
+    });
+
+    // Info row
+    const infoItem = document.createElement('div');
+    infoItem.className = 'context-menu-item';
+    infoItem.style.opacity = '0.6';
+    infoItem.style.fontSize = '11px';
+    infoItem.style.cursor = 'default';
+    infoItem.textContent = `${meshAsset.assetType} · ${meshAsset.sourceFile}`;
+    menu.appendChild(infoItem);
+
+    const sep = document.createElement('div');
+    sep.className = 'context-menu-separator';
+    menu.appendChild(sep);
+
+    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete mesh asset "${meshAsset.name}"?`)) {
+        this._meshManager!.removeAsset(meshAsset.id);
+        if (this._selectedAssetId === meshAsset.id) this._selectedAssetId = null;
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
   }
 
   private _createTypeCard(
@@ -532,6 +804,21 @@ export class ActorAssetBrowser {
           this._onOpenEnum?.(ea);
         }
         this._refreshGrid();
+      });
+    }
+
+    // Mesh import
+    if (this._meshManager) {
+      const sepMesh = document.createElement('div');
+      sepMesh.className = 'context-menu-separator';
+      menu.appendChild(sepMesh);
+
+      this._addMenuItem(menu, '📦 Import Mesh…', () => {
+        this._activeTab = 'Meshes';
+        this._rebuildTabBar();
+        this._rebuildHeader();
+        this._refreshGrid();
+        this._triggerMeshFileImport();
       });
     }
 

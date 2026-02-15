@@ -12,6 +12,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Engine } from '../engine/Engine';
 import type { ActorAssetManager, ActorAssetJSON } from './ActorAsset';
 import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from './StructureAsset';
+import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
 import {
   serializeScene,
   deserializeScene,
@@ -69,6 +70,7 @@ const SCENES_DIR = 'Scenes';
 const ACTORS_DIR = 'Actors';
 const STRUCTURES_DIR = 'Structures';
 const ENUMS_DIR = 'Enums';
+const MESHES_DIR = 'Meshes';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const DEFAULT_SCENE = 'DefaultScene';
@@ -79,6 +81,7 @@ export class ProjectManager {
   private _engine: Engine;
   private _assetManager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
+  private _meshManager: MeshAssetManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -107,6 +110,11 @@ export class ProjectManager {
   /** Wire up the StructureAssetManager for saving/loading structures and enums */
   setStructureManager(mgr: StructureAssetManager): void {
     this._structManager = mgr;
+  }
+
+  /** Wire up the MeshAssetManager for saving/loading imported mesh assets */
+  setMeshManager(mgr: MeshAssetManager): void {
+    this._meshManager = mgr;
   }
 
   // ============================================================
@@ -231,6 +239,9 @@ export class ProjectManager {
       await this._loadStructures();
       await this._loadEnums();
 
+      // Load mesh assets
+      await this._loadMeshes();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -272,6 +283,9 @@ export class ProjectManager {
       // Save structures and enums
       await this._saveStructures();
       await this._saveEnums();
+
+      // Save mesh assets
+      await this._saveMeshes();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -319,7 +333,7 @@ export class ProjectManager {
     const raw = await fsRead(filePath);
     const sceneData: SceneJSON = JSON.parse(raw);
 
-    deserializeScene(this._engine.scene, sceneData, this._assetManager);
+    deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {
@@ -533,6 +547,96 @@ export class ProjectManager {
 
     if (allEnums.length > 0) {
       this._structManager.importEnums(allEnums);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Mesh Assets
+  // ============================================================
+
+  private async _saveMeshes(): Promise<void> {
+    if (!this._projectPath || !this._meshManager) return;
+
+    const meshDir = `${this._projectPath}/${MESHES_DIR}`;
+    const exported = this._meshManager.exportAll();
+
+    // Save each mesh asset bundle (mesh + its sub-assets together)
+    for (const meshJson of exported.meshAssets) {
+      const safeName = meshJson.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const bundle = {
+        meshAsset: meshJson,
+        materials: exported.materials.filter(m => meshJson.materials.includes(m.assetId)),
+        textures: exported.textures.filter(t => meshJson.textures.includes(t.assetId)),
+        animations: exported.animations.filter(a => meshJson.animations.includes(a.assetId)),
+      };
+      await fsWrite(
+        `${meshDir}/${safeName}_${meshJson.assetId}.json`,
+        JSON.stringify(bundle, null, 2),
+      );
+    }
+
+    // Index file
+    const index = exported.meshAssets.map(m => ({
+      id: m.assetId,
+      name: m.assetName,
+      file: `${m.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${m.assetId}.json`,
+    }));
+    await fsWrite(`${meshDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadMeshes(): Promise<void> {
+    if (!this._projectPath || !this._meshManager) return;
+
+    const meshDir = `${this._projectPath}/${MESHES_DIR}`;
+    const dirFound = await fsExists(meshDir);
+    if (!dirFound) return;
+
+    const allMeshAssets: MeshAssetJSON[] = [];
+    const allMaterials: MaterialAssetJSON[] = [];
+    const allTextures: TextureAssetJSON[] = [];
+    const allAnimations: AnimationAssetJSON[] = [];
+
+    const indexPath = `${meshDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    const fileNames: string[] = [];
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        fileNames.push(entry.file);
+      }
+    } else {
+      const names = await fsListDir(meshDir, '.json');
+      for (const name of names) {
+        if (name === '_index.json') continue;
+        fileNames.push(name);
+      }
+    }
+
+    for (const file of fileNames) {
+      try {
+        const raw = await fsRead(`${meshDir}/${file}`);
+        const bundle = JSON.parse(raw);
+        if (bundle.meshAsset) {
+          allMeshAssets.push(bundle.meshAsset);
+          if (bundle.materials) allMaterials.push(...bundle.materials);
+          if (bundle.textures) allTextures.push(...bundle.textures);
+          if (bundle.animations) allAnimations.push(...bundle.animations);
+        }
+      } catch (e) {
+        console.warn(`Failed to load mesh asset file ${file}:`, e);
+      }
+    }
+
+    if (allMeshAssets.length > 0) {
+      this._meshManager.importAll({
+        meshAssets: allMeshAssets,
+        materials: allMaterials,
+        textures: allTextures,
+        animations: allAnimations,
+      });
     }
   }
 

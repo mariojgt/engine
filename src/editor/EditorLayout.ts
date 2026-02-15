@@ -15,6 +15,8 @@ import { ActorAssetManager, type ActorAsset } from './ActorAsset';
 import { ActorAssetBrowser } from './ActorAssetBrowser';
 import { ActorEditorPanel } from './ActorEditorPanel';
 import type { StructureAssetManager, StructureAsset, EnumAsset } from './StructureAsset';
+import type { MeshAssetManager } from './MeshAsset';
+import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import type { CameraStateJSON } from './SceneSerializer';
@@ -62,6 +64,7 @@ export class EditorLayout {
   private _actorEditor: ActorEditorPanel | null = null;
   private _assetBrowser: ActorAssetBrowser | null = null;
   private _structManager: StructureAssetManager | null = null;
+  private _meshManager: MeshAssetManager | null = null;
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
@@ -312,6 +315,10 @@ export class EditorLayout {
     };
 
     this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged, this.assetManager, this._onSave ?? undefined);
+    // Wire up mesh manager for skeletal mesh picker
+    if (this._meshManager) {
+      this._actorEditor.setMeshManager(this._meshManager);
+    }
   }
 
   /** Wire up the StructureAssetManager for the content browser and editors */
@@ -323,6 +330,22 @@ export class EditorLayout {
         (sa: StructureAsset) => this._openStructureEditor(sa),
         (ea: EnumAsset) => this._openEnumEditor(ea),
       );
+    }
+  }
+
+  /** Wire up the MeshAssetManager for the content browser */
+  setMeshManager(mgr: MeshAssetManager): void {
+    this._meshManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setMeshManager(mgr, (meshAsset: MeshAsset, mx: number, my: number) => {
+        // Mesh drop: check if the mouse is over the viewport
+        if (!this._viewport) return;
+        const rect = this._viewport.container.getBoundingClientRect();
+        if (mx < rect.left || mx > rect.right || my < rect.top || my > rect.bottom) return;
+
+        // Place the imported mesh in the scene
+        this._engine.scene.addGameObjectFromMeshAsset(meshAsset, { x: 0, y: 3, z: 0 });
+      });
     }
   }
 

@@ -5,8 +5,9 @@
 //  mini Three.js scene on the right with transform gizmos.
 // ============================================================
 
-import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType } from './ActorAsset';
+import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType, SkeletalMeshConfig } from './ActorAsset';
 import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
+import type { MeshAssetManager, MeshAsset } from './MeshAsset';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 import { defaultCollisionConfig, defaultDimensionsForShape } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
@@ -24,6 +25,7 @@ export class ActorEditorPanel {
   public container: HTMLElement;
   private _asset: ActorAsset;
   private _assetManager: ActorAssetManager | null;
+  private _meshManager: MeshAssetManager | null = null;
   private _onCompile: (code: string) => void;
   private _onAssetChanged: () => void;
   private _onSave: (() => void) | null;
@@ -69,6 +71,11 @@ export class ActorEditorPanel {
     this._onAssetChanged = onAssetChanged ?? (() => {});
     this._onSave = onSave ?? null;
     this._build();
+  }
+
+  /** Wire up MeshAssetManager for skeletal mesh picker */
+  setMeshManager(mgr: MeshAssetManager): void {
+    this._meshManager = mgr;
   }
 
   /** Mark the blueprint as needing recompilation (called externally when graph changes) */
@@ -786,6 +793,94 @@ export class ActorEditorPanel {
       info.style.padding = '4px 0';
       info.textContent = 'Movement is configured via the root Character Pawn settings.';
       container.appendChild(info);
+    } else if (comp.type === 'skeletalMesh') {
+      // ---- Skeletal Mesh component properties ----
+      if (!comp.skeletalMesh) {
+        comp.skeletalMesh = { meshAssetId: '', animationName: '', loopAnimation: true, animationSpeed: 1.0 };
+      }
+      const cfg = comp.skeletalMesh;
+
+      // Mesh Asset picker
+      const meshOptions: string[] = ['(None)'];
+      const meshAssets: MeshAsset[] = [];
+      if (this._meshManager) {
+        for (const ma of this._meshManager.assets) {
+          meshAssets.push(ma);
+          meshOptions.push(ma.name);
+        }
+      }
+
+      const currentMesh = cfg.meshAssetId
+        ? (meshAssets.find(m => m.id === cfg.meshAssetId)?.name ?? '(None)')
+        : '(None)';
+
+      container.appendChild(this._makeDropdownRow('Mesh Asset', currentMesh, meshOptions, (v) => {
+        if (v === '(None)') {
+          cfg.meshAssetId = '';
+          cfg.animationName = '';
+        } else {
+          const ma = meshAssets.find(m => m.name === v);
+          if (ma) {
+            cfg.meshAssetId = ma.id;
+            cfg.animationName = ''; // reset animation when mesh changes
+          }
+        }
+        this._asset.touch();
+        if (this._preview) this._preview.rebuild();
+        this._refreshComponentProps(); // re-render to update animation list
+        this._onAssetChanged();
+      }));
+
+      // Animation picker (only if a mesh is selected and has animations)
+      const selectedMeshAsset = meshAssets.find(m => m.id === cfg.meshAssetId);
+      if (selectedMeshAsset && selectedMeshAsset.animations.length > 0) {
+        const animHeader = document.createElement('div');
+        animHeader.className = 'prop-section-title';
+        animHeader.textContent = 'Animation';
+        container.appendChild(animHeader);
+
+        const animNames = selectedMeshAsset.animations.map(a => a.assetName);
+        const animOptions = ['(None)', ...animNames];
+        const currentAnim = cfg.animationName || '(None)';
+
+        container.appendChild(this._makeDropdownRow('Animation', currentAnim, animOptions, (v) => {
+          cfg.animationName = v === '(None)' ? '' : v;
+          this._asset.touch();
+          if (this._preview) this._preview.rebuild();
+          this._onAssetChanged();
+        }));
+
+        container.appendChild(this._makeCheckboxRow('Loop', cfg.loopAnimation, (v) => {
+          cfg.loopAnimation = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+
+        container.appendChild(this._makeNumberRow('Speed', cfg.animationSpeed, 0.1, 0, 10, (v) => {
+          cfg.animationSpeed = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+      }
+
+      // Offset / Rotation / Scale
+      container.appendChild(this._makeVec3Row('Offset', comp.offset, () => {
+        this._asset.touch();
+        if (this._preview) this._preview.updateComponentTransform(comp.id);
+        this._onAssetChanged();
+      }));
+
+      container.appendChild(this._makeVec3Row('Rotation', comp.rotation, () => {
+        this._asset.touch();
+        if (this._preview) this._preview.updateComponentTransform(comp.id);
+        this._onAssetChanged();
+      }));
+
+      container.appendChild(this._makeVec3Row('Scale', comp.scale, () => {
+        this._asset.touch();
+        if (this._preview) this._preview.updateComponentTransform(comp.id);
+        this._onAssetChanged();
+      }));
     } else {
       // ---- Mesh component properties ----
       // Mesh type
@@ -855,6 +950,22 @@ export class ActorEditorPanel {
       });
       menu.appendChild(item);
     }
+
+    // ---- Skeletal Mesh sub-header ----
+    const skeletalHeader = document.createElement('div');
+    skeletalHeader.className = 'context-menu-header';
+    skeletalHeader.textContent = '🦴 Skeletal Mesh';
+    menu.appendChild(skeletalHeader);
+
+    const addSkeletalMesh = document.createElement('div');
+    addSkeletalMesh.className = 'context-menu-item';
+    addSkeletalMesh.textContent = 'Skeletal Mesh Component';
+    addSkeletalMesh.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      this._addSkeletalMeshComponent();
+    });
+    menu.appendChild(addSkeletalMesh);
 
     // ---- Trigger sub-header ----
     const triggerHeader = document.createElement('div');
@@ -1003,6 +1114,32 @@ export class ActorEditorPanel {
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       light: defaultLightConfig(lightType),
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addSkeletalMeshComponent(): void {
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'skeletalMesh',
+      meshType: 'cube',           // placeholder — not rendered as primitive
+      name: 'SkeletalMesh_' + this._asset.components.length,
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      skeletalMesh: {
+        meshAssetId: '',
+        animationName: '',
+        loopAnimation: true,
+        animationSpeed: 1.0,
+      },
     };
     this._asset.components.push(comp);
     this._asset.touch();

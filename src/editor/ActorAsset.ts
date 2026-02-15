@@ -124,7 +124,7 @@ export function defaultPhysicsConfig(): PhysicsConfig {
 export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
-  type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule';
+  type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -148,6 +148,22 @@ export interface ActorComponentData {
   parentId?: string;
   /** When true, this component mesh is hidden at runtime (default: true for capsule/springArm/camera/characterMovement) */
   hiddenInGame?: boolean;
+  /** If set, this component uses an imported 3D mesh asset instead of a primitive */
+  customMeshAssetId?: string;
+  /** Skeletal Mesh configuration (for type='skeletalMesh') */
+  skeletalMesh?: SkeletalMeshConfig;
+}
+
+/** Configuration for skeletal mesh components */
+export interface SkeletalMeshConfig {
+  /** The mesh asset ID (references MeshAssetManager) */
+  meshAssetId: string;
+  /** Current animation name to play (empty = none) */
+  animationName: string;
+  /** Whether the animation should loop */
+  loopAnimation: boolean;
+  /** Animation playback speed multiplier */
+  animationSpeed: number;
 }
 
 export interface ActorAssetJSON {
@@ -159,6 +175,8 @@ export interface ActorAssetJSON {
   description: string;
   /** Root mesh type for the actor */
   rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none';
+  /** If set, the root uses an imported mesh asset instead of a primitive */
+  rootCustomMeshAssetId?: string;
   /** Physics configuration for the root component */
   rootPhysics: PhysicsConfig;
   /** Additional child components (future) */
@@ -204,6 +222,8 @@ export class ActorAsset {
   public actorType: ActorType = 'actor';
   public description: string = '';
   public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none' = 'cube';
+  /** When set, root uses an imported mesh asset instead of a primitive */
+  public rootCustomMeshAssetId: string = '';
   public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
   public components: ActorComponentData[] = [];
   public blueprintData: BlueprintData;
@@ -255,6 +275,7 @@ export class ActorAsset {
       actorType: this.actorType,
       description: this.description,
       rootMeshType: this.rootMeshType,
+      rootCustomMeshAssetId: this.rootCustomMeshAssetId || undefined,
       rootPhysics: structuredClone(this.rootPhysics),
       components: structuredClone(this.components),
       variables: structuredClone(bp.variables),
@@ -288,6 +309,7 @@ export class ActorAsset {
     asset.controllerBlueprintId = json.controllerBlueprintId || '';
     asset.description = json.description || '';
     asset.rootMeshType = json.rootMeshType || 'cube';
+    asset.rootCustomMeshAssetId = json.rootCustomMeshAssetId || '';
     asset.characterPawnConfig = json.characterPawnConfig
       ? {
           ...defaultCharacterPawnConfig(),

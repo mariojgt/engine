@@ -25,6 +25,12 @@ export class GameObject {
    */
   public actorAssetId: string | null = null;
 
+  /**
+   * If this GameObject uses an imported mesh asset, this holds the mesh asset ID.
+   * Used for serialization and to reload the mesh from GLB data.
+   */
+  public customMeshAssetId: string | null = null;
+
   /** Actor type — 'actor' (default) or 'characterPawn' */
   public actorType: ActorType = 'actor';
 

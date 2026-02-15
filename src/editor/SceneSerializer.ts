@@ -6,6 +6,7 @@
 import type { Scene, MeshType } from '../engine/Scene';
 import type { GameObject } from '../engine/GameObject';
 import type { ActorAssetManager } from './ActorAsset';
+import type { MeshAssetManager } from './MeshAsset';
 import type { BlueprintData } from './BlueprintData';
 import type { PhysicsConfig } from './ActorAsset';
 import type { BufferGeometry } from 'three';
@@ -21,6 +22,8 @@ export interface GameObjectJSON {
   hasPhysics: boolean;
   /** If spawned from an actor asset, the asset ID */
   actorAssetId: string | null;
+  /** If using an imported mesh asset, the mesh asset ID */
+  customMeshAssetId?: string | null;
   /** For standalone (non-actor) game objects, store their blueprint data */
   blueprintData?: any;
   /** Per-object physics configuration */
@@ -94,6 +97,7 @@ export function serializeScene(
       },
       hasPhysics: go.hasPhysics,
       actorAssetId: go.actorAssetId,
+      customMeshAssetId: go.customMeshAssetId || null,
       physicsConfig: go.physicsConfig ? structuredClone(go.physicsConfig) : null,
     };
 
@@ -119,6 +123,7 @@ export function deserializeScene(
   scene: Scene,
   data: SceneJSON,
   assetManager: ActorAssetManager,
+  meshManager?: MeshAssetManager,
 ): void {
   // Clear existing game objects
   while (scene.gameObjects.length > 0) {
@@ -126,6 +131,21 @@ export function deserializeScene(
   }
 
   for (const goData of data.gameObjects) {
+    // Check if this is a custom mesh asset instance
+    if (goData.customMeshAssetId && meshManager) {
+      const meshAsset = meshManager.getAsset(goData.customMeshAssetId);
+      if (meshAsset) {
+        // Load mesh asynchronously — fire and forget (async scene loading)
+        scene.addGameObjectFromMeshAsset(meshAsset, goData.position).then((go) => {
+          go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);
+          go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
+          go.hasPhysics = goData.hasPhysics;
+          if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
+        });
+        continue;
+      }
+    }
+
     if (goData.actorAssetId) {
       // This is an actor asset instance — restore from the asset
       const asset = assetManager.getAsset(goData.actorAssetId);

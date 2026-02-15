@@ -7,6 +7,7 @@ import { ScriptComponent } from './engine/ScriptComponent';
 import { ProjectManager } from './editor/ProjectManager';
 import { showProjectDialog } from './editor/ProjectDialog';
 import { StructureAssetManager } from './editor/StructureAsset';
+import { MeshAssetManager } from './editor/MeshAsset';
 import { setStructureAssetManager } from './editor/NodeEditorPanel';
 
 async function main() {
@@ -66,6 +67,11 @@ async function main() {
   // Wire structure manager into content browser
   editor.setStructureManager(structManager);
 
+  // Create mesh asset manager (imported 3D meshes)
+  const meshManager = new MeshAssetManager();
+  projectManager.setMeshManager(meshManager);
+  editor.setMeshManager(meshManager);
+
   // Wire camera state callbacks
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
@@ -74,6 +80,7 @@ async function main() {
   engine.scene.onChanged(() => projectManager.markDirty());
   editor.assetManager.onChanged(() => projectManager.markDirty());
   structManager.onChanged(() => projectManager.markDirty());
+  meshManager.onChanged(() => projectManager.markDirty());
 
   // Output log for Print String nodes
   const outputLog = new OutputLog(app);

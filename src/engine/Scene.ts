@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
-import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType, SkeletalMeshConfig } from '../editor/ActorAsset';
 import { defaultLightConfig } from '../editor/ActorAsset';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
+import { MeshAssetManager, type MeshAsset } from '../editor/MeshAsset';
+import { loadMeshFromAsset } from '../editor/MeshImporter';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
@@ -107,6 +109,79 @@ export class Scene {
   }
 
   /**
+   * Create a GameObject from an imported MeshAsset.
+   * Asynchronously loads the GLB data and places the mesh in the scene.
+   */
+  async addGameObjectFromMeshAsset(
+    meshAsset: MeshAsset,
+    position?: { x: number; y: number; z: number },
+  ): Promise<GameObject> {
+    // Create a placeholder mesh while loading
+    const placeholder = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.5, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x888888, wireframe: true }),
+    );
+    const pos = position ?? { x: 0, y: 3, z: 0 };
+    placeholder.position.set(pos.x, pos.y, pos.z);
+
+    const go = new GameObject(meshAsset.name, placeholder);
+    go.customMeshAssetId = meshAsset.id;
+    placeholder.userData.gameObjectId = go.id;
+    this.threeScene.add(placeholder);
+    this.gameObjects.push(go);
+    this._emitChanged();
+
+    // Load the actual mesh asynchronously
+    try {
+      const { scene: loadedScene, animations } = await loadMeshFromAsset(meshAsset);
+
+      // Replace the placeholder geometry with the loaded mesh
+      // Remove placeholder from scene
+      this.threeScene.remove(placeholder);
+      placeholder.geometry.dispose();
+
+      // Create a group as the root mesh
+      const group = new THREE.Group();
+      group.position.copy(placeholder.position);
+      group.rotation.copy(placeholder.rotation);
+      group.scale.copy(placeholder.scale);
+
+      // Add all children from the loaded scene
+      while (loadedScene.children.length > 0) {
+        const child = loadedScene.children[0];
+        loadedScene.remove(child);
+        // Enable shadows on meshes
+        child.traverse((obj) => {
+          if ((obj as THREE.Mesh).isMesh) {
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+          }
+        });
+        group.add(child);
+      }
+
+      group.userData.gameObjectId = go.id;
+      this.threeScene.add(group);
+
+      // Update the game object's mesh reference
+      // Use the group as the "mesh" — it's compatible since THREE.Group extends Object3D
+      (go as any).mesh = group as any;
+
+      // Store animations if any
+      if (animations.length > 0) {
+        (go as any)._animationClips = animations;
+        (go as any)._animationMixer = new THREE.AnimationMixer(group);
+      }
+
+      this._emitChanged();
+    } catch (err) {
+      console.error('[Scene] Failed to load imported mesh:', err);
+    }
+
+    return go;
+  }
+
+  /**
    * Create a GameObject from an ActorAsset reference.
    * The blueprint data is cloned from the asset so each instance is independent at runtime,
    * but `actorAssetId` links it back so the editor can re-sync when the asset changes.
@@ -203,7 +278,18 @@ export class Scene {
       }
 
       // --- Rebuild child component meshes & trigger data ---
-      // Remove all existing children
+      // Collect existing skeletal mesh wrappers (keyed by componentId) so we can
+      // reuse them instead of destroying + async-reloading every sync cycle.
+      const existingSkeletalMeshes = new Map<string, THREE.Object3D>();
+      for (let i = go.mesh.children.length - 1; i >= 0; i--) {
+        const child = go.mesh.children[i];
+        if (child.userData.__isSkeletalMesh && child.userData.__componentId) {
+          existingSkeletalMeshes.set(child.userData.__componentId, child);
+          go.mesh.remove(child); // temporarily detach — _applyComponents will re-attach if still valid
+        }
+      }
+
+      // Remove all remaining (non-skeletal-mesh) children
       while (go.mesh.children.length > 0) {
         const child = go.mesh.children[0];
         go.mesh.remove(child);
@@ -211,9 +297,21 @@ export class Scene {
       }
       // Add fresh children from the components list
       if (components) {
-        this._applyComponents(go, components);
+        this._applyComponents(go, components, existingSkeletalMeshes);
       } else {
         (go as any)._triggerComponents = [];
+      }
+
+      // Dispose any leftover skeletal meshes that were not reused
+      for (const leftover of existingSkeletalMeshes.values()) {
+        leftover.traverse(child => {
+          if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+          if ((child as THREE.Mesh).material) {
+            const mat = (child as THREE.Mesh).material;
+            if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+            else (mat as THREE.Material).dispose();
+          }
+        });
       }
 
       // --- Re-clone the blueprint data ---
@@ -344,7 +442,11 @@ export class Scene {
     return group;
   }
 
-  private _applyComponents(go: GameObject, components: ActorComponentData[]): void {
+  private _applyComponents(
+    go: GameObject,
+    components: ActorComponentData[],
+    existingSkeletalMeshes?: Map<string, THREE.Object3D>,
+  ): void {
     const toRad = (d: number) => (d * Math.PI) / 180;
     const triggers: Array<{ config: CollisionConfig; name: string; index: number; offset: { x: number; y: number; z: number } }> = [];
     let triggerIdx = 0;
@@ -474,6 +576,90 @@ export class Scene {
         go.mesh.add(helperGroup);
 
         lightComps.push({ light: threeLight, config: cfg, name: comp.name, index: lightIdx++ });
+      } else if (comp.type === 'skeletalMesh' && comp.skeletalMesh?.meshAssetId) {
+        // Skeletal Mesh component — reuse existing wrapper if possible, otherwise load async
+        const meshAsset = MeshAssetManager.getAsset(comp.skeletalMesh.meshAssetId);
+        if (meshAsset) {
+          const cfg = comp.skeletalMesh;
+
+          // Check if we already have a loaded wrapper for this component with the same mesh asset
+          const existing = existingSkeletalMeshes?.get(comp.id);
+          const existingMeshAssetId = existing?.userData.__meshAssetId;
+
+          if (existing && existingMeshAssetId === cfg.meshAssetId && existing.children.length > 0) {
+            // Reuse — just update transforms
+            existing.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+            existing.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+            existing.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+            existing.name = comp.name;
+            existing.userData.__skeletalMeshCompName = comp.name;
+            go.mesh.add(existing);
+            existingSkeletalMeshes!.delete(comp.id); // consumed — don't dispose it
+
+            // Re-attach mixers
+            const mixer = existing.userData.__animationMixer as THREE.AnimationMixer | undefined;
+            if (mixer) {
+              if (!(go as any)._skeletalMeshMixers) (go as any)._skeletalMeshMixers = [];
+              (go as any)._skeletalMeshMixers.push(mixer);
+            }
+          } else {
+            // Dispose old one if it existed with a different mesh asset
+            if (existing) existingSkeletalMeshes!.delete(comp.id);
+
+            // Create a new wrapper group
+            const wrapper = new THREE.Group();
+            wrapper.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+            wrapper.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+            wrapper.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+            wrapper.userData.__isSkeletalMesh = true;
+            wrapper.userData.__skeletalMeshCompName = comp.name;
+            wrapper.userData.__componentId = comp.id;
+            wrapper.userData.__meshAssetId = cfg.meshAssetId;
+            wrapper.name = comp.name;
+            go.mesh.add(wrapper);
+
+            // Async load the mesh
+            loadMeshFromAsset(meshAsset).then(({ scene: loadedScene, animations }) => {
+              if (!wrapper.parent) return; // GO removed while loading
+
+              // Move children from loaded scene into wrapper (preserves internal structure)
+              while (loadedScene.children.length > 0) {
+                const child = loadedScene.children[0];
+                loadedScene.remove(child);
+                child.traverse((obj) => {
+                  if ((obj as THREE.Mesh).isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
+                  }
+                });
+                wrapper.add(child);
+              }
+
+              // Setup animation mixer if there are animations
+              if (animations.length > 0) {
+                const mixer = new THREE.AnimationMixer(wrapper);
+                wrapper.userData.__animationMixer = mixer;
+                wrapper.userData.__animations = animations;
+
+                if (cfg.animationName) {
+                  const clip = animations.find(a => a.name === cfg.animationName);
+                  if (clip) {
+                    const action = mixer.clipAction(clip);
+                    action.setLoop(cfg.loopAnimation ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+                    action.clampWhenFinished = !cfg.loopAnimation;
+                    action.timeScale = cfg.animationSpeed;
+                    action.play();
+                  }
+                }
+
+                if (!(go as any)._skeletalMeshMixers) (go as any)._skeletalMeshMixers = [];
+                (go as any)._skeletalMeshMixers.push(mixer);
+              }
+            }).catch(err => {
+              console.error('Failed to load skeletal mesh:', err);
+            });
+          }
+        }
       } else {
         // Mesh component — add as child mesh
         const geo = geometries[comp.meshType]();

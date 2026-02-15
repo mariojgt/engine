@@ -9,6 +9,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ActorAsset, ActorComponentData, LightConfig } from './ActorAsset';
 import { defaultLightConfig } from './ActorAsset';
+import { MeshAssetManager } from './MeshAsset';
+import { loadMeshFromAsset } from './MeshImporter';
 
 type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -60,6 +62,7 @@ export class ActorPreviewViewport {
   private _selectedId: string | null = null; // null = nothing, '__root__' = root, else component id
   private _onSelectionChanged: SelectionChangedCallback | null = null;
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _rebuildCounter = 0; // Incremented each rebuild to cancel old async loads
 
   constructor(container: HTMLElement, asset: ActorAsset) {
     this.container = container;
@@ -99,6 +102,20 @@ export class ActorPreviewViewport {
 
   set onSelectionChanged(cb: SelectionChangedCallback | null) {
     this._onSelectionChanged = cb;
+  }
+
+  /** Update a component's transform without rebuilding (avoids async issues with skeletal meshes) */
+  updateComponentTransform(componentId: string): void {
+    const comp = this._asset.components.find(c => c.id === componentId);
+    if (!comp) return;
+    
+    const obj = this._componentMeshes.get(componentId);
+    if (!obj) return;
+
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    obj.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+    obj.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+    obj.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
   }
 
   private _initCamera(): void {
@@ -292,15 +309,27 @@ export class ActorPreviewViewport {
 
   /** Rebuild all meshes from the asset data */
   rebuild(): void {
-    // Remove old objects
+    // Increment rebuild counter to invalidate pending async loads
+    this._rebuildCounter++;
+    const currentRebuild = this._rebuildCounter;
+
+    // Remove old objects — but preserve skeletal mesh wrappers for reuse
     if (this._rootMesh) {
       this._scene.remove(this._rootMesh);
       this._disposeObject3D(this._rootMesh);
       this._rootMesh = null;
     }
-    for (const m of this._componentMeshes.values()) {
-      this._scene.remove(m);
-      this._disposeObject3D(m);
+
+    // Collect skeletal mesh wrappers for potential reuse
+    const existingSkeletalMeshes = new Map<string, THREE.Object3D>();
+    for (const [id, obj] of this._componentMeshes) {
+      if (obj.userData.__isSkeletalMesh && obj.userData.__meshAssetId) {
+        this._scene.remove(obj); // detach but don't dispose yet
+        existingSkeletalMeshes.set(id, obj);
+      } else {
+        this._scene.remove(obj);
+        this._disposeObject3D(obj);
+      }
     }
     this._componentMeshes.clear();
 
@@ -651,6 +680,95 @@ export class ActorPreviewViewport {
         continue;
       }
 
+      // ── Skeletal Mesh component — load imported mesh async ──
+      if (comp.type === 'skeletalMesh' && comp.skeletalMesh?.meshAssetId) {
+        const meshAsset = MeshAssetManager.getAsset(comp.skeletalMesh.meshAssetId);
+        if (meshAsset) {
+          const cfg = comp.skeletalMesh;
+          const toRad = (d: number) => (d * Math.PI) / 180;
+
+          // Try to reuse an existing loaded wrapper
+          const existing = existingSkeletalMeshes.get(comp.id);
+          const existingMeshAssetId = existing?.userData.__meshAssetId;
+
+          if (existing && existingMeshAssetId === cfg.meshAssetId && existing.children.length > 0) {
+            // Reuse — just update transforms
+            existing.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+            existing.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+            existing.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+            this._scene.add(existing);
+            this._componentMeshes.set(comp.id, existing);
+            existingSkeletalMeshes.delete(comp.id);
+            continue;
+          }
+
+          // Dispose old one if mesh asset changed
+          if (existing) {
+            this._disposeObject3D(existing);
+            existingSkeletalMeshes.delete(comp.id);
+          }
+
+          // Create a new group
+          const group = new THREE.Group();
+          group.userData.__componentId = comp.id;
+          group.userData.__isSkeletalMesh = true;
+          group.userData.__meshAssetId = cfg.meshAssetId;
+          group.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+          group.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+          group.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+          this._scene.add(group);
+          this._componentMeshes.set(comp.id, group);
+
+          // Async load the mesh
+          loadMeshFromAsset(meshAsset).then(({ scene: loadedScene, animations }) => {
+            if (this._disposed || this._rebuildCounter !== currentRebuild) return;
+
+            // Move children from loaded scene into group (preserves internal structure)
+            while (loadedScene.children.length > 0) {
+              const child = loadedScene.children[0];
+              loadedScene.remove(child);
+              child.traverse((obj) => {
+                if ((obj as THREE.Mesh).isMesh) {
+                  obj.castShadow = true;
+                  obj.receiveShadow = true;
+                }
+              });
+              group.add(child);
+            }
+
+            // Setup animation mixer for preview
+            if (animations.length > 0 && cfg.animationName) {
+              const mixer = new THREE.AnimationMixer(group);
+              const clip = animations.find(a => a.name === cfg.animationName);
+              if (clip) {
+                const action = mixer.clipAction(clip);
+                action.setLoop(cfg.loopAnimation ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+                action.timeScale = cfg.animationSpeed;
+                action.play();
+              }
+              (group as any).__previewMixer = mixer;
+            }
+          }).catch(err => console.error('Failed to load skeletal mesh for preview:', err));
+          continue;
+        }
+      }
+
+      // ── Skeletal Mesh component with no mesh assigned — show placeholder ──
+      if (comp.type === 'skeletalMesh') {
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const placeholder = new THREE.Mesh(
+          new THREE.BoxGeometry(0.5, 0.5, 0.5),
+          new THREE.MeshStandardMaterial({ color: 0x9966cc, wireframe: true }),
+        );
+        placeholder.userData.__componentId = comp.id;
+        placeholder.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+        placeholder.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+        placeholder.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+        this._scene.add(placeholder);
+        this._componentMeshes.set(comp.id, placeholder);
+        continue;
+      }
+
       const geo = geometries[comp.meshType]();
       const mesh = new THREE.Mesh(geo, childMaterial.clone());
       mesh.userData.__componentId = comp.id;
@@ -660,6 +778,11 @@ export class ActorPreviewViewport {
       mesh.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
       this._scene.add(mesh);
       this._componentMeshes.set(comp.id, mesh);
+    }
+
+    // Dispose any leftover skeletal meshes that were not reused
+    for (const leftover of existingSkeletalMeshes.values()) {
+      this._disposeObject3D(leftover);
     }
 
     // Re-select
@@ -681,8 +804,17 @@ export class ActorPreviewViewport {
   }
 
   private _startRenderLoop(): void {
+    const clock = new THREE.Clock();
     const loop = () => {
       if (this._disposed) return;
+      const dt = clock.getDelta();
+
+      // Update animation mixers for skeletal mesh previews
+      for (const obj of this._componentMeshes.values()) {
+        const mixer = (obj as any).__previewMixer as THREE.AnimationMixer | undefined;
+        if (mixer) mixer.update(dt);
+      }
+
       if (this._controls) this._controls.update();
       if (this._renderer) {
         this._renderer.render(this._scene, this._camera);
