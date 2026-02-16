@@ -300,6 +300,7 @@ export {
 // ── UI / Widget Nodes ───────────────────────────────────────
 export {
   WidgetBPSelectControl,
+  WidgetSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -318,4 +319,14 @@ export {
   PlayWidgetAnimationNode,
   SetInputModeNode,
   ShowMouseCursorNode,
+  // Widget Event Nodes
+  ButtonOnClickedNode,
+  ButtonOnPressedNode,
+  ButtonOnReleasedNode,
+  ButtonOnHoveredNode,
+  ButtonOnUnhoveredNode,
+  TextBoxOnTextChangedNode,
+  TextBoxOnTextCommittedNode,
+  SliderOnValueChangedNode,
+  CheckBoxOnCheckStateChangedNode,
 } from './ui/WidgetNodes';

@@ -100,6 +100,7 @@ async function main() {
       name: asset.name,
       rootWidgetId: json.rootWidgetId,
       widgets: json.widgets,
+      compiledCode: json.compiledCode, // CRITICAL: Include compiled code for event handlers!
     };
   });
 
@@ -121,6 +122,9 @@ async function main() {
     console.log('[Print]', value);
     outputLog.log(value);
   };
+
+  // Wire UIManager to use the same print function for widget blueprint Print String nodes
+  engine.uiManager.setPrintFunction(engine.onPrint);
 
   // Update toolbar project name
   const projectNameEl = document.getElementById('toolbar-project-name')!;

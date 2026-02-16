@@ -36,6 +36,42 @@ export class WidgetBPSelectControl extends ClassicPreset.Control {
   }
 }
 
+// ── Widget Selector Control (for selecting specific widgets) ───
+/**
+ * Custom control for selecting a specific widget within a Widget Blueprint.
+ * Shows a dropdown filtered by widget type (e.g., only Buttons for button events).
+ * Context-aware: populated from the current Widget Blueprint being edited.
+ */
+export class WidgetSelectorControl extends ClassicPreset.Control {
+  public value: string;         // widget name (e.g., "PlayButton", "TextBox1")
+  public widgetType: string;    // filter by type (e.g., "Button", "TextBox", or "" for all)
+  public availableWidgets: Array<{ name: string; type: string }> = [];
+
+  constructor(initialValue: string = '', filterType: string = '') {
+    super();
+    this.value = initialValue;
+    this.widgetType = filterType;
+  }
+
+  setValue(widgetName: string) {
+    this.value = widgetName;
+  }
+
+  /**
+   * Update available widgets from Widget Blueprint context.
+   * Called by the node editor when rendering.
+   */
+  setAvailableWidgets(widgets: Array<{ name: string; type: string }>) {
+    if (this.widgetType) {
+      // Filter by widget type
+      this.availableWidgets = widgets.filter(w => w.type === this.widgetType);
+    } else {
+      // Show all widgets
+      this.availableWidgets = widgets;
+    }
+  }
+}
+
 // ── Create Widget ───────────────────────────────────────────
 export class CreateWidgetNode extends ClassicPreset.Node {
   public widgetBPId: string;
@@ -271,3 +307,165 @@ export class ShowMouseCursorNode extends ClassicPreset.Node {
   }
 }
 registerNode('Show Mouse Cursor', 'UI', () => new ShowMouseCursorNode());
+
+// ============================================================
+//  WIDGET EVENT NODES — UE-style widget event handlers
+//  These allow visual programming of widget interactions
+// ============================================================
+
+// ── Button OnClicked ────────────────────────────────────────
+export class ButtonOnClickedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Button OnClicked');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Button');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Button OnClicked', 'UI Events', () => new ButtonOnClickedNode());
+
+// ── Button OnPressed ────────────────────────────────────────
+export class ButtonOnPressedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Button OnPressed');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Button');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Button OnPressed', 'UI Events', () => new ButtonOnPressedNode());
+
+// ── Button OnReleased ───────────────────────────────────────
+export class ButtonOnReleasedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Button OnReleased');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Button');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Button OnReleased', 'UI Events', () => new ButtonOnReleasedNode());
+
+// ── Button OnHovered ────────────────────────────────────────
+export class ButtonOnHoveredNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Button OnHovered');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Button');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Button OnHovered', 'UI Events', () => new ButtonOnHoveredNode());
+
+// ── Button OnUnhovered ──────────────────────────────────────
+export class ButtonOnUnhoveredNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Button OnUnhovered');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Button');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Button OnUnhovered', 'UI Events', () => new ButtonOnUnhoveredNode());
+
+// ── TextBox OnTextChanged ───────────────────────────────────
+export class TextBoxOnTextChangedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('TextBox OnTextChanged');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'TextBox');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('text', new ClassicPreset.Output(strSocket, 'Text'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('TextBox OnTextChanged', 'UI Events', () => new TextBoxOnTextChangedNode());
+
+// ── TextBox OnTextCommitted ─────────────────────────────────
+export class TextBoxOnTextCommittedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('TextBox OnTextCommitted');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'TextBox');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('text', new ClassicPreset.Output(strSocket, 'Text'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('TextBox OnTextCommitted', 'UI Events', () => new TextBoxOnTextCommittedNode());
+
+// ── Slider OnValueChanged ───────────────────────────────────
+export class SliderOnValueChangedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('Slider OnValueChanged');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'Slider');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('value', new ClassicPreset.Output(numSocket, 'Value'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('Slider OnValueChanged', 'UI Events', () => new SliderOnValueChangedNode());
+
+// ── CheckBox OnCheckStateChanged ────────────────────────────
+export class CheckBoxOnCheckStateChangedNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
+  constructor(initialWidget: string = '') {
+    super('CheckBox OnCheckStateChanged');
+    this.widgetSelector = new WidgetSelectorControl(initialWidget, 'CheckBox');
+    this.addControl('widgetSelector', this.widgetSelector);
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('isChecked', new ClassicPreset.Output(boolSocket, 'Is Checked'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
+  }
+}
+registerNode('CheckBox OnCheckStateChanged', 'UI Events', () => new CheckBoxOnCheckStateChangedNode());

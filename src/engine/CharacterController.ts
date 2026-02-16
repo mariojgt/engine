@@ -258,7 +258,14 @@ export class CharacterController implements Pawn {
     this._onPointerLockError = () => {
       console.warn('[CharacterController] Pointer lock not available (expected on macOS/Tauri) - using right-click + drag fallback');
     };
-    this._onClick = async () => {
+    this._onClick = async (e: MouseEvent) => {
+      // Don't capture clicks on UI overlay elements - let the UI handle them
+      const target = e.target as HTMLElement;
+      if (target.closest('#__feather_ui_overlay')) {
+        console.log('[CharacterController] Click on UI overlay, ignoring');
+        return;
+      }
+
       if (!isTopDownMode && !this._pointerLocked && config.inputBindings.mouseLook) {
         console.log('[CharacterController] Click detected, requesting pointer lock...');
         try {
@@ -289,6 +296,12 @@ export class CharacterController implements Pawn {
       this._topDownZoom = Math.max(td.zoomMin, Math.min(td.zoomMax, this._topDownZoom + zoomDelta));
     };
     this._onMouseDown = (e: MouseEvent) => {
+      // Don't capture mouse events on UI overlay elements - let the UI handle them
+      const target = e.target as HTMLElement;
+      if (target.closest('#__feather_ui_overlay')) {
+        return;
+      }
+
       // Middle mouse = pan (RTS mode)
       if (isTopDownMode && e.button === 1) {
         this._isPanning = true;

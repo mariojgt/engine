@@ -263,6 +263,7 @@ import {
   GetAnimVarNode,
   // Widget / UI Nodes
   WidgetBPSelectControl,
+  WidgetSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -281,6 +282,16 @@ import {
   PlayWidgetAnimationNode,
   SetInputModeNode,
   ShowMouseCursorNode,
+  // Widget Event Nodes
+  ButtonOnClickedNode,
+  ButtonOnPressedNode,
+  ButtonOnReleasedNode,
+  ButtonOnHoveredNode,
+  ButtonOnUnhoveredNode,
+  TextBoxOnTextChangedNode,
+  TextBoxOnTextCommittedNode,
+  SliderOnValueChangedNode,
+  CheckBoxOnCheckStateChangedNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -2011,6 +2022,7 @@ function generateFullCode(
   eventEditor: NodeEditor<Schemes>,
   bp: import('./BlueprintData').BlueprintData,
   functionEditors: Map<string, NodeEditor<Schemes>>,
+  isWidgetBlueprint: boolean = false,
 ): string {
   const parts: string[] = [];
 
@@ -2193,27 +2205,135 @@ function generateFullCode(
     }
   }
 
-  // Expose blueprint functions & variables on the gameObject for remote access
-  if (bp.functions.length > 0) {
-    const fnExports: string[] = [];
-    for (const fn of bp.functions) {
-      fnExports.push(`${JSON.stringify(fn.name)}: __fn_${sanitizeName(fn.name)}`);
+  // ── Widget Event Nodes (ButtonOnClicked, etc.) ─────────────
+  const buttonClickedNodes = nodes.filter(n => n instanceof ButtonOnClickedNode) as ButtonOnClickedNode[];
+  const buttonPressedNodes = nodes.filter(n => n instanceof ButtonOnPressedNode) as ButtonOnPressedNode[];
+  const buttonReleasedNodes = nodes.filter(n => n instanceof ButtonOnReleasedNode) as ButtonOnReleasedNode[];
+  const buttonHoveredNodes = nodes.filter(n => n instanceof ButtonOnHoveredNode) as ButtonOnHoveredNode[];
+  const buttonUnhoveredNodes = nodes.filter(n => n instanceof ButtonOnUnhoveredNode) as ButtonOnUnhoveredNode[];
+  const textBoxChangedNodes = nodes.filter(n => n instanceof TextBoxOnTextChangedNode) as TextBoxOnTextChangedNode[];
+  const textBoxCommittedNodes = nodes.filter(n => n instanceof TextBoxOnTextCommittedNode) as TextBoxOnTextCommittedNode[];
+  const sliderChangedNodes = nodes.filter(n => n instanceof SliderOnValueChangedNode) as SliderOnValueChangedNode[];
+  const checkBoxChangedNodes = nodes.filter(n => n instanceof CheckBoxOnCheckStateChangedNode) as CheckBoxOnCheckStateChangedNode[];
+
+  const hasWidgetEvents = buttonClickedNodes.length > 0 || buttonPressedNodes.length > 0 ||
+    buttonReleasedNodes.length > 0 || buttonHoveredNodes.length > 0 || buttonUnhoveredNodes.length > 0 ||
+    textBoxChangedNodes.length > 0 || textBoxCommittedNodes.length > 0 ||
+    sliderChangedNodes.length > 0 || checkBoxChangedNodes.length > 0;
+
+  if (hasWidgetEvents) {
+    // For Widget Blueprints: generate a setup function that registers event handlers
+    // This function is called from UIManager.createWidget() with the widget handle
+    parts.push('function __setupWidgetEvents(__widgetHandle, __uiManager) {');
+
+    for (const n of buttonClickedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnClicked", function() { ${body.join(' ')} });`);
+      }
     }
-    beginPlayCode.push(`if (!gameObject._scriptFunctions) gameObject._scriptFunctions = {};`);
-    beginPlayCode.push(`Object.assign(gameObject._scriptFunctions, { ${fnExports.join(', ')} });`);
-  }
-  if (bp.variables.length > 0) {
-    beginPlayCode.push(`if (!gameObject._scriptVars) gameObject._scriptVars = {};`);
-    for (const v of bp.variables) {
-      beginPlayCode.push(`gameObject._scriptVars[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
+
+    for (const n of buttonPressedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnPressed", function() { ${body.join(' ')} });`);
+      }
     }
+
+    for (const n of buttonReleasedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnReleased", function() { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of buttonHoveredNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnHovered", function() { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of buttonUnhoveredNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnUnhovered", function() { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of textBoxChangedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnTextChanged", function(__text) { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of textBoxCommittedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnTextCommitted", function(__text) { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of sliderChangedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnValueChanged", function(__value) { ${body.join(' ')} });`);
+      }
+    }
+
+    for (const n of checkBoxChangedNodes) {
+      const widgetName = n.getWidgetName();
+      if (!widgetName) continue;
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        parts.push(`  __uiManager.registerEventHandler(__widgetHandle, ${JSON.stringify(widgetName)}, "OnCheckStateChanged", function(__isChecked) { ${body.join(' ')} });`);
+      }
+    }
+
+    parts.push('}');
   }
 
-  const sections: string[] = [];
-  if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
-  if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
-  if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
-  if (sections.length) parts.push(sections.join('\n'));
+  // For Actor Blueprints: Expose functions & variables on gameObject for remote access
+  // For Widget Blueprints: Skip this section (no gameObject in widget context)
+  if (!isWidgetBlueprint) {
+    if (bp.functions.length > 0) {
+      const fnExports: string[] = [];
+      for (const fn of bp.functions) {
+        fnExports.push(`${JSON.stringify(fn.name)}: __fn_${sanitizeName(fn.name)}`);
+      }
+      beginPlayCode.push(`if (!gameObject._scriptFunctions) gameObject._scriptFunctions = {};`);
+      beginPlayCode.push(`Object.assign(gameObject._scriptFunctions, { ${fnExports.join(', ')} });`);
+    }
+    if (bp.variables.length > 0) {
+      beginPlayCode.push(`if (!gameObject._scriptVars) gameObject._scriptVars = {};`);
+      for (const v of bp.variables) {
+        beginPlayCode.push(`gameObject._scriptVars[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
+      }
+    }
+
+    const sections: string[] = [];
+    if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
+    if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
+    if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
+    if (sections.length) parts.push(sections.join('\n'));
+  }
 
   return parts.join('\n');
 }
@@ -3872,6 +3992,16 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof PlayWidgetAnimationNode) return 'PlayWidgetAnimationNode';
   if (node instanceof SetInputModeNode) return 'SetInputModeNode';
   if (node instanceof ShowMouseCursorNode) return 'ShowMouseCursorNode';
+  // Widget Event Nodes
+  if (node instanceof ButtonOnClickedNode) return 'ButtonOnClickedNode';
+  if (node instanceof ButtonOnPressedNode) return 'ButtonOnPressedNode';
+  if (node instanceof ButtonOnReleasedNode) return 'ButtonOnReleasedNode';
+  if (node instanceof ButtonOnHoveredNode) return 'ButtonOnHoveredNode';
+  if (node instanceof ButtonOnUnhoveredNode) return 'ButtonOnUnhoveredNode';
+  if (node instanceof TextBoxOnTextChangedNode) return 'TextBoxOnTextChangedNode';
+  if (node instanceof TextBoxOnTextCommittedNode) return 'TextBoxOnTextCommittedNode';
+  if (node instanceof SliderOnValueChangedNode) return 'SliderOnValueChangedNode';
+  if (node instanceof CheckBoxOnCheckStateChangedNode) return 'CheckBoxOnCheckStateChangedNode';
 
   return 'Unknown';
 }
@@ -3887,6 +4017,10 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as BoolSelectControl).value;
     } else if (ctrl instanceof WidgetBPSelectControl) {
       controls[key] = { id: (ctrl as WidgetBPSelectControl).value, name: (ctrl as WidgetBPSelectControl).displayName };
+    } else if (ctrl instanceof WidgetSelectorControl) {
+      const value = (ctrl as WidgetSelectorControl).value;
+      controls[key] = value;
+      console.log(`[Serialize] Node "${(node as any).label}" control "${key}" = "${value}"`);
     } else if (ctrl instanceof MovementModeSelectControl) {
       controls[key] = (ctrl as MovementModeSelectControl).value;
     } else if (ctrl instanceof KeySelectControl) {
@@ -4375,11 +4509,103 @@ function createNodeFromData(
     case 'PlayWidgetAnimationNode':         return new PlayWidgetAnimationNode();
     case 'SetInputModeNode':                return new SetInputModeNode();
     case 'ShowMouseCursorNode':             return new ShowMouseCursorNode();
+    // Widget Event Nodes
+    case 'ButtonOnClickedNode': {
+      const widgetValue = d.controls?.widgetSelector || '';
+      console.log(`[Deserialize] ButtonOnClickedNode widgetSelector from saved data: "${widgetValue}"`);
+      const n = new ButtonOnClickedNode(widgetValue);
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+        console.log(`[Deserialize] Set widgetSelector to: "${d.controls.widgetSelector}"`);
+      }
+      return n;
+    }
+    case 'ButtonOnPressedNode': {
+      const n = new ButtonOnPressedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'ButtonOnReleasedNode': {
+      const n = new ButtonOnReleasedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'ButtonOnHoveredNode': {
+      const n = new ButtonOnHoveredNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'ButtonOnUnhoveredNode': {
+      const n = new ButtonOnUnhoveredNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'TextBoxOnTextChangedNode': {
+      const n = new TextBoxOnTextChangedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'TextBoxOnTextCommittedNode': {
+      const n = new TextBoxOnTextCommittedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'SliderOnValueChangedNode': {
+      const n = new SliderOnValueChangedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'CheckBoxOnCheckStateChangedNode': {
+      const n = new CheckBoxOnCheckStateChangedNode(d.controls?.widgetSelector || '');
+      if (d.controls?.widgetSelector && (n as any).widgetSelector) {
+        (n as any).widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
   }
+}
+
+/** Populate widget selectors in all event nodes with available widgets */
+async function populateWidgetSelectors(
+  editor: NodeEditor<Schemes>,
+  widgetList: Array<{ name: string; type: string }>,
+  area?: AreaPlugin<Schemes, any>,
+): Promise<void> {
+  console.log('[NodeEditor] populateWidgetSelectors called with', widgetList.length, 'widgets:', widgetList);
+  let populated = 0;
+  for (const node of editor.getNodes()) {
+    // Check if the node has a widgetSelector control
+    if ((node as any).widgetSelector && (node as any).widgetSelector instanceof WidgetSelectorControl) {
+      const selector = (node as any).widgetSelector as WidgetSelectorControl;
+      console.log(`[NodeEditor] Populating widget selector for node "${node.label}"`);
+      selector.setAvailableWidgets(widgetList);
+      console.log(`[NodeEditor] After setAvailableWidgets, selector has ${selector.availableWidgets.length} widgets`);
+      populated++;
+      // Trigger re-render of the node
+      if (area) {
+        await area.update('node', node.id);
+      }
+    }
+  }
+  console.log(`[NodeEditor] Populated ${populated} widget selectors out of ${editor.getNodes().length} total nodes`);
 }
 
 /** Restore a graph from serialized data */
@@ -4435,6 +4661,7 @@ async function createGraphEditor(
   onChanged: () => void,
   onNodeDoubleClick?: (node: ClassicPreset.Node) => void,
   componentEntries?: ComponentNodeEntry[],
+  widgetList?: Array<{ name: string; type: string }>,
 ) {
   const editor = new NodeEditor<Schemes>();
   const area = new AreaPlugin<Schemes, any>(container);
@@ -4745,6 +4972,37 @@ async function createGraphEditor(
             },
               ...INPUT_KEYS.map(k =>
                 React.createElement('option', { key: k, value: k }, k),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof WidgetSelectorControl) {
+          const ctrl = data.payload as WidgetSelectorControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const widgets = ctrl.availableWidgets || [];
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: widgets.length === 0 ? '#666' : '#e0e0e0',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { value: '' }, widgets.length === 0 ? '(No widgets)' : '(Select Widget)'),
+              ...widgets.map(w =>
+                React.createElement('option', { key: w.name, value: w.name },
+                  ctrl.widgetType ? `${w.name}` : `${w.name} (${w.type})`
+                ),
               ),
             );
           };
@@ -5713,6 +5971,18 @@ async function createGraphEditor(
       setTimeout(onChanged, 50);
       if (ctx.type === 'nodecreated' || ctx.type === 'noderemoved') pushUndo(ctx.type);
       if (ctx.type === 'connectioncreated' || ctx.type === 'connectionremoved') pushUndo(ctx.type);
+
+      // Populate widget selectors for newly created nodes
+      if (ctx.type === 'nodecreated' && widgetList && widgetList.length > 0) {
+        const nodeData = ctx.data as { id: string };
+        const node = editor.getNode(nodeData.id);
+        if (node && (node as any).widgetSelector && (node as any).widgetSelector instanceof WidgetSelectorControl) {
+          const selector = (node as any).widgetSelector as WidgetSelectorControl;
+          selector.setAvailableWidgets(widgetList);
+          // Trigger re-render
+          setTimeout(() => area.update('node', node.id), 0);
+        }
+      }
     }
     return ctx;
   });
@@ -5798,9 +6068,10 @@ interface NodeEditorViewProps {
   gameObject: GameObject;
   components?: ActorComponentData[];
   rootMeshType?: string;
+  widgetList?: Array<{ name: string; type: string }>;
 }
 
-function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorViewProps) {
+function NodeEditorView({ gameObject, components, rootMeshType, widgetList }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -5897,11 +6168,17 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
     function compileAndSave() {
       if (destroyed) return;
       const evData = editorStore.get('eventgraph');
-      if (!evData) return;
-      const code = generateFullCode(evData.editor, bp, functionEditors);
+      if (!evData) {
+        console.warn('[NodeEditor] compileAndSave: No event graph data found');
+        return;
+      }
+      console.log('[NodeEditor] Compiling widget blueprint event graph...');
+      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList);
+      console.log('[NodeEditor] Generated code length:', code.length, 'characters');
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
       gameObject.scripts[0].code = code;
       gameObject.scripts[0].compile();
+      console.log('[NodeEditor] Compilation complete');
 
       // Expose compile function on the container DOM element so external callers
       // (e.g. ActorEditorPanel Compile button) can trigger it without destroying the graph.
@@ -5955,7 +6232,7 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
             const funcTab = graphTabs.find(t => t.refId === (node as FunctionCallNode).funcId);
             if (funcTab) switchToGraph(funcTab);
           }
-        }, compEntries);
+        }, compEntries, widgetList);
         data = { editor, area, el, comments: graphComments, createCommentEl: createCmtEl };
         editorStore.set(tab.id, data);
 
@@ -6051,6 +6328,11 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
         await editor.addConnection(new ClassicPreset.Connection(sine, 'result', setPos, 'x'));
         await editor.addConnection(new ClassicPreset.Connection(getPos, 'y', setPos, 'y'));
         await editor.addConnection(new ClassicPreset.Connection(getPos, 'z', setPos, 'z'));
+      }
+
+      // Populate widget selectors if widgetList is provided
+      if (widgetList && widgetList.length > 0) {
+        await populateWidgetSelectors(editor, widgetList, area);
       }
     }
 
@@ -6253,7 +6535,11 @@ function NodeEditorView({ gameObject, components, rootMeshType }: NodeEditorView
     }
 
     // Init
-    switchToGraph(graphTabs[0]);
+    switchToGraph(graphTabs[0]).then(() => {
+      // Trigger initial compilation to ensure compiled code matches loaded graph data
+      // This is critical for widget blueprints with functions/macros to work correctly on first load
+      setTimeout(() => compileAndSave(), 100);
+    });
 
     return () => {
       destroyed = true;
@@ -6301,6 +6587,7 @@ export function mountNodeEditorForAsset(
   onCompile?: (code: string) => void,
   components?: ActorComponentData[],
   rootMeshType?: string,
+  widgetList?: Array<{ name: string; type: string }>,
 ): () => void {
   // Create a virtual GameObject that shares the asset's blueprint data
   const dummyMesh = new THREE.Mesh(
@@ -6338,6 +6625,7 @@ export function mountNodeEditorForAsset(
     gameObject: proxyGO,
     components: components,
     rootMeshType: rootMeshType,
+    widgetList: widgetList,
   }));
   return () => root.unmount();
 }

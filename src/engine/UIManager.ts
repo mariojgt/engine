@@ -68,7 +68,11 @@ export interface RuntimeWidgetBlueprint {
   name: string;
   rootWidgetId: string;
   widgets: Record<string, RuntimeWidgetNode>;
+  compiledCode?: string;
 }
+
+/** Widget event handler callback */
+export type WidgetEventHandler = (...args: any[]) => void;
 
 /** A live widget instance */
 interface WidgetInstance {
@@ -83,6 +87,8 @@ interface WidgetInstance {
   elementsById: Map<string, HTMLElement>;
   /** Whether currently added to the viewport */
   isInViewport: boolean;
+  /** Event handlers: `widgetName:eventType` → handler function */
+  eventHandlers: Map<string, WidgetEventHandler>;
 }
 
 let _handleCounter = 0;
@@ -99,6 +105,8 @@ export class UIManager {
   private _blueprintResolver: ((id: string) => RuntimeWidgetBlueprint | null) | null = null;
   /** Whether input is UI-only mode */
   private _uiOnlyMode = false;
+  /** Print function for widget blueprint print nodes - uses engine's print system */
+  private _printFn: ((value: any) => void) | null = null;
 
   /**
    * Set the function that resolves a widget blueprint ID to its data.
@@ -106,6 +114,14 @@ export class UIManager {
    */
   setBlueprintResolver(resolver: (id: string) => RuntimeWidgetBlueprint | null): void {
     this._blueprintResolver = resolver;
+  }
+
+  /**
+   * Set the print function for widget blueprint print nodes.
+   * This should be wired to the engine's onPrint callback.
+   */
+  setPrintFunction(printFn: (value: any) => void): void {
+    this._printFn = printFn;
   }
 
   /**
@@ -190,8 +206,29 @@ export class UIManager {
       elementsByName,
       elementsById,
       isInViewport: false,
+      eventHandlers: new Map(),
     };
     this._instances.set(handle, inst);
+
+    // Bind DOM events after widget is created
+    this._bindWidgetEvents(inst);
+
+    // Execute widget blueprint compiled code to register event handlers
+    if ((bp as any).compiledCode) {
+      try {
+        console.log(`[UIManager] Executing widget blueprint code for "${bp.name || bp.id}"`);
+        // The compiled code should export a __setupWidgetEvents function
+        // We execute it in a context that has access to print and __uiManager
+        // Use engine's print function if available, otherwise fall back to console.log
+        const print = this._printFn || ((msg: any) => console.log('[Widget BP]', msg));
+        const setupFn = new Function('__widgetHandle', '__uiManager', 'print', (bp as any).compiledCode + '\nif (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);');
+        setupFn(handle, this, print);
+        console.log(`[UIManager] Widget event handlers registered for "${bp.name || bp.id}"`);
+      } catch (err) {
+        console.error(`[UIManager] Error executing widget blueprint code:`, err);
+      }
+    }
+
     return handle;
   }
 
@@ -200,10 +237,21 @@ export class UIManager {
    */
   addToViewport(handle: string): void {
     const inst = this._instances.get(handle);
-    if (!inst || inst.isInViewport) return;
-    if (!this._overlay) return;
+    if (!inst) {
+      console.warn(`[UIManager] addToViewport: widget handle "${handle}" not found`);
+      return;
+    }
+    if (inst.isInViewport) {
+      console.log(`[UIManager] Widget "${inst.blueprint.name}" already in viewport`);
+      return;
+    }
+    if (!this._overlay) {
+      console.warn(`[UIManager] addToViewport: overlay not initialized`);
+      return;
+    }
     this._overlay.appendChild(inst.rootEl);
     inst.isInViewport = true;
+    console.log(`[UIManager] Widget "${inst.blueprint.name}" added to viewport`);
   }
 
   /**
@@ -331,6 +379,112 @@ export class UIManager {
     document.body.style.cursor = show ? 'default' : 'none';
   }
 
+  // ── Event System API ──────────────────────────────────────
+
+  /**
+   * Register an event handler for a specific widget event.
+   * Called from blueprint code.
+   * @param handle Widget instance handle
+   * @param widgetName Name of the widget (e.g., "PlayButton")
+   * @param eventType Event type (e.g., "OnClicked", "OnValueChanged")
+   * @param handler Callback function
+   */
+  registerEventHandler(
+    handle: string,
+    widgetName: string,
+    eventType: string,
+    handler: WidgetEventHandler
+  ): void {
+    const inst = this._instances.get(handle);
+    if (!inst) {
+      console.warn(`[UIManager] Cannot register event: widget handle "${handle}" not found`);
+      return;
+    }
+    const key = `${widgetName}:${eventType}`;
+    inst.eventHandlers.set(key, handler);
+  }
+
+  /**
+   * Trigger an event handler (called internally when DOM events fire).
+   */
+  private _triggerEvent(inst: WidgetInstance, widgetName: string, eventType: string, ...args: any[]): void {
+    const key = `${widgetName}:${eventType}`;
+    const handler = inst.eventHandlers.get(key);
+    if (handler) {
+      try {
+        handler(...args);
+      } catch (err) {
+        console.error(`[UIManager] Error in ${key} handler:`, err);
+      }
+    }
+  }
+
+  /**
+   * Bind DOM events to widgets after creation.
+   * This connects HTML events (click, input, etc.) to blueprint event handlers.
+   */
+  private _bindWidgetEvents(inst: WidgetInstance): void {
+    for (const [widgetName, el] of inst.elementsByName) {
+      const widgetType = el.dataset.widgetType;
+
+      // Button events
+      if (widgetType === 'Button') {
+        el.addEventListener('click', () => {
+          this._triggerEvent(inst, widgetName, 'OnClicked');
+        });
+        el.addEventListener('mousedown', () => {
+          this._triggerEvent(inst, widgetName, 'OnPressed');
+        });
+        el.addEventListener('mouseup', () => {
+          this._triggerEvent(inst, widgetName, 'OnReleased');
+        });
+        el.addEventListener('mouseenter', () => {
+          this._triggerEvent(inst, widgetName, 'OnHovered');
+        });
+        el.addEventListener('mouseleave', () => {
+          this._triggerEvent(inst, widgetName, 'OnUnhovered');
+        });
+      }
+
+      // TextBox events
+      if (widgetType === 'TextBox') {
+        const input = el.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement;
+        if (input) {
+          input.addEventListener('input', () => {
+            this._triggerEvent(inst, widgetName, 'OnTextChanged', input.value);
+          });
+          input.addEventListener('change', () => {
+            this._triggerEvent(inst, widgetName, 'OnTextCommitted', input.value);
+          });
+          input.addEventListener('blur', () => {
+            this._triggerEvent(inst, widgetName, 'OnTextCommitted', input.value);
+          });
+        }
+      }
+
+      // Slider events
+      if (widgetType === 'Slider') {
+        const input = el.querySelector('input[type="range"]') as HTMLInputElement;
+        if (input) {
+          input.addEventListener('input', () => {
+            const value = parseFloat(input.value) || 0;
+            this._triggerEvent(inst, widgetName, 'OnValueChanged', value);
+          });
+        }
+      }
+
+      // CheckBox events
+      if (widgetType === 'CheckBox') {
+        const input = el.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        if (input) {
+          input.addEventListener('change', () => {
+            this._triggerEvent(inst, widgetName, 'OnCheckStateChanged', input.checked);
+          });
+        }
+      }
+    }
+  }
+
   // ── Private helpers ───────────────────────────────────────
 
   private _findByName(handle: string, widgetName: string): HTMLElement | null {
@@ -383,6 +537,8 @@ export class UIManager {
 
     switch (widget.type) {
       // ── Layout containers ──
+      // NOTE: Containers inherit pointer-events:none from root, allowing clicks to pass through
+      // Only interactive elements (buttons, inputs) should have pointer-events:auto
       case 'CanvasPanel':
         el.style.cssText = 'position:relative; width:100%; height:100%;';
         break;
@@ -704,7 +860,8 @@ export class UIManager {
     switch (widget.visibility) {
       case 'Visible':
         el.style.display = '';
-        el.style.pointerEvents = '';
+        // Don't reset pointer-events - preserve what was set in _createWidgetElement
+        // (interactive elements like buttons need pointer-events: auto)
         break;
       case 'Collapsed':
         el.style.display = 'none';

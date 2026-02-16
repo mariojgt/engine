@@ -616,6 +616,18 @@ export interface WidgetBlueprintJSON {
     panX: number;
     panY: number;
   };
+  /** Blueprint variables */
+  variables?: import('./BlueprintData').BlueprintVariable[];
+  /** Blueprint functions */
+  functions?: import('./BlueprintData').BlueprintFunction[];
+  /** Blueprint macros */
+  macros?: import('./BlueprintData').BlueprintMacro[];
+  /** Blueprint custom events */
+  customEvents?: import('./BlueprintData').BlueprintCustomEvent[];
+  /** Blueprint structs */
+  structs?: import('./BlueprintData').BlueprintStruct[];
+  /** Serialized node data per function graph */
+  functionGraphData?: Record<string, any>;
 }
 
 // ============================================================
@@ -816,16 +828,35 @@ export class WidgetBlueprintAsset {
     for (const [id, w] of this.widgets) {
       widgetMap[id] = structuredClone(w);
     }
+    const bp = this.blueprintData;
     return {
       widgetBlueprintId: this.id,
       widgetBlueprintName: this.name,
       rootWidgetId: this.rootWidgetId,
       widgets: widgetMap,
       animations: structuredClone(this.animations),
-      eventGraph: this.eventGraph ? structuredClone(this.eventGraph) : null,
+      eventGraph: {
+        nodeData: bp.eventGraph.nodeData ?? null,
+        comments: bp.eventGraph.comments ?? [],
+      },
       compiledCode: this.compiledCode,
       blueprintGraphNodeData: this.blueprintData.eventGraph.nodeData ?? null,
       designerState: { ...this.designerState },
+      // Save blueprint data (functions, macros, variables, structs)
+      variables: structuredClone(bp.variables),
+      functions: bp.functions.map(f => ({
+        ...structuredClone(f),
+        graph: { nodeData: f.graph.nodeData ?? null, comments: f.graph.comments ?? [] },
+      })),
+      macros: bp.macros.map(m => ({
+        ...structuredClone(m),
+        graph: { nodeData: m.graph.nodeData ?? null, comments: m.graph.comments ?? [] },
+      })),
+      customEvents: structuredClone(bp.customEvents),
+      structs: structuredClone(bp.structs),
+      functionGraphData: Object.fromEntries(
+        bp.functions.map(f => [f.id, f.graph.nodeData ?? null]),
+      ),
     };
   }
 
@@ -839,12 +870,45 @@ export class WidgetBlueprintAsset {
     asset.animations = json.animations ?? [];
     asset.eventGraph = json.eventGraph ?? null;
     asset.compiledCode = json.compiledCode ?? '';
-    if (json.blueprintGraphNodeData) {
+
+    // Load event graph with comments
+    if (json.eventGraph) {
+      asset.blueprintData.eventGraph = {
+        nodeData: json.eventGraph.nodeData ?? json.blueprintGraphNodeData ?? null,
+        comments: json.eventGraph.comments ?? [],
+      };
+    } else if (json.blueprintGraphNodeData) {
       asset.blueprintData.eventGraph.nodeData = json.blueprintGraphNodeData;
     }
+
     if (json.designerState) {
       asset.designerState = json.designerState;
     }
+
+    // Load blueprint data (functions, macros, variables, structs)
+    const bp = asset.blueprintData;
+    bp.variables = json.variables || [];
+    bp.functions = (json.functions || []).map(f => ({
+      ...f,
+      localVariables: f.localVariables || [],
+      graph: {
+        nodeData: json.functionGraphData?.[f.id] ?? f.graph?.nodeData ?? null,
+        comments: f.graph?.comments ?? [],
+      },
+    }));
+    bp.macros = (json.macros || []).map(m => ({
+      ...m,
+      graph: {
+        nodeData: m.graph?.nodeData ?? null,
+        comments: m.graph?.comments ?? [],
+      },
+    }));
+    bp.customEvents = (json.customEvents || []).map(e => ({
+      ...e,
+      params: e.params || [],
+    }));
+    bp.structs = json.structs || [];
+
     return asset;
   }
 }

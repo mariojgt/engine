@@ -97,6 +97,16 @@ export class WidgetBlueprintEditorPanel {
   private _dragOffsetX = 0;
   private _dragOffsetY = 0;
   private _animFrame = 0;
+  // Resize handle state
+  private _isResizing = false;
+  private _resizeWidgetId: string | null = null;
+  private _resizeHandle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' | null = null;
+  private _resizeStartX = 0;
+  private _resizeStartY = 0;
+  private _resizeStartWidth = 0;
+  private _resizeStartHeight = 0;
+  private _resizeStartOffsetX = 0;
+  private _resizeStartOffsetY = 0;
 
   // Hierarchy & properties panels
   private _hierarchyEl!: HTMLElement;
@@ -219,6 +229,22 @@ export class WidgetBlueprintEditorPanel {
   //  Event Graph Tab (Rete Node Editor)
   // ============================================================
 
+  /**
+   * Collect all widgets from the asset hierarchy for widget selector dropdowns
+   */
+  private _getAllWidgetsForSelector(): Array<{ name: string; type: string }> {
+    const widgets: Array<{ name: string; type: string }> = [];
+    console.log('[WidgetBP] Collecting widgets. Total widgets in asset:', this._asset.widgets.size);
+    for (const [id, widget] of this._asset.widgets) {
+      console.log(`[WidgetBP] Widget ${id}: name="${widget.name}", type="${widget.type}"`);
+      if (widget.name && id !== this._asset.rootWidgetId) {
+        widgets.push({ name: widget.name, type: widget.type });
+      }
+    }
+    console.log('[WidgetBP] Collected widgets for selector:', widgets);
+    return widgets;
+  }
+
   private _buildEventGraphTab(): void {
     const wrapper = document.createElement('div');
     wrapper.style.display = 'flex';
@@ -235,16 +261,22 @@ export class WidgetBlueprintEditorPanel {
     this._contentArea.appendChild(wrapper);
 
     const bp = this._asset.blueprintData;
+    const widgetList = this._getAllWidgetsForSelector();
     this._eventGraphCleanup = mountNodeEditorForAsset(
       editorContainer,
       bp,
       `${this._asset.name} Event Graph`,
       (code: string) => {
+        console.log(`[WidgetBP] Compiled "${this._asset.name}" - Code length: ${code.length} chars`);
+        console.log(`[WidgetBP] Has __setupWidgetEvents: ${code.includes('__setupWidgetEvents')}`);
         this._asset.compiledCode = code;
         this._asset.touch();
         this._onCompile?.(code);
         this._onSave?.();
       },
+      undefined, // components
+      undefined, // rootMeshType
+      widgetList,
     );
   }
 
@@ -401,6 +433,24 @@ export class WidgetBlueprintEditorPanel {
         const rect = this._canvas.getBoundingClientRect();
         const mx = (e.clientX - rect.left) * window.devicePixelRatio;
         const my = (e.clientY - rect.top) * window.devicePixelRatio;
+
+        // Check for resize handle first
+        const resizeHandle = this._hitTestResizeHandle(mx, my);
+        if (resizeHandle && this._selectedWidgetId) {
+          this._isResizing = true;
+          this._resizeHandle = resizeHandle;
+          this._resizeWidgetId = this._selectedWidgetId;
+          const widget = this._asset.getWidget(this._selectedWidgetId)!;
+          this._resizeStartX = mx;
+          this._resizeStartY = my;
+          this._resizeStartWidth = widget.slot.sizeX;
+          this._resizeStartHeight = widget.slot.sizeY;
+          this._resizeStartOffsetX = widget.slot.offsetX;
+          this._resizeStartOffsetY = widget.slot.offsetY;
+          this._canvas.style.cursor = this._getCursorForHandle(resizeHandle);
+          return;
+        }
+
         const hit = this._hitTestCanvas(mx, my);
 
         if (hit && hit !== this._asset.rootWidgetId) {
@@ -427,10 +477,49 @@ export class WidgetBlueprintEditorPanel {
         return;
       }
 
+      const rect = this._canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * window.devicePixelRatio;
+      const my = (e.clientY - rect.top) * window.devicePixelRatio;
+
+      // Handle resizing
+      if (this._isResizing && this._resizeWidgetId && this._resizeHandle) {
+        const widget = this._asset.getWidget(this._resizeWidgetId);
+        if (widget) {
+          const worldPos = this._screenToWidget(mx, my);
+          const startWorld = this._screenToWidget(this._resizeStartX, this._resizeStartY);
+          const dx = worldPos.x - startWorld.x;
+          const dy = worldPos.y - startWorld.y;
+
+          const handle = this._resizeHandle;
+          let newWidth = this._resizeStartWidth;
+          let newHeight = this._resizeStartHeight;
+          let newOffsetX = this._resizeStartOffsetX;
+          let newOffsetY = this._resizeStartOffsetY;
+
+          // Apply resize based on handle
+          if (handle.includes('e')) newWidth = Math.max(10, this._resizeStartWidth + dx);
+          if (handle.includes('w')) {
+            newWidth = Math.max(10, this._resizeStartWidth - dx);
+            newOffsetX = this._resizeStartOffsetX + (this._resizeStartWidth - newWidth);
+          }
+          if (handle.includes('s')) newHeight = Math.max(10, this._resizeStartHeight + dy);
+          if (handle.includes('n')) {
+            newHeight = Math.max(10, this._resizeStartHeight - dy);
+            newOffsetY = this._resizeStartOffsetY + (this._resizeStartHeight - newHeight);
+          }
+
+          widget.slot.sizeX = Math.round(newWidth);
+          widget.slot.sizeY = Math.round(newHeight);
+          widget.slot.offsetX = Math.round(newOffsetX);
+          widget.slot.offsetY = Math.round(newOffsetY);
+          this._asset.touch();
+          this._rebuildProperties();
+        }
+        return;
+      }
+
+      // Handle widget dragging
       if (this._isDraggingWidget && this._dragWidgetId) {
-        const rect = this._canvas.getBoundingClientRect();
-        const mx = (e.clientX - rect.left) * window.devicePixelRatio;
-        const my = (e.clientY - rect.top) * window.devicePixelRatio;
         const worldPos = this._screenToWidget(mx - this._dragOffsetX, my - this._dragOffsetY);
         const widget = this._asset.getWidget(this._dragWidgetId);
         if (widget) {
@@ -439,6 +528,15 @@ export class WidgetBlueprintEditorPanel {
           this._asset.touch();
           this._rebuildProperties();
         }
+        return;
+      }
+
+      // Update cursor based on hover
+      const resizeHandle = this._hitTestResizeHandle(mx, my);
+      if (resizeHandle) {
+        this._canvas.style.cursor = this._getCursorForHandle(resizeHandle);
+      } else {
+        this._canvas.style.cursor = 'default';
       }
     });
 
@@ -446,6 +544,10 @@ export class WidgetBlueprintEditorPanel {
       this._isPanning = false;
       this._isDraggingWidget = false;
       this._dragWidgetId = null;
+      this._isResizing = false;
+      this._resizeWidgetId = null;
+      this._resizeHandle = null;
+      this._canvas.style.cursor = 'default';
     };
     this._canvas.addEventListener('mouseup', onMouseUp);
     window.addEventListener('mouseup', onMouseUp);
@@ -517,6 +619,37 @@ export class WidgetBlueprintEditorPanel {
     return hits.length > 0 ? hits[hits.length - 1] : null;
   }
 
+  /** Check if mouse is over a resize handle of the selected widget */
+  private _hitTestResizeHandle(sx: number, sy: number): 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' | null {
+    if (!this._selectedWidgetId) return null;
+
+    const widget = this._asset.getWidget(this._selectedWidgetId);
+    if (!widget) return null;
+
+    const worldPos = this._screenToWidget(sx, sy);
+    const x = widget.slot.offsetX;
+    const y = widget.slot.offsetY;
+    const w = widget.slot.sizeX;
+    const h = widget.slot.sizeY;
+
+    const handleSize = 8 / this._designerZoom; // Handle size in widget space
+    const tolerance = handleSize;
+
+    // Check corners first (priority over edges)
+    if (Math.abs(worldPos.x - x) < tolerance && Math.abs(worldPos.y - y) < tolerance) return 'nw';
+    if (Math.abs(worldPos.x - (x + w)) < tolerance && Math.abs(worldPos.y - y) < tolerance) return 'ne';
+    if (Math.abs(worldPos.x - x) < tolerance && Math.abs(worldPos.y - (y + h)) < tolerance) return 'sw';
+    if (Math.abs(worldPos.x - (x + w)) < tolerance && Math.abs(worldPos.y - (y + h)) < tolerance) return 'se';
+
+    // Check edges
+    if (Math.abs(worldPos.y - y) < tolerance && worldPos.x > x && worldPos.x < x + w) return 'n';
+    if (Math.abs(worldPos.y - (y + h)) < tolerance && worldPos.x > x && worldPos.x < x + w) return 's';
+    if (Math.abs(worldPos.x - x) < tolerance && worldPos.y > y && worldPos.y < y + h) return 'w';
+    if (Math.abs(worldPos.x - (x + w)) < tolerance && worldPos.y > y && worldPos.y < y + h) return 'e';
+
+    return null;
+  }
+
   /** Save designer viewport state */
   private _saveDesignerState(): void {
     this._asset.designerState = {
@@ -524,6 +657,21 @@ export class WidgetBlueprintEditorPanel {
       panX: this._designerPanX,
       panY: this._designerPanY,
     };
+  }
+
+  /** Get CSS cursor for a resize handle */
+  private _getCursorForHandle(handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w'): string {
+    const cursors = {
+      'nw': 'nw-resize',
+      'ne': 'ne-resize',
+      'sw': 'sw-resize',
+      'se': 'se-resize',
+      'n': 'n-resize',
+      's': 's-resize',
+      'e': 'e-resize',
+      'w': 'w-resize',
+    };
+    return cursors[handle];
   }
 
   // ============================================================
@@ -784,17 +932,32 @@ export class WidgetBlueprintEditorPanel {
       ctx.lineWidth = 2;
       ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
 
-      // Resize handles
+      // Resize handles (UE-style: corners + edges)
       const hs = 6;
       ctx.fillStyle = '#4a9eff';
+
+      // Corner handles
       const corners = [
-        [x - hs / 2, y - hs / 2],
-        [x + w - hs / 2, y - hs / 2],
-        [x - hs / 2, y + h - hs / 2],
-        [x + w - hs / 2, y + h - hs / 2],
+        [x - hs / 2, y - hs / 2],                    // nw
+        [x + w - hs / 2, y - hs / 2],                // ne
+        [x - hs / 2, y + h - hs / 2],                // sw
+        [x + w - hs / 2, y + h - hs / 2],            // se
       ];
       for (const [cx, cy] of corners) {
         ctx.fillRect(cx, cy, hs, hs);
+      }
+
+      // Edge handles (only for larger widgets)
+      if (w > 40 && h > 40) {
+        const edges = [
+          [x + w / 2 - hs / 2, y - hs / 2],          // n
+          [x + w / 2 - hs / 2, y + h - hs / 2],      // s
+          [x - hs / 2, y + h / 2 - hs / 2],          // w
+          [x + w - hs / 2, y + h / 2 - hs / 2],      // e
+        ];
+        for (const [ex, ey] of edges) {
+          ctx.fillRect(ex, ey, hs, hs);
+        }
       }
       ctx.restore();
     }
