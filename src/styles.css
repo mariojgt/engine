@@ -2849,6 +2849,335 @@ html, body, #app {
   opacity: 1;
 }
 
+/* ============================================================
+   Enhanced Import Dialog — Tabbed Layout
+   ============================================================ */
+
+/* Wider dialog for tabbed content */
+.import-dialog-tabbed {
+  width: 640px;
+  max-height: 85vh;
+}
+
+/* Title line with preset controls */
+.import-dialog-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.import-dialog-title-line .import-dialog-title {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.import-dialog-title-line select {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font);
+  outline: none;
+}
+
+/* Tab Bar */
+.import-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  background: rgba(0, 0, 0, 0.15);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.import-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.import-tab-btn {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-family: var(--font);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.import-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.import-tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Tab Panels */
+.import-tab-panel {
+  display: none;
+}
+
+.import-tab-panel.active {
+  display: block;
+}
+
+/* Detection / Stats Bar */
+.import-detection-bar {
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border);
+}
+
+.import-detection-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.import-detection-stats span {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.import-detection-stats span b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Warnings bar */
+.import-warnings {
+  padding: 4px 0;
+}
+
+.import-warning-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 10px;
+  color: #e8a838;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+
+.import-warning-line::before {
+  content: '⚠';
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+/* Summary bar in footer */
+.import-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.import-summary-bar span {
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+}
+
+/* Button groups in footer */
+.import-dialog-btn-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.import-dialog-btn-secondary {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.import-dialog-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+/* Info/helper text in rows */
+.import-row-info {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  padding: 2px 0 2px 132px;
+  line-height: 1.3;
+}
+
+/* ---- Enhanced Progress Dialog ---- */
+.import-progress-steps {
+  text-align: left;
+  margin: 12px 0;
+}
+
+.import-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.import-progress-step.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.import-progress-step.done {
+  color: #4caf50;
+}
+
+.import-progress-step::before {
+  content: '○';
+  font-size: 10px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.import-progress-step.active::before {
+  content: '◉';
+  color: var(--accent);
+}
+
+.import-progress-step.done::before {
+  content: '✓';
+  color: #4caf50;
+}
+
+.import-progress-warnings {
+  text-align: left;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.import-progress-warnings .import-warning-line {
+  font-size: 10px;
+  padding: 1px 0;
+}
+
+/* ---- LOD Level Settings Rows ---- */
+.import-lod-levels {
+  margin-top: 6px;
+  padding: 4px 0;
+}
+
+.import-lod-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.import-lod-level span {
+  min-width: 45px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.import-lod-level input {
+  width: 55px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.import-lod-level input:focus {
+  border-color: var(--accent);
+}
+
+/* ---- Collision Preview ---- */
+.import-collision-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* ---- Preset Badge ---- */
+.import-preset-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  margin-left: 8px;
+}
+
+/* ---- Animation Override Rows ---- */
+.import-anim-override {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.import-anim-override-name {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.import-anim-override-duration {
+  color: var(--text-secondary);
+  min-width: 50px;
+  text-align: right;
+}
+
+.import-anim-override label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+}
+
 .mesh-drop-zone:hover {
   border-color: var(--accent);
   background: rgba(74, 144, 226, 0.06);
@@ -3005,6 +3334,70 @@ html, body, #app {
   padding: 4px 12px 8px;
   font-style: italic;
   opacity: 0.7;
+}
+
+/* ---- AnimBP Preview ---- */
+.anim-bp-preview {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+
+.anim-bp-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+}
+
+.anim-bp-preview-viewport {
+  height: 180px;
+  background: #0f1118;
+}
+
+.anim-bp-preview-hint {
+  padding: 6px 10px 10px;
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+.anim-bp-preview-debug {
+  padding: 6px 10px 8px;
+  font-size: 10px;
+  color: #b7c0d1;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.anim-bp-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.anim-bp-preview-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 40px;
+}
+
+.anim-bp-preview-range {
+  flex: 1;
+}
+
+.anim-bp-preview-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 /* ---- Property Rows ---- */

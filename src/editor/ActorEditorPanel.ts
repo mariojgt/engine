@@ -899,7 +899,12 @@ export class ActorEditorPanel {
         container.appendChild(abpHeader);
 
         const abpAssets = this._animBPManager.assets;
-        const abpOptions = ['(None)', ...abpAssets.map(a => a.name)];
+        const currentMeshAsset = meshAssets.find(m => m.id === cfg.meshAssetId);
+        const currentSkeletonId = currentMeshAsset?.skeleton?.assetId ?? '';
+        const filteredABPs = currentSkeletonId
+          ? abpAssets.filter(a => !a.targetSkeletonId || a.targetSkeletonId === currentSkeletonId)
+          : abpAssets;
+        const abpOptions = ['(None)', ...filteredABPs.map(a => a.name)];
         const currentBP = cfg.animationBlueprintId
           ? (abpAssets.find(a => a.id === cfg.animationBlueprintId)?.name ?? '(None)')
           : '(None)';
@@ -909,7 +914,17 @@ export class ActorEditorPanel {
             cfg.animationBlueprintId = undefined;
           } else {
             const abp = abpAssets.find(a => a.name === v);
-            if (abp) cfg.animationBlueprintId = abp.id;
+            if (abp) {
+              cfg.animationBlueprintId = abp.id;
+              // Auto-bind target skeleton if missing
+              if (!abp.targetSkeletonMeshAssetId && cfg.meshAssetId) {
+                abp.targetSkeletonMeshAssetId = cfg.meshAssetId;
+                const target = this._meshManager?.getAsset(cfg.meshAssetId);
+                abp.targetSkeletonId = target?.skeleton?.assetId ?? '';
+                abp.touch();
+                this._animBPManager?.notifyAssetChanged(abp.id);
+              }
+            }
           }
           this._asset.touch();
           if (this._preview) this._preview.rebuild();
@@ -926,6 +941,28 @@ export class ActorEditorPanel {
             info.innerHTML = `States: <b>${abp.stateMachine.states.length}</b> · Transitions: <b>${abp.stateMachine.transitions.length}</b><br>` +
               `Variables: <b>${abp.eventVariables.length}</b> · Blend Spaces: <b>${abp.blendSpaces1D.length}</b>`;
             container.appendChild(info);
+
+            if (!abp.targetSkeletonMeshAssetId) {
+              const warn = document.createElement('div');
+              warn.style.cssText = 'font-size:10px;color:#e8a838;padding:2px 12px;line-height:1.4;';
+              warn.textContent = 'Anim BP has no target mesh. Set it in the AnimBP editor.';
+              container.appendChild(warn);
+            } else if (cfg.meshAssetId && abp.targetSkeletonMeshAssetId !== cfg.meshAssetId) {
+              const warn = document.createElement('div');
+              warn.style.cssText = 'font-size:10px;color:#e8a838;padding:2px 12px;line-height:1.4;';
+              warn.textContent = 'Anim BP target mesh does not match this skeletal mesh.';
+              container.appendChild(warn);
+            }
+            if (cfg.meshAssetId && abp.targetSkeletonId) {
+              const target = meshAssets.find(m => m.id === cfg.meshAssetId);
+              const skeletonId = target?.skeleton?.assetId ?? '';
+              if (skeletonId && skeletonId !== abp.targetSkeletonId) {
+                const warn = document.createElement('div');
+                warn.style.cssText = 'font-size:10px;color:#e8a838;padding:2px 12px;line-height:1.4;';
+                warn.textContent = 'Anim BP skeleton does not match this mesh skeleton.';
+                container.appendChild(warn);
+              }
+            }
           }
         }
       }

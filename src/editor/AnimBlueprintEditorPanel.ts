@@ -20,8 +20,12 @@ import {
   defaultTransition,
   defaultBlendSpace1D,
 } from './AnimBlueprintData';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshAssetManager } from './MeshAsset';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
+import { loadMeshFromAsset } from './MeshImporter';
+import { AnimationInstance } from '../engine/AnimationInstance';
 
 type EditorTab = 'animGraph' | 'eventGraph' | 'blendSpaces';
 
@@ -66,6 +70,27 @@ export class AnimBlueprintEditorPanel {
   // Event graph Rete editor cleanup
   private _eventGraphCleanup: (() => void) | null = null;
 
+  // ---- Preview viewport (Anim Graph tab) ----
+  private _previewContainer: HTMLElement | null = null;
+  private _previewScene: THREE.Scene | null = null;
+  private _previewCamera: THREE.PerspectiveCamera | null = null;
+  private _previewRenderer: THREE.WebGLRenderer | null = null;
+  private _previewControls: OrbitControls | null = null;
+  private _previewRoot: THREE.Object3D | null = null;
+  private _previewMixer: THREE.AnimationMixer | null = null;
+  private _previewAnimInstance: AnimationInstance | null = null;
+  private _previewAnimations: THREE.AnimationClip[] = [];
+  private _previewClock: THREE.Clock = new THREE.Clock();
+  private _previewFrame = 0;
+  private _previewResizeObserver: ResizeObserver | null = null;
+  private _previewMeshAssetId: string | null = null;
+  private _previewLoadToken = 0;
+  private _previewBaseScale = 1;
+  private _previewUserScale = 1;
+  private _previewAutoFit = true;
+  private _previewDebugEl: HTMLElement | null = null;
+  private _previewDebugLast = 0;
+
   constructor(
     container: HTMLElement,
     asset: AnimBlueprintAsset,
@@ -83,6 +108,7 @@ export class AnimBlueprintEditorPanel {
 
   dispose(): void {
     if (this._animFrame) cancelAnimationFrame(this._animFrame);
+    this._disposePreview();
     if (this._eventGraphCleanup) {
       this._eventGraphCleanup();
       this._eventGraphCleanup = null;
@@ -162,6 +188,7 @@ export class AnimBlueprintEditorPanel {
       cancelAnimationFrame(this._animFrame);
       this._animFrame = 0;
     }
+    this._disposePreview();
     // Clean up Rete editor when switching away from event graph
     if (this._eventGraphCleanup) {
       this._eventGraphCleanup();
@@ -738,21 +765,40 @@ export class AnimBlueprintEditorPanel {
       sel.innerHTML = '<option value="">-- None --</option>';
       if (this._meshManager) {
         for (const ma of this._meshManager.assets) {
-          if (ma.skeleton) {
-            const opt = document.createElement('option');
-            opt.value = ma.id;
-            opt.textContent = ma.name;
-            if (ma.id === this._asset.targetSkeletonMeshAssetId) opt.selected = true;
-            sel.appendChild(opt);
-          }
+          const opt = document.createElement('option');
+          opt.value = ma.id;
+          const animCount = ma.animations.length;
+          opt.textContent = animCount > 0 ? `${ma.name} (${animCount} anims)` : ma.name;
+          if (ma.id === this._asset.targetSkeletonMeshAssetId) opt.selected = true;
+          sel.appendChild(opt);
         }
       }
       sel.addEventListener('change', () => {
         this._asset.targetSkeletonMeshAssetId = sel.value;
+        if (this._meshManager) {
+          const target = this._meshManager.getAsset(sel.value);
+          this._asset.targetSkeletonId = target?.skeleton?.assetId ?? '';
+        } else {
+          this._asset.targetSkeletonId = '';
+        }
         this._asset.touch();
+        this._ensureEntryStateAnimation();
+        this._refreshPreview(true);
       });
       return sel;
     });
+
+    if (this._meshManager) {
+      if (this._meshManager.assets.length === 0) {
+        const warn = document.createElement('div');
+        warn.className = 'anim-props-hint';
+        warn.textContent = 'No mesh assets found. Import a mesh with animations to enable preview.';
+        p.appendChild(warn);
+      }
+    }
+
+    // Preview viewport
+    this._buildPreviewSection(p);
 
     // Stats
     const sm = this._asset.stateMachine;
@@ -815,6 +861,7 @@ export class AnimBlueprintEditorPanel {
         this._asset.touch();
         this._renderGraph();
         this._renderProps(); // Refresh to show relevant fields
+        this._restartPreviewInstance();
       });
       return sel;
     });
@@ -838,6 +885,7 @@ export class AnimBlueprintEditorPanel {
           state.animationId = '';  // Will be resolved at runtime
           this._asset.touch();
           this._renderGraph();
+          this._restartPreviewInstance();
         });
         return sel;
       });
@@ -850,6 +898,7 @@ export class AnimBlueprintEditorPanel {
         cb.addEventListener('change', () => {
           state.loop = cb.checked;
           this._asset.touch();
+          this._restartPreviewInstance();
         });
         return cb;
       });
@@ -865,6 +914,7 @@ export class AnimBlueprintEditorPanel {
         inp.addEventListener('change', () => {
           state.playRate = parseFloat(inp.value) || 1;
           this._asset.touch();
+          this._restartPreviewInstance();
         });
         return inp;
       });
@@ -884,6 +934,7 @@ export class AnimBlueprintEditorPanel {
         sel.addEventListener('change', () => {
           state.blendSpace1DId = sel.value;
           this._asset.touch();
+          this._restartPreviewInstance();
         });
         return sel;
       });
@@ -903,6 +954,7 @@ export class AnimBlueprintEditorPanel {
         sel.addEventListener('change', () => {
           state.blendSpaceAxisVar = sel.value;
           this._asset.touch();
+          this._restartPreviewInstance();
         });
         return sel;
       });
@@ -994,18 +1046,367 @@ export class AnimBlueprintEditorPanel {
     if (!this._meshManager) return [];
     const targetId = this._asset.targetSkeletonMeshAssetId;
     if (!targetId) {
-      // Return all animations from all meshes
-      const result: Array<{ name: string; id: string }> = [];
-      for (const ma of this._meshManager.assets) {
-        const anims = this._meshManager.getAnimationsForMesh(ma.id);
-        for (const a of anims) {
-          result.push({ name: a.assetName, id: a.assetId });
-        }
-      }
-      return result;
+      return [];
     }
     const anims = this._meshManager.getAnimationsForMesh(targetId);
     return anims.map(a => ({ name: a.assetName, id: a.assetId }));
+  }
+
+  private _ensureEntryStateAnimation(): void {
+    const entryId = this._asset.stateMachine.entryStateId;
+    const entry = this._asset.stateMachine.states.find(s => s.id === entryId);
+    if (!entry || entry.outputType !== 'singleAnimation') return;
+    if (entry.animationName) return;
+
+    const anims = this._getAvailableAnimations();
+    if (anims.length === 0) return;
+
+    entry.animationName = anims[0].name;
+    entry.animationId = anims[0].id;
+    this._asset.touch();
+  }
+
+  // ============================================================
+  //  Preview Viewport (Anim Graph tab)
+  // ============================================================
+
+  private _buildPreviewSection(container: HTMLElement): void {
+    const section = document.createElement('div');
+    section.className = 'anim-bp-preview';
+
+    const header = document.createElement('div');
+    header.className = 'anim-bp-preview-header';
+    header.innerHTML = '<span>Preview</span>';
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'toolbar-btn';
+    refreshBtn.textContent = '↻ Refresh';
+    refreshBtn.addEventListener('click', () => this._refreshPreview(true));
+    header.appendChild(refreshBtn);
+
+    section.appendChild(header);
+
+    const viewport = document.createElement('div');
+    viewport.className = 'anim-bp-preview-viewport';
+    section.appendChild(viewport);
+
+    const controls = document.createElement('div');
+    controls.className = 'anim-bp-preview-controls';
+
+    const scaleLabel = document.createElement('div');
+    scaleLabel.className = 'anim-bp-preview-label';
+    scaleLabel.textContent = 'Scale';
+    controls.appendChild(scaleLabel);
+
+    const scaleInput = document.createElement('input');
+    scaleInput.type = 'range';
+    scaleInput.min = '0.1';
+    scaleInput.max = '4';
+    scaleInput.step = '0.05';
+    scaleInput.value = String(this._previewUserScale);
+    scaleInput.className = 'anim-bp-preview-range';
+    scaleInput.addEventListener('input', () => {
+      this._previewUserScale = parseFloat(scaleInput.value) || 1;
+      this._applyPreviewScale();
+    });
+    controls.appendChild(scaleInput);
+
+    const autoFitLabel = document.createElement('label');
+    autoFitLabel.className = 'anim-bp-preview-toggle';
+    const autoFit = document.createElement('input');
+    autoFit.type = 'checkbox';
+    autoFit.checked = this._previewAutoFit;
+    autoFit.addEventListener('change', () => {
+      this._previewAutoFit = autoFit.checked;
+      this._applyPreviewScale();
+      if (this._previewRoot) this._framePreviewToObject(this._previewRoot);
+    });
+    autoFitLabel.appendChild(autoFit);
+    autoFitLabel.appendChild(document.createTextNode('Auto-fit'));
+    controls.appendChild(autoFitLabel);
+
+    section.appendChild(controls);
+
+    const hint = document.createElement('div');
+    hint.className = 'anim-bp-preview-hint';
+    hint.textContent = 'Select a target mesh to preview animations.';
+    section.appendChild(hint);
+
+    const debug = document.createElement('div');
+    debug.className = 'anim-bp-preview-debug';
+    debug.textContent = 'Debug: waiting for preview...';
+    section.appendChild(debug);
+
+    container.appendChild(section);
+
+    this._previewContainer = viewport;
+    this._previewDebugEl = debug;
+    this._initPreviewRenderer(viewport, hint);
+    this._refreshPreview(false);
+  }
+
+  private _initPreviewRenderer(container: HTMLElement, hintEl: HTMLElement): void {
+    this._disposePreview();
+    this._previewContainer = container;
+
+    try {
+      this._previewScene = new THREE.Scene();
+      this._previewScene.background = new THREE.Color(0x12141c);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x223344, 0.7);
+      this._previewScene.add(hemi);
+      const key = new THREE.DirectionalLight(0xffffff, 0.9);
+      key.position.set(3, 6, 4);
+      this._previewScene.add(key);
+      const fill = new THREE.DirectionalLight(0xaec9ff, 0.45);
+      fill.position.set(-3, 2, -2);
+      this._previewScene.add(fill);
+
+      this._previewCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+      this._previewCamera.position.set(2.8, 2.2, 2.8);
+      this._previewCamera.lookAt(0, 1, 0);
+
+      this._previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      this._previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this._previewRenderer.toneMappingExposure = 1.2;
+      this._previewRenderer.setPixelRatio(window.devicePixelRatio);
+
+      const w = container.clientWidth || 240;
+      const h = container.clientHeight || 180;
+      this._previewRenderer.setSize(w, h);
+      container.innerHTML = '';
+      container.appendChild(this._previewRenderer.domElement);
+
+      this._previewControls = new OrbitControls(this._previewCamera, this._previewRenderer.domElement);
+      this._previewControls.enableDamping = true;
+      this._previewControls.dampingFactor = 0.1;
+      this._previewControls.target.set(0, 1, 0);
+
+      this._previewResizeObserver = new ResizeObserver(() => {
+        if (!this._previewRenderer || !this._previewCamera || !this._previewContainer) return;
+        const rw = this._previewContainer.clientWidth || 240;
+        const rh = this._previewContainer.clientHeight || 180;
+        this._previewRenderer.setSize(rw, rh);
+        this._previewCamera.aspect = rw / rh;
+        this._previewCamera.updateProjectionMatrix();
+      });
+      this._previewResizeObserver.observe(container);
+
+      hintEl.style.display = 'block';
+      this._startPreviewLoop();
+    } catch (err) {
+      console.warn('WebGL not available for AnimBP preview:', err);
+      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#666;font-size:11px;">WebGL required</div>';
+    }
+  }
+
+  private _startPreviewLoop(): void {
+    if (this._previewFrame) cancelAnimationFrame(this._previewFrame);
+    const tick = () => {
+      this._previewFrame = requestAnimationFrame(tick);
+      if (!this._previewRenderer || !this._previewScene || !this._previewCamera) return;
+
+      const dt = this._previewClock.getDelta();
+      if (this._previewAnimInstance) this._previewAnimInstance.update(dt);
+      if (this._previewMixer) this._previewMixer.update(dt);
+      if (this._previewControls) this._previewControls.update();
+
+      const now = performance.now();
+      if (this._previewDebugEl && now - this._previewDebugLast > 200) {
+        this._previewDebugLast = now;
+        const info = this._previewAnimInstance?.getDebugInfo();
+        if (!info) {
+          this._previewDebugEl.textContent = 'Debug: no AnimBP instance.';
+        } else {
+          const clipCount = info.clipNames.length;
+          const actionCount = info.actionNames.length;
+          this._previewDebugEl.textContent =
+            `State: ${info.stateName} | Output: ${info.outputType} | ` +
+            `Anim: ${info.animationName || '(none)'} | ` +
+            `Clips: ${clipCount} | Actions: ${actionCount}`;
+        }
+      }
+
+      this._previewRenderer.render(this._previewScene, this._previewCamera);
+    };
+    this._previewClock.start();
+    tick();
+  }
+
+  private _refreshPreview(forceReload: boolean): void {
+    if (!this._previewScene || !this._previewContainer) return;
+    const targetId = this._asset.targetSkeletonMeshAssetId;
+    if (!targetId) {
+      this._clearPreviewRoot();
+      return;
+    }
+
+    if (!forceReload && this._previewMeshAssetId === targetId && this._previewRoot) {
+      this._restartPreviewInstance();
+      return;
+    }
+
+    this._loadPreviewMesh(targetId);
+  }
+
+  private async _loadPreviewMesh(meshAssetId: string): Promise<void> {
+    if (!this._meshManager || !this._previewScene) return;
+    const meshAsset = this._meshManager.getAsset(meshAssetId);
+    if (!meshAsset) return;
+
+    const token = ++this._previewLoadToken;
+    this._previewMeshAssetId = meshAssetId;
+
+    try {
+      const { scene: loadedScene, animations } = await loadMeshFromAsset(meshAsset);
+      if (token !== this._previewLoadToken) return;
+
+      // Align clip names with stored asset names (same logic as runtime)
+      if (meshAsset.animations.length > 0) {
+        for (const clip of animations) {
+          const match = meshAsset.animations.find(
+            a => a.assetName === clip.name || a.assetName.endsWith('_' + clip.name)
+          );
+          if (match) clip.name = match.assetName;
+        }
+      }
+
+      this._clearPreviewRoot();
+
+      const wrapper = new THREE.Group();
+      while (loadedScene.children.length > 0) {
+        const child = loadedScene.children[0];
+        loadedScene.remove(child);
+        wrapper.add(child);
+      }
+
+      wrapper.updateMatrixWorld(true);
+      this._previewScene.add(wrapper);
+      this._previewRoot = wrapper;
+      this._previewAnimations = animations;
+
+      this._computePreviewBaseScale(wrapper);
+      this._applyPreviewScale();
+      this._framePreviewToObject(wrapper);
+      this._ensureEntryStateAnimation();
+      this._restartPreviewInstance();
+    } catch (err) {
+      console.error('Failed to load AnimBP preview mesh:', err);
+    }
+  }
+
+  private _restartPreviewInstance(): void {
+    if (!this._previewRoot) return;
+
+    if (this._previewMixer) {
+      this._previewMixer.stopAllAction();
+    }
+
+    if (this._previewAnimations.length === 0) return;
+
+    this._previewMixer = new THREE.AnimationMixer(this._previewRoot);
+    this._previewAnimInstance = new AnimationInstance(this._asset, this._previewMixer, this._previewAnimations);
+    this._previewClock.start();
+    if (this._previewDebugEl) this._previewDebugEl.textContent = 'Debug: AnimBP instance created.';
+  }
+
+  private _framePreviewToObject(obj: THREE.Object3D): void {
+    if (!this._previewCamera || !this._previewControls) return;
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = maxDim * 2.0;
+    this._previewCamera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.6);
+    this._previewCamera.lookAt(center);
+    this._previewControls.target.copy(center);
+    this._previewControls.update();
+  }
+
+  private _computePreviewBaseScale(obj: THREE.Object3D): void {
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const target = 1.8;
+    this._previewBaseScale = this._previewAutoFit ? (target / maxDim) : 1;
+  }
+
+  private _applyPreviewScale(): void {
+    if (!this._previewRoot) return;
+    if (this._previewAutoFit) {
+      this._computePreviewBaseScale(this._previewRoot);
+    } else {
+      this._previewBaseScale = 1;
+    }
+    const scale = this._previewBaseScale * this._previewUserScale;
+    this._previewRoot.scale.setScalar(scale);
+    this._previewRoot.updateMatrixWorld(true);
+  }
+
+  private _clearPreviewRoot(): void {
+    if (!this._previewScene) return;
+    if (this._previewRoot) {
+      this._previewScene.remove(this._previewRoot);
+      this._disposePreviewObject(this._previewRoot);
+      this._previewRoot = null;
+    }
+    this._previewAnimations = [];
+    this._previewMixer = null;
+    this._previewAnimInstance = null;
+  }
+
+  private _disposePreviewObject(obj: THREE.Object3D): void {
+    obj.traverse(child => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.geometry.dispose();
+        const mat = mesh.material;
+        if (Array.isArray(mat)) {
+          for (const m of mat) m.dispose();
+        } else if (mat) {
+          mat.dispose();
+        }
+      }
+    });
+  }
+
+  private _disposePreview(): void {
+    if (this._previewFrame) {
+      cancelAnimationFrame(this._previewFrame);
+      this._previewFrame = 0;
+    }
+    if (this._previewResizeObserver && this._previewContainer) {
+      this._previewResizeObserver.disconnect();
+    }
+    this._previewResizeObserver = null;
+
+    if (this._previewControls) {
+      this._previewControls.dispose();
+      this._previewControls = null;
+    }
+
+    if (this._previewRenderer) {
+      this._previewRenderer.dispose();
+      this._previewRenderer = null;
+    }
+
+    this._previewScene = null;
+    this._previewCamera = null;
+    this._previewContainer = null;
+    this._previewRoot = null;
+    this._previewMixer = null;
+    this._previewAnimInstance = null;
+    this._previewAnimations = [];
+    this._previewMeshAssetId = null;
+    this._previewBaseScale = 1;
+    this._previewUserScale = 1;
+    this._previewAutoFit = true;
+    this._previewDebugEl = null;
+    this._previewDebugLast = 0;
   }
 
   // ============================================================

@@ -139,6 +139,8 @@ export interface AnimBlueprintJSON {
   animBlueprintName: string;
   /** Which skeleton/mesh this AnimBP targets */
   targetSkeletonMeshAssetId: string;
+  /** Which skeleton this AnimBP targets (for compatibility checks) */
+  targetSkeletonId?: string;
   /** State machine definition */
   stateMachine: AnimStateMachineData;
   /** 1D Blend Spaces owned by this AnimBP */
@@ -218,6 +220,7 @@ export class AnimBlueprintAsset {
   public id: string;
   public name: string;
   public targetSkeletonMeshAssetId: string;
+  public targetSkeletonId: string;
   public stateMachine: AnimStateMachineData;
   public blendSpaces1D: BlendSpace1D[];
   public blendSpaces2D: BlendSpace2D[];
@@ -235,6 +238,7 @@ export class AnimBlueprintAsset {
     this.id = id;
     this.name = name;
     this.targetSkeletonMeshAssetId = '';
+    this.targetSkeletonId = '';
 
     // Create default state machine with Idle entry state
     const idleState = defaultAnimState('Idle', 100, 200);
@@ -266,6 +270,7 @@ export class AnimBlueprintAsset {
       animBlueprintId: this.id,
       animBlueprintName: this.name,
       targetSkeletonMeshAssetId: this.targetSkeletonMeshAssetId,
+      targetSkeletonId: this.targetSkeletonId || undefined,
       stateMachine: structuredClone(this.stateMachine),
       blendSpaces1D: structuredClone(this.blendSpaces1D),
       blendSpaces2D: structuredClone(this.blendSpaces2D),
@@ -279,6 +284,7 @@ export class AnimBlueprintAsset {
   static fromJSON(json: AnimBlueprintJSON): AnimBlueprintAsset {
     const asset = new AnimBlueprintAsset(json.animBlueprintId, json.animBlueprintName);
     asset.targetSkeletonMeshAssetId = json.targetSkeletonMeshAssetId ?? '';
+    asset.targetSkeletonId = json.targetSkeletonId ?? '';
     asset.stateMachine = json.stateMachine ?? {
       entryStateId: '',
       states: [],

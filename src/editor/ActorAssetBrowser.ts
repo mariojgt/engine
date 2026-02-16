@@ -13,7 +13,7 @@ import { MeshAssetManager, type MeshAsset, isImportableFile } from './MeshAsset'
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
-import { importMeshFile } from './MeshImporter';
+import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
@@ -906,11 +906,19 @@ export class ActorAssetBrowser {
     if (importables.length === 0) return;
 
     for (const file of importables) {
-      // Show import dialog
-      const dialogResult = await showImportDialog(file);
+      // Pre-scan file to detect content and get recommendations
+      let detectedInfo;
+      try {
+        detectedInfo = await detectFileContent(file, extras.size > 0 ? extras : undefined);
+      } catch {
+        // Detection failed — proceed without detection info
+      }
+
+      // Show import dialog with detection info
+      const dialogResult = await showImportDialog(file, detectedInfo);
       if (dialogResult.cancelled) continue;
 
-      // Show progress
+      // Show progress with step tracking
       const progress = showImportProgress();
 
       try {
@@ -919,7 +927,16 @@ export class ActorAssetBrowser {
           dialogResult.settings,
           extras.size > 0 ? extras : undefined,
           (msg) => progress.update(msg),
+          (step, totalSteps, msg) => {
+            const pct = Math.round((step / totalSteps) * 100);
+            progress.update(msg, pct);
+          },
         );
+
+        // Show warnings from import report
+        if (result.report.warnings.length > 0) {
+          console.warn('[MeshImport] Warnings:', result.report.warnings);
+        }
 
         // Add to mesh manager
         this._meshManager.addImportedAsset(
@@ -932,8 +949,9 @@ export class ActorAssetBrowser {
         // Register in folder manager
         this._folderManager.setAssetLocation(result.meshAsset.assetId, 'mesh', this._currentFolderId);
 
-        progress.update('Import complete!', 100);
-        setTimeout(() => progress.close(), 800);
+        const duration = (result.report.duration / 1000).toFixed(1);
+        progress.update(`Import complete in ${duration}s!`, 100);
+        setTimeout(() => progress.close(), 1200);
       } catch (err: any) {
         progress.close();
         console.error('[MeshImport] Failed:', err);

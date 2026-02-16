@@ -675,21 +675,32 @@ export class Scene {
                 const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
 
                 if (abpAsset) {
-                  // Create AnimationInstance driven by the state machine
-                  const animInstance = new AnimationInstance(abpAsset, mixer, animations);
-                  wrapper.userData.__animationInstance = animInstance;
-
-                  // Wire character controller if available
-                  if (go.characterController) {
-                    animInstance.characterController = go.characterController;
+                  let skeletonMismatch = false;
+                  if (abpAsset.targetSkeletonMeshAssetId && abpAsset.targetSkeletonMeshAssetId !== cfg.meshAssetId) {
+                    console.warn('[AnimBP] Target mesh mismatch:', abpAsset.name, 'expected', abpAsset.targetSkeletonMeshAssetId, 'got', cfg.meshAssetId);
+                  }
+                  if (abpAsset.targetSkeletonId && meshAsset.skeleton?.assetId && abpAsset.targetSkeletonId !== meshAsset.skeleton.assetId) {
+                    console.warn('[AnimBP] Skeleton mismatch:', abpAsset.name, 'expected', abpAsset.targetSkeletonId, 'got', meshAsset.skeleton.assetId);
+                    skeletonMismatch = true;
                   }
 
-                  // Pass scene reference for event graph script context
-                  animInstance.sceneRef = this;
+                  if (!skeletonMismatch) {
+                    // Create AnimationInstance driven by the state machine
+                    const animInstance = new AnimationInstance(abpAsset, mixer, animations);
+                    wrapper.userData.__animationInstance = animInstance;
 
-                  // Push to go's animation instances array
-                  if (!(go as any)._animationInstances) (go as any)._animationInstances = [];
-                  (go as any)._animationInstances.push(animInstance);
+                    // Wire character controller if available
+                    if (go.characterController) {
+                      animInstance.characterController = go.characterController;
+                    }
+
+                    // Pass scene reference for event graph script context
+                    animInstance.sceneRef = this;
+
+                    // Push to go's animation instances array
+                    if (!(go as any)._animationInstances) (go as any)._animationInstances = [];
+                    (go as any)._animationInstances.push(animInstance);
+                  }
                 } else if (cfg.animationName) {
                   // Fallback: play single animation (no AnimBP)
                   const clip = animations.find(a => a.name === cfg.animationName);

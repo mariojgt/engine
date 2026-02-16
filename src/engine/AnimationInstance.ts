@@ -49,6 +49,9 @@ export class AnimationInstance {
   private _eventScript: ScriptComponent | null = null;
   private _eventScriptStarted = false;
 
+  /** Avoid spamming warnings when no action is playing */
+  private _warnedNoAction = false;
+
   /** Scene & physics references for script execution context */
   public sceneRef: any = null;
   public physicsRef: any = null;
@@ -70,10 +73,15 @@ export class AnimationInstance {
     }
 
     // Set initial state
-    this._currentStateId = asset.stateMachine.entryStateId;
+    const sm = asset.stateMachine;
+    this._currentStateId = sm.entryStateId;
+    let entryState = this._findState(this._currentStateId);
+    if (!entryState && sm.states.length > 0) {
+      entryState = sm.states[0];
+      this._currentStateId = entryState.id;
+    }
 
     // Start playing entry state
-    const entryState = this._findState(this._currentStateId);
     if (entryState) {
       this._enterState(entryState);
     }
@@ -82,6 +90,30 @@ export class AnimationInstance {
     if (asset.compiledCode) {
       this.setEventGraphCode(asset.compiledCode);
     }
+  }
+
+  /** Debug info for editor/runtime overlays */
+  getDebugInfo(): {
+    stateId: string;
+    stateName: string;
+    outputType: string;
+    animationName: string;
+    actionNames: string[];
+    clipNames: string[];
+    transitioning: boolean;
+    stateTime: number;
+  } {
+    const state = this._findState(this._currentStateId);
+    return {
+      stateId: this._currentStateId,
+      stateName: state?.name ?? '(none)',
+      outputType: state?.outputType ?? '(none)',
+      animationName: state?.animationName ?? '',
+      actionNames: this._currentActions.map(a => a.getClip().name),
+      clipNames: this.animations.map(a => a.name),
+      transitioning: this._transitioning,
+      stateTime: this._stateTime,
+    };
   }
 
   /** Compile and set the event graph code for per-frame execution */
@@ -130,6 +162,18 @@ export class AnimationInstance {
     const currentState = this._findState(this._currentStateId);
     if (currentState && currentState.outputType === 'blendSpace1D') {
       this._updateBlendSpace1D(currentState);
+    }
+
+    if (this._currentActions.length === 0 && this.animations.length > 0 && !this._warnedNoAction) {
+      this._warnedNoAction = true;
+      console.warn('[AnimationInstance] No active actions. Falling back to first clip.');
+      this._playSingleAnimation({
+        ...currentState,
+        outputType: 'singleAnimation',
+        animationName: this.animations[0].name,
+        loop: true,
+        playRate: 1,
+      } as AnimStateData);
     }
 
     // 5. The mixer itself is updated externally by Engine.ts
@@ -284,6 +328,7 @@ export class AnimationInstance {
     const oldActions = [...this._currentActions];
     this._currentStateId = state.id;
     this._stateTime = 0;
+    this._warnedNoAction = false;
 
     // Enter new state (starts new actions)
     this._enterState(state);
@@ -316,17 +361,41 @@ export class AnimationInstance {
       this._playSingleAnimation(state);
     } else if (state.outputType === 'blendSpace1D') {
       this._setupBlendSpace1D(state);
+      if (this._currentActions.length === 0 && this.animations.length > 0) {
+        console.warn('[AnimationInstance] Blend space has no playable samples, using first clip.');
+        this._playSingleAnimation({
+          ...state,
+          outputType: 'singleAnimation',
+          animationName: this.animations[0].name,
+          loop: true,
+          playRate: 1,
+        } as AnimStateData);
+      }
     }
     // Future: blendSpace2D
   }
 
   /** Play a single animation clip */
   private _playSingleAnimation(state: AnimStateData): void {
-    if (!state.animationName) return;
+    if (!state.animationName) {
+      if (this.animations.length > 0) {
+        const fallback = this.animations[0];
+        console.warn('[AnimationInstance] State has no animation, using first clip:', fallback.name);
+        state = { ...state, animationName: fallback.name };
+      } else {
+        return;
+      }
+    }
 
-    const clip = this.animations.find(a => a.name === state.animationName);
+    let clip = this.animations.find(a => a.name === state.animationName);
     if (!clip) {
-      console.warn(`[AnimationInstance] Clip not found: "${state.animationName}"`);
+      // Fallback: match by suffix/prefix (helps older AnimBP data)
+      clip = this.animations.find(a => a.name.endsWith('_' + state.animationName)) ||
+        this.animations.find(a => state.animationName.endsWith('_' + a.name));
+    }
+    if (!clip) {
+      const available = this.animations.map(a => a.name).slice(0, 6).join(', ');
+      console.warn(`[AnimationInstance] Clip not found: "${state.animationName}". Available: ${available}`);
       return;
     }
 

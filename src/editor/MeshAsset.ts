@@ -1,8 +1,10 @@
 // ============================================================
 //  MeshAsset — Asset types for imported 3D meshes
 //  Supports static meshes, skeletal meshes, skeletons,
-//  animations, materials, and textures.
+//  animations, materials, textures, LODs, and collision.
 //  All data is JSON-serializable for project persistence.
+//  Designed to mirror Unreal Engine's import pipeline,
+//  optimized for Three.js best practices.
 // ============================================================
 
 // ── Enums & Literals ──
@@ -43,45 +45,402 @@ export interface BoundingBoxData {
   max: { x: number; y: number; z: number };
 }
 
-// ── Import Settings ──
+// ── Import Presets ──
+
+export type ImportPreset = 'character' | 'prop' | 'environment' | 'simple' | 'custom';
+
+// ── Normals Mode ──
+
+export type NormalsMode = 'useExisting' | 'recomputeFlat' | 'recomputeSmooth' | 'weightedByArea';
+
+// ── Material Workflow ──
+
+export type MaterialWorkflow = 'pbrMetallicRoughness' | 'pbrSpecularGlossiness' | 'legacy';
+export type MaterialType = 'MeshStandardMaterial' | 'MeshPhysicalMaterial' | 'MeshBasicMaterial' | 'MeshLambertMaterial';
+
+// ── Texture Settings ──
+
+export type TextureResolution = 'original' | '4096' | '2048' | '1024' | '512' | '256';
+export type TextureFilter = 'Nearest' | 'Linear' | 'LinearMipmapLinear' | 'LinearMipmapNearest';
+export type TextureWrap = 'Repeat' | 'ClampToEdge' | 'MirroredRepeat';
+
+// ── LOD Settings ──
+
+export type LODAlgorithm = 'quadricError' | 'edgeCollapse' | 'vertexClustering';
+export type LODStrategy = 'screenSize' | 'distance' | 'manual';
+
+export interface LODLevelSettings {
+  level: number;
+  reductionPercent: number;   // 0-1, e.g. 0.5 = 50% of previous LOD
+  screenSize: number;         // 0-1, screen percentage
+  maxDeviation: number;       // maximum geometric error
+}
+
+export interface LODSettings {
+  generateLODs: boolean;
+  lodCount: number;           // 1-4
+  strategy: LODStrategy;
+  algorithm: LODAlgorithm;
+  preserveBoundaries: boolean;
+  preserveUVs: boolean;
+  preserveNormals: boolean;
+  levels: LODLevelSettings[];
+}
+
+// ── Collision Settings ──
+
+export type CollisionType = 'box' | 'sphere' | 'capsule' | 'convexHull' | 'autoConvex' | 'none';
+export type CollisionComplexity = 'simple' | 'complex' | 'useMesh';
+
+export interface CollisionSettings {
+  generateCollision: boolean;
+  complexity: CollisionComplexity;
+  collisionType: CollisionType;
+  maxConvexHulls: number;
+  maxHullVertices: number;
+  concavity: number;
+  resolution: number;
+  simulatePhysics: boolean;
+}
+
+// ── Socket Settings ──
+
+export interface SocketDefinition {
+  name: string;
+  boneName: string;
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
+}
+
+export interface SocketSettings {
+  autoDetectSockets: boolean;
+  createFromBoneNames: boolean;
+  customSockets: SocketDefinition[];
+}
+
+// ── Animation Settings ──
+
+export type AnimSampleRate = 24 | 30 | 60 | 'original';
+export type AnimCompression = 'none' | 'low' | 'medium' | 'high';
+
+export interface AnimationImportSettings {
+  importAnimations: boolean;
+  importMode: 'all' | 'selected' | 'separateFiles';
+  sampleRate: AnimSampleRate;
+  resample: boolean;
+  removeRedundantKeys: boolean;
+  redundantKeyTolerance: number;
+  enableRootMotion: boolean;
+  lockRootRotation: boolean;
+  lockRootHeight: boolean;
+  compression: AnimCompression;
+  maxError: number;
+  splitByName: boolean;
+  /** Per-animation overrides: animName → { import, loop } */
+  animationOverrides: Record<string, { import: boolean; loop: boolean }>;
+}
+
+// ── Validation Settings ──
+
+export interface ValidationSettings {
+  checkErrors: boolean;
+  warnLargeFileSize: boolean;
+  fileSizeThreshold: number;           // bytes
+  warnHighPolyCount: boolean;
+  polyCountThreshold: number;
+  validateSkeletonHierarchy: boolean;
+}
+
+// ── Target Platform ──
+
+export type TargetPlatform = 'web' | 'desktop' | 'mobile';
+export type OptimizationLevel = 'none' | 'low' | 'medium' | 'high';
+
+// ── Import Settings (Enhanced) ──
 
 export interface MeshImportSettings {
+  // ── General ──
   importAs: 'auto' | 'staticMesh' | 'skeletalMesh';
   assetName: string;
+  prefix: string;                      // e.g. 'SK_', 'SM_'
+  suffix: string;
+  autoGenerateSubNames: boolean;
   scale: number;
+  unit: 'meters' | 'centimeters' | 'millimeters';
+  convertToYUp: boolean;
+  forwardAxis: 'X' | 'Y' | 'Z';
+  upAxis: 'X' | 'Y' | 'Z';
+  openAfterImport: boolean;
+  generateThumbnails: boolean;
+  suggestedPreset: ImportPreset;
+
+  // ── Mesh ──
   importMesh: boolean;
   combineMeshes: boolean;
+  splitByMaterials: boolean;
+  weldVertices: boolean;
+  weldThreshold: number;
+  removeDegenerateTriangles: boolean;
+  optimizeVertexOrder: boolean;
+  normalsMode: NormalsMode;
+  importTangents: boolean;
+  recomputeTangents: boolean;
+  importUVs: boolean;
+  generateLightmapUVs: boolean;
+  lightmapResolution: number;
+  importVertexColors: boolean;
+  targetPlatform: TargetPlatform;
+  useDracoCompression: boolean;
+  dracoCompressionLevel: number;       // 0-10
+
+  // ── Skeleton ──
+  importSkeleton: boolean;
+  createNewSkeleton: boolean;
+  existingSkeletonId: string | null;
+  maxBoneInfluences: number;           // 4 or 8
+  boneWeightThreshold: number;
+  normalizeBoneWeights: boolean;
+  removeEndBones: boolean;
+  convertBoneNames: boolean;
+
+  // ── Sockets ──
+  sockets: SocketSettings;
+
+  // ── Animations ──
+  animation: AnimationImportSettings;
+
+  // ── Materials ──
   importMaterials: boolean;
   importTextures: boolean;
-  importSkeleton: boolean;
-  importAnimations: boolean;
-  generateNormals: boolean;
-  generateTangents: boolean;
-  optimizeMesh: boolean;
+  materialWorkflow: MaterialWorkflow;
+  materialType: MaterialType;
+  textureResolution: TextureResolution;
+  generateMipmaps: boolean;
+  compressTextures: boolean;
+  convertPowerOfTwo: boolean;
+  textureMinFilter: TextureFilter;
+  textureMagFilter: TextureFilter;
+  textureWrapS: TextureWrap;
+  textureWrapT: TextureWrap;
+  createMaterialInstances: boolean;
+
+  // ── LODs ──
+  lod: LODSettings;
+
+  // ── Collision ──
+  collision: CollisionSettings;
+
+  // ── Advanced ──
+  preserveHierarchy: boolean;
+  importMetadata: boolean;
+  importMorphTargets: boolean;
+  validation: ValidationSettings;
+  optimizationLevel: OptimizationLevel;
   /** Position offset to apply */
   positionOffset: { x: number; y: number; z: number };
   /** Rotation offset in degrees */
   rotationOffset: { x: number; y: number; z: number };
+  verboseLogging: boolean;
+  generateImportReport: boolean;
+}
+
+/** Suggest a prefix based on asset type */
+export function suggestPrefix(importAs: 'auto' | 'staticMesh' | 'skeletalMesh', hasSkeleton: boolean): string {
+  if (importAs === 'skeletalMesh' || (importAs === 'auto' && hasSkeleton)) return 'SK_';
+  return 'SM_';
+}
+
+/** Suggest a preset based on file content analysis */
+export function suggestPreset(info: { hasSkeleton: boolean; animCount: number; vertexCount: number }): ImportPreset {
+  if (info.hasSkeleton && info.animCount > 0) return 'character';
+  if (info.vertexCount > 50000) return 'environment';
+  if (info.vertexCount < 500) return 'simple';
+  return 'prop';
 }
 
 export function defaultImportSettings(filename: string): MeshImportSettings {
   const name = filename.replace(/\.[^.]+$/, ''); // strip extension
   return {
+    // General
     importAs: 'auto',
     assetName: name,
+    prefix: '',
+    suffix: '',
+    autoGenerateSubNames: true,
     scale: 1.0,
+    unit: 'meters',
+    convertToYUp: false,
+    forwardAxis: 'Y',
+    upAxis: 'Z',
+    openAfterImport: true,
+    generateThumbnails: true,
+    suggestedPreset: 'custom',
+
+    // Mesh
     importMesh: true,
     combineMeshes: false,
+    splitByMaterials: false,
+    weldVertices: true,
+    weldThreshold: 0.0001,
+    removeDegenerateTriangles: true,
+    optimizeVertexOrder: true,
+    normalsMode: 'useExisting',
+    importTangents: true,
+    recomputeTangents: false,
+    importUVs: true,
+    generateLightmapUVs: false,
+    lightmapResolution: 512,
+    importVertexColors: true,
+    targetPlatform: 'web',
+    useDracoCompression: false,
+    dracoCompressionLevel: 7,
+
+    // Skeleton
+    importSkeleton: true,
+    createNewSkeleton: true,
+    existingSkeletonId: null,
+    maxBoneInfluences: 4,
+    boneWeightThreshold: 0.01,
+    normalizeBoneWeights: true,
+    removeEndBones: false,
+    convertBoneNames: true,
+
+    // Sockets
+    sockets: {
+      autoDetectSockets: true,
+      createFromBoneNames: true,
+      customSockets: [],
+    },
+
+    // Animations
+    animation: {
+      importAnimations: true,
+      importMode: 'all',
+      sampleRate: 30,
+      resample: true,
+      removeRedundantKeys: true,
+      redundantKeyTolerance: 0.001,
+      enableRootMotion: false,
+      lockRootRotation: false,
+      lockRootHeight: false,
+      compression: 'medium',
+      maxError: 0.01,
+      splitByName: true,
+      animationOverrides: {},
+    },
+
+    // Materials
     importMaterials: true,
     importTextures: true,
-    importSkeleton: true,
-    importAnimations: true,
-    generateNormals: true,
-    generateTangents: true,
-    optimizeMesh: true,
+    materialWorkflow: 'pbrMetallicRoughness',
+    materialType: 'MeshStandardMaterial',
+    textureResolution: 'original',
+    generateMipmaps: true,
+    compressTextures: false,
+    convertPowerOfTwo: true,
+    textureMinFilter: 'LinearMipmapLinear',
+    textureMagFilter: 'Linear',
+    textureWrapS: 'Repeat',
+    textureWrapT: 'Repeat',
+    createMaterialInstances: true,
+
+    // LODs
+    lod: {
+      generateLODs: false,
+      lodCount: 3,
+      strategy: 'screenSize',
+      algorithm: 'quadricError',
+      preserveBoundaries: true,
+      preserveUVs: true,
+      preserveNormals: true,
+      levels: [
+        { level: 1, reductionPercent: 0.5, screenSize: 0.5, maxDeviation: 1.0 },
+        { level: 2, reductionPercent: 0.5, screenSize: 0.25, maxDeviation: 2.0 },
+        { level: 3, reductionPercent: 0.5, screenSize: 0.125, maxDeviation: 4.0 },
+      ],
+    },
+
+    // Collision
+    collision: {
+      generateCollision: false,
+      complexity: 'simple',
+      collisionType: 'autoConvex',
+      maxConvexHulls: 4,
+      maxHullVertices: 32,
+      concavity: 0.001,
+      resolution: 100000,
+      simulatePhysics: false,
+    },
+
+    // Advanced
+    preserveHierarchy: true,
+    importMetadata: true,
+    importMorphTargets: true,
+    validation: {
+      checkErrors: true,
+      warnLargeFileSize: true,
+      fileSizeThreshold: 50 * 1024 * 1024, // 50 MB
+      warnHighPolyCount: true,
+      polyCountThreshold: 100000,
+      validateSkeletonHierarchy: true,
+    },
+    optimizationLevel: 'medium',
     positionOffset: { x: 0, y: 0, z: 0 },
     rotationOffset: { x: 0, y: 0, z: 0 },
+    verboseLogging: false,
+    generateImportReport: false,
   };
+}
+
+/** Apply a named preset to settings */
+export function applyPreset(settings: MeshImportSettings, preset: ImportPreset): void {
+  settings.suggestedPreset = preset;
+  switch (preset) {
+    case 'character':
+      settings.importAs = 'skeletalMesh';
+      settings.prefix = 'SK_';
+      settings.importSkeleton = true;
+      settings.animation.importAnimations = true;
+      settings.sockets.autoDetectSockets = true;
+      settings.lod.generateLODs = true;
+      settings.lod.lodCount = 2;
+      settings.collision.generateCollision = true;
+      settings.collision.collisionType = 'capsule';
+      settings.maxBoneInfluences = 4;
+      break;
+    case 'prop':
+      settings.importAs = 'staticMesh';
+      settings.prefix = 'SM_';
+      settings.importSkeleton = false;
+      settings.animation.importAnimations = false;
+      settings.lod.generateLODs = true;
+      settings.lod.lodCount = 3;
+      settings.collision.generateCollision = true;
+      settings.collision.collisionType = 'autoConvex';
+      break;
+    case 'environment':
+      settings.importAs = 'staticMesh';
+      settings.prefix = 'SM_';
+      settings.importSkeleton = false;
+      settings.animation.importAnimations = false;
+      settings.lod.generateLODs = true;
+      settings.lod.lodCount = 3;
+      settings.collision.generateCollision = true;
+      settings.collision.collisionType = 'autoConvex';
+      settings.collision.maxConvexHulls = 8;
+      settings.optimizationLevel = 'high';
+      break;
+    case 'simple':
+      settings.importAs = 'staticMesh';
+      settings.prefix = 'SM_';
+      settings.importSkeleton = false;
+      settings.animation.importAnimations = false;
+      settings.lod.generateLODs = false;
+      settings.collision.generateCollision = true;
+      settings.collision.collisionType = 'convexHull';
+      settings.optimizationLevel = 'low';
+      break;
+  }
 }
 
 // ── Mesh Data ──
@@ -99,6 +458,41 @@ export interface MeshDataJSON {
   morphTargets: string[];
 }
 
+// ── LOD Data ──
+
+export interface LODDataJSON {
+  level: number;
+  vertexCount: number;
+  triangleCount: number;
+  reductionPercent: number;
+  screenSize: number;
+  /** Base64-encoded GLB for this LOD level */
+  glbDataBase64: string;
+}
+
+// ── Collision Data ──
+
+export interface CollisionHullData {
+  type: CollisionType;
+  vertexCount: number;
+  /** Serialized vertices: [x,y,z, x,y,z, ...] */
+  vertices: number[];
+  /** Serialized indices (triangles): [i0,i1,i2, ...] */
+  indices: number[];
+  /** Center of the hull */
+  center: { x: number; y: number; z: number };
+  /** Half-extents (for box) or radius (for sphere/capsule) */
+  halfExtents?: { x: number; y: number; z: number };
+  radius?: number;
+  height?: number;
+}
+
+export interface CollisionDataJSON {
+  hulls: CollisionHullData[];
+  hullCount: number;
+  collisionType: CollisionType;
+}
+
 // ── Bone/Skeleton ──
 
 export interface BoneData {
@@ -114,6 +508,7 @@ export interface SkeletonAssetJSON {
   assetName: string;
   bones: BoneData[];
   boneCount: number;
+  sockets?: SocketDefinition[];
 }
 
 // ── Animation ──
@@ -180,6 +575,58 @@ export interface TextureAssetJSON {
   };
 }
 
+// ── Import Report ──
+
+export interface ImportReportJSON {
+  success: boolean;
+  importDate: string;
+  duration: number;           // ms
+  warnings: string[];
+  errors: string[];
+  stats: {
+    fileSize: number;
+    vertexCount: number;
+    triangleCount: number;
+    boneCount: number;
+    animationCount: number;
+    materialCount: number;
+    textureCount: number;
+    lodCount: number;
+    collisionHulls: number;
+    socketCount: number;
+  };
+}
+
+// ── File Detection Result ──
+
+export interface FileDetectionResult {
+  fileType: ImportMeshFormat;
+  fileSize: number;
+  complexity: {
+    meshCount: number;
+    vertexCount: number;
+    triangleCount: number;
+    boneCount: number;
+    animationCount: number;
+    materialCount: number;
+    textureCount: number;
+  };
+  hasSkeletalData: boolean;
+  hasAnimations: boolean;
+  hasMorphTargets: boolean;
+  suggestedImportType: MeshAssetType;
+  suggestedPreset: ImportPreset;
+  warnings: string[];
+  recommendations: {
+    generateLODs: boolean;
+    compressTextures: boolean;
+    optimizeGeometry: boolean;
+    targetPlatform: TargetPlatform;
+  };
+  /** Detected animation clip names and durations */
+  detectedAnimations: { name: string; duration: number; frameCount: number }[];
+}
+
 // ── Mesh Asset (top-level) ──
 
 export interface MeshAssetJSON {
@@ -198,6 +645,12 @@ export interface MeshAssetJSON {
   animations: string[];
   /** Skeleton data (inline for simplicity) */
   skeleton: SkeletonAssetJSON | null;
+  /** LOD data (generated) */
+  lods: LODDataJSON[];
+  /** Collision data (generated) */
+  collisionData: CollisionDataJSON | null;
+  /** Import report */
+  importReport: ImportReportJSON | null;
   /** Base64-encoded GLB binary for runtime loading */
   glbDataBase64: string;
   /** Thumbnail as data URL */
@@ -218,6 +671,9 @@ export class MeshAsset {
   public textures: TextureAssetJSON[];
   public animations: AnimationAssetJSON[];
   public skeleton: SkeletonAssetJSON | null;
+  public lods: LODDataJSON[];
+  public collisionData: CollisionDataJSON | null;
+  public importReport: ImportReportJSON | null;
   /** Base64-encoded GLB for runtime reconstruction */
   public glbDataBase64: string;
   public thumbnail: string;
@@ -234,6 +690,9 @@ export class MeshAsset {
     this.textures = textures;
     this.animations = animations;
     this.skeleton = json.skeleton;
+    this.lods = json.lods || [];
+    this.collisionData = json.collisionData || null;
+    this.importReport = json.importReport || null;
     this.glbDataBase64 = json.glbDataBase64;
     this.thumbnail = json.thumbnail;
   }
@@ -251,6 +710,9 @@ export class MeshAsset {
       textures: this.textures.map(t => t.assetId),
       animations: this.animations.map(a => a.assetId),
       skeleton: this.skeleton,
+      lods: this.lods,
+      collisionData: this.collisionData,
+      importReport: this.importReport,
       glbDataBase64: this.glbDataBase64,
       thumbnail: this.thumbnail,
     };
