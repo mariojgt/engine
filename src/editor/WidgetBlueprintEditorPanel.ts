@@ -82,6 +82,12 @@ export class WidgetBlueprintEditorPanel {
   private _contentArea!: HTMLElement;
   private _activeTab: EditorTab = 'designer';
 
+  // Compile / Save state
+  private _compileStatus: 'compiled' | 'dirty' | 'error' = 'compiled';
+  private _compileStatusEl: HTMLElement | null = null;
+  private _compileBtnEl: HTMLElement | null = null;
+  private _lastCompileTime: number = 0;
+
   // Designer state
   private _selectedWidgetId: string | null = null;
   private _canvas!: HTMLCanvasElement;
@@ -139,6 +145,11 @@ export class WidgetBlueprintEditorPanel {
     }
   }
 
+  /** Mark the blueprint as needing recompilation (called externally when graph changes) */
+  markDirty(): void {
+    this._setCompileStatus('dirty');
+  }
+
   // ============================================================
   //  Build UI
   // ============================================================
@@ -169,6 +180,10 @@ export class WidgetBlueprintEditorPanel {
   private _rebuildTabBar(): void {
     this._tabBar.innerHTML = '';
 
+    // ── Left side: Designer + Event Graph tabs ──
+    const tabsLeft = document.createElement('div');
+    tabsLeft.style.cssText = 'display:flex;gap:4px;flex:1;';
+
     const tabs: Array<{ key: EditorTab; label: string; icon: string }> = [
       { key: 'designer', label: 'Designer', icon: '🎨' },
       { key: 'eventGraph', label: 'Event Graph', icon: '📊' },
@@ -183,25 +198,137 @@ export class WidgetBlueprintEditorPanel {
         this._rebuildTabBar();
         this._switchTab(tab.key);
       });
-      this._tabBar.appendChild(btn);
+      tabsLeft.appendChild(btn);
     }
+    this._tabBar.appendChild(tabsLeft);
+
+    // ── Right side: Compile + Save buttons (UE-style toolbar) ──
+    const toolbarRight = document.createElement('div');
+    toolbarRight.className = 'ae-toolbar-right';
+
+    // Compile button
+    const compileBtn = document.createElement('button');
+    compileBtn.className = 'ae-toolbar-btn ae-compile-btn';
+    compileBtn.title = 'Compile this widget blueprint (Ctrl+F7)';
+    this._compileBtnEl = compileBtn;
+    this._updateCompileButton();
+    compileBtn.addEventListener('click', () => this._doCompile());
+    toolbarRight.appendChild(compileBtn);
+
+    // Compile status indicator
+    const statusEl = document.createElement('span');
+    statusEl.className = 'ae-compile-status';
+    this._compileStatusEl = statusEl;
+    this._updateCompileStatus();
+    toolbarRight.appendChild(statusEl);
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.className = 'ae-toolbar-separator';
+    toolbarRight.appendChild(sep);
 
     // Save button
-    const toolbar = document.createElement('div');
-    toolbar.className = 'anim-bp-toolbar';
-
     if (this._onSave) {
       const saveBtn = document.createElement('button');
-      saveBtn.className = 'toolbar-btn';
-      saveBtn.textContent = '💾 Save';
-      saveBtn.addEventListener('click', () => {
-        this._asset.touch();
-        this._onSave?.();
-      });
-      toolbar.appendChild(saveBtn);
+      saveBtn.className = 'ae-toolbar-btn ae-save-btn';
+      saveBtn.innerHTML = '💾 Save';
+      saveBtn.title = 'Save all (Ctrl+S)';
+      saveBtn.addEventListener('click', () => this._doSave());
+      toolbarRight.appendChild(saveBtn);
     }
 
-    this._tabBar.appendChild(toolbar);
+    this._tabBar.appendChild(toolbarRight);
+  }
+
+  private _setCompileStatus(status: 'compiled' | 'dirty' | 'error'): void {
+    this._compileStatus = status;
+    if (status === 'compiled') this._lastCompileTime = Date.now();
+    this._updateCompileButton();
+    this._updateCompileStatus();
+  }
+
+  private _updateCompileButton(): void {
+    if (!this._compileBtnEl) return;
+    const btn = this._compileBtnEl;
+    switch (this._compileStatus) {
+      case 'compiled':
+        btn.innerHTML = '✅ Compile';
+        btn.classList.remove('ae-compile-dirty', 'ae-compile-error');
+        btn.classList.add('ae-compile-ok');
+        break;
+      case 'dirty':
+        btn.innerHTML = '🔨 Compile';
+        btn.classList.remove('ae-compile-ok', 'ae-compile-error');
+        btn.classList.add('ae-compile-dirty');
+        break;
+      case 'error':
+        btn.innerHTML = '❌ Compile';
+        btn.classList.remove('ae-compile-ok', 'ae-compile-dirty');
+        btn.classList.add('ae-compile-error');
+        break;
+    }
+  }
+
+  private _updateCompileStatus(): void {
+    if (!this._compileStatusEl) return;
+    switch (this._compileStatus) {
+      case 'compiled': {
+        const ago = this._lastCompileTime ? this._timeSince(this._lastCompileTime) : '';
+        this._compileStatusEl.textContent = ago ? `Widget blueprint compiled ${ago}` : 'Blueprint up to date';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-ok';
+        break;
+      }
+      case 'dirty':
+        this._compileStatusEl.textContent = 'Widget blueprint needs recompile';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-dirty';
+        break;
+      case 'error':
+        this._compileStatusEl.textContent = 'Compile error!';
+        this._compileStatusEl.className = 'ae-compile-status ae-status-error';
+        break;
+    }
+  }
+
+  private _timeSince(ts: number): string {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 5) return 'just now';
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    return `${min}m ago`;
+  }
+
+  /** Trigger manual compile — calls the live node editor's compileAndSave without destroying the graph */
+  private _doCompile(): void {
+    // Find the event graph container and trigger compile
+    const wrapper = this._contentArea.querySelector('div');
+    if (wrapper) {
+      const editorContainer = wrapper.querySelector('div') as any;
+      // Try the direct ref first (set by NodeEditorView)
+      if (editorContainer && typeof editorContainer.__compileAndSave === 'function') {
+        editorContainer.__compileAndSave();
+        return;
+      }
+      // Fallback: walk children
+      const children = wrapper.querySelectorAll('div');
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] as any;
+        if (child && typeof child.__compileAndSave === 'function') {
+          child.__compileAndSave();
+          return;
+        }
+      }
+    }
+    // Last resort: just fire the onCompile with existing code (no-op recompile)
+    if (this._asset.compiledCode) {
+      this._onCompile?.(this._asset.compiledCode);
+      this._setCompileStatus('compiled');
+    }
+  }
+
+  /** Trigger save with asset touch */
+  private _doSave(): void {
+    this._asset.touch();
+    this._onSave?.();
   }
 
   private _switchTab(tab: EditorTab): void {
@@ -272,6 +399,7 @@ export class WidgetBlueprintEditorPanel {
         this._asset.compiledCode = code;
         this._asset.touch();
         this._onCompile?.(code);
+        this._setCompileStatus('compiled');
         this._onSave?.();
       },
       undefined, // components

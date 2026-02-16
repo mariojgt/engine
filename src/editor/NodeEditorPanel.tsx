@@ -3988,7 +3988,7 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     } else if (ctrl instanceof WidgetSelectorControl) {
       const value = (ctrl as WidgetSelectorControl).value;
       controls[key] = value;
-      console.log(`[Serialize] Node "${(node as any).label}" control "${key}" = "${value}"`);
+      console.log(`[Serialize] Node "${(node as any).label}" (${node.id}) control "${key}" = "${value}"`, ctrl);
     } else if (ctrl instanceof MovementModeSelectControl) {
       controls[key] = (ctrl as MovementModeSelectControl).value;
     } else if (ctrl instanceof KeySelectControl) {
@@ -4462,18 +4462,114 @@ function createNodeFromData(
     case 'CreateWidgetNode':                return new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
     case 'AddToViewportNode':               return new AddToViewportNode();
     case 'RemoveFromViewportNode':          return new RemoveFromViewportNode();
-    case 'SetWidgetTextNode':               return new SetWidgetTextNode();
-    case 'GetWidgetTextNode':               return new GetWidgetTextNode();
-    case 'SetWidgetVisibilityNode':         return new SetWidgetVisibilityNode();
-    case 'SetWidgetColorNode':              return new SetWidgetColorNode();
-    case 'SetWidgetOpacityNode':            return new SetWidgetOpacityNode();
-    case 'SetProgressBarPercentNode':       return new SetProgressBarPercentNode();
-    case 'GetProgressBarPercentNode':       return new GetProgressBarPercentNode();
-    case 'SetSliderValueNode':              return new SetSliderValueNode();
-    case 'GetSliderValueNode':              return new GetSliderValueNode();
-    case 'SetCheckBoxStateNode':            return new SetCheckBoxStateNode();
-    case 'GetCheckBoxStateNode':            return new GetCheckBoxStateNode();
-    case 'IsWidgetVisibleNode':             return new IsWidgetVisibleNode();
+    case 'SetWidgetTextNode': {
+      const n = new SetWidgetTextNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetWidgetTextNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'GetWidgetTextNode': {
+      const n = new GetWidgetTextNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] GetWidgetTextNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetWidgetVisibilityNode': {
+      const n = new SetWidgetVisibilityNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetWidgetVisibilityNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetWidgetColorNode': {
+      const n = new SetWidgetColorNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetWidgetColorNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetWidgetOpacityNode': {
+      const n = new SetWidgetOpacityNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetWidgetOpacityNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetProgressBarPercentNode': {
+      const n = new SetProgressBarPercentNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetProgressBarPercentNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'GetProgressBarPercentNode': {
+      const n = new GetProgressBarPercentNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] GetProgressBarPercentNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetSliderValueNode': {
+      const n = new SetSliderValueNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetSliderValueNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'GetSliderValueNode': {
+      const n = new GetSliderValueNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] GetSliderValueNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'SetCheckBoxStateNode': {
+      const n = new SetCheckBoxStateNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] SetCheckBoxStateNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'GetCheckBoxStateNode': {
+      const n = new GetCheckBoxStateNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] GetCheckBoxStateNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
+    case 'IsWidgetVisibleNode': {
+      const n = new IsWidgetVisibleNode();
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        const val = d.controls.widgetSelector;
+        n.widgetSelector.setValue(val);
+        console.log(`[Deserialize] IsWidgetVisibleNode restored widgetSelector = "${val}"`);
+      }
+      return n;
+    }
     case 'PlayWidgetAnimationNode':         return new PlayWidgetAnimationNode();
     case 'SetInputModeNode':                return new SetInputModeNode();
     case 'ShowMouseCursorNode':             return new ShowMouseCursorNode();
@@ -4947,17 +5043,34 @@ async function createGraphEditor(
         if (data.payload instanceof WidgetSelectorControl) {
           const ctrl = data.payload as WidgetSelectorControl;
           return (props: any) => {
-            const [val, setVal] = React.useState(ctrl.value);
+            // Use the control value directly as the source of truth, not local state
+            // This ensures we always reflect the actual control value
+            const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+
+            // Sync React re-renders when control value changes externally
+            React.useEffect(() => {
+              const checkValue = () => forceUpdate();
+              const timer = setInterval(checkValue, 100);
+              return () => clearInterval(timer);
+            }, []);
+
             const widgets = ctrl.availableWidgets || [];
+            const currentValue = ctrl.value || '';
+
             return React.createElement('select', {
-              value: val,
-              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              value: currentValue,
+              onChange: (e: any) => {
+                const newValue = e.target.value;
+                ctrl.setValue(newValue);
+                console.log(`[WidgetSelector] Control value set to: "${newValue}"`);
+                forceUpdate();
+              },
               onPointerDown: (e: any) => e.stopPropagation(),
               style: {
                 width: '100%',
                 padding: '4px 6px',
                 background: '#1e1e2e',
-                color: widgets.length === 0 ? '#666' : '#e0e0e0',
+                color: widgets.length === 0 ? '#666' : (currentValue ? '#e0e0e0' : '#999'),
                 border: '1px solid #3a3a5c',
                 borderRadius: 4,
                 fontSize: 12,
@@ -6502,12 +6615,26 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList }: No
       });
     }
 
-    // Init
-    switchToGraph(graphTabs[0]).then(() => {
-      // Trigger initial compilation to ensure compiled code matches loaded graph data
-      // This is critical for widget blueprints with functions/macros to work correctly on first load
+    // Init - Pre-load ALL graphs (event, functions, macros) to populate editors before compilation
+    (async () => {
+      // Load event graph first
+      await switchToGraph(graphTabs[0]);
+
+      // Pre-load all function and macro graphs to populate functionEditors and macroEditors maps
+      // This is critical so generateFullCode can compile them into the output
+      for (const tab of graphTabs) {
+        if (tab.type === 'function' || tab.type === 'macro') {
+          await switchToGraph(tab);
+        }
+      }
+
+      // Switch back to event graph for display
+      await switchToGraph(graphTabs[0]);
+
+      // Trigger initial compilation now that all editors are loaded
+      // This ensures compiled code includes all functions/macros
       setTimeout(() => compileAndSave(), 100);
-    });
+    })();
 
     return () => {
       destroyed = true;
