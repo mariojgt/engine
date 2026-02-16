@@ -167,6 +167,13 @@ import {
   GetMovementModeNode,
   GetCameraLocationNode,
   InputAxisNode,
+  // Camera Control Nodes
+  AddControllerYawInputNode,
+  AddControllerPitchInputNode,
+  GetControllerRotationNode,
+  SetControllerRotationNode,
+  SetMouseLockEnabledNode,
+  GetMouseLockStatusNode,
   MovementModeSelectControl,
   MOVEMENT_MODES,
   // Camera & Spring Arm Nodes
@@ -732,6 +739,16 @@ function resolveValue(
     if (outputKey === 'y') return `(${cc} ? ${cc}.camera.position.y : 0)`;
     if (outputKey === 'z') return `(${cc} ? ${cc}.camera.position.z : 0)`;
     return '0';
+  }
+  // Camera Control query nodes
+  if (node instanceof GetControllerRotationNode) {
+    const cc = `gameObject.characterController`;
+    if (outputKey === 'yaw') return `(${cc} ? ${cc}.yaw * 180 / Math.PI : 0)`;
+    if (outputKey === 'pitch') return `(${cc} ? ${cc}.pitch * 180 / Math.PI : 0)`;
+    return '0';
+  }
+  if (node instanceof GetMouseLockStatusNode) {
+    return `(gameObject.characterController ? gameObject.characterController.isMouseLocked() : false)`;
   }
   // Camera & Spring Arm query nodes
   if (node instanceof GetSpringArmLengthNode) {
@@ -1304,6 +1321,32 @@ function genAction(
   if (node instanceof SetCameraFOVNode) {
     const fS = inputSrc.get(`${nodeId}.fov`);
     lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setFOV(${fS ? rv(fS.nid, fS.ok) : '75'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // Camera Control action nodes
+  if (node instanceof AddControllerYawInputNode) {
+    const vS = inputSrc.get(`${nodeId}.value`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.addControllerYawInput(${vS ? rv(vS.nid, vS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AddControllerPitchInputNode) {
+    const vS = inputSrc.get(`${nodeId}.value`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.addControllerPitchInput(${vS ? rv(vS.nid, vS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetControllerRotationNode) {
+    const yS = inputSrc.get(`${nodeId}.yaw`);
+    const pS = inputSrc.get(`${nodeId}.pitch`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setControllerRotation(${yS ? rv(yS.nid, yS.ok) : '0'}, ${pS ? rv(pS.nid, pS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetMouseLockEnabledNode) {
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    lines.push(`{ const _cc = gameObject.characterController; if (_cc) _cc.setMouseLockEnabled(${eS ? rv(eS.nid, eS.ok) : 'true'}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3689,6 +3732,12 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof LaunchCharacterNode) return 'LaunchCharacterNode';
   if (node instanceof SetCameraModeNode) return 'SetCameraModeNode';
   if (node instanceof SetCameraFOVNode) return 'SetCameraFOVNode';
+  if (node instanceof AddControllerYawInputNode) return 'AddControllerYawInputNode';
+  if (node instanceof AddControllerPitchInputNode) return 'AddControllerPitchInputNode';
+  if (node instanceof GetControllerRotationNode) return 'GetControllerRotationNode';
+  if (node instanceof SetControllerRotationNode) return 'SetControllerRotationNode';
+  if (node instanceof SetMouseLockEnabledNode) return 'SetMouseLockEnabledNode';
+  if (node instanceof GetMouseLockStatusNode) return 'GetMouseLockStatusNode';
   if (node instanceof GetCharacterVelocityNode) return 'GetCharacterVelocityNode';
   if (node instanceof GetMovementSpeedNode) return 'GetMovementSpeedNode';
   if (node instanceof IsGroundedNode) return 'IsGroundedNode';
@@ -4174,6 +4223,12 @@ function createNodeFromData(
     case 'LaunchCharacterNode':         return new LaunchCharacterNode();
     case 'SetCameraModeNode':           return new SetCameraModeNode();
     case 'SetCameraFOVNode':            return new SetCameraFOVNode();
+    case 'AddControllerYawInputNode':   return new AddControllerYawInputNode();
+    case 'AddControllerPitchInputNode': return new AddControllerPitchInputNode();
+    case 'GetControllerRotationNode':   return new GetControllerRotationNode();
+    case 'SetControllerRotationNode':   return new SetControllerRotationNode();
+    case 'SetMouseLockEnabledNode':     return new SetMouseLockEnabledNode();
+    case 'GetMouseLockStatusNode':      return new GetMouseLockStatusNode();
     case 'GetCharacterVelocityNode':    return new GetCharacterVelocityNode();
     case 'GetMovementSpeedNode':        return new GetMovementSpeedNode();
     case 'IsGroundedNode':              return new IsGroundedNode();

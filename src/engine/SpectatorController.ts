@@ -58,13 +58,21 @@ export class SpectatorController implements Pawn {
   private _pointerLocked = false;
   private _mouseDeltaX = 0;
   private _mouseDeltaY = 0;
+  /** Fallback for macOS: track if right mouse button is held for camera control */
+  private _rightMouseDown = false;
+  private _lastMouseX = 0;
+  private _lastMouseY = 0;
 
   // ---- Bound handlers ----
   private _onKeyDown: (e: KeyboardEvent) => void;
   private _onKeyUp: (e: KeyboardEvent) => void;
   private _onMouseMove: (e: MouseEvent) => void;
   private _onPointerLockChange: () => void;
+  private _onPointerLockError: () => void;
   private _onClick: () => void;
+  private _onContextMenu: (e: MouseEvent) => void;
+  private _onMouseDown: (e: MouseEvent) => void;
+  private _onMouseUp: (e: MouseEvent) => void;
   private _canvas: HTMLCanvasElement | null = null;
 
   constructor(go: GameObject, config: SpectatorPawnConfig, canvas: HTMLCanvasElement) {
@@ -93,22 +101,89 @@ export class SpectatorController implements Pawn {
     this._onKeyDown = (e: KeyboardEvent) => this._keysDown.add(e.code);
     this._onKeyUp = (e: KeyboardEvent) => this._keysDown.delete(e.code);
     this._onMouseMove = (e: MouseEvent) => {
-      if (!this._pointerLocked) return;
-      this._mouseDeltaX += e.movementX;
-      this._mouseDeltaY += e.movementY;
+      // Pointer lock mode (Windows, or if pointer lock succeeds on macOS)
+      if (this._pointerLocked) {
+        this._mouseDeltaX += e.movementX;
+        this._mouseDeltaY += e.movementY;
+        return;
+      }
+
+      // Fallback mode for macOS: right-click and drag
+      if (this._rightMouseDown) {
+        const dx = e.clientX - this._lastMouseX;
+        const dy = e.clientY - this._lastMouseY;
+        this._mouseDeltaX += dx;
+        this._mouseDeltaY += dy;
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+      }
     };
     this._onPointerLockChange = () => {
       this._pointerLocked = document.pointerLockElement === canvas;
+      console.log('[SpectatorController] Pointer lock changed:', this._pointerLocked);
     };
-    this._onClick = () => {
-      if (!this._pointerLocked) canvas.requestPointerLock();
+    this._onPointerLockError = () => {
+      console.error('[SpectatorController] Pointer lock error - likely blocked by browser/Tauri security');
     };
+    this._onClick = async () => {
+      if (!this._pointerLocked) {
+        console.log('[SpectatorController] Click detected, requesting pointer lock...');
+        try {
+          canvas.focus();
+          await canvas.requestPointerLock();
+          console.log('[SpectatorController] Pointer lock requested successfully');
+        } catch (err) {
+          console.error('[SpectatorController] Pointer lock request failed:', err);
+          console.log('[SpectatorController] Falling back to right-click camera control (macOS compatibility)');
+        }
+      }
+    };
+
+    // Prevent context menu when using right-click for camera control
+    this._onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    // Right mouse down = start camera control (fallback for macOS)
+    this._onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2 && !this._pointerLocked) {
+        this._rightMouseDown = true;
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+        canvas.style.cursor = 'none';
+        e.preventDefault();
+      }
+    };
+
+    // Right mouse up = stop camera control
+    this._onMouseUp = (e: MouseEvent) => {
+      if (e.button === 2 && this._rightMouseDown) {
+        this._rightMouseDown = false;
+        canvas.style.cursor = 'default';
+      }
+    };
+
+    // ---- Ensure canvas can receive pointer lock (macOS + Tauri fix) ----
+    canvas.setAttribute('tabindex', '0');
+    canvas.style.outline = 'none';
+
+    // Check pointer lock support
+    if (!('requestPointerLock' in canvas)) {
+      console.error('[SpectatorController] Pointer Lock API is not supported on this platform!');
+      console.error('[SpectatorController] macOS + Tauri users: ensure you are running the latest Tauri version');
+    } else {
+      console.log('[SpectatorController] Pointer Lock API is supported');
+    }
 
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     document.addEventListener('mousemove', this._onMouseMove);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    document.addEventListener('pointerlockerror', this._onPointerLockError);
     canvas.addEventListener('click', this._onClick);
+    canvas.addEventListener('contextmenu', this._onContextMenu);
+    canvas.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mouseup', this._onMouseUp);
   }
 
   // ---- Per-frame update ----
@@ -195,8 +270,13 @@ export class SpectatorController implements Pawn {
     window.removeEventListener('keyup', this._onKeyUp);
     document.removeEventListener('mousemove', this._onMouseMove);
     document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this._onPointerLockError);
+    window.removeEventListener('mouseup', this._onMouseUp);
     if (this._canvas) {
       this._canvas.removeEventListener('click', this._onClick);
+      this._canvas.removeEventListener('contextmenu', this._onContextMenu);
+      this._canvas.removeEventListener('mousedown', this._onMouseDown);
+      this._canvas.style.cursor = 'default';
     }
     if (document.pointerLockElement) {
       document.exitPointerLock();

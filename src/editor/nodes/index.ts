@@ -251,6 +251,16 @@ export {
   GetCameraRotationNode,
 } from './character/CameraSpringArmNodes';
 
+// ── Camera Control ──────────────────────────────────────────
+export {
+  AddControllerYawInputNode,
+  AddControllerPitchInputNode,
+  GetControllerRotationNode,
+  SetControllerRotationNode,
+  SetMouseLockEnabledNode,
+  GetMouseLockStatusNode,
+} from './character/CameraControlNodes';
+
 // ── Casting & References ────────────────────────────────────
 export {
   CastToNode,

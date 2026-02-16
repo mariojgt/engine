@@ -151,13 +151,19 @@ export class CharacterController implements Pawn {
   public input: CharacterInputState = emptyInput();
   private _keysDown: Set<string> = new Set();
   private _pointerLocked = false;
+  /** Fallback for macOS: track if right mouse button is held for camera control */
+  private _rightMouseDown = false;
+  private _lastMouseX = 0;
+  private _lastMouseY = 0;
 
   // ---- Bound event handlers (for cleanup) ----
   private _onKeyDown: (e: KeyboardEvent) => void;
   private _onKeyUp: (e: KeyboardEvent) => void;
   private _onMouseMove: (e: MouseEvent) => void;
   private _onPointerLockChange: () => void;
+  private _onPointerLockError: () => void;
   private _onClick: (e: MouseEvent) => void;
+  private _onContextMenu: (e: MouseEvent) => void;
   private _canvas: HTMLCanvasElement | null = null;
 
   // ---- Blueprint-accessible addMovementInput accumulator ----
@@ -228,16 +234,49 @@ export class CharacterController implements Pawn {
       this._keysDown.delete(e.code);
     };
     this._onMouseMove = (e: MouseEvent) => {
-      if (!this._pointerLocked) return;
-      this.input.mouseDeltaX += e.movementX;
-      this.input.mouseDeltaY += e.movementY;
+      // Pointer lock mode (Windows, or if pointer lock succeeds on macOS)
+      if (this._pointerLocked) {
+        this.input.mouseDeltaX += e.movementX;
+        this.input.mouseDeltaY += e.movementY;
+        return;
+      }
+
+      // Fallback mode for macOS: right-click and drag
+      if (this._rightMouseDown) {
+        const dx = e.clientX - this._lastMouseX;
+        const dy = e.clientY - this._lastMouseY;
+        this.input.mouseDeltaX += dx;
+        this.input.mouseDeltaY += dy;
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+      }
     };
     this._onPointerLockChange = () => {
       this._pointerLocked = document.pointerLockElement === canvas;
+      console.log('[CharacterController] Pointer lock changed:', this._pointerLocked);
     };
-    this._onClick = () => {
+    this._onPointerLockError = () => {
+      console.error('[CharacterController] Pointer lock error - likely blocked by browser/Tauri security');
+    };
+    this._onClick = async () => {
       if (!isTopDownMode && !this._pointerLocked && config.inputBindings.mouseLook) {
-        canvas.requestPointerLock();
+        console.log('[CharacterController] Click detected, requesting pointer lock...');
+        try {
+          // On macOS + Tauri, pointer lock requires explicit canvas focus first
+          canvas.focus();
+          await canvas.requestPointerLock();
+          console.log('[CharacterController] Pointer lock requested successfully');
+        } catch (err) {
+          console.error('[CharacterController] Pointer lock request failed:', err);
+          console.log('[CharacterController] Falling back to right-click camera control (macOS compatibility)');
+        }
+      }
+    };
+
+    // Prevent context menu when using right-click for camera control
+    this._onContextMenu = (e: MouseEvent) => {
+      if (!isTopDownMode && config.inputBindings.mouseLook) {
+        e.preventDefault();
       }
     };
 
@@ -256,11 +295,30 @@ export class CharacterController implements Pawn {
         this._lastPanX = e.clientX;
         this._lastPanY = e.clientY;
         e.preventDefault();
+        return;
+      }
+
+      // Right mouse = camera control (fallback for macOS without pointer lock)
+      if (!isTopDownMode && e.button === 2 && config.inputBindings.mouseLook && !this._pointerLocked) {
+        this._rightMouseDown = true;
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+        canvas.style.cursor = 'none';  // Hide cursor during camera control
+        e.preventDefault();
       }
     };
     this._onMouseUp = (e: MouseEvent) => {
+      // Middle mouse release (RTS pan)
       if (e.button === 1) {
         this._isPanning = false;
+      }
+
+      // Right mouse release (camera control fallback)
+      if (e.button === 2 && this._rightMouseDown) {
+        this._rightMouseDown = false;
+        if (this._canvas) {
+          this._canvas.style.cursor = 'default';  // Restore cursor
+        }
       }
     };
     this._onRawMouseMove = (e: MouseEvent) => {
@@ -278,11 +336,25 @@ export class CharacterController implements Pawn {
       }
     };
 
+    // ---- Ensure canvas can receive pointer lock (macOS + Tauri fix) ----
+    canvas.setAttribute('tabindex', '0');  // Make canvas focusable
+    canvas.style.outline = 'none';         // Remove focus outline
+
+    // Check pointer lock support
+    if (!('requestPointerLock' in canvas)) {
+      console.error('[CharacterController] Pointer Lock API is not supported on this platform!');
+      console.error('[CharacterController] macOS + Tauri users: ensure you are running the latest Tauri version');
+    } else {
+      console.log('[CharacterController] Pointer Lock API is supported');
+    }
+
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     document.addEventListener('mousemove', this._onMouseMove);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    document.addEventListener('pointerlockerror', this._onPointerLockError);
     canvas.addEventListener('click', this._onClick);
+    canvas.addEventListener('contextmenu', this._onContextMenu);
     canvas.addEventListener('wheel', this._onWheel, { passive: true });
     canvas.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
@@ -1129,6 +1201,67 @@ export class CharacterController implements Pawn {
     this._topDownPanOffset.set(0, 0, 0);
   }
 
+  // ---- Camera Control Blueprint API (UE-style input) ----
+
+  /**
+   * Add yaw (horizontal rotation) input to the controller.
+   * This allows blueprints to rotate the camera from any input source
+   * (mouse, gamepad, keyboard, or custom logic).
+   * @param value - Rotation amount (positive = rotate right)
+   */
+  addControllerYawInput(value: number): void {
+    const sens = this.config.camera.mouseSensitivity * 0.01;
+    this.yaw -= value * sens;
+  }
+
+  /**
+   * Add pitch (vertical rotation) input to the controller.
+   * This allows blueprints to rotate the camera from any input source.
+   * @param value - Rotation amount (positive = look up)
+   */
+  addControllerPitchInput(value: number): void {
+    const sens = this.config.camera.mouseSensitivity * 0.01;
+    this.pitch -= value * sens;
+    // Clamp pitch
+    const pMin = this.config.camera.pitchMin * Math.PI / 180;
+    const pMax = this.config.camera.pitchMax * Math.PI / 180;
+    this.pitch = Math.max(pMin, Math.min(pMax, this.pitch));
+  }
+
+  /**
+   * Set the controller rotation directly (in degrees).
+   * @param yawDegrees - Horizontal rotation (0-360)
+   * @param pitchDegrees - Vertical rotation (-90 to 90)
+   */
+  setControllerRotation(yawDegrees: number, pitchDegrees: number): void {
+    this.yaw = yawDegrees * Math.PI / 180;
+    this.pitch = pitchDegrees * Math.PI / 180;
+    // Clamp pitch
+    const pMin = this.config.camera.pitchMin * Math.PI / 180;
+    const pMax = this.config.camera.pitchMax * Math.PI / 180;
+    this.pitch = Math.max(pMin, Math.min(pMax, this.pitch));
+  }
+
+  /**
+   * Enable or disable mouse lock (pointer lock).
+   * When enabled, clicking the canvas will lock the cursor.
+   * @param enabled - True to enable mouse lock
+   */
+  setMouseLockEnabled(enabled: boolean): void {
+    this.config.inputBindings.mouseLook = enabled;
+    if (!enabled && this._pointerLocked) {
+      document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Check if the mouse is currently locked.
+   * @returns True if pointer is locked
+   */
+  isMouseLocked(): boolean {
+    return this._pointerLocked;
+  }
+
   // ---- Cleanup ----
 
   destroy(): void {
@@ -1137,12 +1270,15 @@ export class CharacterController implements Pawn {
     window.removeEventListener('keyup', this._onKeyUp);
     document.removeEventListener('mousemove', this._onMouseMove);
     document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this._onPointerLockError);
     window.removeEventListener('mouseup', this._onMouseUp);
     window.removeEventListener('mousemove', this._onRawMouseMove);
     if (this._canvas) {
       this._canvas.removeEventListener('click', this._onClick);
+      this._canvas.removeEventListener('contextmenu', this._onContextMenu);
       this._canvas.removeEventListener('wheel', this._onWheel);
       this._canvas.removeEventListener('mousedown', this._onMouseDown);
+      this._canvas.style.cursor = 'default';  // Restore cursor
     }
     if (document.pointerLockElement) {
       document.exitPointerLock();

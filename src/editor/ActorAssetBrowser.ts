@@ -244,29 +244,29 @@ export class ActorAssetBrowser {
     }
   }
 
-  private _createNewForActiveTab(): void {
+  private async _createNewForActiveTab(): Promise<void> {
     if (this._activeTab === 'Actors') {
-      this._createNewAsset();
+      await this._createNewAsset();
     } else if (this._activeTab === 'Structures' && this._structManager) {
-      const name = this._showNameDialog('New Structure', 'F_NewStruct');
+      const name = await this._showNameDialog('New Structure', 'F_NewStruct');
       if (!name) return;
       const sa = this._structManager.createStructure(name);
       this._selectedAssetId = sa.id;
       if (this._onOpenStructure) this._onOpenStructure(sa);
     } else if (this._activeTab === 'Enums' && this._structManager) {
-      const name = this._showNameDialog('New Enum', 'E_NewEnum');
+      const name = await this._showNameDialog('New Enum', 'E_NewEnum');
       if (!name) return;
       const ea = this._structManager.createEnum(name);
       this._selectedAssetId = ea.id;
       if (this._onOpenEnum) this._onOpenEnum(ea);
     } else if (this._activeTab === 'AnimBP' && this._animBPManager) {
-      const name = this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+      const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
       if (!name) return;
       const abp = this._animBPManager.createAsset(name);
       this._selectedAssetId = abp.id;
       if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
     } else if (this._activeTab === 'Widgets' && this._widgetBPManager) {
-      const name = this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
+      const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
       if (!name) return;
       const wbp = this._widgetBPManager.createAsset(name);
       this._selectedAssetId = wbp.id;
@@ -578,8 +578,8 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenAnimBP?.(abp));
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Animation Blueprint', abp.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Animation Blueprint', abp.name);
       if (newName) this._animBPManager!.renameAsset(abp.id, newName);
     });
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
@@ -639,8 +639,8 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenWidgetBP?.(wbp));
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Widget Blueprint', wbp.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Widget Blueprint', wbp.name);
       if (newName) this._widgetBPManager!.renameAsset(wbp.id, newName);
     });
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
@@ -735,8 +735,8 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Mesh Asset', meshAsset.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Mesh Asset', meshAsset.name);
       if (newName) this._meshManager!.renameAsset(meshAsset.id, newName);
     });
 
@@ -819,8 +819,8 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenStructure?.(sa));
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Structure', sa.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Structure', sa.name);
       if (newName) this._structManager!.renameStructure(sa.id, newName);
     });
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
@@ -843,8 +843,8 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenEnum?.(ea));
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Enum', ea.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Enum', ea.name);
       if (newName) this._structManager!.renameEnum(ea.id, newName);
     });
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
@@ -869,7 +869,7 @@ export class ActorAssetBrowser {
     }
   }
 
-  private _createNewAsset(actorType: ActorType = 'actor'): void {
+  private async _createNewAsset(actorType: ActorType = 'actor'): Promise<void> {
     const defaultNames: Record<string, string> = {
       actor: 'BP_NewActor',
       characterPawn: 'BP_CharacterPawn',
@@ -884,21 +884,127 @@ export class ActorAssetBrowser {
     };
     const defaultName = defaultNames[actorType] || 'BP_NewActor';
     const title = titles[actorType] || 'New Actor Asset';
-    const name = this._promptName(title, defaultName);
+    const name = await this._promptName(title, defaultName);
     if (!name) return;
     const asset = this._manager.createAsset(name, actorType);
     this._selectedAssetId = asset.id;
   }
 
-  private _promptName(title: string, defaultValue: string): string | null {
+  private async _promptName(title: string, defaultValue: string): Promise<string | null> {
     // Use a simple overlay dialog
-    return this._showNameDialog(title, defaultValue);
+    return await this._showNameDialog(title, defaultValue);
   }
 
-  private _showNameDialog(title: string, defaultValue: string): string | null {
-    // Synchronous prompt for simplicity — can be replaced with async dialog later
-    const result = prompt(title, defaultValue);
-    return result && result.trim() ? result.trim() : null;
+  private _showNameDialog(title: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      // Create custom dialog overlay (works reliably on macOS in Tauri)
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      `;
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--bg-secondary, #1e1e1e);
+        border: 1px solid var(--border, #444);
+        border-radius: 6px;
+        padding: 20px;
+        min-width: 400px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      `;
+
+      const titleEl = document.createElement('div');
+      titleEl.textContent = title;
+      titleEl.style.cssText = `
+        font-size: 14px;
+        margin-bottom: 12px;
+        color: var(--text, #fff);
+      `;
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = defaultValue;
+      input.style.cssText = `
+        width: 100%;
+        padding: 8px;
+        font-size: 13px;
+        background: var(--bg-primary, #252525);
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        color: var(--text, #fff);
+        outline: none;
+        box-sizing: border-box;
+      `;
+
+      const buttons = document.createElement('div');
+      buttons.style.cssText = `
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 16px;
+      `;
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancel';
+      btnCancel.style.cssText = `
+        padding: 6px 16px;
+        background: transparent;
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        color: var(--text, #fff);
+        cursor: pointer;
+        font-size: 13px;
+      `;
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = 'OK';
+      btnOk.style.cssText = `
+        padding: 6px 16px;
+        background: var(--accent, #007acc);
+        border: none;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 13px;
+      `;
+
+      buttons.appendChild(btnCancel);
+      buttons.appendChild(btnOk);
+
+      dialog.appendChild(titleEl);
+      dialog.appendChild(input);
+      dialog.appendChild(buttons);
+      overlay.appendChild(dialog);
+
+      const finish = (value: string | null) => {
+        overlay.remove();
+        const result = value && value.trim() ? value.trim() : null;
+        resolve(result);
+      };
+
+      btnOk.addEventListener('click', () => finish(input.value));
+      btnCancel.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) finish(null);
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') finish(input.value);
+        if (e.key === 'Escape') finish(null);
+      });
+
+      document.body.appendChild(overlay);
+      input.focus();
+      input.select();
+    });
   }
 
   // ---- Context Menus ----
@@ -912,16 +1018,16 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     // Always show actor creation
-    this._addMenuItem(menu, '⬡ New Actor Blueprint', () => {
+    this._addMenuItem(menu, '⬡ New Actor Blueprint', async () => {
       this._activeTab = 'Actors';
       this._rebuildTabBar();
-      this._createNewAsset();
+      await this._createNewAsset();
     });
 
-    this._addMenuItem(menu, '🏃 New Character Pawn', () => {
+    this._addMenuItem(menu, '🏃 New Character Pawn', async () => {
       this._activeTab = 'Actors';
       this._rebuildTabBar();
-      this._createNewAsset('characterPawn');
+      await this._createNewAsset('characterPawn');
     });
 
     // ── Controller blueprints ──
@@ -929,16 +1035,16 @@ export class ActorAssetBrowser {
     sep0.className = 'context-menu-separator';
     menu.appendChild(sep0);
 
-    this._addMenuItem(menu, '🎮 New Player Controller', () => {
+    this._addMenuItem(menu, '🎮 New Player Controller', async () => {
       this._activeTab = 'Actors';
       this._rebuildTabBar();
-      this._createNewAsset('playerController');
+      await this._createNewAsset('playerController');
     });
 
-    this._addMenuItem(menu, '🤖 New AI Controller', () => {
+    this._addMenuItem(menu, '🤖 New AI Controller', async () => {
       this._activeTab = 'Actors';
       this._rebuildTabBar();
-      this._createNewAsset('aiController');
+      await this._createNewAsset('aiController');
     });
 
     // Structure/Enum creation when manager is available
@@ -947,10 +1053,10 @@ export class ActorAssetBrowser {
       sep.className = 'context-menu-separator';
       menu.appendChild(sep);
 
-      this._addMenuItem(menu, '🔷 New Structure', () => {
+      this._addMenuItem(menu, '🔷 New Structure', async () => {
         this._activeTab = 'Structures';
         this._rebuildTabBar();
-        const name = this._showNameDialog('New Structure', 'F_NewStruct');
+        const name = await this._showNameDialog('New Structure', 'F_NewStruct');
         if (name) {
           const sa = this._structManager!.createStructure(name);
           this._selectedAssetId = sa.id;
@@ -959,10 +1065,10 @@ export class ActorAssetBrowser {
         this._refreshGrid();
       });
 
-      this._addMenuItem(menu, '📋 New Enumeration', () => {
+      this._addMenuItem(menu, '📋 New Enumeration', async () => {
         this._activeTab = 'Enums';
         this._rebuildTabBar();
-        const name = this._showNameDialog('New Enum', 'E_NewEnum');
+        const name = await this._showNameDialog('New Enum', 'E_NewEnum');
         if (name) {
           const ea = this._structManager!.createEnum(name);
           this._selectedAssetId = ea.id;
@@ -978,11 +1084,11 @@ export class ActorAssetBrowser {
       sepAnimBP.className = 'context-menu-separator';
       menu.appendChild(sepAnimBP);
 
-      this._addMenuItem(menu, '🎬 New Animation Blueprint', () => {
+      this._addMenuItem(menu, '🎬 New Animation Blueprint', async () => {
         this._activeTab = 'AnimBP';
         this._rebuildTabBar();
         this._rebuildHeader();
-        const name = this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+        const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
         if (name) {
           const abp = this._animBPManager!.createAsset(name);
           this._selectedAssetId = abp.id;
@@ -1023,8 +1129,8 @@ export class ActorAssetBrowser {
       this._onOpenAsset(asset);
     });
 
-    this._addMenuItem(menu, '✏ Rename', () => {
-      const newName = this._showNameDialog('Rename Actor', asset.name);
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Actor', asset.name);
       if (newName) {
         this._manager.renameAsset(asset.id, newName);
       }
