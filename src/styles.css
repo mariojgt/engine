@@ -3289,6 +3289,14 @@ html, body, #app {
   flex-shrink: 0;
 }
 
+.anim-props-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .anim-props-header {
   font-size: 13px;
   font-weight: 600;

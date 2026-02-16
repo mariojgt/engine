@@ -21,6 +21,8 @@ import type { VarType } from '../editor/BlueprintData';
 import type { CharacterController } from './CharacterController';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
 import type { GameObject } from './GameObject';
+import { MeshAssetManager } from '../editor/MeshAsset';
+import { loadMeshFromAsset } from '../editor/MeshImporter';
 
 /** Runtime state for a single AnimationInstance */
 export class AnimationInstance {
@@ -63,6 +65,8 @@ export class AnimationInstance {
   private _debugLoggedNoCode = false;
   private _debugTransitionLogCooldown = 0;
   private _debugTransitionLogEnabled = true;
+  private _overrideClipCache: Map<string, THREE.AnimationClip[]> = new Map();
+  private _overrideClipLoading: Set<string> = new Set();
 
   /** Scene & physics references for script execution context */
   public sceneRef: any = null;
@@ -300,8 +304,8 @@ export class AnimationInstance {
     for (const t of sm.transitions) {
       // Match: exact "from" match OR wildcard "*"
       if (t.fromStateId !== this._currentStateId && t.fromStateId !== '*') continue;
-      // Don't transition to ourselves (unless wildcard)
-      if (t.toStateId === this._currentStateId && t.fromStateId !== '*') continue;
+      // Don't transition to ourselves
+      if (t.toStateId === this._currentStateId) continue;
 
       const condResult = this._evaluateTransitionRules(t);
       if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown <= 0) {
@@ -333,6 +337,10 @@ export class AnimationInstance {
     // Transition to new state
     const targetState = this._findState(winner.toStateId);
     if (targetState && targetState.id !== this._currentStateId) {
+      console.log(
+        `[AnimBP] Transition fired: ${this.asset.name} ${this._currentStateId} -> ${targetState.id} ` +
+        `label="${this._getTransitionLabel(winner)}"`
+      );
       this._transitionTo(targetState, winner.blendProfile, winner.blendTime);
     }
   }
@@ -551,7 +559,8 @@ export class AnimationInstance {
 
   /** Play a single animation clip */
   private _playSingleAnimation(state: AnimStateData): void {
-    if (!state.animationName) {
+    const overrideClip = this._getOverrideClip(state);
+    if (!overrideClip && !state.animationName) {
       if (this.animations.length > 0) {
         const fallback = this.animations[0];
         console.warn('[AnimationInstance] State has no animation, using first clip:', fallback.name);
@@ -561,12 +570,7 @@ export class AnimationInstance {
       }
     }
 
-    let clip = this.animations.find(a => a.name === state.animationName);
-    if (!clip) {
-      // Fallback: match by suffix/prefix (helps older AnimBP data)
-      clip = this.animations.find(a => a.name.endsWith('_' + state.animationName)) ||
-        this.animations.find(a => state.animationName.endsWith('_' + a.name));
-    }
+    let clip = overrideClip || this._findClipByName(this.animations, state.animationName);
     if (!clip) {
       const available = this.animations.map(a => a.name).slice(0, 6).join(', ');
       console.warn(`[AnimationInstance] Clip not found: "${state.animationName}". Available: ${available}`);
@@ -656,6 +660,64 @@ export class AnimationInstance {
     // We need to map sorted sample indices back to actions
     for (let i = 0; i < sorted.length && i < this._currentActions.length; i++) {
       this._currentActions[i].setEffectiveWeight(weights[i]);
+    }
+  }
+
+  private _findClipByName(list: THREE.AnimationClip[], name: string): THREE.AnimationClip | undefined {
+    if (!name) return undefined;
+    let clip = list.find(a => a.name === name);
+    if (!clip) {
+      clip = list.find(a => a.name.endsWith('_' + name)) ||
+        list.find(a => name.endsWith('_' + a.name));
+    }
+    return clip;
+  }
+
+  private _getOverrideClip(state: AnimStateData): THREE.AnimationClip | null {
+    if (!state.useOverrideMesh || !state.overrideMeshAssetId || !state.overrideAnimationName) return null;
+    const meshId = state.overrideMeshAssetId;
+    const clips = this._overrideClipCache.get(meshId);
+    if (clips) {
+      return this._findClipByName(clips, state.overrideAnimationName) ?? null;
+    }
+    if (!this._overrideClipLoading.has(meshId)) {
+      this._overrideClipLoading.add(meshId);
+      this._preloadOverrideClips(meshId, state.id, state.overrideAnimationName);
+    }
+    return null;
+  }
+
+  private async _preloadOverrideClips(meshId: string, stateId: string, animName: string): Promise<void> {
+    const asset = MeshAssetManager.getAsset(meshId);
+    if (!asset) {
+      this._overrideClipLoading.delete(meshId);
+      return;
+    }
+    try {
+      const { scene, animations } = await loadMeshFromAsset(asset);
+      this._overrideClipCache.set(meshId, animations || []);
+
+      // Dispose loaded scene to avoid GPU leaks
+      scene.traverse(obj => {
+        const mesh = obj as THREE.Mesh;
+        if ((mesh as any).geometry) (mesh as any).geometry.dispose();
+        if ((mesh as any).material) {
+          const mat = (mesh as any).material;
+          if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+          else mat.dispose();
+        }
+      });
+
+      if (this._currentStateId === stateId && !this._transitioning) {
+        const state = this._findState(stateId);
+        if (state && state.outputType === 'singleAnimation' && state.overrideAnimationName === animName) {
+          this._playSingleAnimation(state);
+        }
+      }
+    } catch (e) {
+      console.warn('[AnimationInstance] Failed to load override animation clips:', e);
+    } finally {
+      this._overrideClipLoading.delete(meshId);
     }
   }
 

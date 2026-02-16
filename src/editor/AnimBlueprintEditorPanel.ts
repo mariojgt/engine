@@ -911,6 +911,32 @@ export class AnimBlueprintEditorPanel {
   private _renderProps(): void {
     this._propsPanel.innerHTML = '';
 
+    const toolbar = document.createElement('div');
+    toolbar.className = 'anim-props-toolbar';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'toolbar-btn';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => {
+      this._asset.touch();
+      this._onSave?.();
+    });
+    toolbar.appendChild(saveBtn);
+
+    const compileBtn = document.createElement('button');
+    compileBtn.className = 'toolbar-btn';
+    compileBtn.textContent = 'Compile Graph';
+    compileBtn.addEventListener('click', () => {
+      if (this._eventGraphCompile) {
+        this._eventGraphCompile();
+      } else {
+        console.warn(`[AnimBP] Compile function not ready for ${this._asset.name}`);
+      }
+    });
+    toolbar.appendChild(compileBtn);
+
+    this._propsPanel.appendChild(toolbar);
+
     if (this._selectedStateId) {
       const state = this._asset.stateMachine.states.find(s => s.id === this._selectedStateId);
       if (state) this._renderStateProps(state);
@@ -1070,28 +1096,72 @@ export class AnimBlueprintEditorPanel {
     });
 
     if (state.outputType === 'singleAnimation') {
-      // Animation picker
-      this._addPropRow(p, 'Animation', () => {
-        const sel = document.createElement('select');
-        sel.className = 'prop-input';
-        sel.innerHTML = '<option value="">-- None --</option>';
-        const animations = this._getAvailableAnimations();
-        for (const anim of animations) {
-          const opt = document.createElement('option');
-          opt.value = anim.name;
-          opt.textContent = anim.name;
-          if (anim.name === state.animationName) opt.selected = true;
-          sel.appendChild(opt);
-        }
-        sel.addEventListener('change', () => {
-          state.animationName = sel.value;
-          state.animationId = '';  // Will be resolved at runtime
+      this._addPropRow(p, 'Allow Other Skeletons', () => {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!state.useOverrideMesh;
+        cb.addEventListener('change', () => {
+          state.useOverrideMesh = cb.checked;
+          if (!state.useOverrideMesh) {
+            state.overrideMeshAssetId = '';
+            state.overrideAnimationName = '';
+          }
           this._asset.touch();
-          this._renderGraph();
+          this._renderProps();
           this._restartPreviewInstance();
         });
-        return sel;
+        return cb;
       });
+
+      if (state.useOverrideMesh) {
+        this._addPropRow(p, 'Animation (All Meshes)', () => {
+          const sel = document.createElement('select');
+          sel.className = 'prop-input';
+          sel.innerHTML = '<option value="">-- None --</option>';
+          const allAnims = this._getAllAnimationsWithMesh();
+          for (const anim of allAnims) {
+            const opt = document.createElement('option');
+            opt.value = `${anim.meshId}::${anim.name}`;
+            opt.textContent = `${anim.meshName} · ${anim.name}`;
+            if (anim.meshId === state.overrideMeshAssetId && anim.name === state.overrideAnimationName) {
+              opt.selected = true;
+            }
+            sel.appendChild(opt);
+          }
+          sel.addEventListener('change', () => {
+            const [meshId, animName] = sel.value.split('::');
+            state.overrideMeshAssetId = meshId || '';
+            state.overrideAnimationName = animName || '';
+            this._asset.touch();
+            this._renderGraph();
+            this._restartPreviewInstance();
+          });
+          return sel;
+        });
+      } else {
+        // Animation picker (target mesh only)
+        this._addPropRow(p, 'Animation', () => {
+          const sel = document.createElement('select');
+          sel.className = 'prop-input';
+          sel.innerHTML = '<option value="">-- None --</option>';
+          const animations = this._getAvailableAnimations();
+          for (const anim of animations) {
+            const opt = document.createElement('option');
+            opt.value = anim.name;
+            opt.textContent = anim.name;
+            if (anim.name === state.animationName) opt.selected = true;
+            sel.appendChild(opt);
+          }
+          sel.addEventListener('change', () => {
+            state.animationName = sel.value;
+            state.animationId = '';  // Will be resolved at runtime
+            this._asset.touch();
+            this._renderGraph();
+            this._restartPreviewInstance();
+          });
+          return sel;
+        });
+      }
 
       // Loop
       this._addPropRow(p, 'Loop', () => {
@@ -1517,6 +1587,24 @@ export class AnimBlueprintEditorPanel {
     }
     const anims = this._meshManager.getAnimationsForMesh(targetId);
     return anims.map(a => ({ name: a.assetName, id: a.assetId }));
+  }
+
+  private _getAvailableAnimationsForMeshId(meshAssetId: string): Array<{ name: string; id: string }> {
+    if (!this._meshManager || !meshAssetId) return [];
+    const anims = this._meshManager.getAnimationsForMesh(meshAssetId);
+    return anims.map(a => ({ name: a.assetName, id: a.assetId }));
+  }
+
+  private _getAllAnimationsWithMesh(): Array<{ meshId: string; meshName: string; name: string }>{
+    if (!this._meshManager) return [];
+    const list: Array<{ meshId: string; meshName: string; name: string }> = [];
+    for (const mesh of this._meshManager.assets) {
+      const anims = this._meshManager.getAnimationsForMesh(mesh.id);
+      for (const anim of anims) {
+        list.push({ meshId: mesh.id, meshName: mesh.name, name: anim.assetName });
+      }
+    }
+    return list;
   }
 
   private _getEventGraphVars(): BlueprintVariable[] {

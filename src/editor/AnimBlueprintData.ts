@@ -94,6 +94,10 @@ export interface AnimStateData {
   blendSpaceAxisVarX: string;
   /** For 'blendSpace2D': Y axis variable name */
   blendSpaceAxisVarY: string;
+  /** Override animation source per-state */
+  useOverrideMesh?: boolean;
+  overrideMeshAssetId?: string;
+  overrideAnimationName?: string;
   /** Optional sync group name for UE-style sync */
   syncGroup?: string;
   /** Sync role within group */
@@ -213,6 +217,9 @@ export function defaultAnimState(name: string, x = 0, y = 0): AnimStateData {
     blendSpace2DId: '',
     blendSpaceAxisVarX: '',
     blendSpaceAxisVarY: '',
+    useOverrideMesh: false,
+    overrideMeshAssetId: '',
+    overrideAnimationName: '',
     syncGroup: '',
     syncRole: 'leader',
   };
