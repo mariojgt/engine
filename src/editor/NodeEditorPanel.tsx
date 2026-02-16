@@ -633,6 +633,7 @@ function resolveValue(
 
   // Collision / Trigger event output data (variables set inside the callback closure)
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode) {
+    if (outputKey === 'otherActor') return '__otherActor';
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     if (outputKey === 'selfComponent') return '__selfComponent';
@@ -640,16 +641,19 @@ function resolveValue(
   }
   // Bound trigger component overlap event outputs (UE-style per-component)
   if (node instanceof OnTriggerComponentBeginOverlapNode || node instanceof OnTriggerComponentEndOverlapNode) {
+    if (outputKey === 'otherActor') return '__otherActor';
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     return '0';
   }
   if (node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode) {
+    if (outputKey === 'otherActor') return '__otherActor';
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     return '0';
   }
   if (node instanceof OnCollisionHitNode) {
+    if (outputKey === 'otherActor') return '__otherActor';
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     if (outputKey === 'selfComponent') return '__selfComponent';
@@ -1621,7 +1625,27 @@ function genAction(
         args.push(s ? rv(s.nid, s.ok) : fieldDefault(p.type));
       }
     }
-    lines.push(`__custom_evt_${sanitizeName(node.eventName)}(${args.join(', ')});`);
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const targetVal = tS ? rv(tS.nid, tS.ok) : 'null';
+    const evtName = sanitizeName(node.eventName);
+    if (tS) {
+      lines.push(`{ var _t = ${targetVal};`);
+      lines.push(`  if (!_t) { console.warn('[CustomEvent] Target is null for ${node.eventName}'); }`);
+      lines.push(`  else if (!_t._scriptEvents) { console.warn('[CustomEvent] Target has no _scriptEvents for ${node.eventName}', _t); }`);
+      lines.push(`  else if (!_t._scriptEvents[${JSON.stringify(node.eventName)}]) { console.warn('[CustomEvent] Target missing event ${node.eventName}', _t); }`);
+      lines.push(`  else { console.log('[CustomEvent] Calling target event ${node.eventName}'); _t._scriptEvents[${JSON.stringify(node.eventName)}](${args.join(', ')}); }`);
+      lines.push(`}`);
+    } else if ((node as CallCustomEventNode).targetActorId) {
+      lines.push(`{ var _t = __scene ? __scene.findById(${JSON.stringify((node as CallCustomEventNode).targetActorId)}) : null;`);
+      lines.push(`  if (!_t) { console.warn('[CustomEvent] Target id not found for ${node.eventName}'); }`);
+      lines.push(`  else if (!_t._scriptEvents) { console.warn('[CustomEvent] Target has no _scriptEvents for ${node.eventName}', _t); }`);
+      lines.push(`  else if (!_t._scriptEvents[${JSON.stringify(node.eventName)}]) { console.warn('[CustomEvent] Target missing event ${node.eventName}', _t); }`);
+      lines.push(`  else { console.log('[CustomEvent] Calling target event ${node.eventName}'); _t._scriptEvents[${JSON.stringify(node.eventName)}](${args.join(', ')}); }`);
+      lines.push(`}`);
+    } else {
+      lines.push(`console.log('[CustomEvent] Calling local event ${node.eventName}');`);
+      lines.push(`__custom_evt_${evtName}(${args.join(', ')});`);
+    }
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2204,14 +2228,14 @@ function generateFullCode(
     for (const n of boundBeginNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
       }
     }
     // UE-style bound End Overlap — filter by selfComponentName
     for (const n of boundEndNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
       }
     }
 
@@ -2219,31 +2243,31 @@ function generateFullCode(
     for (const n of triggerBeginNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
       }
     }
     for (const n of triggerEndNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __ovEvt.selfComponentName; ${body.join(' ')} });`);
       }
     }
     for (const n of actorBeginNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
       }
     }
     for (const n of actorEndNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
       }
     }
     for (const n of collisionHitNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
+        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
       }
     }
   }
@@ -2368,6 +2392,12 @@ function generateFullCode(
       beginPlayCode.push(`if (!gameObject._scriptVars) gameObject._scriptVars = {};`);
       for (const v of bp.variables) {
         beginPlayCode.push(`gameObject._scriptVars[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
+      }
+    }
+    if (bp.customEvents.length > 0) {
+      beginPlayCode.push(`if (!gameObject._scriptEvents) gameObject._scriptEvents = {};`);
+      for (const evt of bp.customEvents) {
+        beginPlayCode.push(`gameObject._scriptEvents[${JSON.stringify(evt.name)}] = __custom_evt_${sanitizeName(evt.name)};`);
       }
     }
 
@@ -2792,7 +2822,7 @@ function showDragPinContextMenu(
           items.push({ label, action: () => {
             // For simplicity, create a CallCustomEventNode — remote event call
             // Note: this fires the event on the target actor
-            const node = new CallCustomEventNode(evt.id, evt.name, evt.params);
+            const node = new CallCustomEventNode(evt.id, evt.name, evt.params, targetActorId || undefined);
             onCreateNode(node, null);
             menu.remove();
           }});
@@ -4096,6 +4126,9 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.eventId = node.eventId;
     data.eventName = node.eventName;
     data.eventParams = node.eventParams;
+    if ((node as CallCustomEventNode).targetActorId) {
+      data.targetActorId = (node as CallCustomEventNode).targetActorId;
+    }
   } else if (node instanceof InputKeyEventNode) {
     const keyCtrl = (node as InputKeyEventNode).controls['key'] as KeySelectControl | undefined;
     data.selectedKey = keyCtrl?.value ?? (node as InputKeyEventNode).selectedKey;
@@ -4272,7 +4305,7 @@ function createNodeFromData(
     case 'CustomEventNode':
       return new CustomEventNode(d.eventId, d.eventName, d.eventParams || []);
     case 'CallCustomEventNode':
-      return new CallCustomEventNode(d.eventId, d.eventName, d.eventParams || []);
+      return new CallCustomEventNode(d.eventId, d.eventName, d.eventParams || [], d.targetActorId);
     case 'InputKeyEventNode':
       return new InputKeyEventNode(d.selectedKey || 'Space');
     case 'IsKeyDownNode':
@@ -6993,8 +7026,9 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList }: No
                   if (n instanceof CallCustomEventNode && (n as CallCustomEventNode).eventId === evt.id) {
                     const view = evData.area.nodeViews.get(n.id);
                     const pos = view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 };
+                    const targetActorId = (n as CallCustomEventNode).targetActorId;
                     await evData.editor.removeNode(n.id);
-                    const newCall = new CallCustomEventNode(evt.id, evt.name, evt.params);
+                    const newCall = new CallCustomEventNode(evt.id, evt.name, evt.params, targetActorId);
                     await evData.editor.addNode(newCall);
                     await evData.area.translate(newCall.id, pos);
                   }

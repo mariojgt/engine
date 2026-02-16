@@ -13,7 +13,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, strSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, strSocket, objectSocket, registerNode } from '../sockets';
 
 // ============================================================
 //  On Trigger Begin Overlap
@@ -23,6 +23,7 @@ export class OnTriggerBeginOverlapNode extends ClassicPreset.Node {
   constructor() {
     super('On Trigger Begin Overlap');
     this.addOutput('exec',             new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',       new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName',   new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',     new ClassicPreset.Output(numSocket, 'Other Actor ID'));
     this.addOutput('selfComponent',    new ClassicPreset.Output(strSocket, 'Self Component'));
@@ -39,6 +40,7 @@ export class OnTriggerEndOverlapNode extends ClassicPreset.Node {
   constructor() {
     super('On Trigger End Overlap');
     this.addOutput('exec',             new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',       new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName',   new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',     new ClassicPreset.Output(numSocket, 'Other Actor ID'));
     this.addOutput('selfComponent',    new ClassicPreset.Output(strSocket, 'Self Component'));
@@ -56,6 +58,7 @@ export class OnActorBeginOverlapNode extends ClassicPreset.Node {
   constructor() {
     super('On Actor Begin Overlap');
     this.addOutput('exec',             new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',       new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName',   new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',     new ClassicPreset.Output(numSocket, 'Other Actor ID'));
   }
@@ -71,6 +74,7 @@ export class OnActorEndOverlapNode extends ClassicPreset.Node {
   constructor() {
     super('On Actor End Overlap');
     this.addOutput('exec',             new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',       new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName',   new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',     new ClassicPreset.Output(numSocket, 'Other Actor ID'));
   }
@@ -87,6 +91,7 @@ export class OnCollisionHitNode extends ClassicPreset.Node {
   constructor() {
     super('On Collision Hit');
     this.addOutput('exec',             new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',       new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName',   new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',     new ClassicPreset.Output(numSocket, 'Other Actor ID'));
     this.addOutput('impactX',          new ClassicPreset.Output(numSocket, 'Impact X'));

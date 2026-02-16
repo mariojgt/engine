@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, getStructSocket } from '../sockets';
+import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, getStructSocket, objectSocket } from '../sockets';
 import type { VarType } from '../../BlueprintData';
 
 function socketForType(type: VarType): ClassicPreset.Socket {
@@ -46,13 +46,16 @@ export class CallCustomEventNode extends ClassicPreset.Node {
   public eventId: string;
   public eventName: string;
   public eventParams: { name: string; type: VarType }[];
+  public targetActorId?: string;
 
-  constructor(eventId: string, eventName: string, params: { name: string; type: VarType }[] = []) {
+  constructor(eventId: string, eventName: string, params: { name: string; type: VarType }[] = [], targetActorId?: string) {
     super(`Call ${eventName}`);
     this.eventId = eventId;
     this.eventName = eventName;
     this.eventParams = params;
+    this.targetActorId = targetActorId;
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('target', new ClassicPreset.Input(objectSocket, 'Target'));
     for (const p of params) {
       this.addInput(p.name, new ClassicPreset.Input(socketForType(p.type), p.name));
     }

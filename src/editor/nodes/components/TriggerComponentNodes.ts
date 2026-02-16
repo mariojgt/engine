@@ -19,7 +19,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, strSocket } from '../sockets';
+import { execSocket, numSocket, boolSocket, strSocket, objectSocket } from '../sockets';
 import { registerComponentRule } from './ComponentNodeRules';
 import type { ActorComponentData } from '../../ActorAsset';
 
@@ -36,6 +36,7 @@ export class OnTriggerComponentBeginOverlapNode extends ClassicPreset.Node {
     this.compName = compName;
     this.compIndex = compIndex;
     this.addOutput('exec',           new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName', new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket, 'Other Actor ID'));
   }
@@ -54,6 +55,7 @@ export class OnTriggerComponentEndOverlapNode extends ClassicPreset.Node {
     this.compName = compName;
     this.compIndex = compIndex;
     this.addOutput('exec',           new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
     this.addOutput('otherActorName', new ClassicPreset.Output(strSocket, 'Other Actor Name'));
     this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket, 'Other Actor ID'));
   }
