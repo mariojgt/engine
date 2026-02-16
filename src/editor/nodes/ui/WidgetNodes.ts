@@ -15,6 +15,8 @@ import {
   widgetSocket,
   registerNode,
 } from '../sockets';
+import { socketForType } from '../variables/VariableNodes';
+import type { VarType } from '../../BlueprintData';
 
 // ── Widget Blueprint Select Control ─────────────────────────
 /**
@@ -603,6 +605,33 @@ export class WidgetFunctionSelectorControl extends ClassicPreset.Control {
   }
 }
 
+// ── Widget Event Selector Control ───────────────────────────
+/**
+ * Custom control for selecting a custom event from a widget blueprint.
+ * Shows dropdown of available custom events from the selected widget blueprint type.
+ */
+export class WidgetEventSelectorControl extends ClassicPreset.Control {
+  public value: string;         // selected event name
+  public availableEvents: Array<{ name: string; params: any[] }> = [];
+
+  constructor(initialValue: string = '') {
+    super();
+    this.value = initialValue;
+  }
+
+  setValue(eventName: string) {
+    this.value = eventName;
+  }
+
+  /**
+   * Update available events from widget blueprint definition.
+   * Called when widget blueprint type changes.
+   */
+  setAvailableEvents(events: Array<{ name: string; params: any[] }>) {
+    this.availableEvents = events;
+  }
+}
+
 // ── Get Widget Variable (Enhanced) ──────────────────────────
 export class GetWidgetVariableNode extends ClassicPreset.Node {
   public widgetBPId: string;
@@ -669,17 +698,31 @@ export class SetWidgetVariableNode extends ClassicPreset.Node {
 }
 registerNode('Set Widget Variable', 'UI', () => new SetWidgetVariableNode());
 
-// ── Call Widget Function (Enhanced) ─────────────────────────
+// ── Call Widget Function (Enhanced with Dynamic Parameters) ─
+/**
+ * Call a custom function on a widget instance.
+ * Dynamically creates input/output pins based on the function signature.
+ */
 export class CallWidgetFunctionNode extends ClassicPreset.Node {
   public widgetBPId: string;
   public widgetBPName: string;
   public widgetBPControl: WidgetBPSelectControl;
   public functionControl: WidgetFunctionSelectorControl;
+  public functionInputs: Array<{ name: string; type: VarType }>;
+  public functionOutputs: Array<{ name: string; type: VarType }>;
 
-  constructor(bpId: string = '', bpName: string = '(none)', funcName: string = '') {
+  constructor(
+    bpId: string = '',
+    bpName: string = '(none)',
+    funcName: string = '',
+    functionInputs: Array<{ name: string; type: VarType }> = [],
+    functionOutputs: Array<{ name: string; type: VarType }> = []
+  ) {
     super('Call Widget Function');
     this.widgetBPId = bpId;
     this.widgetBPName = bpName;
+    this.functionInputs = functionInputs;
+    this.functionOutputs = functionOutputs;
 
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
@@ -691,19 +734,132 @@ export class CallWidgetFunctionNode extends ClassicPreset.Node {
 
     // Function selector dropdown (populated based on widget BP type)
     this.functionControl = new WidgetFunctionSelectorControl(funcName);
+    (this.functionControl as any)._parentNode = this;
     this.addControl('function', this.functionControl);
 
-    // Generic inputs for function parameters (user can connect any type)
-    // TODO: Dynamically create pins based on selected function signature
-    this.addInput('param1', new ClassicPreset.Input(strSocket, 'Param 1', true));
-    this.addInput('param2', new ClassicPreset.Input(strSocket, 'Param 2', true));
-    this.addInput('param3', new ClassicPreset.Input(strSocket, 'Param 3', true));
+    // Dynamically create inputs for function parameters
+    for (const input of functionInputs) {
+      const socket = socketForType(input.type);
+      this.addInput(`in_${input.name}`, new ClassicPreset.Input(socket, input.name));
+    }
 
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+
+    // TODO: Dynamically create outputs for function return values
+    // For now, widget functions are called for their side effects only
+    // Uncomment when return value handling is implemented in code generation
+    // for (const output of functionOutputs) {
+    //   const socket = socketForType(output.type);
+    //   this.addOutput(`out_${output.name}`, new ClassicPreset.Output(socket, output.name));
+    // }
   }
 
   getFunctionName(): string {
     return this.functionControl.value || '';
   }
+
+  /**
+   * Rebuild pins when function signature changes.
+   * Call this when user selects a different function from the dropdown.
+   */
+  rebuildPins(functionInputs: Array<{ name: string; type: VarType }>, functionOutputs: Array<{ name: string; type: VarType }>) {
+    // Remove old parameter inputs (keep exec and widget)
+    const inputKeys = Object.keys(this.inputs);
+    for (const key of inputKeys) {
+      if (key.startsWith('in_')) {
+        this.removeInput(key);
+      }
+    }
+
+    // Update stored signature
+    this.functionInputs = functionInputs;
+    this.functionOutputs = functionOutputs;
+
+    // Add new parameter inputs
+    for (const input of functionInputs) {
+      const socket = socketForType(input.type);
+      this.addInput(`in_${input.name}`, new ClassicPreset.Input(socket, input.name));
+    }
+
+    // TODO: Add new return outputs when return value handling is implemented
+    // for (const output of functionOutputs) {
+    //   const socket = socketForType(output.type);
+    //   this.addOutput(`out_${output.name}`, new ClassicPreset.Output(socket, output.name));
+    // }
+  }
 }
 registerNode('Call Widget Function', 'UI', () => new CallWidgetFunctionNode());
+
+// ── Call Widget Event (with Dynamic Parameters) ─────────────
+/**
+ * Trigger a custom event on a widget instance.
+ * Dynamically creates input pins based on the event parameter signature.
+ */
+export class CallWidgetEventNode extends ClassicPreset.Node {
+  public widgetBPId: string;
+  public widgetBPName: string;
+  public widgetBPControl: WidgetBPSelectControl;
+  public eventControl: WidgetEventSelectorControl;
+  public eventParams: Array<{ name: string; type: VarType }>;
+
+  constructor(
+    bpId: string = '',
+    bpName: string = '(none)',
+    eventName: string = '',
+    eventParams: Array<{ name: string; type: VarType }> = []
+  ) {
+    super('Call Widget Event');
+    this.widgetBPId = bpId;
+    this.widgetBPName = bpName;
+    this.eventParams = eventParams;
+
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
+
+    // Widget blueprint type selector
+    this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
+    (this.widgetBPControl as any)._parentNode = this;
+    this.addControl('widgetBP', this.widgetBPControl);
+
+    // Event selector dropdown (populated based on widget BP type)
+    this.eventControl = new WidgetEventSelectorControl(eventName);
+    (this.eventControl as any)._parentNode = this;
+    this.addControl('event', this.eventControl);
+
+    // Dynamically create inputs for event parameters
+    for (const param of eventParams) {
+      const socket = socketForType(param.type);
+      this.addInput(`param_${param.name}`, new ClassicPreset.Input(socket, param.name));
+    }
+
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getEventName(): string {
+    return this.eventControl.value || '';
+  }
+
+  /**
+   * Rebuild pins when event signature changes.
+   * Call this when user selects a different event from the dropdown.
+   */
+  rebuildPins(eventParams: Array<{ name: string; type: VarType }>) {
+    // Remove old parameter inputs (keep exec and widget)
+    const inputKeys = Object.keys(this.inputs);
+    for (const key of inputKeys) {
+      if (key.startsWith('param_')) {
+        this.removeInput(key);
+      }
+    }
+
+    // Update stored signature
+    this.eventParams = eventParams;
+
+    // Add new parameter inputs
+    for (const param of eventParams) {
+      const socket = socketForType(param.type);
+      this.addInput(`param_${param.name}`, new ClassicPreset.Input(socket, param.name));
+    }
+  }
+}
+registerNode('Call Widget Event', 'UI', () => new CallWidgetEventNode());

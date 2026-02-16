@@ -303,6 +303,7 @@ export {
   WidgetSelectorControl,
   WidgetVariableSelectorControl,
   WidgetFunctionSelectorControl,
+  WidgetEventSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -335,4 +336,5 @@ export {
   GetWidgetVariableNode,
   SetWidgetVariableNode,
   CallWidgetFunctionNode,
+  CallWidgetEventNode,
 } from './ui/WidgetNodes';

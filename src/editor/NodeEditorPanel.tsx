@@ -266,6 +266,7 @@ import {
   WidgetSelectorControl,
   WidgetVariableSelectorControl,
   WidgetFunctionSelectorControl,
+  WidgetEventSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -298,6 +299,7 @@ import {
   GetWidgetVariableNode,
   SetWidgetVariableNode,
   CallWidgetFunctionNode,
+  CallWidgetEventNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -413,7 +415,9 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof SetSliderValueNode || node instanceof GetSliderValueNode ||
       node instanceof SetCheckBoxStateNode || node instanceof GetCheckBoxStateNode ||
       node instanceof IsWidgetVisibleNode || node instanceof PlayWidgetAnimationNode ||
-      node instanceof SetInputModeNode || node instanceof ShowMouseCursorNode) return 'UI';
+      node instanceof SetInputModeNode || node instanceof ShowMouseCursorNode ||
+      node instanceof GetWidgetVariableNode || node instanceof SetWidgetVariableNode ||
+      node instanceof CallWidgetFunctionNode || node instanceof CallWidgetEventNode) return 'UI';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -2011,16 +2015,38 @@ function genAction(
       const wS = inputSrc.get(`${nodeId}.widget`);
       const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
       const funcName = JSON.stringify(n.getFunctionName());
-      // Collect optional parameters
+      // Collect dynamic parameters based on function signature
       const params: string[] = [];
-      for (let i = 1; i <= 3; i++) {
-        const pS = inputSrc.get(`${nodeId}.param${i}`);
+      for (const input of n.functionInputs) {
+        const pS = inputSrc.get(`${nodeId}.in_${input.name}`);
         if (pS) {
           params.push(rv(pS.nid, pS.ok));
+        } else {
+          params.push('undefined');
         }
       }
       const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
       lines.push(`if (__uiManager) __uiManager.callWidgetFunction(${widgetHandle}, ${funcName}${paramsStr});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Call Widget Event': {
+      const n = node as CallWidgetEventNode;
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
+      const eventName = JSON.stringify(n.getEventName());
+      // Collect dynamic parameters based on event signature
+      const params: string[] = [];
+      for (const param of n.eventParams) {
+        const pS = inputSrc.get(`${nodeId}.param_${param.name}`);
+        if (pS) {
+          params.push(rv(pS.nid, pS.ok));
+        } else {
+          params.push('undefined');
+        }
+      }
+      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
+      lines.push(`if (__uiManager) __uiManager.callWidgetEvent(${widgetHandle}, ${eventName}${paramsStr});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -4009,6 +4035,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetWidgetVariableNode) return 'GetWidgetVariableNode';
   if (node instanceof SetWidgetVariableNode) return 'SetWidgetVariableNode';
   if (node instanceof CallWidgetFunctionNode) return 'CallWidgetFunctionNode';
+  if (node instanceof CallWidgetEventNode) return 'CallWidgetEventNode';
   // Widget Event Nodes
   if (node instanceof ButtonOnClickedNode) return 'ButtonOnClickedNode';
   if (node instanceof ButtonOnPressedNode) return 'ButtonOnPressedNode';
@@ -4181,9 +4208,19 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.variableName = (node as SetWidgetVariableNode).getVariableName();
   }
   if (node instanceof CallWidgetFunctionNode) {
-    data.widgetBPId = (node as CallWidgetFunctionNode).widgetBPId;
-    data.widgetBPName = (node as CallWidgetFunctionNode).widgetBPName;
-    data.functionName = (node as CallWidgetFunctionNode).getFunctionName();
+    const n = node as CallWidgetFunctionNode;
+    data.widgetBPId = n.widgetBPId;
+    data.widgetBPName = n.widgetBPName;
+    data.functionName = n.getFunctionName();
+    data.functionInputs = n.functionInputs;
+    data.functionOutputs = n.functionOutputs;
+  }
+  if (node instanceof CallWidgetEventNode) {
+    const n = node as CallWidgetEventNode;
+    data.widgetBPId = n.widgetBPId;
+    data.widgetBPName = n.widgetBPName;
+    data.eventName = n.getEventName();
+    data.eventParams = n.eventParams;
   }
 
   return data;
@@ -4671,7 +4708,13 @@ function createNodeFromData(
       return n;
     }
     case 'CallWidgetFunctionNode': {
-      const n = new CallWidgetFunctionNode(d.widgetBPId || '', d.widgetBPName || '(none)', d.functionName || '');
+      const n = new CallWidgetFunctionNode(
+        d.widgetBPId || '',
+        d.widgetBPName || '(none)',
+        d.functionName || '',
+        d.functionInputs || [],
+        d.functionOutputs || []
+      );
       // Populate available functions from widget blueprint
       if (d.widgetBPId && _widgetBPMgr) {
         const widgetBP = _widgetBPMgr.getAsset(d.widgetBPId);
@@ -4682,6 +4725,26 @@ function createNodeFromData(
             outputs: f.outputs || [],
           }));
           n.functionControl.setAvailableFunctions(functions);
+        }
+      }
+      return n;
+    }
+    case 'CallWidgetEventNode': {
+      const n = new CallWidgetEventNode(
+        d.widgetBPId || '',
+        d.widgetBPName || '(none)',
+        d.eventName || '',
+        d.eventParams || []
+      );
+      // Populate available events from widget blueprint
+      if (d.widgetBPId && _widgetBPMgr) {
+        const widgetBP = _widgetBPMgr.getAsset(d.widgetBPId);
+        if (widgetBP && n.eventControl) {
+          const events = (widgetBP.blueprintData.customEvents || []).map((e: any) => ({
+            name: e.name,
+            params: e.params || [],
+          }));
+          n.eventControl.setAvailableEvents(events);
         }
       }
       return n;
@@ -5076,12 +5139,15 @@ async function createGraphEditor(
                     if (parentNode) {
                       parentNode.widgetBPId = '';
                       parentNode.widgetBPName = '(none)';
-                      // Clear variable/function selectors
+                      // Clear variable/function/event selectors
                       if (parentNode.variableControl) {
                         parentNode.variableControl.setAvailableVariables([]);
                       }
                       if (parentNode.functionControl) {
                         parentNode.functionControl.setAvailableFunctions([]);
+                      }
+                      if (parentNode.eventControl) {
+                        parentNode.eventControl.setAvailableEvents([]);
                       }
                     }
                   },
@@ -5134,6 +5200,16 @@ async function createGraphEditor(
                               }));
                               parentNode.functionControl.setAvailableFunctions(functions);
                               console.log(`[NodeEditor] Populated ${functions.length} functions for widget "${w.name}"`);
+                            }
+
+                            // Populate events for CallWidgetEventNode
+                            if (parentNode.eventControl) {
+                              const events = (widgetBP.blueprintData.customEvents || []).map((e: any) => ({
+                                name: e.name,
+                                params: e.params || [],
+                              }));
+                              parentNode.eventControl.setAvailableEvents(events);
+                              console.log(`[NodeEditor] Populated ${events.length} events for widget "${w.name}"`);
                             }
                           }
                         }
@@ -5231,6 +5307,18 @@ async function createGraphEditor(
                 const newValue = e.target.value;
                 ctrl.setValue(newValue);
                 console.log(`[WidgetFunctionSelector] Selected function: "${newValue}"`);
+
+                // Rebuild node pins when function changes
+                const parentNode = (ctrl as any)._parentNode;
+                if (parentNode && parentNode instanceof CallWidgetFunctionNode) {
+                  const selectedFunc = functions.find((f: any) => f.name === newValue);
+                  if (selectedFunc) {
+                    parentNode.rebuildPins(selectedFunc.inputs || [], selectedFunc.outputs || []);
+                    console.log(`[WidgetFunctionSelector] Rebuilt pins for function "${newValue}"`);
+                    area.update('node', parentNode.id);
+                  }
+                }
+
                 forceUpdate();
               },
               onPointerDown: (e: any) => e.stopPropagation(),
@@ -5252,6 +5340,65 @@ async function createGraphEditor(
                 React.createElement('option', { key: f.name, value: f.name }, f.name),
               ),
               functions.length === 0 && React.createElement('option', { key: '__empty', value: '', disabled: true }, 'No functions available'),
+            );
+          };
+        }
+
+        // ── Widget Event Selector Control ──────────────────────────
+        if (data.payload instanceof WidgetEventSelectorControl) {
+          const ctrl = data.payload as WidgetEventSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+
+            // Sync React re-renders when control value changes externally
+            React.useEffect(() => {
+              const checkValue = () => forceUpdate();
+              const timer = setInterval(checkValue, 100);
+              return () => clearInterval(timer);
+            }, []);
+
+            const events = ctrl.availableEvents || [];
+            const currentValue = ctrl.value || '';
+
+            return React.createElement('select', {
+              value: currentValue,
+              onChange: (e: any) => {
+                const newValue = e.target.value;
+                ctrl.setValue(newValue);
+                console.log(`[WidgetEventSelector] Selected event: "${newValue}"`);
+
+                // Rebuild node pins when event changes
+                const parentNode = (ctrl as any)._parentNode;
+                if (parentNode && parentNode instanceof CallWidgetEventNode) {
+                  const selectedEvent = events.find((ev: any) => ev.name === newValue);
+                  if (selectedEvent) {
+                    parentNode.rebuildPins(selectedEvent.params || []);
+                    console.log(`[WidgetEventSelector] Rebuilt pins for event "${newValue}"`);
+                    area.update('node', parentNode.id);
+                  }
+                }
+
+                forceUpdate();
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: currentValue ? '#e0e0e0' : '#888',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { key: '__none', value: '' }, '(select event)'),
+              ...events.map((ev: any) =>
+                React.createElement('option', { key: ev.name, value: ev.name }, ev.name),
+              ),
+              events.length === 0 && React.createElement('option', { key: '__empty', value: '', disabled: true }, 'No events available'),
             );
           };
         }

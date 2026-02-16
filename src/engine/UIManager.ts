@@ -200,10 +200,11 @@ export class UIManager {
       this._buildWidgetDOM(bp.widgets[bp.rootWidgetId], bp.widgets, rootEl, elementsByName, elementsById);
     }
 
-    // Create widget state object to store variables and functions
+    // Create widget state object to store variables, functions, and custom events
     const state: any = {
       __variables: {}, // Stores widget variables
       __functions: {}, // Stores widget functions
+      __events: {},    // Stores widget custom events
     };
 
     const inst: WidgetInstance = {
@@ -231,16 +232,19 @@ export class UIManager {
         // Use engine's print function if available, otherwise fall back to console.log
         const print = this._printFn || ((msg: any) => console.log('[Widget BP]', msg));
 
-        // Wrap the compiled code to capture variables and functions in the state object
+        // Wrap the compiled code to capture variables, functions, and events in the state object
         const wrappedCode = `
           ${(bp as any).compiledCode}
-          // Store all variables and functions in state for external access
+          // Store all variables, functions, and events in state for external access
           __widgetState.__variables = {};
           __widgetState.__functions = {};
+          __widgetState.__events = {};
           // Capture variables starting with __var_
           ${this._generateVariableCaptureCode((bp as any).compiledCode)}
           // Capture functions starting with __fn_
           ${this._generateFunctionCaptureCode((bp as any).compiledCode)}
+          // Capture custom events starting with __custom_evt_
+          ${this._generateEventCaptureCode((bp as any).compiledCode)}
           // Run setup
           if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
         `;
@@ -959,6 +963,23 @@ export class UIManager {
   }
 
   /**
+   * Generate code to capture custom events from compiled widget code.
+   * Extracts all __custom_evt_* function declarations and stores them in state.
+   */
+  private _generateEventCaptureCode(compiledCode: string): string {
+    const eventMatches = compiledCode.match(/function __custom_evt_(\w+)/g);
+    if (!eventMatches) return '';
+
+    const captures: string[] = [];
+    for (const match of eventMatches) {
+      const eventName = match.replace('function __custom_evt_', '');
+      // Store the event function using its sanitized name as the key
+      captures.push(`__widgetState.__events['${eventName}'] = __custom_evt_${eventName};`);
+    }
+    return captures.join('\n');
+  }
+
+  /**
    * Get a variable value from a widget instance.
    * Usage from compiled code: __uiManager.getWidgetVariable(widgetHandle, 'Counter')
    */
@@ -1012,5 +1033,28 @@ export class UIManager {
     }
     console.log(`[UIManager] Calling widget "${inst.blueprint.name}" function "${funcName}" with args:`, args);
     return func(...args);
+  }
+
+  /**
+   * Call a custom event on a widget instance.
+   * Events are similar to functions but are meant to be triggered from external code.
+   * Usage from compiled code: __uiManager.callWidgetEvent(widgetHandle, 'OnPlayerDied', ...eventParams)
+   */
+  callWidgetEvent(handle: string, eventName: string, ...args: any[]): void {
+    const inst = this._instances.get(handle);
+    if (!inst) {
+      console.warn(`[UIManager] callWidgetEvent: widget handle "${handle}" not found`);
+      return;
+    }
+    // Sanitize the event name to match the compiled function name
+    const sanitizedName = eventName.replace(/[^a-zA-Z0-9_]/g, '_');
+    const eventFunc = inst.state.__events?.[sanitizedName];
+    if (!eventFunc || typeof eventFunc !== 'function') {
+      console.warn(`[UIManager] callWidgetEvent: event "${eventName}" (sanitized: "${sanitizedName}") not found in widget "${inst.blueprint.name}"`);
+      console.log(`[UIManager] Available events:`, Object.keys(inst.state.__events || {}));
+      return;
+    }
+    console.log(`[UIManager] Triggering widget "${inst.blueprint.name}" event "${eventName}" with args:`, args);
+    eventFunc(...args);
   }
 }

@@ -930,7 +930,7 @@ export class ActorAssetBrowser {
         );
 
         // Register in folder manager
-        this._folderManager.setAssetLocation(result.meshAsset.id, 'mesh', this._currentFolderId);
+        this._folderManager.setAssetLocation(result.meshAsset.assetId, 'mesh', this._currentFolderId);
 
         progress.update('Import complete!', 100);
         setTimeout(() => progress.close(), 800);
