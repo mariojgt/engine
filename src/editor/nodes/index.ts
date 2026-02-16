@@ -261,6 +261,16 @@ export {
   GetMouseLockStatusNode,
 } from './character/CameraControlNodes';
 
+// ── Player Controller ───────────────────────────────────────
+export {
+  GetPlayerControllerNode,
+  SetShowMouseCursorNode,
+  IsMouseCursorVisibleNode,
+  SetInputModeGameOnlyNode,
+  SetInputModeGameAndUINode,
+  SetInputModeUIOnlyNode,
+} from './player/PlayerControllerNodes';
+
 // ── Casting & References ────────────────────────────────────
 export {
   CastToNode,

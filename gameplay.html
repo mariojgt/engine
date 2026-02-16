@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feather Engine - Play Mode</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 100%;
+        height: 100vh;
+        overflow: hidden;
+        background: #1a1a1a;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+
+      #gameplay-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+
+      #render-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: default;
+      }
+
+      /* Stats overlay (top-left) */
+      #stats-overlay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: #0f0;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 1000;
+        line-height: 1.5;
+      }
+
+      /* Play mode indicator */
+      #play-indicator {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 200, 0, 0.8);
+        color: white;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 6px 12px;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 1000;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      /* Loading overlay */
+      #loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        z-index: 2000;
+        transition: opacity 0.3s;
+      }
+
+      #loading-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top-color: #0f0;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .loading-text {
+        color: #888;
+        margin-top: 16px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gameplay-container">
+      <canvas id="render-canvas"></canvas>
+
+      <!-- Stats overlay -->
+      <div id="stats-overlay">
+        <div id="fps-counter">FPS: --</div>
+        <div id="frame-time">Frame: -- ms</div>
+      </div>
+
+      <!-- Play mode indicator -->
+      <div id="play-indicator">▶ Playing</div>
+
+      <!-- Loading overlay -->
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading gameplay...</div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/gameplay.ts"></script>
+  </body>
+</html>

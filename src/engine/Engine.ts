@@ -81,6 +81,11 @@ export class Engine {
           this.spectatorControllers.createController(go, config, canvas);
         }
       }
+
+      // Set canvas on all player controllers for cursor control
+      for (const pc of this.playerControllers.controllers) {
+        pc.setCanvas(canvas);
+      }
     }
 
     // ── 1b. Register character-pawn colliders with the collision system ──

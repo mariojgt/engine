@@ -256,7 +256,7 @@ export class CharacterController implements Pawn {
       console.log('[CharacterController] Pointer lock changed:', this._pointerLocked);
     };
     this._onPointerLockError = () => {
-      console.error('[CharacterController] Pointer lock error - likely blocked by browser/Tauri security');
+      console.warn('[CharacterController] Pointer lock not available (expected on macOS/Tauri) - using right-click + drag fallback');
     };
     this._onClick = async () => {
       if (!isTopDownMode && !this._pointerLocked && config.inputBindings.mouseLook) {

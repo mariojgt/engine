@@ -33,6 +33,12 @@ export class PlayerController extends Controller {
   /** Stack of previously possessed pawns for quick switching back */
   private _pawnStack: Pawn[] = [];
 
+  /** Cursor visibility state (UE-style) */
+  private _showMouseCursor: boolean = true;
+
+  /** Canvas element for cursor control */
+  private _canvas: HTMLCanvasElement | null = null;
+
   constructor(playerIndex: number = 0) {
     super();
     this.playerIndex = playerIndex;
@@ -72,6 +78,13 @@ export class PlayerController extends Controller {
     return released;
   }
 
+  /**
+   * Set the canvas for cursor control (called during play mode initialization)
+   */
+  setCanvas(canvas: HTMLCanvasElement): void {
+    this._canvas = canvas;
+  }
+
   // ---- Camera ----
 
   /** Get the camera of the currently possessed pawn (if it has one) */
@@ -106,6 +119,66 @@ export class PlayerController extends Controller {
     if (!pawn) return null;
     if ('teleportTo' in pawn) return pawn as unknown as SpectatorController;
     return null;
+  }
+
+  // ---- Cursor Control (UE-style) ----
+
+  /**
+   * Show or hide the mouse cursor (UE's SetShowMouseCursor).
+   * When hidden, the cursor is invisible but still functional.
+   * @param show - True to show cursor, false to hide
+   */
+  setShowMouseCursor(show: boolean): void {
+    this._showMouseCursor = show;
+    if (this._canvas) {
+      this._canvas.style.cursor = show ? 'default' : 'none';
+    }
+  }
+
+  /**
+   * Check if the mouse cursor is currently visible.
+   * @returns True if cursor is visible
+   */
+  isMouseCursorVisible(): boolean {
+    return this._showMouseCursor;
+  }
+
+  /**
+   * Enable input to the game only (hides cursor and captures input).
+   * Like UE's SetInputMode(GameOnly).
+   */
+  setInputModeGameOnly(): void {
+    this.setShowMouseCursor(false);
+    // If we have a character controller, try to enable pointer lock
+    const charCtrl = this.getCharacterController();
+    if (charCtrl && this._canvas) {
+      this._canvas.requestPointerLock?.();
+    }
+  }
+
+  /**
+   * Enable input to both game and UI (shows cursor).
+   * Like UE's SetInputMode(GameAndUI).
+   */
+  setInputModeGameAndUI(): void {
+    this.setShowMouseCursor(true);
+    // Exit pointer lock if active
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Enable input to UI only (shows cursor, disables game input).
+   * Like UE's SetInputMode(UIOnly).
+   */
+  setInputModeUIOnly(): void {
+    this.setShowMouseCursor(true);
+    // Exit pointer lock if active
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    // TODO: Disable game input (would require input manager)
   }
 
   // ---- Per-frame update (player controllers don't need per-frame logic) ----

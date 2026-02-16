@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 export default defineConfig({
   clearScreen: false,
@@ -10,6 +11,12 @@ export default defineConfig({
     outDir: 'dist',
     target: 'esnext',
     minify: 'esbuild',
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        gameplay: resolve(__dirname, 'gameplay.html'),
+      },
+    },
   },
   esbuild: {
     jsx: 'automatic',

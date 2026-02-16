@@ -192,7 +192,10 @@ async function main() {
   const playBtn = document.getElementById('btn-play')!;
   const stopBtn = document.getElementById('btn-stop')!;
 
-  playBtn.addEventListener('click', () => {
+  // Track gameplay window
+  let gameplayWindow: any = null;
+
+  playBtn.addEventListener('click', async () => {
     // ── 1. Fully re-sync all actor-asset instances from their latest asset ──
     // This ensures any blueprint edits (code, components, physics, mesh type)
     // are pushed into scene instances BEFORE we snapshot state.
@@ -258,25 +261,169 @@ async function main() {
     outputLog.clear();
     outputLog.show();
 
-    engine.physics.play(engine.scene);
-    const canvas = editor.getCanvas();
-    engine.onPlayStarted(canvas ?? undefined);
+    // ── 4. Check if we're in Tauri environment ──
+    // Multiple checks for Tauri (different Tauri versions use different globals)
+    const isTauri = '__TAURI__' in window ||
+                    '__TAURI_INTERNALS__' in window ||
+                    'ipc' in window ||
+                    navigator.userAgent.includes('Tauri');
 
-    // Switch to character pawn or spectator pawn camera if one exists
-    const pawnCam = engine.characterControllers.getActiveCamera()
-      ?? engine.spectatorControllers.getActiveCamera();
-    if (pawnCam) {
-      editor.setPlayCamera(pawnCam);
+    console.log('[Editor] Running in Tauri:', isTauri);
+    console.log('[Editor] __TAURI__ exists:', '__TAURI__' in window);
+    console.log('[Editor] __TAURI_INTERNALS__ exists:', '__TAURI_INTERNALS__' in window);
+    console.log('[Editor] window.ipc exists:', 'ipc' in window);
+    console.log('[Editor] User agent:', navigator.userAgent);
+
+    // Try to create gameplay window if in Tauri, fallback to in-editor if it fails
+    // DISABLED: Gameplay window needs better architecture to preserve Engine state
+    if (false && isTauri) {
+      // ── Gameplay window mode (UE-style "Play in Window") ──
+      try {
+        console.log('[Editor] Attempting to import Tauri APIs...');
+
+        // Import Tauri v2 APIs
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const { emit } = await import('@tauri-apps/api/event');
+
+        console.log('[Editor] Tauri APIs imported successfully');
+        console.log('[Editor] Creating gameplay window...');
+
+        // Create gameplay window
+        gameplayWindow = new WebviewWindow('gameplay', {
+          url: '/gameplay.html',
+          title: 'Feather Engine - Play Mode',
+          width: 1280,
+          height: 720,
+          center: true,
+          resizable: true,
+          focus: true,
+        });
+
+        console.log('[Editor] WebviewWindow instantiated:', gameplayWindow);
+
+        // Wait for window to be ready
+        await gameplayWindow.once('tauri://created', async () => {
+          console.log('[Editor] Gameplay window created, waiting for initialization...');
+
+          // Give the gameplay window time to load and set up event listeners
+          // This ensures the listener is ready before we emit the event
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          console.log('[Editor] Serializing scene data...');
+
+          // Serialize scene data to send to gameplay window
+          // Send the GameObject data directly from the editor scene
+          const sceneData = {
+            gameObjects: engine.scene.gameObjects.map((go: any) => {
+              const actorAsset = go.actorAssetId ? editor.assetManager.getAsset(go.actorAssetId) : null;
+              return {
+                id: go.id,
+                name: go.name,
+                position: go.mesh.position.toArray(),
+                rotation: go.mesh.rotation.toArray(),
+                scale: go.mesh.scale.toArray(),
+                actorAssetId: go.actorAssetId,
+                actorType: go.actorType,
+                // Serialize blueprint data
+                blueprintData: {
+                  variables: go.blueprintData.variables,
+                  functions: go.blueprintData.functions,
+                  macros: go.blueprintData.macros,
+                  customEvents: go.blueprintData.customEvents,
+                  structs: go.blueprintData.structs,
+                  eventGraph: go.blueprintData.eventGraph,
+                  functionGraphs: go.blueprintData.functionGraphs,
+                },
+                // Serialize component and physics data
+                components: actorAsset?.components || [],
+                compiledCode: go.scripts[0]?.code || '',
+                physicsConfig: go.physicsConfig,
+                characterPawnConfig: go.characterPawnConfig,
+                controllerClass: go.controllerClass,
+                controllerBlueprintId: go.controllerBlueprintId,
+                // Serialize mesh type
+                meshType: actorAsset?.rootMeshType || 'cube',
+              };
+            }),
+          };
+
+          console.log('[Editor] Sending', sceneData.gameObjects.length, 'game objects to gameplay window');
+
+          // Send scene data to gameplay window
+          await emit('gameplay:start', sceneData);
+
+          console.log('[Editor] Scene data sent, event emitted');
+
+          playBtn.style.display = 'none';
+          stopBtn.style.display = '';
+        });
+
+        // Handle window close
+        await gameplayWindow.once('tauri://destroyed', () => {
+          console.log('[Editor] Gameplay window closed');
+          gameplayWindow = null;
+          stopBtn.click();
+        });
+
+      } catch (err) {
+        console.error('[Editor] Failed to create gameplay window:', err);
+        console.error('[Editor] Error details:', err);
+        console.log('[Editor] Falling back to in-editor play mode');
+
+        // Fallback to in-editor mode
+        engine.physics.play(engine.scene);
+        const canvas = editor.getCanvas();
+        engine.onPlayStarted(canvas ?? undefined);
+
+        const pawnCam = engine.characterControllers.getActiveCamera()
+          ?? engine.spectatorControllers.getActiveCamera();
+        if (pawnCam) {
+          editor.setPlayCamera(pawnCam);
+        }
+
+        engine.scene.setTriggerHelpersVisible(false);
+        engine.scene.setLightHelpersVisible(false);
+        engine.scene.setComponentHelpersVisible(false);
+        playBtn.style.display = 'none';
+        stopBtn.style.display = '';
+      }
+    } else {
+      // ── In-editor play mode (for browser/non-Tauri) ──
+      console.log('[Editor] Starting in-editor play mode (not in Tauri)');
+
+      engine.physics.play(engine.scene);
+      const canvas = editor.getCanvas();
+      engine.onPlayStarted(canvas ?? undefined);
+
+      const pawnCam = engine.characterControllers.getActiveCamera()
+        ?? engine.spectatorControllers.getActiveCamera();
+      if (pawnCam) {
+        editor.setPlayCamera(pawnCam);
+      }
+
+      engine.scene.setTriggerHelpersVisible(false);
+      engine.scene.setLightHelpersVisible(false);
+      engine.scene.setComponentHelpersVisible(false);
+      playBtn.style.display = 'none';
+      stopBtn.style.display = '';
     }
-
-    engine.scene.setTriggerHelpersVisible(false);  // hide debug wireframes during play
-    engine.scene.setLightHelpersVisible(false);     // hide light editor helpers during play
-    engine.scene.setComponentHelpersVisible(false); // hide camera/springArm/capsule cubes during play
-    playBtn.style.display = 'none';
-    stopBtn.style.display = '';
   });
 
-  stopBtn.addEventListener('click', () => {
+  stopBtn.addEventListener('click', async () => {
+    console.log('[Editor] Stop button clicked');
+
+    // Close gameplay window if it exists
+    if (gameplayWindow) {
+      try {
+        const { emit } = await import('@tauri-apps/api/event');
+        await emit('gameplay:stop');
+        gameplayWindow = null;
+      } catch (err) {
+        console.error('[Editor] Failed to close gameplay window:', err);
+      }
+    }
+
+    // Always run stop sequence (works for both in-editor and gameplay window modes)
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
 
@@ -286,6 +433,7 @@ async function main() {
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     engine.scene.setLightHelpersVisible(true);     // restore light editor helpers
     engine.scene.setComponentHelpersVisible(true); // restore component helpers
+
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 

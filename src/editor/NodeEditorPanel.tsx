@@ -174,6 +174,13 @@ import {
   SetControllerRotationNode,
   SetMouseLockEnabledNode,
   GetMouseLockStatusNode,
+  // Player Controller Nodes
+  GetPlayerControllerNode,
+  SetShowMouseCursorNode,
+  IsMouseCursorVisibleNode,
+  SetInputModeGameOnlyNode,
+  SetInputModeGameAndUINode,
+  SetInputModeUIOnlyNode,
   MovementModeSelectControl,
   MOVEMENT_MODES,
   // Camera & Spring Arm Nodes
@@ -749,6 +756,14 @@ function resolveValue(
   }
   if (node instanceof GetMouseLockStatusNode) {
     return `(gameObject.characterController ? gameObject.characterController.isMouseLocked() : false)`;
+  }
+  // Player Controller query nodes
+  if (node instanceof GetPlayerControllerNode) {
+    // Returns a reference to the player controller
+    return `(gameObject.scene.engine?.playerControllers.get(0) ?? null)`;
+  }
+  if (node instanceof IsMouseCursorVisibleNode) {
+    return `(gameObject.scene.engine?.playerControllers.get(0)?.isMouseCursorVisible() ?? true)`;
   }
   // Camera & Spring Arm query nodes
   if (node instanceof GetSpringArmLengthNode) {
@@ -1350,7 +1365,29 @@ function genAction(
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
-  // Player Controller action nodes
+  // Player Controller cursor control nodes
+  if (node instanceof SetShowMouseCursorNode) {
+    const showS = inputSrc.get(`${nodeId}.show`);
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setShowMouseCursor(${showS ? rv(showS.nid, showS.ok) : 'true'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetInputModeGameOnlyNode) {
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameOnly(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetInputModeGameAndUINode) {
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameAndUI(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof SetInputModeUIOnlyNode) {
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeUIOnly(); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // Player Controller pawn control nodes
   if (node instanceof PossessPawnNode) {
     const nS = inputSrc.get(`${nodeId}.pawnName`);
     lines.push(`{ /* Possess Pawn — handled at engine level */ }`);
@@ -3738,6 +3775,12 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SetControllerRotationNode) return 'SetControllerRotationNode';
   if (node instanceof SetMouseLockEnabledNode) return 'SetMouseLockEnabledNode';
   if (node instanceof GetMouseLockStatusNode) return 'GetMouseLockStatusNode';
+  if (node instanceof GetPlayerControllerNode) return 'GetPlayerControllerNode';
+  if (node instanceof SetShowMouseCursorNode) return 'SetShowMouseCursorNode';
+  if (node instanceof IsMouseCursorVisibleNode) return 'IsMouseCursorVisibleNode';
+  if (node instanceof SetInputModeGameOnlyNode) return 'SetInputModeGameOnlyNode';
+  if (node instanceof SetInputModeGameAndUINode) return 'SetInputModeGameAndUINode';
+  if (node instanceof SetInputModeUIOnlyNode) return 'SetInputModeUIOnlyNode';
   if (node instanceof GetCharacterVelocityNode) return 'GetCharacterVelocityNode';
   if (node instanceof GetMovementSpeedNode) return 'GetMovementSpeedNode';
   if (node instanceof IsGroundedNode) return 'IsGroundedNode';
@@ -4229,6 +4272,12 @@ function createNodeFromData(
     case 'SetControllerRotationNode':   return new SetControllerRotationNode();
     case 'SetMouseLockEnabledNode':     return new SetMouseLockEnabledNode();
     case 'GetMouseLockStatusNode':      return new GetMouseLockStatusNode();
+    case 'GetPlayerControllerNode':     return new GetPlayerControllerNode();
+    case 'SetShowMouseCursorNode':      return new SetShowMouseCursorNode();
+    case 'IsMouseCursorVisibleNode':    return new IsMouseCursorVisibleNode();
+    case 'SetInputModeGameOnlyNode':    return new SetInputModeGameOnlyNode();
+    case 'SetInputModeGameAndUINode':   return new SetInputModeGameAndUINode();
+    case 'SetInputModeUIOnlyNode':      return new SetInputModeUIOnlyNode();
     case 'GetCharacterVelocityNode':    return new GetCharacterVelocityNode();
     case 'GetMovementSpeedNode':        return new GetMovementSpeedNode();
     case 'IsGroundedNode':              return new IsGroundedNode();
