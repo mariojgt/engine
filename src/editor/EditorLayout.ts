@@ -603,6 +603,13 @@ export class EditorLayout {
     return this._viewport?.getCanvas() ?? null;
   }
 
+  /** Wire up project manager with folder manager */
+  setProjectManager(mgr: any): void {
+    if (this._assetBrowser) {
+      mgr.setFolderManager(this._assetBrowser.getFolderManager());
+    }
+  }
+
   /** Set or clear the play-mode camera (character pawn) */
   setPlayCamera(cam: THREE.PerspectiveCamera | null): void {
     if (this._viewport) this._viewport.setPlayCamera(cam);

@@ -12,7 +12,6 @@ import { StructureAssetManager, type StructureAsset, type EnumAsset } from './St
 import { MeshAssetManager, type MeshAsset, isImportableFile } from './MeshAsset';
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
-import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
 import { importMeshFile } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
 
@@ -31,8 +30,6 @@ export class ActorAssetBrowser {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
-  private _folderManager: ContentFolderManager;
-  private _treeEl!: HTMLElement;
   private _gridEl!: HTMLElement;
   private _contextMenu: HTMLElement | null = null;
   private _onOpenAsset: (asset: ActorAsset) => void;
@@ -43,8 +40,8 @@ export class ActorAssetBrowser {
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
   private _selectedAssetId: string | null = null;
-  private _currentFolderId: string = 'root';
-  private _expandedFolders: Set<string> = new Set(['root']);
+  private _activeTab: ContentBrowserTab = 'Actors';
+  private _tabBarEl!: HTMLElement;
 
   // Custom mouse-drag state (no HTML5 DnD)
   private _dragAsset: ActorAsset | null = null;
@@ -62,24 +59,14 @@ export class ActorAssetBrowser {
   ) {
     this.container = container;
     this._manager = manager;
-    this._folderManager = new ContentFolderManager();
     this._onOpenAsset = onOpenAsset;
     this._onDrop = onDrop;
     this._build();
     this._manager.onChanged(() => this._refreshGrid());
-    this._folderManager.onChanged(() => {
-      this._refreshTree();
-      this._refreshGrid();
-    });
 
     // Global mouse handlers for custom drag
     window.addEventListener('mousemove', this._onMouseMove);
     window.addEventListener('mouseup', this._onMouseUp);
-  }
-
-  /** Get the folder manager (for project save/load) */
-  public getFolderManager(): ContentFolderManager {
-    return this._folderManager;
   }
 
   /** Wire up StructureAssetManager + callbacks for opening struct/enum editors */
@@ -92,6 +79,8 @@ export class ActorAssetBrowser {
     this._onOpenStructure = onOpenStructure;
     this._onOpenEnum = onOpenEnum;
     mgr.onChanged(() => this._refreshGrid());
+    this._rebuildHeader();
+    this._rebuildTabBar();
     this._refreshGrid();
   }
 
@@ -99,7 +88,10 @@ export class ActorAssetBrowser {
   public setMeshManager(mgr: MeshAssetManager, onMeshDrop?: MeshDropCallback): void {
     this._meshManager = mgr;
     this._onMeshDrop = onMeshDrop ?? null;
-    mgr.onChanged(() => this._refreshGrid());
+    mgr.onChanged(() => {
+      if (this._activeTab === 'Meshes') this._refreshGrid();
+    });
+    this._rebuildTabBar();
     this._refreshGrid();
   }
 
@@ -107,7 +99,10 @@ export class ActorAssetBrowser {
   public setAnimBPManager(mgr: AnimBlueprintManager, onOpenAnimBP: (asset: AnimBlueprintAsset) => void): void {
     this._animBPManager = mgr;
     this._onOpenAnimBP = onOpenAnimBP;
-    mgr.onChanged(() => this._refreshGrid());
+    mgr.onChanged(() => {
+      if (this._activeTab === 'AnimBP') this._refreshGrid();
+    });
+    this._rebuildTabBar();
     this._refreshGrid();
   }
 
@@ -115,7 +110,10 @@ export class ActorAssetBrowser {
   public setWidgetBPManager(mgr: WidgetBlueprintManager, onOpenWidgetBP: (asset: WidgetBlueprintAsset) => void): void {
     this._widgetBPManager = mgr;
     this._onOpenWidgetBP = onOpenWidgetBP;
-    mgr.onChanged(() => this._refreshGrid());
+    mgr.onChanged(() => {
+      if (this._activeTab === 'Widgets') this._refreshGrid();
+    });
+    this._rebuildTabBar();
     this._refreshGrid();
   }
 
@@ -162,45 +160,28 @@ export class ActorAssetBrowser {
     // Header
     const header = document.createElement('div');
     header.className = 'panel-header';
-    header.innerHTML = `
-      <span>Content Browser</span>
-      <div style="display:flex;gap:4px;">
-        <div class="content-browser-add" id="ab-import-btn">📦 Import</div>
-        <div class="content-browser-add" id="ab-add-btn">+ New</div>
-      </div>
-    `;
+    header.id = 'ab-header';
     this.container.appendChild(header);
+    this._rebuildHeader();
 
-    // Import button
-    header.querySelector('#ab-import-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._triggerMeshFileImport();
-    });
+    // Tab bar (shows when struct manager is available)
+    this._tabBarEl = document.createElement('div');
+    this._tabBarEl.className = 'content-browser-tab-bar';
+    this._tabBarEl.style.display = this._structManager ? 'flex' : 'none';
+    this.container.appendChild(this._tabBarEl);
+    this._rebuildTabBar();
 
-    // New button
-    header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._showEmptyContextMenu(e as MouseEvent);
-    });
-
-    // Body with split layout: tree (left) + grid (right)
+    // Body
     const body = document.createElement('div');
-    body.className = 'panel-body content-browser-body';
+    body.className = 'panel-body';
 
-    // Folder tree (left sidebar)
-    this._treeEl = document.createElement('div');
-    this._treeEl.className = 'content-browser-tree';
-    body.appendChild(this._treeEl);
-
-    // Asset grid (right)
     this._gridEl = document.createElement('div');
     this._gridEl.className = 'asset-grid';
     body.appendChild(this._gridEl);
-
     this.container.appendChild(body);
 
-    // Right-click on empty space in grid → create new
-    this._gridEl.addEventListener('contextmenu', (e) => {
+    // Right-click on empty space → create new
+    body.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this._showEmptyContextMenu(e);
@@ -209,305 +190,107 @@ export class ActorAssetBrowser {
     // Close context menu on any click
     document.addEventListener('click', () => this._closeContextMenu());
 
-    this._refreshTree();
     this._refreshGrid();
   }
 
-  // ============================================================
-  //  Folder Tree Rendering
-  // ============================================================
+  private _rebuildHeader(): void {
+    const header = this.container.querySelector('#ab-header');
+    if (!header) return;
 
-  private _refreshTree(): void {
-    this._treeEl.innerHTML = '';
-    const rootFolder = this._folderManager.getFolder(this._folderManager.getRootFolderId());
-    if (rootFolder) {
-      this._renderFolderNode(rootFolder, 0);
+    if (this._activeTab === 'Meshes') {
+      header.innerHTML = `
+        <span>Content Browser</span>
+        <div style="display:flex;gap:4px;">
+          <div class="content-browser-add" id="ab-import-btn">📦 Import</div>
+        </div>
+      `;
+      header.querySelector('#ab-import-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._triggerMeshFileImport();
+      });
+    } else {
+      header.innerHTML = `
+        <span>Content Browser</span>
+        <div class="content-browser-add" id="ab-add-btn">+ New</div>
+      `;
+      header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._createNewForActiveTab();
+      });
     }
   }
 
-  private _renderFolderNode(folder: FolderNode, depth: number): void {
-    const isExpanded = this._expandedFolders.has(folder.id);
-    const isSelected = this._currentFolderId === folder.id;
-
-    const item = document.createElement('div');
-    item.className = 'folder-tree-item' + (isSelected ? ' selected' : '');
-    item.style.paddingLeft = `${depth * 16 + 4}px`;
-
-    const icon = document.createElement('span');
-    icon.className = 'folder-icon';
-    icon.textContent = folder.children.length > 0 ? (isExpanded ? '📂' : '📁') : '📁';
-
-    const label = document.createElement('span');
-    label.textContent = folder.name;
-
-    item.appendChild(icon);
-    item.appendChild(label);
-
-    // Click = select folder
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (folder.children.length > 0) {
-        if (isExpanded) {
-          this._expandedFolders.delete(folder.id);
-        } else {
-          this._expandedFolders.add(folder.id);
-        }
-      }
-      this._currentFolderId = folder.id;
-      this._refreshTree();
-      this._refreshGrid();
-    });
-
-    // Right-click = folder context menu
-    item.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._showFolderContextMenu(e, folder);
-    });
-
-    this._treeEl.appendChild(item);
-
-    // Render children if expanded
-    if (isExpanded) {
-      const children = this._folderManager.getChildFolders(folder.id);
-      for (const child of children) {
-        this._renderFolderNode(child, depth + 1);
-      }
+  private _rebuildTabBar(): void {
+    this._tabBarEl.innerHTML = '';
+    if (!this._structManager && !this._meshManager) {
+      this._tabBarEl.style.display = 'none';
+      return;
+    }
+    this._tabBarEl.style.display = 'flex';
+    const tabs: ContentBrowserTab[] = ['Actors', 'Structures', 'Enums', 'Meshes', 'AnimBP', 'Widgets'];
+    const icons: Record<ContentBrowserTab, string> = { Actors: '⬡', Structures: '🔷', Enums: '📋', Meshes: '📦', AnimBP: '🎬', Widgets: '🎨' };
+    for (const tab of tabs) {
+      const btn = document.createElement('div');
+      btn.className = `content-browser-tab${this._activeTab === tab ? ' active' : ''}`;
+      btn.textContent = `${icons[tab]} ${tab}`;
+      btn.addEventListener('click', () => {
+        this._activeTab = tab;
+        this._selectedAssetId = null;
+        this._rebuildTabBar();
+        this._rebuildHeader();
+        this._refreshGrid();
+      });
+      this._tabBarEl.appendChild(btn);
     }
   }
 
-  // ============================================================
-  //  Asset Grid Rendering (Unified, filtered by folder)
-  // ============================================================
+  private async _createNewForActiveTab(): Promise<void> {
+    if (this._activeTab === 'Actors') {
+      await this._createNewAsset();
+    } else if (this._activeTab === 'Structures' && this._structManager) {
+      const name = await this._showNameDialog('New Structure', 'F_NewStruct');
+      if (!name) return;
+      const sa = this._structManager.createStructure(name);
+      this._selectedAssetId = sa.id;
+      if (this._onOpenStructure) this._onOpenStructure(sa);
+    } else if (this._activeTab === 'Enums' && this._structManager) {
+      const name = await this._showNameDialog('New Enum', 'E_NewEnum');
+      if (!name) return;
+      const ea = this._structManager.createEnum(name);
+      this._selectedAssetId = ea.id;
+      if (this._onOpenEnum) this._onOpenEnum(ea);
+    } else if (this._activeTab === 'AnimBP' && this._animBPManager) {
+      const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+      if (!name) return;
+      const abp = this._animBPManager.createAsset(name);
+      this._selectedAssetId = abp.id;
+      if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+    } else if (this._activeTab === 'Widgets' && this._widgetBPManager) {
+      const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
+      if (!name) return;
+      const wbp = this._widgetBPManager.createAsset(name);
+      this._selectedAssetId = wbp.id;
+      if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
+    }
+  }
 
   private _refreshGrid(): void {
     this._gridEl.innerHTML = '';
 
-    const assetsInFolder = this._folderManager.getAssetsInFolder(this._currentFolderId);
-
-    // Show breadcrumb path
-    const breadcrumb = document.createElement('div');
-    breadcrumb.className = 'content-browser-breadcrumb';
-    breadcrumb.textContent = this._folderManager.getFolderPath(this._currentFolderId);
-    this._gridEl.appendChild(breadcrumb);
-
-    // Render all asset types in this folder
-    for (const location of assetsInFolder) {
-      this._renderAssetCard(location.assetId, location.assetType);
-    }
-
-    // Empty state
-    if (assetsInFolder.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'Empty folder. Right-click to create assets.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
+    if (this._activeTab === 'Actors') {
+      this._renderActorGrid();
+    } else if (this._activeTab === 'Structures') {
+      this._renderStructureGrid();
+    } else if (this._activeTab === 'Enums') {
+      this._renderEnumGrid();
+    } else if (this._activeTab === 'Meshes') {
+      this._renderMeshGrid();
+    } else if (this._activeTab === 'AnimBP') {
+      this._renderAnimBPGrid();
+    } else if (this._activeTab === 'Widgets') {
+      this._renderWidgetBPGrid();
     }
   }
-
-  private _renderAssetCard(assetId: string, assetType: AssetType): void {
-    if (assetType === 'actor') this._renderActorCard(assetId);
-    else if (assetType === 'structure') this._renderStructureCard(assetId);
-    else if (assetType === 'enum') this._renderEnumCard(assetId);
-    else if (assetType === 'mesh') this._renderMeshCard(assetId);
-    else if (assetType === 'animBP') this._renderAnimBPCard(assetId);
-    else if (assetType === 'widget') this._renderWidgetCard(assetId);
-  }
-
-  private _renderActorCard(assetId: string): void {
-    const asset = this._manager.getAsset(assetId);
-    if (!asset) return;
-
-    const card = document.createElement('div');
-    card.className = 'asset-card';
-    if (this._selectedAssetId === asset.id) card.classList.add('selected');
-
-    const icon = document.createElement('div');
-    icon.className = 'asset-card-icon';
-    if (asset.actorType === 'characterPawn') {
-      icon.innerHTML = '<span style="font-size:28px;">🏃</span>';
-    } else if (asset.actorType === 'playerController') {
-      icon.innerHTML = '<span style="font-size:28px;">🎮</span>';
-    } else if (asset.actorType === 'aiController') {
-      icon.innerHTML = '<span style="font-size:28px;">🤖</span>';
-    } else {
-      icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
-    }
-    card.appendChild(icon);
-
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = asset.name;
-    card.appendChild(label);
-
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = asset.id;
-      this._refreshGrid();
-    });
-    card.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      this._onOpenAsset(asset);
-    });
-    card.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      this._dragAsset = asset;
-      this._dragStarted = false;
-      this._startX = e.clientX;
-      this._startY = e.clientY;
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = asset.id;
-      this._refreshGrid();
-      this._showAssetContextMenu(e, asset);
-    });
-
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderStructureCard(assetId: string): void {
-    if (!this._structManager) return;
-    const sa = this._structManager.getStructure(assetId);
-    if (!sa) return;
-    const card = this._createTypeCard(
-      sa.id, sa.name, '🔷', `${sa.fields.length} fields`,
-      () => this._onOpenStructure?.(sa),
-      (e) => this._showStructContextMenu(e, sa),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderEnumCard(assetId: string): void {
-    if (!this._structManager) return;
-    const ea = this._structManager.getEnum(assetId);
-    if (!ea) return;
-    const card = this._createTypeCard(
-      ea.id, ea.name, '📋', `${ea.values.length} values`,
-      () => this._onOpenEnum?.(ea),
-      (e) => this._showEnumContextMenu(e, ea),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderMeshCard(assetId: string): void {
-    if (!this._meshManager) return;
-    const meshAsset = this._meshManager.getAsset(assetId);
-    if (!meshAsset) return;
-
-    const card = document.createElement('div');
-    card.className = 'asset-card mesh-asset-card';
-    if (this._selectedAssetId === meshAsset.id) card.classList.add('selected');
-
-    const thumbEl = document.createElement('div');
-    thumbEl.className = 'asset-card-icon mesh-thumbnail';
-    if (meshAsset.thumbnail) {
-      thumbEl.style.backgroundImage = `url(${meshAsset.thumbnail})`;
-      thumbEl.style.backgroundSize = 'cover';
-      thumbEl.style.backgroundPosition = 'center';
-    } else {
-      thumbEl.innerHTML = '<span style="font-size:28px;">📦</span>';
-    }
-    card.appendChild(thumbEl);
-
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = meshAsset.name;
-    card.appendChild(label);
-
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = meshAsset.id;
-      this._refreshGrid();
-    });
-    card.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      this._dragMeshAsset = meshAsset;
-      this._dragStarted = false;
-      this._startX = e.clientX;
-      this._startY = e.clientY;
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = meshAsset.id;
-      this._refreshGrid();
-      this._showMeshContextMenu(e, meshAsset);
-    });
-
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderAnimBPCard(assetId: string): void {
-    if (!this._animBPManager) return;
-    const abp = this._animBPManager.getAsset(assetId);
-    if (!abp) return;
-    const card = this._createTypeCard(
-      abp.id, abp.name, '🎬', `${abp.stateMachine.states.length} states`,
-      () => this._onOpenAnimBP?.(abp),
-      (e) => this._showAnimBPContextMenu(e, abp),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderWidgetCard(assetId: string): void {
-    if (!this._widgetBPManager) return;
-    const wbp = this._widgetBPManager.getAsset(assetId);
-    if (!wbp) return;
-    const widgetCount = wbp.widgets.size;
-    const card = this._createTypeCard(
-      wbp.id, wbp.name, '🎨', `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
-      () => this._onOpenWidgetBP?.(wbp),
-      (e) => this._showWidgetBPContextMenu(e, wbp),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  // ============================================================
-  //  Folder Context Menu
-  // ============================================================
-
-  private _showFolderContextMenu(e: MouseEvent, folder: FolderNode): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, '📁 New Folder', async () => {
-      const name = await this._showNameDialog('New Folder', 'NewFolder');
-      if (name) {
-        this._folderManager.createFolder(name, folder.id);
-        this._expandedFolders.add(folder.id);
-      }
-    });
-
-    if (folder.id !== this._folderManager.getRootFolderId()) {
-      this._addMenuItem(menu, '✏ Rename', async () => {
-        const name = await this._showNameDialog('Rename Folder', folder.name);
-        if (name) this._folderManager.renameFolder(folder.id, name);
-      });
-
-      const delItem = this._addMenuItem(menu, '🗑 Delete Folder', () => {
-        if (confirm(`Delete folder "${folder.name}"?`)) {
-          this._folderManager.deleteFolder(folder.id);
-          if (this._currentFolderId === folder.id) {
-            this._currentFolderId = folder.parentId || this._folderManager.getRootFolderId();
-          }
-        }
-      });
-      delItem.style.color = 'var(--danger)';
-    }
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  // ============================================================
-  //  Legacy Grid Methods (kept for reference, can be removed)
-  // ============================================================
 
   private _renderActorGrid(): void {
     const assets = this._manager.assets;
@@ -929,9 +712,6 @@ export class ActorAssetBrowser {
           result.animations,
         );
 
-        // Register in folder manager
-        this._folderManager.setAssetLocation(result.meshAsset.id, 'mesh', this._currentFolderId);
-
         progress.update('Import complete!', 100);
         setTimeout(() => progress.close(), 800);
       } catch (err: any) {
@@ -941,6 +721,10 @@ export class ActorAssetBrowser {
       }
     }
 
+    // Switch to meshes tab and refresh
+    this._activeTab = 'Meshes';
+    this._rebuildTabBar();
+    this._rebuildHeader();
     this._refreshGrid();
   }
 
@@ -1103,7 +887,6 @@ export class ActorAssetBrowser {
     const name = await this._promptName(title, defaultName);
     if (!name) return;
     const asset = this._manager.createAsset(name, actorType);
-    this._folderManager.setAssetLocation(asset.id, 'actor', this._currentFolderId);
     this._selectedAssetId = asset.id;
   }
 
@@ -1234,83 +1017,100 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📁 New Folder', async () => {
-      const name = await this._showNameDialog('New Folder', 'NewFolder');
-      if (name) {
-        this._folderManager.createFolder(name, this._currentFolderId);
-        this._expandedFolders.add(this._currentFolderId);
-      }
+    // Always show actor creation
+    this._addMenuItem(menu, '⬡ New Actor Blueprint', async () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      await this._createNewAsset();
     });
 
+    this._addMenuItem(menu, '🏃 New Character Pawn', async () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      await this._createNewAsset('characterPawn');
+    });
+
+    // ── Controller blueprints ──
     const sep0 = document.createElement('div');
     sep0.className = 'context-menu-separator';
     menu.appendChild(sep0);
 
-    this._addMenuItem(menu, '⬡ New Actor Blueprint', () => this._createNewAsset());
-    this._addMenuItem(menu, '🏃 New Character Pawn', () => this._createNewAsset('characterPawn'));
-    this._addMenuItem(menu, '🎮 New Player Controller', () => this._createNewAsset('playerController'));
-    this._addMenuItem(menu, '🤖 New AI Controller', () => this._createNewAsset('aiController'));
+    this._addMenuItem(menu, '🎮 New Player Controller', async () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      await this._createNewAsset('playerController');
+    });
 
+    this._addMenuItem(menu, '🤖 New AI Controller', async () => {
+      this._activeTab = 'Actors';
+      this._rebuildTabBar();
+      await this._createNewAsset('aiController');
+    });
+
+    // Structure/Enum creation when manager is available
     if (this._structManager) {
       const sep = document.createElement('div');
       sep.className = 'context-menu-separator';
       menu.appendChild(sep);
 
       this._addMenuItem(menu, '🔷 New Structure', async () => {
+        this._activeTab = 'Structures';
+        this._rebuildTabBar();
         const name = await this._showNameDialog('New Structure', 'F_NewStruct');
         if (name) {
           const sa = this._structManager!.createStructure(name);
-          this._folderManager.setAssetLocation(sa.id, 'structure', this._currentFolderId);
           this._selectedAssetId = sa.id;
-          if (this._onOpenStructure) this._onOpenStructure(sa);
+          this._onOpenStructure?.(sa);
         }
+        this._refreshGrid();
       });
 
       this._addMenuItem(menu, '📋 New Enumeration', async () => {
+        this._activeTab = 'Enums';
+        this._rebuildTabBar();
         const name = await this._showNameDialog('New Enum', 'E_NewEnum');
         if (name) {
           const ea = this._structManager!.createEnum(name);
-          this._folderManager.setAssetLocation(ea.id, 'enum', this._currentFolderId);
           this._selectedAssetId = ea.id;
-          if (this._onOpenEnum) this._onOpenEnum(ea);
+          this._onOpenEnum?.(ea);
         }
+        this._refreshGrid();
       });
     }
 
+    // Animation Blueprint creation
     if (this._animBPManager) {
       const sepAnimBP = document.createElement('div');
       sepAnimBP.className = 'context-menu-separator';
       menu.appendChild(sepAnimBP);
 
       this._addMenuItem(menu, '🎬 New Animation Blueprint', async () => {
+        this._activeTab = 'AnimBP';
+        this._rebuildTabBar();
+        this._rebuildHeader();
         const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
         if (name) {
           const abp = this._animBPManager!.createAsset(name);
-          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
           this._selectedAssetId = abp.id;
-          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+          this._onOpenAnimBP?.(abp);
         }
+        this._refreshGrid();
       });
     }
 
-    if (this._widgetBPManager) {
-      this._addMenuItem(menu, '🎨 New Widget Blueprint', async () => {
-        const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
-        if (name) {
-          const wbp = this._widgetBPManager!.createAsset(name);
-          this._folderManager.setAssetLocation(wbp.id, 'widget', this._currentFolderId);
-          this._selectedAssetId = wbp.id;
-          if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
-        }
-      });
-    }
-
+    // Mesh import
     if (this._meshManager) {
       const sepMesh = document.createElement('div');
       sepMesh.className = 'context-menu-separator';
       menu.appendChild(sepMesh);
 
-      this._addMenuItem(menu, '📦 Import Mesh…', () => this._triggerMeshFileImport());
+      this._addMenuItem(menu, '📦 Import Mesh…', () => {
+        this._activeTab = 'Meshes';
+        this._rebuildTabBar();
+        this._rebuildHeader();
+        this._refreshGrid();
+        this._triggerMeshFileImport();
+      });
     }
 
     document.body.appendChild(menu);

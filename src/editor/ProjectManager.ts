@@ -15,6 +15,7 @@ import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from '.
 import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
+import type { ContentFolderManager } from './ContentFolderManager';
 import {
   serializeScene,
   deserializeScene,
@@ -77,6 +78,7 @@ const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
+const FOLDER_STRUCTURE_FILE = 'Config/folders.json';
 const DEFAULT_SCENE = 'DefaultScene';
 
 export class ProjectManager {
@@ -88,6 +90,7 @@ export class ProjectManager {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
+  private _folderManager: ContentFolderManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -131,6 +134,11 @@ export class ProjectManager {
   /** Wire up the WidgetBlueprintManager for saving/loading widget blueprints */
   setWidgetBPManager(mgr: WidgetBlueprintManager): void {
     this._widgetBPManager = mgr;
+  }
+
+  /** Wire up the ContentFolderManager for saving/loading folder structure */
+  setFolderManager(mgr: ContentFolderManager): void {
+    this._folderManager = mgr;
   }
 
   // ============================================================
@@ -273,6 +281,9 @@ export class ProjectManager {
       // Load editor state (camera, etc.)
       await this._loadEditorState();
 
+      // Load folder structure
+      await this._loadFolderStructure();
+
       this._dirty = false;
       this._startAutoSave();
       return true;
@@ -314,6 +325,9 @@ export class ProjectManager {
 
       // Save widget blueprints
       await this._saveWidgetBlueprints();
+
+      // Save folder structure
+      await this._saveFolderStructure();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -824,6 +838,42 @@ export class ProjectManager {
       }
     } catch (e) {
       console.warn('Failed to load editor state:', e);
+    }
+  }
+
+  // ============================================================
+  //  Folder Structure
+  // ============================================================
+
+  private async _saveFolderStructure(): Promise<void> {
+    if (!this._projectPath || !this._folderManager) return;
+
+    const folderData = this._folderManager.toJSON();
+    await fsWrite(
+      `${this._projectPath}/${FOLDER_STRUCTURE_FILE}`,
+      JSON.stringify(folderData, null, 2),
+    );
+  }
+
+  private async _loadFolderStructure(): Promise<void> {
+    if (!this._projectPath || !this._folderManager) return;
+
+    const filePath = `${this._projectPath}/${FOLDER_STRUCTURE_FILE}`;
+    const fileFound = await fsExists(filePath);
+    if (!fileFound) {
+      // First time - create default folders
+      this._folderManager.createDefaultFolders();
+      return;
+    }
+
+    try {
+      const raw = await fsRead(filePath);
+      const folderData = JSON.parse(raw);
+      this._folderManager.fromJSON(folderData);
+    } catch (e) {
+      console.warn('Failed to load folder structure:', e);
+      // Fallback to default folders
+      this._folderManager.createDefaultFolders();
     }
   }
 

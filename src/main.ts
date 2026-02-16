@@ -87,6 +87,9 @@ async function main() {
   projectManager.setWidgetBPManager(widgetBPManager);
   editor.setWidgetBPManager(widgetBPManager);
 
+  // Wire up folder manager with project manager
+  editor.setProjectManager(projectManager);
+
   // Wire widget BP manager into node editor for Create Widget picker
   setWidgetBPManager(widgetBPManager);
 
