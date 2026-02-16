@@ -292,6 +292,10 @@ import {
   TextBoxOnTextCommittedNode,
   SliderOnValueChangedNode,
   CheckBoxOnCheckStateChangedNode,
+  // Widget Instance Interaction Nodes
+  GetWidgetVariableNode,
+  SetWidgetVariableNode,
+  CallWidgetFunctionNode,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -1087,6 +1091,13 @@ function resolveValue(
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
       return `(__uiManager ? __uiManager.createWidget(${JSON.stringify(wn.widgetBPId || '')}) : '')`;
+    }
+    case 'Get Widget Variable': {
+      const n = node as GetWidgetVariableNode;
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const widgetHandle = wS ? resolveValue(wS.nid, wS.ok, nodeMap, inputSrc, bp) : '""';
+      const varName = JSON.stringify(n.getVariableName());
+      return `(__uiManager ? __uiManager.getWidgetVariable(${widgetHandle}, ${varName}) : undefined)`;
     }
 
     default: return '0';
@@ -1976,6 +1987,37 @@ function genAction(
       const sS = inputSrc.get(`${nodeId}.show`);
       const show = sS ? rv(sS.nid, sS.ok) : 'true';
       lines.push(`if (__uiManager) __uiManager.showMouseCursor(${show});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Widget Instance Interaction Nodes ───────────────────────────
+    case 'Set Widget Variable': {
+      const n = node as SetWidgetVariableNode;
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const vS = inputSrc.get(`${nodeId}.value`);
+      const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
+      const value = vS ? rv(vS.nid, vS.ok) : 'undefined';
+      const varName = JSON.stringify(n.getVariableName());
+      lines.push(`if (__uiManager) __uiManager.setWidgetVariable(${widgetHandle}, ${varName}, ${value});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Call Widget Function': {
+      const n = node as CallWidgetFunctionNode;
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const widgetHandle = wS ? rv(wS.nid, wS.ok) : '""';
+      const funcName = JSON.stringify(n.getFunctionName());
+      // Collect optional parameters
+      const params: string[] = [];
+      for (let i = 1; i <= 3; i++) {
+        const pS = inputSrc.get(`${nodeId}.param${i}`);
+        if (pS) {
+          params.push(rv(pS.nid, pS.ok));
+        }
+      }
+      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
+      lines.push(`if (__uiManager) __uiManager.callWidgetFunction(${widgetHandle}, ${funcName}${paramsStr});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3960,6 +4002,10 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof PlayWidgetAnimationNode) return 'PlayWidgetAnimationNode';
   if (node instanceof SetInputModeNode) return 'SetInputModeNode';
   if (node instanceof ShowMouseCursorNode) return 'ShowMouseCursorNode';
+  // Widget Instance Interaction Nodes
+  if (node instanceof GetWidgetVariableNode) return 'GetWidgetVariableNode';
+  if (node instanceof SetWidgetVariableNode) return 'SetWidgetVariableNode';
+  if (node instanceof CallWidgetFunctionNode) return 'CallWidgetFunctionNode';
   // Widget Event Nodes
   if (node instanceof ButtonOnClickedNode) return 'ButtonOnClickedNode';
   if (node instanceof ButtonOnPressedNode) return 'ButtonOnPressedNode';
@@ -4118,6 +4164,17 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateWidgetNode) {
     data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
     data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
+  }
+
+  // Widget instance interaction nodes
+  if (node instanceof GetWidgetVariableNode) {
+    data.variableName = (node as GetWidgetVariableNode).getVariableName();
+  }
+  if (node instanceof SetWidgetVariableNode) {
+    data.variableName = (node as SetWidgetVariableNode).getVariableName();
+  }
+  if (node instanceof CallWidgetFunctionNode) {
+    data.functionName = (node as CallWidgetFunctionNode).getFunctionName();
   }
 
   return data;
@@ -4573,6 +4630,10 @@ function createNodeFromData(
     case 'PlayWidgetAnimationNode':         return new PlayWidgetAnimationNode();
     case 'SetInputModeNode':                return new SetInputModeNode();
     case 'ShowMouseCursorNode':             return new ShowMouseCursorNode();
+    // Widget Instance Interaction Nodes
+    case 'GetWidgetVariableNode':           return new GetWidgetVariableNode(d.variableName || '');
+    case 'SetWidgetVariableNode':           return new SetWidgetVariableNode(d.variableName || '');
+    case 'CallWidgetFunctionNode':          return new CallWidgetFunctionNode(d.functionName || '');
     // Widget Event Nodes
     case 'ButtonOnClickedNode': {
       const widgetValue = d.controls?.widgetSelector || '';

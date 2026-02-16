@@ -540,3 +540,70 @@ export class CheckBoxOnCheckStateChangedNode extends ClassicPreset.Node {
   }
 }
 registerNode('CheckBox OnCheckStateChanged', 'UI Events', () => new CheckBoxOnCheckStateChangedNode());
+
+// ============================================================
+//  Widget Instance Interaction Nodes (for Actor Blueprints)
+//  These nodes allow actor blueprints to access widget variables,
+//  call widget functions, and interact with widget instances.
+// ============================================================
+
+// ── Get Widget Variable ─────────────────────────────────────
+export class GetWidgetVariableNode extends ClassicPreset.Node {
+  public variableName: ClassicPreset.InputControl<'text'>;
+
+  constructor(varName: string = '') {
+    super('Get Widget Variable');
+    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.variableName = new ClassicPreset.InputControl('text', { initial: varName });
+    this.addControl('variableName', this.variableName);
+    this.addOutput('value', new ClassicPreset.Output(strSocket, 'Value')); // Generic output
+  }
+
+  getVariableName(): string {
+    return this.variableName.value || '';
+  }
+}
+registerNode('Get Widget Variable', 'UI', () => new GetWidgetVariableNode());
+
+// ── Set Widget Variable ─────────────────────────────────────
+export class SetWidgetVariableNode extends ClassicPreset.Node {
+  public variableName: ClassicPreset.InputControl<'text'>;
+
+  constructor(varName: string = '') {
+    super('Set Widget Variable');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.variableName = new ClassicPreset.InputControl('text', { initial: varName });
+    this.addControl('variableName', this.variableName);
+    this.addInput('value', new ClassicPreset.Input(strSocket, 'Value')); // Generic input
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getVariableName(): string {
+    return this.variableName.value || '';
+  }
+}
+registerNode('Set Widget Variable', 'UI', () => new SetWidgetVariableNode());
+
+// ── Call Widget Function ────────────────────────────────────
+export class CallWidgetFunctionNode extends ClassicPreset.Node {
+  public functionName: ClassicPreset.InputControl<'text'>;
+
+  constructor(funcName: string = '') {
+    super('Call Widget Function');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.functionName = new ClassicPreset.InputControl('text', { initial: funcName });
+    this.addControl('functionName', this.functionName);
+    // Generic inputs for function parameters (user can connect any type)
+    this.addInput('param1', new ClassicPreset.Input(strSocket, 'Param 1', true)); // optional
+    this.addInput('param2', new ClassicPreset.Input(strSocket, 'Param 2', true)); // optional
+    this.addInput('param3', new ClassicPreset.Input(strSocket, 'Param 3', true)); // optional
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getFunctionName(): string {
+    return this.functionName.value || '';
+  }
+}
+registerNode('Call Widget Function', 'UI', () => new CallWidgetFunctionNode());

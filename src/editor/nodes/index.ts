@@ -329,4 +329,8 @@ export {
   TextBoxOnTextCommittedNode,
   SliderOnValueChangedNode,
   CheckBoxOnCheckStateChangedNode,
+  // Widget Instance Interaction Nodes
+  GetWidgetVariableNode,
+  SetWidgetVariableNode,
+  CallWidgetFunctionNode,
 } from './ui/WidgetNodes';

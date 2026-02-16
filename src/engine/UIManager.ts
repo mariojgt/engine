@@ -89,6 +89,8 @@ interface WidgetInstance {
   isInViewport: boolean;
   /** Event handlers: `widgetName:eventType` → handler function */
   eventHandlers: Map<string, WidgetEventHandler>;
+  /** Widget blueprint state: variables and functions accessible from outside */
+  state: any;
 }
 
 let _handleCounter = 0;
@@ -198,6 +200,12 @@ export class UIManager {
       this._buildWidgetDOM(bp.widgets[bp.rootWidgetId], bp.widgets, rootEl, elementsByName, elementsById);
     }
 
+    // Create widget state object to store variables and functions
+    const state: any = {
+      __variables: {}, // Stores widget variables
+      __functions: {}, // Stores widget functions
+    };
+
     const inst: WidgetInstance = {
       handle,
       blueprintId,
@@ -207,6 +215,7 @@ export class UIManager {
       elementsById,
       isInViewport: false,
       eventHandlers: new Map(),
+      state,
     };
     this._instances.set(handle, inst);
 
@@ -217,13 +226,30 @@ export class UIManager {
     if ((bp as any).compiledCode) {
       try {
         console.log(`[UIManager] Executing widget blueprint code for "${bp.name || bp.id}"`);
-        // The compiled code should export a __setupWidgetEvents function
-        // We execute it in a context that has access to print and __uiManager
+        // The compiled code defines variables and functions.
+        // We execute it in a context that stores them in the state object.
         // Use engine's print function if available, otherwise fall back to console.log
         const print = this._printFn || ((msg: any) => console.log('[Widget BP]', msg));
-        const setupFn = new Function('__widgetHandle', '__uiManager', 'print', (bp as any).compiledCode + '\nif (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);');
-        setupFn(handle, this, print);
+
+        // Wrap the compiled code to capture variables and functions in the state object
+        const wrappedCode = `
+          const __widgetState = arguments[3];
+          ${(bp as any).compiledCode}
+          // Store all variables and functions in state for external access
+          __widgetState.__variables = {};
+          __widgetState.__functions = {};
+          // Capture variables starting with __var_
+          ${this._generateVariableCaptureCode((bp as any).compiledCode)}
+          // Capture functions starting with __fn_
+          ${this._generateFunctionCaptureCode((bp as any).compiledCode)}
+          // Run setup
+          if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(arguments[0], arguments[1]);
+        `;
+
+        const setupFn = new Function('__widgetHandle', '__uiManager', 'print', '__widgetState', wrappedCode);
+        setupFn(handle, this, print, state);
         console.log(`[UIManager] Widget event handlers registered for "${bp.name || bp.id}"`);
+        console.log(`[UIManager] Widget state:`, state);
       } catch (err) {
         console.error(`[UIManager] Error executing widget blueprint code:`, err);
       }
@@ -897,5 +923,95 @@ export class UIManager {
       el.style.transform = parts.join(' ');
       el.style.transformOrigin = `${widget.renderPivot.x * 100}% ${widget.renderPivot.y * 100}%`;
     }
+  }
+
+  // ── Widget State Access API ────────────────────────────────
+
+  /**
+   * Generate code to capture variables from compiled widget code.
+   * Extracts all __var_* variable declarations and stores them in state.
+   */
+  private _generateVariableCaptureCode(compiledCode: string): string {
+    const varMatches = compiledCode.match(/let __var_(\w+)/g);
+    if (!varMatches) return '';
+
+    const captures: string[] = [];
+    for (const match of varMatches) {
+      const varName = match.replace('let __var_', '');
+      captures.push(`__widgetState.__variables['${varName}'] = { get: () => __var_${varName}, set: (v) => { __var_${varName} = v; } };`);
+    }
+    return captures.join('\n');
+  }
+
+  /**
+   * Generate code to capture functions from compiled widget code.
+   * Extracts all __fn_* function declarations and stores them in state.
+   */
+  private _generateFunctionCaptureCode(compiledCode: string): string {
+    const funcMatches = compiledCode.match(/function __fn_(\w+)/g);
+    if (!funcMatches) return '';
+
+    const captures: string[] = [];
+    for (const match of funcMatches) {
+      const funcName = match.replace('function __fn_', '');
+      captures.push(`__widgetState.__functions['${funcName}'] = __fn_${funcName};`);
+    }
+    return captures.join('\n');
+  }
+
+  /**
+   * Get a variable value from a widget instance.
+   * Usage from compiled code: __uiManager.getWidgetVariable(widgetHandle, 'Counter')
+   */
+  getWidgetVariable(handle: string, varName: string): any {
+    const inst = this._instances.get(handle);
+    if (!inst) {
+      console.warn(`[UIManager] getWidgetVariable: widget handle "${handle}" not found`);
+      return undefined;
+    }
+    const varAccessor = inst.state.__variables?.[varName];
+    if (!varAccessor) {
+      console.warn(`[UIManager] getWidgetVariable: variable "${varName}" not found in widget "${inst.blueprint.name}"`);
+      return undefined;
+    }
+    return varAccessor.get();
+  }
+
+  /**
+   * Set a variable value on a widget instance.
+   * Usage from compiled code: __uiManager.setWidgetVariable(widgetHandle, 'Counter', 42)
+   */
+  setWidgetVariable(handle: string, varName: string, value: any): void {
+    const inst = this._instances.get(handle);
+    if (!inst) {
+      console.warn(`[UIManager] setWidgetVariable: widget handle "${handle}" not found`);
+      return;
+    }
+    const varAccessor = inst.state.__variables?.[varName];
+    if (!varAccessor) {
+      console.warn(`[UIManager] setWidgetVariable: variable "${varName}" not found in widget "${inst.blueprint.name}"`);
+      return;
+    }
+    varAccessor.set(value);
+    console.log(`[UIManager] Set widget "${inst.blueprint.name}" variable "${varName}" = ${value}`);
+  }
+
+  /**
+   * Call a function on a widget instance.
+   * Usage from compiled code: __uiManager.callWidgetFunction(widgetHandle, 'MyFunction', arg1, arg2, ...)
+   */
+  callWidgetFunction(handle: string, funcName: string, ...args: any[]): any {
+    const inst = this._instances.get(handle);
+    if (!inst) {
+      console.warn(`[UIManager] callWidgetFunction: widget handle "${handle}" not found`);
+      return undefined;
+    }
+    const func = inst.state.__functions?.[funcName];
+    if (!func || typeof func !== 'function') {
+      console.warn(`[UIManager] callWidgetFunction: function "${funcName}" not found in widget "${inst.blueprint.name}"`);
+      return undefined;
+    }
+    console.log(`[UIManager] Calling widget "${inst.blueprint.name}" function "${funcName}" with args:`, args);
+    return func(...args);
   }
 }
