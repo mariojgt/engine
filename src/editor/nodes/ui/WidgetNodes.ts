@@ -12,6 +12,7 @@ import {
   numSocket,
   boolSocket,
   colorSocket,
+  widgetSocket,
   registerNode,
 } from '../sockets';
 
@@ -87,7 +88,7 @@ export class CreateWidgetNode extends ClassicPreset.Node {
     (selectCtrl as any)._parentNode = this;
     this.addControl('widgetBP', selectCtrl);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('widget', new ClassicPreset.Output(strSocket, 'Widget'));
+    this.addOutput('widget', new ClassicPreset.Output(widgetSocket, 'Widget'));
   }
 }
 registerNode('Create Widget', 'UI', () => new CreateWidgetNode());
@@ -97,7 +98,7 @@ export class AddToViewportNode extends ClassicPreset.Node {
   constructor() {
     super('Add to Viewport');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -108,7 +109,7 @@ export class RemoveFromViewportNode extends ClassicPreset.Node {
   constructor() {
     super('Remove from Viewport');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -349,7 +350,7 @@ export class PlayWidgetAnimationNode extends ClassicPreset.Node {
   constructor() {
     super('Play Widget Animation');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
     this.addInput('animName', new ClassicPreset.Input(strSocket, 'Anim Name'));
     this.addControl('fallbackAnim', new ClassicPreset.InputControl('text', { initial: '' }));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
@@ -614,7 +615,7 @@ export class GetWidgetVariableNode extends ClassicPreset.Node {
     this.widgetBPId = bpId;
     this.widgetBPName = bpName;
 
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
 
     // Widget blueprint type selector
     this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
@@ -647,7 +648,7 @@ export class SetWidgetVariableNode extends ClassicPreset.Node {
     this.widgetBPName = bpName;
 
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
 
     // Widget blueprint type selector
     this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
@@ -681,7 +682,7 @@ export class CallWidgetFunctionNode extends ClassicPreset.Node {
     this.widgetBPName = bpName;
 
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
+    this.addInput('widget', new ClassicPreset.Input(widgetSocket, 'Widget'));
 
     // Widget blueprint type selector
     this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);

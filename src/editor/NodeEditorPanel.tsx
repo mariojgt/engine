@@ -3225,7 +3225,7 @@ function showContextMenu(
 //  Dialogs — Add Variable, Add Function/Macro, Edit Variable, Struct
 // ============================================================
 function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?: VarType): string {
-  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color'] as const;
+  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget'] as const;
   let html = '';
   for (const t of base) {
     html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;

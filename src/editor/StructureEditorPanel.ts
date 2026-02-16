@@ -34,7 +34,7 @@ export class StructureEditorPanel {
 
   /** Build all available type options (base + project structs/enums) */
   private _buildTypeOptions(selected?: VarType): string {
-    const base: VarType[] = ['Float', 'Boolean', 'Vector3', 'String'];
+    const base: VarType[] = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget'];
     let html = '';
     for (const t of base) {
       html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;

@@ -10,6 +10,7 @@ export const vec3Socket  = new ClassicPreset.Socket('Vector3'); // yellow
 export const strSocket   = new ClassicPreset.Socket('String');  // magenta
 export const colorSocket = new ClassicPreset.Socket('Color');   // coral – hex colour
 export const objectSocket = new ClassicPreset.Socket('ObjectRef'); // blue – generic object reference
+export const widgetSocket = new ClassicPreset.Socket('Widget'); // purple – widget reference
 
 // ============================================================
 //  Socket Type Colours  (UE-style)
@@ -23,6 +24,7 @@ export const SOCKET_COLORS: Record<string, string> = {
   Color:   '#ff6b9d',   // coral / pink – hex colour
   Enum:    '#00bcd4',   // cyan – enum sockets
   ObjectRef: '#0099ff', // bright blue – object references
+  Widget:  '#9b59b6',   // purple – widget references
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
 

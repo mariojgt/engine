@@ -3,7 +3,7 @@
 //  Stores variables, functions, macros, and graph data.
 // ============================================================
 
-export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String' | 'Color' | 'ObjectRef' | `Struct:${string}` | `Enum:${string}` | `ClassRef:${string}`;
+export type VarType = 'Float' | 'Boolean' | 'Vector3' | 'String' | 'Color' | 'ObjectRef' | 'Widget' | `Struct:${string}` | `Enum:${string}` | `ClassRef:${string}`;
 
 export interface BlueprintVariable {
   name: string;
@@ -207,6 +207,7 @@ export class BlueprintData {
       case 'Vector3': return { x: 0, y: 0, z: 0 };
       case 'String': return '';
       case 'Color': return '#ffffff';
+      case 'Widget': return null;
       default:
         if (type.startsWith('Struct:')) {
           const structId = type.slice(7);
