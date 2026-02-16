@@ -116,159 +116,230 @@ registerNode('Remove from Viewport', 'UI', () => new RemoveFromViewportNode());
 
 // ── Set Widget Text ─────────────────────────────────────────
 export class SetWidgetTextNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Widget Text');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('text', new ClassicPreset.Input(strSocket, 'Text'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
-    this.addControl('fallbackText', new ClassicPreset.InputControl('text', { initial: 'Hello' }));
+    // Widget selector dropdown - filters to Text widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'Text');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Widget Text', 'UI', () => new SetWidgetTextNode());
 
 // ── Get Widget Text ─────────────────────────────────────────
 export class GetWidgetTextNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Get Widget Text');
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to Text widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'Text');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('text', new ClassicPreset.Output(strSocket, 'Text'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Get Widget Text', 'UI', () => new GetWidgetTextNode());
 
 // ── Set Widget Visibility ───────────────────────────────────
 export class SetWidgetVisibilityNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Widget Visibility');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('visible', new ClassicPreset.Input(boolSocket, 'Visible'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - shows all widgets
+    this.widgetSelector = new WidgetSelectorControl('', '');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Widget Visibility', 'UI', () => new SetWidgetVisibilityNode());
 
 // ── Set Widget Color ────────────────────────────────────────
 export class SetWidgetColorNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Widget Color');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('color', new ClassicPreset.Input(colorSocket, 'Color'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to Text widgets (they have color)
+    this.widgetSelector = new WidgetSelectorControl('', 'Text');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Widget Color', 'UI', () => new SetWidgetColorNode());
 
 // ── Set Widget Opacity ──────────────────────────────────────
 export class SetWidgetOpacityNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Widget Opacity');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('opacity', new ClassicPreset.Input(numSocket, 'Opacity'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - shows all widgets
+    this.widgetSelector = new WidgetSelectorControl('', '');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Widget Opacity', 'UI', () => new SetWidgetOpacityNode());
 
 // ── Set Progress Bar Percent ────────────────────────────────
 export class SetProgressBarPercentNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Progress Bar Percent');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('percent', new ClassicPreset.Input(numSocket, 'Percent'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to ProgressBar widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'ProgressBar');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Progress Bar Percent', 'UI', () => new SetProgressBarPercentNode());
 
 // ── Get Progress Bar Percent ────────────────────────────────
 export class GetProgressBarPercentNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Get Progress Bar Percent');
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to ProgressBar widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'ProgressBar');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('percent', new ClassicPreset.Output(numSocket, 'Percent'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Get Progress Bar Percent', 'UI', () => new GetProgressBarPercentNode());
 
 // ── Set Slider Value ────────────────────────────────────────
 export class SetSliderValueNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set Slider Value');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('value', new ClassicPreset.Input(numSocket, 'Value'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to Slider widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'Slider');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set Slider Value', 'UI', () => new SetSliderValueNode());
 
 // ── Get Slider Value ────────────────────────────────────────
 export class GetSliderValueNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Get Slider Value');
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to Slider widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'Slider');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('value', new ClassicPreset.Output(numSocket, 'Value'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Get Slider Value', 'UI', () => new GetSliderValueNode());
 
 // ── Set CheckBox State ──────────────────────────────────────
 export class SetCheckBoxStateNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Set CheckBox State');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
     this.addInput('checked', new ClassicPreset.Input(boolSocket, 'Checked'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to CheckBox widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'CheckBox');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Set CheckBox State', 'UI', () => new SetCheckBoxStateNode());
 
 // ── Get CheckBox State ──────────────────────────────────────
 export class GetCheckBoxStateNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Get CheckBox State');
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - filters to CheckBox widgets only
+    this.widgetSelector = new WidgetSelectorControl('', 'CheckBox');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('checked', new ClassicPreset.Output(boolSocket, 'Checked'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Get CheckBox State', 'UI', () => new GetCheckBoxStateNode());
 
 // ── Is Widget Visible ───────────────────────────────────────
 export class IsWidgetVisibleNode extends ClassicPreset.Node {
+  public widgetSelector: WidgetSelectorControl;
+
   constructor() {
     super('Is Widget Visible');
-    this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.addInput('widgetName', new ClassicPreset.Input(strSocket, 'Widget Name'));
-    this.addControl('fallbackName', new ClassicPreset.InputControl('text', { initial: '' }));
+    // Widget selector dropdown - shows all widgets
+    this.widgetSelector = new WidgetSelectorControl('', '');
+    this.addControl('widgetSelector', this.widgetSelector);
     this.addOutput('visible', new ClassicPreset.Output(boolSocket, 'Visible'));
+  }
+
+  getWidgetName(): string {
+    return this.widgetSelector.value;
   }
 }
 registerNode('Is Widget Visible', 'UI', () => new IsWidgetVisibleNode());

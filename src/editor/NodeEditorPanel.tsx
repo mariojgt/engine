@@ -1060,39 +1060,29 @@ function resolveValue(
 
     // ── Widget / UI getters ───────────────────────────────────
     case 'Get Widget Text': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
-      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
-      return `(__uiManager ? __uiManager.getText(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : '')`;
+      const n = node as GetWidgetTextNode;
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      return `(__uiManager ? __uiManager.getText(__widgetHandle, ${wName}) : '')`;
     }
     case 'Get Progress Bar Percent': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
-      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
-      return `(__uiManager ? __uiManager.getProgressBarPercent(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : 0)`;
+      const n = node as GetProgressBarPercentNode;
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      return `(__uiManager ? __uiManager.getProgressBarPercent(__widgetHandle, ${wName}) : 0)`;
     }
     case 'Get Slider Value': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
-      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
-      return `(__uiManager ? __uiManager.getSliderValue(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : 0)`;
+      const n = node as GetSliderValueNode;
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      return `(__uiManager ? __uiManager.getSliderValue(__widgetHandle, ${wName}) : 0)`;
     }
     case 'Get CheckBox State': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
-      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
-      return `(__uiManager ? __uiManager.getCheckBoxState(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : false)`;
+      const n = node as GetCheckBoxStateNode;
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      return `(__uiManager ? __uiManager.getCheckBoxState(__widgetHandle, ${wName}) : false)`;
     }
     case 'Is Widget Visible': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
-      const wCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(wCtrl?.value ?? ''));
-      return `(__uiManager ? __uiManager.isVisible(${wS ? rv(wS.nid, wS.ok) : '""'}, ${wName}) : false)`;
+      const n = node as IsWidgetVisibleNode;
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      return `(__uiManager ? __uiManager.isVisible(__widgetHandle, ${wName}) : false)`;
     }
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
@@ -1903,87 +1893,65 @@ function genAction(
       break;
     }
     case 'Set Widget Text': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetWidgetTextNode;
       const tS = inputSrc.get(`${nodeId}.text`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const tCtrl = node.controls['fallbackText'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
-      const text = tS ? rv(tS.nid, tS.ok) : JSON.stringify(String(tCtrl?.value ?? 'Hello'));
-      lines.push(`if (__uiManager) __uiManager.setText(${wh}, ${wName}, ${text});`);
+      const wName = JSON.stringify(n.widgetSelector.value || '');
+      const text = tS ? rv(tS.nid, tS.ok) : '""';
+      lines.push(`if (__uiManager) __uiManager.setText(__widgetHandle, ${wName}, ${text});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Widget Visibility': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetWidgetVisibilityNode;
       const vS = inputSrc.get(`${nodeId}.visible`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const vis = vS ? rv(vS.nid, vS.ok) : 'true';
-      lines.push(`if (__uiManager) __uiManager.setVisibility(${wh}, ${wName}, ${vis});`);
+      lines.push(`if (__uiManager) __uiManager.setVisibility(__widgetHandle, ${wName}, ${vis});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Widget Color': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetWidgetColorNode;
       const cS = inputSrc.get(`${nodeId}.color`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const color = cS ? rv(cS.nid, cS.ok) : '"#ffffff"';
-      lines.push(`if (__uiManager) __uiManager.setColor(${wh}, ${wName}, ${color});`);
+      lines.push(`if (__uiManager) __uiManager.setColor(__widgetHandle, ${wName}, ${color});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Widget Opacity': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetWidgetOpacityNode;
       const oS = inputSrc.get(`${nodeId}.opacity`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const opacity = oS ? rv(oS.nid, oS.ok) : '1';
-      lines.push(`if (__uiManager) __uiManager.setOpacity(${wh}, ${wName}, ${opacity});`);
+      lines.push(`if (__uiManager) __uiManager.setOpacity(__widgetHandle, ${wName}, ${opacity});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Progress Bar Percent': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetProgressBarPercentNode;
       const pS = inputSrc.get(`${nodeId}.percent`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const pct = pS ? rv(pS.nid, pS.ok) : '0';
-      lines.push(`if (__uiManager) __uiManager.setProgressBarPercent(${wh}, ${wName}, ${pct});`);
+      lines.push(`if (__uiManager) __uiManager.setProgressBarPercent(__widgetHandle, ${wName}, ${pct});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set Slider Value': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetSliderValueNode;
       const vS = inputSrc.get(`${nodeId}.value`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const val = vS ? rv(vS.nid, vS.ok) : '0';
-      lines.push(`if (__uiManager) __uiManager.setSliderValue(${wh}, ${wName}, ${val});`);
+      lines.push(`if (__uiManager) __uiManager.setSliderValue(__widgetHandle, ${wName}, ${val});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Set CheckBox State': {
-      const wS = inputSrc.get(`${nodeId}.widget`);
-      const nS = inputSrc.get(`${nodeId}.widgetName`);
+      const n = node as SetCheckBoxStateNode;
       const cS = inputSrc.get(`${nodeId}.checked`);
-      const nCtrl = node.controls['fallbackName'] as ClassicPreset.InputControl<'text'>;
-      const wh = wS ? rv(wS.nid, wS.ok) : '""';
-      const wName = nS ? rv(nS.nid, nS.ok) : JSON.stringify(String(nCtrl?.value ?? ''));
+      const wName = JSON.stringify(n.widgetSelector.value || '');
       const checked = cS ? rv(cS.nid, cS.ok) : 'false';
-      lines.push(`if (__uiManager) __uiManager.setCheckBoxState(${wh}, ${wName}, ${checked});`);
+      lines.push(`if (__uiManager) __uiManager.setCheckBoxState(__widgetHandle, ${wName}, ${checked});`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
