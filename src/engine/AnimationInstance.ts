@@ -15,10 +15,12 @@ import type {
   AnimStateData,
   AnimTransitionData,
   BlendSpace1D,
-  AnimEventVariable,
 } from '../editor/AnimBlueprintData';
+import type { AnimTransitionRuleGroup, AnimTransitionRule, TransitionBlendProfile } from '../editor/AnimBlueprintData';
+import type { VarType } from '../editor/BlueprintData';
 import type { CharacterController } from './CharacterController';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
+import type { GameObject } from './GameObject';
 
 /** Runtime state for a single AnimationInstance */
 export class AnimationInstance {
@@ -38,6 +40,9 @@ export class AnimationInstance {
   private _transitionTimeLeft = 0;
   /** Crossfade total duration */
   private _transitionDuration = 0;
+  private _transitionFromActions: THREE.AnimationAction[] = [];
+  private _transitionToActions: THREE.AnimationAction[] = [];
+  private _transitionCurve: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' = 'linear';
 
   /** Runtime variable values (written by event graph, read by transition conditions) */
   public variables: Map<string, number | boolean | string> = new Map();
@@ -45,16 +50,24 @@ export class AnimationInstance {
   /** Reference to character controller for auto-populating common variables */
   public characterController: CharacterController | null = null;
 
+  /** Owning game object (used for event graph context) */
+  public owner: GameObject | null = null;
+
   /** Compiled event graph script (if the AnimBP has a blueprint event graph) */
   private _eventScript: ScriptComponent | null = null;
   private _eventScriptStarted = false;
 
   /** Avoid spamming warnings when no action is playing */
   private _warnedNoAction = false;
+  private _debugLoggedBeginPlay = false;
+  private _debugLoggedNoCode = false;
+  private _debugTransitionLogCooldown = 0;
+  private _debugTransitionLogEnabled = true;
 
   /** Scene & physics references for script execution context */
   public sceneRef: any = null;
   public physicsRef: any = null;
+  public printFn: ((value: any) => void) | null = null;
   /** Elapsed time accumulator for script context */
   private _elapsedTime = 0;
 
@@ -62,14 +75,19 @@ export class AnimationInstance {
     asset: AnimBlueprintAsset,
     mixer: THREE.AnimationMixer,
     animations: THREE.AnimationClip[],
+    owner: GameObject | null = null,
   ) {
     this.asset = asset;
     this.mixer = mixer;
     this.animations = animations;
+    this.owner = owner;
 
-    // Initialize variables from asset defaults
-    for (const v of asset.eventVariables) {
-      this.variables.set(v.name, v.defaultValue);
+    // Initialize variables from BlueprintData defaults
+    for (const v of asset.blueprintData.variables) {
+      const type = v.type as VarType;
+      if (type === 'Float') this.variables.set(v.name, Number(v.defaultValue) || 0);
+      else if (type === 'Boolean') this.variables.set(v.name, !!v.defaultValue);
+      else if (type === 'String') this.variables.set(v.name, String(v.defaultValue ?? ''));
     }
 
     // Set initial state
@@ -102,8 +120,18 @@ export class AnimationInstance {
     clipNames: string[];
     transitioning: boolean;
     stateTime: number;
+    timeRemaining: number;
+    normalizedTime: number;
+    stateRelevance: number;
   } {
     const state = this._findState(this._currentStateId);
+    const primaryAction = this._currentActions[0];
+    const duration = primaryAction?.getClip().duration || 0;
+    const normalized = duration > 0 ? (primaryAction!.time / duration) : 0;
+    const remaining = duration > 0 ? Math.max(0, duration - primaryAction!.time) : 0;
+    const relevance = this._currentActions.length > 0
+      ? Math.max(...this._currentActions.map(a => a.getEffectiveWeight()))
+      : 0;
     return {
       stateId: this._currentStateId,
       stateName: state?.name ?? '(none)',
@@ -113,6 +141,9 @@ export class AnimationInstance {
       clipNames: this.animations.map(a => a.name),
       transitioning: this._transitioning,
       stateTime: this._stateTime,
+      timeRemaining: remaining,
+      normalizedTime: normalized,
+      stateRelevance: relevance,
     };
   }
 
@@ -124,6 +155,7 @@ export class AnimationInstance {
     }
     const sc = new ScriptComponent();
     sc.code = code;
+    console.log(`[AnimBP] setEventGraphCode: ${this.asset.name} (${code.length} chars)`);
     if (sc.compile()) {
       this._eventScript = sc;
       this._eventScriptStarted = false;
@@ -137,6 +169,17 @@ export class AnimationInstance {
   update(dt: number): void {
     this._stateTime += dt;
     this._elapsedTime += dt;
+    if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown > 0) {
+      this._debugTransitionLogCooldown -= dt;
+    }
+
+    // Hot-load event graph code if it was compiled after instance creation.
+    if (!this._eventScript && this.asset.compiledCode) {
+      this.setEventGraphCode(this.asset.compiledCode);
+    } else if (!this._eventScript && !this.asset.compiledCode && !this._debugLoggedNoCode) {
+      this._debugLoggedNoCode = true;
+      console.warn(`[AnimBP] No compiled code for ${this.asset.name}`);
+    }
 
     // 1. Update event variables — either from event graph script or auto-populate
     if (this._eventScript) {
@@ -148,8 +191,22 @@ export class AnimationInstance {
     // 2. Handle ongoing transitions
     if (this._transitioning) {
       this._transitionTimeLeft -= dt;
+      const total = Math.max(0.0001, this._transitionDuration);
+      const t = Math.min(1, Math.max(0, 1 - this._transitionTimeLeft / total));
+      const w = this._applyCurve(t, this._transitionCurve);
+      for (const a of this._transitionFromActions) {
+        a.setEffectiveWeight(1 - w);
+      }
+      for (const a of this._transitionToActions) {
+        a.setEffectiveWeight(w);
+      }
       if (this._transitionTimeLeft <= 0) {
         this._transitioning = false;
+        for (const a of this._transitionFromActions) {
+          a.stop();
+        }
+        this._transitionFromActions = [];
+        this._transitionToActions = [];
       }
     }
 
@@ -208,22 +265,27 @@ export class AnimationInstance {
     if (!this._eventScript) return;
 
     // Build script context — gameObject is the owning pawn
-    const go = this.characterController?.gameObject ?? null;
+    const go = this.characterController?.gameObject ?? this.owner ?? null;
     if (!go) return;
 
     const ctx: ScriptContext = {
       gameObject: go,
       deltaTime: dt,
       elapsedTime: this._elapsedTime,
-      print: (v: any) => console.log('[AnimBP]', v),
+      print: this.printFn ?? ((v: any) => console.log('[AnimBP]', v)),
       physics: this.physicsRef,
       scene: this.sceneRef,
+      animInstance: this,
     };
 
     // Run beginPlay once
     if (!this._eventScriptStarted) {
       this._eventScript.beginPlay(ctx);
       this._eventScriptStarted = true;
+      if (!this._debugLoggedBeginPlay) {
+        this._debugLoggedBeginPlay = true;
+        console.log(`[AnimBP] BeginPlay fired for ${this.asset.name} on ${go.name}`);
+      }
     }
 
     // Run tick every frame
@@ -241,10 +303,25 @@ export class AnimationInstance {
       // Don't transition to ourselves (unless wildcard)
       if (t.toStateId === this._currentStateId && t.fromStateId !== '*') continue;
 
+      const condResult = this._evaluateTransitionRules(t);
+      if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown <= 0) {
+        const varName = this._getConditionVarName(t);
+        const varVal = varName ? this.variables.get(varName) : undefined;
+        console.log(
+          `[AnimBP] Transition check: ${this.asset.name} ${t.fromStateId} -> ${t.toStateId} ` +
+          `expr="${this._getTransitionLabel(t) || 'true'}" result=${condResult}` +
+          (varName ? ` ${varName}=${String(varVal)}` : '')
+        );
+      }
+
       // Evaluate condition
-      if (this._evaluateCondition(t.conditionExpr)) {
+      if (condResult) {
         candidates.push(t);
       }
+    }
+
+    if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown <= 0) {
+      this._debugTransitionLogCooldown = 0.5;
     }
 
     if (candidates.length === 0) return;
@@ -256,7 +333,49 @@ export class AnimationInstance {
     // Transition to new state
     const targetState = this._findState(winner.toStateId);
     if (targetState && targetState.id !== this._currentStateId) {
-      this._transitionTo(targetState, winner.blendTime);
+      this._transitionTo(targetState, winner.blendProfile, winner.blendTime);
+    }
+  }
+
+  private _evaluateTransitionRules(t: AnimTransitionData): boolean {
+    const groups = t.rules ?? [];
+    if (groups.length === 0) {
+      if (t.conditionExpr) return this._evaluateCondition(t.conditionExpr);
+      return true;
+    }
+    const groupResults = groups.map(g => this._evaluateRuleGroup(g));
+    const logic = t.ruleLogic ?? 'AND';
+    return logic === 'AND'
+      ? groupResults.every(Boolean)
+      : groupResults.some(Boolean);
+  }
+
+  private _evaluateRuleGroup(group: AnimTransitionRuleGroup): boolean {
+    if (!group.rules || group.rules.length === 0) return false;
+    const results = group.rules.map(r => this._evaluateRule(r));
+    return group.op === 'AND'
+      ? results.every(Boolean)
+      : results.some(Boolean);
+  }
+
+  private _evaluateRule(rule: AnimTransitionRule): boolean {
+    if (rule.kind === 'expr') {
+      return this._evaluateCondition(rule.expr);
+    }
+
+    const varVal = this.variables.get(rule.varName);
+    if (varVal === undefined) return false;
+
+    const rhs = rule.value;
+    switch (rule.op) {
+      case '==': return varVal == rhs;
+      case '!=': return varVal != rhs;
+      case '>': return Number(varVal) > Number(rhs);
+      case '<': return Number(varVal) < Number(rhs);
+      case '>=': return Number(varVal) >= Number(rhs);
+      case '<=': return Number(varVal) <= Number(rhs);
+      case 'contains': return String(varVal).includes(String(rhs));
+      default: return false;
     }
   }
 
@@ -323,9 +442,57 @@ export class AnimationInstance {
     }
   }
 
+  private _getConditionVarName(t: AnimTransitionData): string | null {
+    const groups = t.rules ?? [];
+    for (const g of groups) {
+      for (const r of g.rules) {
+        if (r.kind === 'compare') return r.varName;
+      }
+    }
+    if (t.conditionExpr) {
+      const clean = t.conditionExpr.trim();
+      if (!clean || clean === 'true' || clean === 'false') return null;
+      if (clean.startsWith('!')) return clean.slice(1).trim().match(/^\w+$/)?.[0] ?? null;
+      const match = clean.match(/^(\w+)\b/);
+      return match ? match[1] : null;
+    }
+    return null;
+  }
+
+  private _getTransitionLabel(t: AnimTransitionData): string {
+    const groups = t.rules ?? [];
+    if (groups.length === 0) return t.conditionExpr ?? '';
+    const groupLabels = groups.map(g => {
+      const ruleLabels = g.rules.map(r => {
+        if (r.kind === 'expr') return r.expr;
+        const rhs = r.valueType === 'String' ? JSON.stringify(r.value) : String(r.value);
+        return `${r.varName} ${r.op} ${rhs}`;
+      });
+      return ruleLabels.join(` ${g.op} `);
+    });
+    const logic = t.ruleLogic ?? 'AND';
+    return groupLabels.join(` ${logic} `);
+  }
+
+  private _applyCurve(t: number, curve: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'): number {
+    switch (curve) {
+      case 'easeIn': return t * t;
+      case 'easeOut': return t * (2 - t);
+      case 'easeInOut': return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      default: return t;
+    }
+  }
+
   /** Transition to a new state with crossfade */
-  private _transitionTo(state: AnimStateData, blendTime: number): void {
+  private _transitionTo(state: AnimStateData, blendProfile?: TransitionBlendProfile, legacyBlendTime?: number): void {
     const oldActions = [...this._currentActions];
+    const prevState = this._findState(this._currentStateId);
+    let prevNormalized = 0;
+    if (oldActions[0]) {
+      const dur = oldActions[0].getClip().duration || 0;
+      if (dur > 0) prevNormalized = oldActions[0].time / dur;
+    }
+
     this._currentStateId = state.id;
     this._stateTime = 0;
     this._warnedNoAction = false;
@@ -333,20 +500,27 @@ export class AnimationInstance {
     // Enter new state (starts new actions)
     this._enterState(state);
 
-    // Crossfade: fade out old, fade in new
+    if (prevState && state.syncGroup && prevState.syncGroup && prevState.syncGroup === state.syncGroup) {
+      for (const a of this._currentActions) {
+        const dur = a.getClip().duration || 0;
+        if (dur > 0) a.time = prevNormalized * dur;
+      }
+    }
+
+    const blendTime = blendProfile?.time ?? legacyBlendTime ?? 0;
+    this._transitionCurve = blendProfile?.curve ?? 'linear';
+
     if (blendTime > 0 && oldActions.length > 0) {
       this._transitioning = true;
       this._transitionDuration = blendTime;
       this._transitionTimeLeft = blendTime;
+      this._transitionFromActions = oldActions;
+      this._transitionToActions = [...this._currentActions];
 
-      for (const newAction of this._currentActions) {
-        // Use Three.js crossFadeFrom for smooth blending
-        if (oldActions[0]) {
-          newAction.crossFadeFrom(oldActions[0], blendTime, true);
-        }
+      for (const a of this._transitionToActions) {
+        a.setEffectiveWeight(0);
       }
     } else {
-      // Instant switch — stop old actions
       for (const old of oldActions) {
         old.stop();
       }

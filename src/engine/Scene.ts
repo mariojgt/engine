@@ -614,6 +614,56 @@ export class Scene {
               if (!(go as any)._skeletalMeshMixers) (go as any)._skeletalMeshMixers = [];
               (go as any)._skeletalMeshMixers.push(mixer);
             }
+
+            const animations = existing.userData.__animations as THREE.AnimationClip[] | undefined;
+            if (animations && animations.length > 0 && mixer) {
+              // Check if an Animation Blueprint is assigned
+              const abpId = cfg.animationBlueprintId;
+              const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
+
+              if (abpAsset) {
+                const strictMatch = !!cfg.strictSkeletonMatching;
+                let skeletonMismatch = false;
+                if (abpAsset.targetSkeletonMeshAssetId && abpAsset.targetSkeletonMeshAssetId !== cfg.meshAssetId) {
+                  console.warn('[AnimBP] Target mesh mismatch:', abpAsset.name, 'expected', abpAsset.targetSkeletonMeshAssetId, 'got', cfg.meshAssetId);
+                }
+                if (abpAsset.targetSkeletonId && meshAsset.skeleton?.assetId && abpAsset.targetSkeletonId !== meshAsset.skeleton.assetId) {
+                  console.warn('[AnimBP] Skeleton mismatch:', abpAsset.name, 'expected', abpAsset.targetSkeletonId, 'got', meshAsset.skeleton.assetId);
+                  skeletonMismatch = true;
+                }
+
+                if (skeletonMismatch && !strictMatch) {
+                  console.warn('[AnimBP] Skeleton mismatch detected — continuing anyway (Strict Skeleton off).');
+                }
+                if (skeletonMismatch && strictMatch) {
+                  console.warn('[AnimBP] Skeleton mismatch — blocking AnimBP (Strict Skeleton on).');
+                  skeletonMismatch = true;
+                }
+
+                if (!skeletonMismatch || !strictMatch) {
+                  const animInstance = new AnimationInstance(abpAsset, mixer, animations, go);
+                  existing.userData.__animationInstance = animInstance;
+
+                  if (go.characterController) {
+                    animInstance.characterController = go.characterController;
+                  }
+
+                  animInstance.sceneRef = this;
+
+                  if (!(go as any)._animationInstances) (go as any)._animationInstances = [];
+                  (go as any)._animationInstances.push(animInstance);
+                }
+              } else if (cfg.animationName) {
+                const clip = animations.find(a => a.name === cfg.animationName);
+                if (clip) {
+                  const action = mixer.clipAction(clip);
+                  action.setLoop(cfg.loopAnimation ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+                  action.clampWhenFinished = !cfg.loopAnimation;
+                  action.timeScale = cfg.animationSpeed;
+                  action.play();
+                }
+              }
+            }
           } else {
             // Dispose old one if it existed with a different mesh asset
             if (existing) existingSkeletalMeshes!.delete(comp.id);
@@ -675,6 +725,7 @@ export class Scene {
                 const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
 
                 if (abpAsset) {
+                  const strictMatch = !!cfg.strictSkeletonMatching;
                   let skeletonMismatch = false;
                   if (abpAsset.targetSkeletonMeshAssetId && abpAsset.targetSkeletonMeshAssetId !== cfg.meshAssetId) {
                     console.warn('[AnimBP] Target mesh mismatch:', abpAsset.name, 'expected', abpAsset.targetSkeletonMeshAssetId, 'got', cfg.meshAssetId);
@@ -684,9 +735,17 @@ export class Scene {
                     skeletonMismatch = true;
                   }
 
-                  if (!skeletonMismatch) {
+                  if (skeletonMismatch && !strictMatch) {
+                    console.warn('[AnimBP] Skeleton mismatch detected — continuing anyway (Strict Skeleton off).');
+                  }
+                  if (skeletonMismatch && strictMatch) {
+                    console.warn('[AnimBP] Skeleton mismatch — blocking AnimBP (Strict Skeleton on).');
+                    skeletonMismatch = true;
+                  }
+
+                  if (!skeletonMismatch || !strictMatch) {
                     // Create AnimationInstance driven by the state machine
-                    const animInstance = new AnimationInstance(abpAsset, mixer, animations);
+                    const animInstance = new AnimationInstance(abpAsset, mixer, animations, go);
                     wrapper.userData.__animationInstance = animInstance;
 
                     // Wire character controller if available

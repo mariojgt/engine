@@ -156,6 +156,16 @@ export class Engine {
       }
     }
 
+    // ── 2b. Wire character controllers into AnimBP instances ──
+    for (const go of this.scene.gameObjects) {
+      if (!go.characterController) continue;
+      const instances = (go as any)._animationInstances as AnimationInstance[] | undefined;
+      if (!instances) continue;
+      for (const inst of instances) {
+        inst.characterController = go.characterController;
+      }
+    }
+
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
@@ -246,6 +256,7 @@ export class Engine {
           for (const inst of instances) {
             // Ensure physics reference is available for event graph scripts
             if (!inst.physicsRef) inst.physicsRef = this.physics;
+            inst.printFn = this.onPrint;
             inst.update(dt);
           }
         }

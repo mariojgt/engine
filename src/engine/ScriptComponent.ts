@@ -11,6 +11,8 @@ export interface ScriptContext {
   scene?: any;
   /** UIManager reference so widget blueprint nodes can create/mutate UI at runtime */
   uiManager?: any;
+  /** AnimationInstance reference for AnimBP event graphs */
+  animInstance?: any;
 }
 
 /**
@@ -94,7 +96,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager;
+  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance;
 
 ${preamble}
 
@@ -110,6 +112,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   __physics = ctx.physics || null;
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
+  __animInstance = ctx.animInstance || null;
   ${beginPlay}
 };` : ''}
 
@@ -121,6 +124,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   __physics = ctx.physics || null;
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
+  __animInstance = ctx.animInstance || null;
   ${tick}
 };` : ''}
 
@@ -132,6 +136,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   __physics = ctx.physics || null;
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
+  __animInstance = ctx.animInstance || null;
   ${onDestroy}
 };` : ''}
 
@@ -151,7 +156,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
     if (!body.trim()) return null;
     return new Function(
       'ctx',
-      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\n${body}`
+      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\n${body}`
     ) as (ctx: ScriptContext) => void;
   }
 

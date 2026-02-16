@@ -164,6 +164,8 @@ export interface SkeletalMeshConfig {
   loopAnimation: boolean;
   /** Animation playback speed multiplier */
   animationSpeed: number;
+  /** Enforce skeleton compatibility checks at runtime */
+  strictSkeletonMatching?: boolean;
   /** Animation Blueprint asset ID (when set, overrides animationName) */
   animationBlueprintId?: string;
 }
@@ -332,6 +334,9 @@ export class ActorAsset {
       light: c.light ? { ...defaultLightConfig(c.light.lightType), ...c.light } : undefined,
       springArm: c.springArm ? { ...defaultSpringArmConfig(), ...c.springArm } : undefined,
       camera: c.camera ? { ...defaultCameraConfig(c.camera.cameraMode), ...c.camera } : undefined,
+      skeletalMesh: c.skeletalMesh
+        ? { strictSkeletonMatching: false, ...c.skeletalMesh }
+        : undefined,
     }));
     asset.createdAt = json.createdAt || Date.now();
     asset.modifiedAt = json.modifiedAt || Date.now();

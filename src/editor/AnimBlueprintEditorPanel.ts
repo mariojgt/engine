@@ -12,14 +12,17 @@ import type {
   AnimTransitionData,
   AnimStateMachineData,
   BlendSpace1D,
-  AnimEventVariable,
   AnimStateOutputType,
+  AnimTransitionRuleGroup,
+  AnimTransitionRule,
+  TransitionBlendProfile,
 } from './AnimBlueprintData';
 import {
   defaultAnimState,
   defaultTransition,
   defaultBlendSpace1D,
 } from './AnimBlueprintData';
+import type { BlueprintVariable, VarType } from './BlueprintData';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshAssetManager } from './MeshAsset';
@@ -69,6 +72,7 @@ export class AnimBlueprintEditorPanel {
 
   // Event graph Rete editor cleanup
   private _eventGraphCleanup: (() => void) | null = null;
+  private _eventGraphCompile: (() => void) | null = null;
 
   // ---- Preview viewport (Anim Graph tab) ----
   private _previewContainer: HTMLElement | null = null;
@@ -90,6 +94,7 @@ export class AnimBlueprintEditorPanel {
   private _previewAutoFit = true;
   private _previewDebugEl: HTMLElement | null = null;
   private _previewDebugLast = 0;
+  private _graphOverlayLast = 0;
 
   constructor(
     container: HTMLElement,
@@ -113,6 +118,7 @@ export class AnimBlueprintEditorPanel {
       this._eventGraphCleanup();
       this._eventGraphCleanup = null;
     }
+    this._eventGraphCompile = null;
   }
 
   // ============================================================
@@ -453,15 +459,34 @@ export class AnimBlueprintEditorPanel {
       const to = sm.states.find(s => s.id === t.toStateId);
       if (!from || !to) continue;
 
-      // Check distance to line segment center
-      const fx = from.posX + 75;
-      const fy = from.posY + 20;
-      const tx = to.posX + 75;
-      const ty = to.posY + 20;
-      const mx = (fx + tx) / 2;
-      const my = (fy + ty) / 2;
-      const dist = Math.sqrt((wx - mx) ** 2 + (wy - my) ** 2);
-      if (dist < 15) return t;
+      const { fx, fy, tx, ty } = this._getTransitionAnchors(sm, t, from, to);
+      const bundle = this._getTransitionBundle(sm, t);
+      const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
+
+      // Label hit-test
+      const tpos = 0.6;
+      const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
+      const label = this._getTransitionLabel(t);
+      if (label) {
+        const metrics = this._ctx.measureText(label);
+        const lw = Math.min(160, metrics.width + 10);
+        const lh = 14;
+        const lx = p.x - lw / 2;
+        const ly = p.y - 22;
+        if (wx >= lx && wx <= lx + lw && wy >= ly && wy <= ly + lh) {
+          return t;
+        }
+      }
+
+      let minDist = Infinity;
+      for (let i = 0; i <= 20; i++) {
+        const tt = i / 20;
+        const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tt);
+        const d = Math.hypot(wx - p.x, wy - p.y);
+        if (d < minDist) minDist = d;
+      }
+      const hitRadius = 12 / Math.max(0.25, this._zoom);
+      if (minDist < hitRadius) return t;
     }
     return null;
   }
@@ -499,12 +524,43 @@ export class AnimBlueprintEditorPanel {
 
     ctx.restore();
 
+    // Live variable overlay (from preview anim instance)
+    this._drawVariableOverlay(ctx, w, h);
+
     // Linking indicator
     if (this._linkingFrom) {
       ctx.fillStyle = '#ff0';
       ctx.font = '11px sans-serif';
       ctx.fillText('Shift-drag to target state...', 10, h - 10);
     }
+  }
+
+  private _drawVariableOverlay(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this._previewAnimInstance) return;
+    const vars = Array.from(this._previewAnimInstance.variables.entries());
+    if (vars.length === 0) return;
+
+    const max = Math.min(8, vars.length);
+    const padding = 8;
+    const lineH = 14;
+    const boxW = 220;
+    const boxH = padding * 2 + lineH * (max + 1);
+    const x = 10;
+    const y = 10;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x, y, boxW, boxH);
+    ctx.fillStyle = '#ddd';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Anim Variables', x + padding, y + padding + 10);
+
+    for (let i = 0; i < max; i++) {
+      const [k, v] = vars[i];
+      const val = typeof v === 'number' ? v.toFixed(3) : String(v);
+      ctx.fillText(`${k}: ${val}`, x + padding, y + padding + 10 + lineH * (i + 1));
+    }
+    ctx.restore();
   }
 
   private _drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -575,11 +631,13 @@ export class AnimBlueprintEditorPanel {
     ctx.fillText(state.name, x + w / 2, y + h / 2 - (state.animationName ? 4 : 0), w - 10);
 
     // Subtitle (animation name or blend space)
-    if (state.animationName || state.outputType === 'blendSpace1D') {
+    if (state.animationName || state.outputType === 'blendSpace1D' || state.outputType === 'blendSpace2D') {
       ctx.fillStyle = '#888';
       ctx.font = '10px sans-serif';
       const subtitle = state.outputType === 'blendSpace1D'
         ? '📈 Blend Space 1D'
+        : state.outputType === 'blendSpace2D'
+          ? '🧭 Blend Space 2D'
         : state.animationName || 'No animation';
       ctx.fillText(subtitle, x + w / 2, y + h / 2 + 10, w - 10);
     }
@@ -593,25 +651,28 @@ export class AnimBlueprintEditorPanel {
     const to = sm.states.find(s => s.id === t.toStateId);
     if (!from || !to) return;
 
-    const fx = from.posX + 75;
-    const fy = from.posY + 20;
-    const tx = to.posX + 75;
-    const ty = to.posY + 20;
+    const { fx, fy, tx, ty } = this._getTransitionAnchors(sm, t, from, to);
     const isSelected = this._selectedTransitionId === t.id;
+
+    const bundle = this._getTransitionBundle(sm, t);
+    const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
 
     // Edge line
     ctx.beginPath();
     ctx.moveTo(fx, fy);
-    ctx.lineTo(tx, ty);
+    ctx.quadraticCurveTo(ctrl.x, ctrl.y, tx, ty);
     ctx.strokeStyle = isSelected ? '#ff0' : '#888';
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.stroke();
 
     // Arrowhead
-    const angle = Math.atan2(ty - fy, tx - fx);
+    const tpos = 0.6;
+    const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
+    const tan = this._quadTangent(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
+    const angle = Math.atan2(tan.y, tan.x);
     const headLen = 10;
-    const mx = (fx + tx) / 2;
-    const my = (fy + ty) / 2;
+    const mx = p.x;
+    const my = p.y;
     ctx.beginPath();
     ctx.moveTo(mx + headLen * Math.cos(angle), my + headLen * Math.sin(angle));
     ctx.lineTo(mx - headLen * Math.cos(angle - Math.PI / 6), my - headLen * Math.sin(angle - Math.PI / 6));
@@ -621,13 +682,121 @@ export class AnimBlueprintEditorPanel {
     ctx.fill();
 
     // Condition label
-    if (t.conditionExpr) {
-      ctx.fillStyle = isSelected ? '#ff0' : '#aaa';
+    const label = this._getTransitionLabel(t);
+    if (label) {
       ctx.font = '10px sans-serif';
+      const metrics = ctx.measureText(label);
+      const lw = Math.min(160, metrics.width + 10);
+      const lh = 14;
+      const lx = mx - lw / 2;
+      const ly = my - 22;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(lx, ly, lw, lh);
+      ctx.fillStyle = isSelected ? '#ff0' : '#ddd';
       ctx.textAlign = 'center';
-      ctx.fillText(t.conditionExpr, mx, my - 8, 120);
+      ctx.fillText(label, mx, ly + 10, 150);
       ctx.textAlign = 'start';
     }
+  }
+
+  private _getTransitionBundle(sm: AnimStateMachineData, t: AnimTransitionData): { index: number; total: number } {
+    const list = sm.transitions.filter(x =>
+      (x.fromStateId === t.fromStateId && x.toStateId === t.toStateId) ||
+      (x.fromStateId === t.toStateId && x.toStateId === t.fromStateId)
+    );
+    const index = Math.max(0, list.findIndex(x => x.id === t.id));
+    return { index, total: Math.max(1, list.length) };
+  }
+
+  private _getTransitionAnchors(
+    sm: AnimStateMachineData,
+    t: AnimTransitionData,
+    from: AnimStateData,
+    to: AnimStateData,
+  ): { fx: number; fy: number; tx: number; ty: number } {
+    const nodeW = 150;
+    const nodeH = 40;
+    const fromCenterX = from.posX + nodeW / 2;
+    const fromCenterY = from.posY + nodeH / 2;
+    const toCenterX = to.posX + nodeW / 2;
+    const toCenterY = to.posY + nodeH / 2;
+    const dx = toCenterX - fromCenterX;
+    const dy = toCenterY - fromCenterY;
+
+    // Prefer horizontal ports; fall back to vertical if mostly above/below.
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const fromOffset = this._getPortOffset(sm, from.id, t.id, true, 'horizontal');
+      const toOffset = this._getPortOffset(sm, to.id, t.id, false, 'horizontal');
+      const fx = from.posX + (dx >= 0 ? nodeW : 0);
+      const fy = from.posY + nodeH / 2 + fromOffset;
+      const tx = to.posX + (dx >= 0 ? 0 : nodeW);
+      const ty = to.posY + nodeH / 2 + toOffset;
+      return { fx, fy, tx, ty };
+    }
+
+    const fromOffset = this._getPortOffset(sm, from.id, t.id, true, 'vertical');
+    const toOffset = this._getPortOffset(sm, to.id, t.id, false, 'vertical');
+    const fx = from.posX + nodeW / 2 + fromOffset;
+    const fy = from.posY + (dy >= 0 ? nodeH : 0);
+    const tx = to.posX + nodeW / 2 + toOffset;
+    const ty = to.posY + (dy >= 0 ? 0 : nodeH);
+    return { fx, fy, tx, ty };
+  }
+
+  private _getPortOffset(
+    sm: AnimStateMachineData,
+    stateId: string,
+    transitionId: string,
+    outgoing: boolean,
+    axis: 'horizontal' | 'vertical',
+  ): number {
+    const nodeW = 150;
+    const nodeH = 40;
+    const list = sm.transitions.filter(t => outgoing ? t.fromStateId === stateId : t.toStateId === stateId);
+    const total = Math.max(1, list.length);
+    const index = Math.max(0, list.findIndex(t => t.id === transitionId));
+    const max = axis === 'horizontal' ? (nodeH / 2 - 6) : (nodeW / 2 - 12);
+    const step = Math.min(12, (max * 2) / total);
+    const offset = (index - (total - 1) / 2) * step;
+    return Math.max(-max, Math.min(max, offset));
+  }
+
+  private _getTransitionControlPoint(
+    fx: number, fy: number, tx: number, ty: number,
+    index: number, total: number,
+  ): { x: number; y: number } {
+    const mx = (fx + tx) / 2;
+    const my = (fy + ty) / 2;
+    const dx = tx - fx;
+    const dy = ty - fy;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const step = Math.min(70, Math.max(22, len * 0.22));
+    const bundleOffset = (index - (total - 1) / 2) * step;
+    const curvature = Math.min(80, Math.max(18, len * 0.18));
+    const curveSign = dy >= 0 ? 1 : -1;
+    return {
+      x: mx + nx * bundleOffset,
+      y: my + ny * bundleOffset + curveSign * curvature,
+    };
+  }
+
+  private _quadPoint(
+    x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, t: number,
+  ): { x: number; y: number } {
+    const it = 1 - t;
+    const x = it * it * x0 + 2 * it * t * x1 + t * t * x2;
+    const y = it * it * y0 + 2 * it * t * y1 + t * t * y2;
+    return { x, y };
+  }
+
+  private _quadTangent(
+    x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, t: number,
+  ): { x: number; y: number } {
+    const x = 2 * (1 - t) * (x1 - x0) + 2 * t * (x2 - x1);
+    const y = 2 * (1 - t) * (y1 - y0) + 2 * t * (y2 - y1);
+    return { x, y };
   }
 
   // ---- Canvas Context Menu ----
@@ -808,7 +977,7 @@ export class AnimBlueprintEditorPanel {
       <div>${sm.states.length} states</div>
       <div>${sm.transitions.length} transitions</div>
       <div>${this._asset.blendSpaces1D.length} blend spaces</div>
-      <div>${this._asset.eventVariables.length} variables</div>
+      <div>${this._asset.blueprintData.variables.length} variables</div>
     `;
     p.appendChild(stats);
 
@@ -848,11 +1017,15 @@ export class AnimBlueprintEditorPanel {
     this._addPropRow(p, 'Output Type', () => {
       const sel = document.createElement('select');
       sel.className = 'prop-input';
-      const types: AnimStateOutputType[] = ['singleAnimation', 'blendSpace1D'];
+      const types: AnimStateOutputType[] = ['singleAnimation', 'blendSpace1D', 'blendSpace2D'];
       for (const t of types) {
         const opt = document.createElement('option');
         opt.value = t;
-        opt.textContent = t === 'singleAnimation' ? 'Single Animation' : 'Blend Space 1D';
+        opt.textContent = t === 'singleAnimation'
+          ? 'Single Animation'
+          : t === 'blendSpace1D'
+            ? 'Blend Space 1D'
+            : 'Blend Space 2D';
         if (t === state.outputType) opt.selected = true;
         sel.appendChild(opt);
       }
@@ -862,6 +1035,36 @@ export class AnimBlueprintEditorPanel {
         this._renderGraph();
         this._renderProps(); // Refresh to show relevant fields
         this._restartPreviewInstance();
+      });
+      return sel;
+    });
+
+    // Sync group
+    this._addPropRow(p, 'Sync Group', () => {
+      const inp = document.createElement('input');
+      inp.className = 'prop-input';
+      inp.placeholder = 'e.g. Locomotion';
+      inp.value = state.syncGroup || '';
+      inp.addEventListener('change', () => {
+        state.syncGroup = inp.value.trim();
+        this._asset.touch();
+      });
+      return inp;
+    });
+
+    this._addPropRow(p, 'Sync Role', () => {
+      const sel = document.createElement('select');
+      sel.className = 'prop-input';
+      for (const role of ['leader', 'follower'] as const) {
+        const opt = document.createElement('option');
+        opt.value = role;
+        opt.textContent = role;
+        if ((state.syncRole || 'leader') === role) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        state.syncRole = sel.value as 'leader' | 'follower';
+        this._asset.touch();
       });
       return sel;
     });
@@ -943,8 +1146,8 @@ export class AnimBlueprintEditorPanel {
       this._addPropRow(p, 'Axis Variable', () => {
         const sel = document.createElement('select');
         sel.className = 'prop-input';
-        for (const v of this._asset.eventVariables) {
-          if (v.type !== 'number') continue;
+        for (const v of this._getEventGraphVars()) {
+          if (v.type !== 'Float') continue;
           const opt = document.createElement('option');
           opt.value = v.name;
           opt.textContent = v.name;
@@ -953,6 +1156,66 @@ export class AnimBlueprintEditorPanel {
         }
         sel.addEventListener('change', () => {
           state.blendSpaceAxisVar = sel.value;
+          this._asset.touch();
+          this._restartPreviewInstance();
+        });
+        return sel;
+      });
+    } else if (state.outputType === 'blendSpace2D') {
+      // Blend space 2D picker
+      this._addPropRow(p, 'Blend Space', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        sel.innerHTML = '<option value="">-- None --</option>';
+        for (const bs of this._asset.blendSpaces2D) {
+          const opt = document.createElement('option');
+          opt.value = bs.id;
+          opt.textContent = bs.name;
+          if (bs.id === state.blendSpace2DId) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          state.blendSpace2DId = sel.value;
+          this._asset.touch();
+          this._restartPreviewInstance();
+        });
+        return sel;
+      });
+
+      // Axis X variable
+      this._addPropRow(p, 'Axis X Variable', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        for (const v of this._getEventGraphVars()) {
+          if (v.type !== 'Float') continue;
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          opt.textContent = v.name;
+          if (v.name === state.blendSpaceAxisVarX) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          state.blendSpaceAxisVarX = sel.value;
+          this._asset.touch();
+          this._restartPreviewInstance();
+        });
+        return sel;
+      });
+
+      // Axis Y variable
+      this._addPropRow(p, 'Axis Y Variable', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        for (const v of this._getEventGraphVars()) {
+          if (v.type !== 'Float') continue;
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          opt.textContent = v.name;
+          if (v.name === state.blendSpaceAxisVarY) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          state.blendSpaceAxisVarY = sel.value;
           this._asset.touch();
           this._restartPreviewInstance();
         });
@@ -973,41 +1236,245 @@ export class AnimBlueprintEditorPanel {
     p.innerHTML = `<div class="anim-props-header">Transition</div>
       <div class="anim-props-subtitle">${fromName} → ${toName}</div>`;
 
-    // Condition expression
-    this._addPropRow(p, 'Condition', () => {
-      const inp = document.createElement('input');
-      inp.className = 'prop-input';
-      inp.value = t.conditionExpr;
-      inp.placeholder = 'e.g. speed > 10';
-      inp.addEventListener('change', () => {
-        t.conditionExpr = inp.value;
+    this._ensureTransitionDefaults(t);
+
+    const vars = this._getEventGraphVars();
+    const groups = t.rules || [];
+
+    const header = document.createElement('div');
+    header.className = 'anim-props-hint';
+    header.textContent = 'Transition Rules:';
+    p.appendChild(header);
+
+    if (groups.length > 1) {
+      this._addPropRow(p, 'Group Logic', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        for (const op of ['AND', 'OR'] as const) {
+          const opt = document.createElement('option');
+          opt.value = op;
+          opt.textContent = op;
+          if ((t.ruleLogic || 'AND') === op) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          t.ruleLogic = sel.value as 'AND' | 'OR';
+          this._asset.touch();
+          this._renderGraph();
+        });
+        return sel;
+      });
+    }
+
+    const buildRuleRow = (group: AnimTransitionRuleGroup, rule: AnimTransitionRule): HTMLElement => {
+      const row = document.createElement('div');
+      row.className = 'anim-rule-row';
+
+      if (rule.kind === 'expr') {
+        const exprInput = document.createElement('input');
+        exprInput.className = 'prop-input';
+        exprInput.placeholder = 'expression';
+        exprInput.value = rule.expr;
+        exprInput.addEventListener('change', () => {
+          rule.expr = exprInput.value;
+          this._asset.touch();
+          this._renderGraph();
+        });
+        row.appendChild(exprInput);
+      } else {
+        const varSel = document.createElement('select');
+        varSel.className = 'prop-input';
+        varSel.style.maxWidth = '120px';
+        for (const v of vars) {
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          opt.textContent = v.name;
+          if (v.name === rule.varName) opt.selected = true;
+          varSel.appendChild(opt);
+        }
+        varSel.addEventListener('change', () => {
+          const v = vars.find(x => x.name === varSel.value);
+          if (!v) return;
+          rule.varName = v.name;
+          rule.valueType = v.type as 'Float' | 'Boolean' | 'String';
+          if (rule.valueType === 'Boolean') rule.value = false;
+          else if (rule.valueType === 'String') rule.value = '';
+          else rule.value = 0;
+          this._asset.touch();
+          this._renderProps();
+          this._renderGraph();
+        });
+        row.appendChild(varSel);
+
+        const opSel = document.createElement('select');
+        opSel.className = 'prop-input';
+        opSel.style.maxWidth = '80px';
+        const ops = rule.valueType === 'Boolean'
+          ? ['==', '!=']
+          : rule.valueType === 'String'
+            ? ['==', '!=', 'contains']
+            : ['==', '!=', '>', '<', '>=', '<='];
+        for (const op of ops) {
+          const opt = document.createElement('option');
+          opt.value = op;
+          opt.textContent = op;
+          if (op === rule.op) opt.selected = true;
+          opSel.appendChild(opt);
+        }
+        opSel.addEventListener('change', () => {
+          rule.op = opSel.value as any;
+          this._asset.touch();
+          this._renderGraph();
+        });
+        row.appendChild(opSel);
+
+        if (rule.valueType === 'Boolean') {
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = !!rule.value;
+          cb.addEventListener('change', () => {
+            rule.value = cb.checked;
+            this._asset.touch();
+            this._renderGraph();
+          });
+          row.appendChild(cb);
+        } else {
+          const valInput = document.createElement('input');
+          valInput.className = 'prop-input';
+          valInput.style.maxWidth = '90px';
+          valInput.type = rule.valueType === 'Float' ? 'number' : 'text';
+          valInput.value = rule.valueType === 'Float' ? String(rule.value ?? 0) : String(rule.value ?? '');
+          valInput.addEventListener('change', () => {
+            rule.value = rule.valueType === 'Float'
+              ? (parseFloat(valInput.value) || 0)
+              : valInput.value;
+            this._asset.touch();
+            this._renderGraph();
+          });
+          row.appendChild(valInput);
+        }
+      }
+
+      const del = document.createElement('button');
+      del.className = 'prop-btn-danger';
+      del.textContent = '✕';
+      del.addEventListener('click', () => {
+        group.rules = group.rules.filter(r => r.id !== rule.id);
+        this._asset.touch();
+        this._renderProps();
+        this._renderGraph();
+      });
+      row.appendChild(del);
+
+      return row;
+    };
+
+    for (const group of groups) {
+      const groupBox = document.createElement('div');
+      groupBox.className = 'anim-rule-group';
+
+      const groupHeader = document.createElement('div');
+      groupHeader.className = 'anim-rule-group-header';
+      groupHeader.textContent = 'Rule Group';
+
+      const groupOp = document.createElement('select');
+      groupOp.className = 'prop-input';
+      groupOp.style.maxWidth = '70px';
+      for (const op of ['AND', 'OR'] as const) {
+        const opt = document.createElement('option');
+        opt.value = op;
+        opt.textContent = op;
+        if (group.op === op) opt.selected = true;
+        groupOp.appendChild(opt);
+      }
+      groupOp.addEventListener('change', () => {
+        group.op = groupOp.value as 'AND' | 'OR';
         this._asset.touch();
         this._renderGraph();
       });
-      return inp;
+      groupHeader.appendChild(groupOp);
+      groupBox.appendChild(groupHeader);
+
+      for (const rule of group.rules) {
+        groupBox.appendChild(buildRuleRow(group, rule));
+      }
+
+      const addRuleBtn = document.createElement('button');
+      addRuleBtn.className = 'toolbar-btn';
+      addRuleBtn.textContent = '+ Add Rule';
+      addRuleBtn.addEventListener('click', () => {
+        if (vars.length === 0) {
+          group.rules.push({ id: this._newRuleId(), kind: 'expr', expr: 'true' });
+        } else {
+          const v = vars[0];
+          group.rules.push({
+            id: this._newRuleId(),
+            kind: 'compare',
+            varName: v.name,
+            op: '==',
+            value: v.type === 'Boolean' ? false : v.type === 'String' ? '' : 0,
+            valueType: v.type as 'Float' | 'Boolean' | 'String',
+          });
+        }
+        this._asset.touch();
+        this._renderProps();
+        this._renderGraph();
+      });
+      groupBox.appendChild(addRuleBtn);
+
+      p.appendChild(groupBox);
+    }
+
+    const addGroupBtn = document.createElement('button');
+    addGroupBtn.className = 'toolbar-btn';
+    addGroupBtn.textContent = '+ Add Group';
+    addGroupBtn.addEventListener('click', () => {
+      const group: AnimTransitionRuleGroup = {
+        id: this._newRuleId(),
+        op: 'AND',
+        rules: [],
+      };
+      t.rules!.push(group);
+      this._asset.touch();
+      this._renderProps();
+      this._renderGraph();
     });
+    p.appendChild(addGroupBtn);
 
-    // Available variables hint
-    const hint = document.createElement('div');
-    hint.className = 'anim-props-hint';
-    hint.innerHTML = '<b>Variables:</b> ' +
-      this._asset.eventVariables.map(v => `<code>${v.name}</code>`).join(', ') +
-      '<br><b>Ops:</b> ==  !=  &gt;  &lt;  &gt;=  &lt;=  &&  ||  !';
-    p.appendChild(hint);
-
-    // Blend time
+    // Blend profile
     this._addPropRow(p, 'Blend Time (s)', () => {
       const inp = document.createElement('input');
       inp.className = 'prop-input';
       inp.type = 'number';
       inp.step = '0.05';
       inp.min = '0';
-      inp.value = String(t.blendTime);
+      inp.value = String(t.blendProfile?.time ?? t.blendTime ?? 0);
       inp.addEventListener('change', () => {
-        t.blendTime = parseFloat(inp.value) || 0;
+        const v = parseFloat(inp.value) || 0;
+        if (!t.blendProfile) t.blendProfile = { time: v, curve: 'linear' };
+        t.blendProfile.time = v;
+        t.blendTime = v;
         this._asset.touch();
       });
       return inp;
+    });
+
+    this._addPropRow(p, 'Blend Curve', () => {
+      const sel = document.createElement('select');
+      sel.className = 'prop-input';
+      for (const c of ['linear', 'easeIn', 'easeOut', 'easeInOut'] as const) {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        if ((t.blendProfile?.curve ?? 'linear') === c) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        if (!t.blendProfile) t.blendProfile = { time: t.blendTime ?? 0.25, curve: 'linear' };
+        t.blendProfile.curve = sel.value as TransitionBlendProfile['curve'];
+        this._asset.touch();
+      });
+      return sel;
     });
 
     // Priority
@@ -1050,6 +1517,38 @@ export class AnimBlueprintEditorPanel {
     }
     const anims = this._meshManager.getAnimationsForMesh(targetId);
     return anims.map(a => ({ name: a.assetName, id: a.assetId }));
+  }
+
+  private _getEventGraphVars(): BlueprintVariable[] {
+    return this._asset.blueprintData.variables.filter(v =>
+      v.type === 'Float' || v.type === 'Boolean' || v.type === 'String'
+    );
+  }
+
+  private _ensureTransitionDefaults(t: AnimTransitionData): void {
+    if (!t.rules) {
+      t.rules = [{ id: this._newRuleId(), op: 'AND', rules: [] }];
+    }
+    if (!t.ruleLogic) t.ruleLogic = 'AND';
+    if (!t.blendProfile) t.blendProfile = { time: t.blendTime ?? 0.25, curve: 'linear' };
+  }
+
+  private _newRuleId(): string {
+    return 'tr_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  private _getTransitionLabel(t: AnimTransitionData): string {
+    if (!t.rules || t.rules.length === 0) return t.conditionExpr || '';
+    const groupLabels = t.rules.map(g => {
+      const ruleLabels = g.rules.map(r => {
+        if (r.kind === 'expr') return r.expr;
+        const rhs = r.valueType === 'String' ? JSON.stringify(r.value) : String(r.value);
+        return `${r.varName} ${r.op} ${rhs}`;
+      });
+      return ruleLabels.join(` ${g.op} `);
+    });
+    const logic = t.ruleLogic || 'AND';
+    return groupLabels.join(` ${logic} `);
   }
 
   private _ensureEntryStateAnimation(): void {
@@ -1227,6 +1726,11 @@ export class AnimBlueprintEditorPanel {
         }
       }
 
+      if (this._activeTab === 'animGraph' && now - this._graphOverlayLast > 200) {
+        this._graphOverlayLast = now;
+        this._renderGraph();
+      }
+
       this._previewRenderer.render(this._previewScene, this._previewCamera);
     };
     this._previewClock.start();
@@ -1305,7 +1809,7 @@ export class AnimBlueprintEditorPanel {
     if (this._previewAnimations.length === 0) return;
 
     this._previewMixer = new THREE.AnimationMixer(this._previewRoot);
-    this._previewAnimInstance = new AnimationInstance(this._asset, this._previewMixer, this._previewAnimations);
+    this._previewAnimInstance = new AnimationInstance(this._asset, this._previewMixer, this._previewAnimations, null);
     this._previewClock.start();
     if (this._previewDebugEl) this._previewDebugEl.textContent = 'Debug: AnimBP instance created.';
   }
@@ -1410,7 +1914,7 @@ export class AnimBlueprintEditorPanel {
   }
 
   // ============================================================
-  //  Event Variables Tab
+  //  Event Graph Variables Tab
   // ============================================================
 
   private _buildEventGraphTab(): void {
@@ -1419,7 +1923,7 @@ export class AnimBlueprintEditorPanel {
     wrapper.style.flex = '1';
     wrapper.style.overflow = 'hidden';
 
-    // ── Left panel: Animation Variables ──
+    // ── Left panel: Event Graph Variables ──
     const varPanel = document.createElement('div');
     varPanel.className = 'anim-event-var-panel';
     varPanel.style.width = '240px';
@@ -1431,7 +1935,7 @@ export class AnimBlueprintEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'anim-props-header';
-    header.textContent = 'Anim Variables';
+    header.textContent = 'Event Graph Variables';
     varPanel.appendChild(header);
 
     const desc = document.createElement('div');
@@ -1450,15 +1954,27 @@ export class AnimBlueprintEditorPanel {
     addBtn.addEventListener('click', () => {
       const name = prompt('Variable name:', 'myVar');
       if (!name) return;
-      this._asset.eventVariables.push({
-        name: name.trim(),
-        type: 'number',
-        defaultValue: 0,
-      });
+      const cleanName = name.trim();
+      if (!cleanName) return;
+      this._asset.blueprintData.addVariable(cleanName, 'Float');
       this._asset.touch();
       this._buildEventGraphTabVarList(varTable);
     });
     varPanel.appendChild(addBtn);
+
+    const compileBtn = document.createElement('button');
+    compileBtn.className = 'toolbar-btn';
+    compileBtn.textContent = 'Compile Graph';
+    compileBtn.style.marginBottom = '8px';
+    compileBtn.addEventListener('click', () => {
+      if (this._eventGraphCompile) {
+        console.log(`[AnimBP] Compile requested for ${this._asset.name}`);
+        this._eventGraphCompile();
+      } else {
+        console.warn(`[AnimBP] Compile function not ready for ${this._asset.name}`);
+      }
+    });
+    varPanel.appendChild(compileBtn);
 
     // Variable table
     const varTable = document.createElement('div');
@@ -1491,14 +2007,26 @@ export class AnimBlueprintEditorPanel {
         this._onSave?.();
       },
     );
+
+    // Auto-compile once the editor initializes so compiledCode exists.
+    setTimeout(() => {
+      const compileFn = (editorContainer as any).__compileAndSave as (() => void) | undefined;
+      if (compileFn) {
+        this._eventGraphCompile = compileFn;
+        console.log(`[AnimBP] Auto-compile on open for ${this._asset.name}`);
+        compileFn();
+      } else {
+        console.warn(`[AnimBP] Auto-compile failed: no compile function for ${this._asset.name}`);
+      }
+    }, 0);
   }
 
   /** Build/rebuild the variable list inside the Event Graph tab */
   private _buildEventGraphTabVarList(container: HTMLElement): void {
     container.innerHTML = '';
 
-    for (let i = 0; i < this._asset.eventVariables.length; i++) {
-      const v = this._asset.eventVariables[i];
+    const vars = this._getEventGraphVars();
+    for (const v of vars) {
       const row = document.createElement('div');
       row.className = 'anim-var-row';
 
@@ -1517,7 +2045,7 @@ export class AnimBlueprintEditorPanel {
       const typeSel = document.createElement('select');
       typeSel.className = 'prop-input';
       typeSel.style.width = '80px';
-      for (const t of ['number', 'boolean', 'string'] as const) {
+      for (const t of ['Float', 'Boolean', 'String'] as const) {
         const opt = document.createElement('option');
         opt.value = t;
         opt.textContent = t;
@@ -1525,9 +2053,9 @@ export class AnimBlueprintEditorPanel {
         typeSel.appendChild(opt);
       }
       typeSel.addEventListener('change', () => {
-        v.type = typeSel.value as 'number' | 'boolean' | 'string';
-        if (v.type === 'number') v.defaultValue = 0;
-        else if (v.type === 'boolean') v.defaultValue = false;
+        v.type = typeSel.value as VarType;
+        if (v.type === 'Float') v.defaultValue = 0;
+        else if (v.type === 'Boolean') v.defaultValue = false;
         else v.defaultValue = '';
         this._asset.touch();
         this._buildEventGraphTabVarList(container);
@@ -1535,7 +2063,7 @@ export class AnimBlueprintEditorPanel {
       row.appendChild(typeSel);
 
       // Default value
-      if (v.type === 'boolean') {
+      if (v.type === 'Boolean') {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = !!v.defaultValue;
@@ -1548,10 +2076,10 @@ export class AnimBlueprintEditorPanel {
         const defInp = document.createElement('input');
         defInp.className = 'prop-input';
         defInp.style.width = '60px';
-        defInp.type = v.type === 'number' ? 'number' : 'text';
+        defInp.type = v.type === 'Float' ? 'number' : 'text';
         defInp.value = String(v.defaultValue);
         defInp.addEventListener('change', () => {
-          v.defaultValue = v.type === 'number' ? parseFloat(defInp.value) || 0 : defInp.value;
+          v.defaultValue = v.type === 'Float' ? parseFloat(defInp.value) || 0 : defInp.value;
           this._asset.touch();
         });
         row.appendChild(defInp);
@@ -1563,7 +2091,7 @@ export class AnimBlueprintEditorPanel {
       delBtn.textContent = '✕';
       delBtn.title = 'Delete variable';
       delBtn.addEventListener('click', () => {
-        this._asset.eventVariables.splice(i, 1);
+        this._asset.blueprintData.removeVariable(v.id);
         this._asset.touch();
         this._buildEventGraphTabVarList(container);
       });

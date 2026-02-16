@@ -94,19 +94,65 @@ export interface AnimStateData {
   blendSpaceAxisVarX: string;
   /** For 'blendSpace2D': Y axis variable name */
   blendSpaceAxisVarY: string;
+  /** Optional sync group name for UE-style sync */
+  syncGroup?: string;
+  /** Sync role within group */
+  syncRole?: 'leader' | 'follower';
 }
 
 /** A transition between two states */
+export type TransitionRuleOp = '==' | '!=' | '>' | '<' | '>=' | '<=' | 'contains';
+export type TransitionGroupOp = 'AND' | 'OR';
+export type TransitionGroupLogic = 'AND' | 'OR';
+export type TransitionRuleKind = 'compare' | 'expr';
+
+export interface AnimTransitionRuleBase {
+  id: string;
+  kind: TransitionRuleKind;
+}
+
+export interface AnimTransitionCompareRule extends AnimTransitionRuleBase {
+  kind: 'compare';
+  varName: string;
+  op: TransitionRuleOp;
+  value: number | boolean | string;
+  valueType: 'Float' | 'Boolean' | 'String';
+}
+
+export interface AnimTransitionExprRule extends AnimTransitionRuleBase {
+  kind: 'expr';
+  expr: string;
+}
+
+export type AnimTransitionRule = AnimTransitionCompareRule | AnimTransitionExprRule;
+
+export interface AnimTransitionRuleGroup {
+  id: string;
+  op: TransitionGroupOp;
+  rules: AnimTransitionRule[];
+}
+
+export interface TransitionBlendProfile {
+  time: number;
+  curve: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+}
+
 export interface AnimTransitionData {
   id: string;
   /** Source state ID ('*' = any state / wildcard) */
   fromStateId: string;
   /** Target state ID */
   toStateId: string;
-  /** Transition condition expression (e.g., "speed > 10" or "isInAir == true") */
-  conditionExpr: string;
-  /** Cross-fade duration in seconds */
+  /** Transition rules (UE-style rule groups) */
+  rules?: AnimTransitionRuleGroup[];
+  /** How to combine rule groups */
+  ruleLogic?: TransitionGroupLogic;
+  /** Legacy condition expression (migrated to rules) */
+  conditionExpr?: string;
+  /** Cross-fade duration in seconds (legacy) */
   blendTime: number;
+  /** Blend profile for the transition */
+  blendProfile?: TransitionBlendProfile;
   /** Priority (lower = higher priority; wildcard transitions auto +100) */
   priority: number;
   /** Visual control points for the edge in the graph editor */
@@ -123,18 +169,10 @@ export interface AnimStateMachineData {
   transitions: AnimTransitionData[];
 }
 
-// ---- Event Graph Variable Bindings ----
-
-/** A variable computed in the Event Graph and available to state machine conditions */
-export interface AnimEventVariable {
-  name: string;
-  type: 'number' | 'boolean' | 'string';
-  defaultValue: number | boolean | string;
-}
-
 // ---- Animation Blueprint JSON (persistence) ----
 
 export interface AnimBlueprintJSON {
+  animBlueprintVersion?: number;
   animBlueprintId: string;
   animBlueprintName: string;
   /** Which skeleton/mesh this AnimBP targets */
@@ -147,8 +185,8 @@ export interface AnimBlueprintJSON {
   blendSpaces1D: BlendSpace1D[];
   /** 2D Blend Spaces owned by this AnimBP */
   blendSpaces2D: BlendSpace2D[];
-  /** Event graph variables (computed per-frame) */
-  eventVariables: AnimEventVariable[];
+  /** Event graph variables (legacy; now stored in BlueprintData.variables) */
+  eventVariables?: Array<{ name: string; type: 'number' | 'boolean' | 'string'; defaultValue: number | boolean | string }>;
   /** Event Graph node data (Rete-style, same format as actor blueprint graphs) */
   eventGraph: BlueprintGraphData | null;
   /** Compiled JS code from the event graph */
@@ -175,6 +213,8 @@ export function defaultAnimState(name: string, x = 0, y = 0): AnimStateData {
     blendSpace2DId: '',
     blendSpaceAxisVarX: '',
     blendSpaceAxisVarY: '',
+    syncGroup: '',
+    syncRole: 'leader',
   };
 }
 
@@ -185,6 +225,17 @@ export function defaultTransition(fromId: string, toId: string, condition = 'tru
     toStateId: toId,
     conditionExpr: condition,
     blendTime: 0.25,
+    blendProfile: { time: 0.25, curve: 'linear' },
+    rules: [
+      {
+        id: animUid(),
+        op: 'AND',
+        rules: condition && condition !== 'true'
+          ? [{ id: animUid(), kind: 'expr', expr: condition }]
+          : [],
+      },
+    ],
+    ruleLogic: 'AND',
     priority: fromId === '*' ? 100 : 0,
   };
 }
@@ -224,7 +275,6 @@ export class AnimBlueprintAsset {
   public stateMachine: AnimStateMachineData;
   public blendSpaces1D: BlendSpace1D[];
   public blendSpaces2D: BlendSpace2D[];
-  public eventVariables: AnimEventVariable[];
   public eventGraph: BlueprintGraphData | null;
 
   /** BlueprintData for the event graph Rete editor (variables, functions, graph data) */
@@ -250,15 +300,13 @@ export class AnimBlueprintAsset {
 
     this.blendSpaces1D = [];
     this.blendSpaces2D = [];
-    this.eventVariables = [
-      { name: 'speed', type: 'number', defaultValue: 0 },
-      { name: 'isInAir', type: 'boolean', defaultValue: false },
-      { name: 'isCrouching', type: 'boolean', defaultValue: false },
-    ];
     this.eventGraph = null;
 
     // Create BlueprintData for the event graph Rete editor
     this.blueprintData = new BlueprintData();
+    this.blueprintData.addVariable('speed', 'Float');
+    this.blueprintData.addVariable('isInAir', 'Boolean');
+    this.blueprintData.addVariable('isCrouching', 'Boolean');
   }
 
   touch(): void {
@@ -267,6 +315,7 @@ export class AnimBlueprintAsset {
 
   toJSON(): AnimBlueprintJSON {
     return {
+      animBlueprintVersion: 2,
       animBlueprintId: this.id,
       animBlueprintName: this.name,
       targetSkeletonMeshAssetId: this.targetSkeletonMeshAssetId,
@@ -274,7 +323,7 @@ export class AnimBlueprintAsset {
       stateMachine: structuredClone(this.stateMachine),
       blendSpaces1D: structuredClone(this.blendSpaces1D),
       blendSpaces2D: structuredClone(this.blendSpaces2D),
-      eventVariables: structuredClone(this.eventVariables),
+      eventVariables: [],
       eventGraph: this.eventGraph ? structuredClone(this.eventGraph) : null,
       compiledCode: this.compiledCode,
       blueprintGraphNodeData: this.blueprintData.eventGraph.nodeData ?? null,
@@ -283,6 +332,7 @@ export class AnimBlueprintAsset {
 
   static fromJSON(json: AnimBlueprintJSON): AnimBlueprintAsset {
     const asset = new AnimBlueprintAsset(json.animBlueprintId, json.animBlueprintName);
+    const version = json.animBlueprintVersion ?? 1;
     asset.targetSkeletonMeshAssetId = json.targetSkeletonMeshAssetId ?? '';
     asset.targetSkeletonId = json.targetSkeletonId ?? '';
     asset.stateMachine = json.stateMachine ?? {
@@ -292,7 +342,6 @@ export class AnimBlueprintAsset {
     };
     asset.blendSpaces1D = json.blendSpaces1D ?? [];
     asset.blendSpaces2D = json.blendSpaces2D ?? [];
-    asset.eventVariables = json.eventVariables ?? [];
     asset.eventGraph = json.eventGraph ?? null;
     asset.compiledCode = (json as any).compiledCode ?? '';
 
@@ -301,8 +350,97 @@ export class AnimBlueprintAsset {
       asset.blueprintData.eventGraph.nodeData = (json as any).blueprintGraphNodeData;
     }
 
+    // Migrate legacy eventVariables into BlueprintData variables
+    if (asset.blueprintData.variables.length === 0 && json.eventVariables && json.eventVariables.length > 0) {
+      for (const v of json.eventVariables) {
+        const type = v.type === 'number' ? 'Float' : v.type === 'boolean' ? 'Boolean' : 'String';
+        const nv = asset.blueprintData.addVariable(v.name, type);
+        nv.defaultValue = v.defaultValue;
+      }
+    }
+
+    // Migrate transitions to rule groups + blend profiles
+    if (version < 2) {
+      for (const t of asset.stateMachine.transitions) {
+        const legacyExpr = (t as any).conditionExpr || '';
+        const parsedRule = parseLegacyTransitionRule(legacyExpr);
+        t.rules = [
+          {
+            id: animUid(),
+            op: 'AND',
+            rules: parsedRule ? [parsedRule] : [],
+          },
+        ];
+        t.ruleLogic = 'AND';
+        const legacyBlend = (t as any).blendTime ?? 0.25;
+        t.blendProfile = { time: legacyBlend, curve: 'linear' };
+      }
+    } else {
+      for (const t of asset.stateMachine.transitions) {
+        if (!t.rules) t.rules = [{ id: animUid(), op: 'AND', rules: [] }];
+        if (!t.ruleLogic) t.ruleLogic = 'AND';
+        if (!t.blendProfile) t.blendProfile = { time: t.blendTime ?? 0.25, curve: 'linear' };
+      }
+    }
+
     return asset;
   }
+}
+
+function parseLegacyTransitionRule(expr: string): AnimTransitionRule | null {
+  const clean = (expr || '').trim();
+  if (!clean || clean === 'true') return null;
+  if (clean === 'false') {
+    return { id: animUid(), kind: 'expr', expr: 'false' };
+  }
+
+  const neg = clean.startsWith('!') ? clean.slice(1).trim() : '';
+  if (neg && /^\w+$/.test(neg)) {
+    return {
+      id: animUid(),
+      kind: 'compare',
+      varName: neg,
+      op: '==',
+      value: false,
+      valueType: 'Boolean',
+    };
+  }
+
+  const match = clean.match(/^(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+  if (match) {
+    const [, varName, op, rawValue] = match;
+    const trimVal = rawValue.trim();
+    if (trimVal === 'true' || trimVal === 'false') {
+      return {
+        id: animUid(),
+        kind: 'compare',
+        varName,
+        op: op as TransitionRuleOp,
+        value: trimVal === 'true',
+        valueType: 'Boolean',
+      };
+    }
+    if (!isNaN(Number(trimVal))) {
+      return {
+        id: animUid(),
+        kind: 'compare',
+        varName,
+        op: op as TransitionRuleOp,
+        value: Number(trimVal),
+        valueType: 'Float',
+      };
+    }
+    return {
+      id: animUid(),
+      kind: 'compare',
+      varName,
+      op: op as TransitionRuleOp,
+      value: trimVal.replace(/^['"]|['"]$/g, ''),
+      valueType: 'String',
+    };
+  }
+
+  return { id: animUid(), kind: 'expr', expr: clean };
 }
 
 // ---- Animation Blueprint Asset Manager ----

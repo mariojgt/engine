@@ -910,7 +910,7 @@ function resolveValue(
   if (node instanceof GetAnimVarNode) {
     const an = node as GetAnimVarNode;
     const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '""';
-    return `(gameObject && gameObject._animationInstances && gameObject._animationInstances[0] ? gameObject._animationInstances[0].variables.get(${JSON.stringify(an.varName)}) : ${defaultVal})`;
+    return `(__animInstance ? __animInstance.variables.get(${JSON.stringify(an.varName)}) : (gameObject && gameObject._animationInstances && gameObject._animationInstances[0] ? gameObject._animationInstances[0].variables.get(${JSON.stringify(an.varName)}) : ${defaultVal}))`;
   }
   if (node instanceof AnimUpdateEventNode) {
     if (outputKey === 'dt') return 'deltaTime';
@@ -1541,6 +1541,10 @@ function genAction(
       const vS = inputSrc.get(`${nodeId}.value`);
       const bpVar = bp.variables.find(x => x.name === node.varName);
       lines.push(`__var_${vn} = ${vS ? rv(vS.nid, vS.ok) : (bpVar ? varDefaultStr(bpVar, bp) : '0')};`);
+
+      if (node.varType === 'Float' || node.varType === 'Boolean' || node.varType === 'String') {
+        lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${JSON.stringify(node.varName)}, __var_${vn}); } }`);
+      }
     }
     lines.push(...we(nodeId, 'exec'));
     return lines;
@@ -1664,7 +1668,7 @@ function genAction(
     const an = node as SetAnimVarNode;
     const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '""';
     const valCode = vS ? rv(vS.nid, vS.ok) : defaultVal;
-    lines.push(`{ var _ai = gameObject && gameObject._animationInstances && gameObject._animationInstances[0]; if (_ai) { _ai.variables.set(${JSON.stringify(an.varName)}, ${valCode}); } }`);
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${JSON.stringify(an.varName)}, ${valCode}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }

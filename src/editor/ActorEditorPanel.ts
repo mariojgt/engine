@@ -856,7 +856,9 @@ export class ActorEditorPanel {
     } else if (comp.type === 'skeletalMesh') {
       // ---- Skeletal Mesh component properties ----
       if (!comp.skeletalMesh) {
-        comp.skeletalMesh = { meshAssetId: '', animationName: '', loopAnimation: true, animationSpeed: 1.0 };
+        comp.skeletalMesh = { meshAssetId: '', animationName: '', loopAnimation: true, animationSpeed: 1.0, strictSkeletonMatching: false };
+      } else if (comp.skeletalMesh.strictSkeletonMatching === undefined) {
+        comp.skeletalMesh.strictSkeletonMatching = false;
       }
       const cfg = comp.skeletalMesh;
 
@@ -899,12 +901,7 @@ export class ActorEditorPanel {
         container.appendChild(abpHeader);
 
         const abpAssets = this._animBPManager.assets;
-        const currentMeshAsset = meshAssets.find(m => m.id === cfg.meshAssetId);
-        const currentSkeletonId = currentMeshAsset?.skeleton?.assetId ?? '';
-        const filteredABPs = currentSkeletonId
-          ? abpAssets.filter(a => !a.targetSkeletonId || a.targetSkeletonId === currentSkeletonId)
-          : abpAssets;
-        const abpOptions = ['(None)', ...filteredABPs.map(a => a.name)];
+        const abpOptions = ['(None)', ...abpAssets.map(a => a.name)];
         const currentBP = cfg.animationBlueprintId
           ? (abpAssets.find(a => a.id === cfg.animationBlueprintId)?.name ?? '(None)')
           : '(None)';
@@ -932,14 +929,23 @@ export class ActorEditorPanel {
           this._onAssetChanged();
         }));
 
+        container.appendChild(this._makeCheckboxRow('Strict Skeleton', !!cfg.strictSkeletonMatching, (v) => {
+          cfg.strictSkeletonMatching = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+
         // If an anim BP is assigned, show its info and hide single-animation picker
         if (cfg.animationBlueprintId) {
           const abp = abpAssets.find(a => a.id === cfg.animationBlueprintId);
           if (abp) {
             const info = document.createElement('div');
             info.style.cssText = 'font-size:10px;color:var(--text-dim);padding:4px 12px;line-height:1.5;';
+            const animVarCount = abp.blueprintData.variables.filter(v =>
+              v.type === 'Float' || v.type === 'Boolean' || v.type === 'String'
+            ).length;
             info.innerHTML = `States: <b>${abp.stateMachine.states.length}</b> · Transitions: <b>${abp.stateMachine.transitions.length}</b><br>` +
-              `Variables: <b>${abp.eventVariables.length}</b> · Blend Spaces: <b>${abp.blendSpaces1D.length}</b>`;
+              `Variables: <b>${animVarCount}</b> · Blend Spaces: <b>${abp.blendSpaces1D.length}</b>`;
             container.appendChild(info);
 
             if (!abp.targetSkeletonMeshAssetId) {
@@ -1275,6 +1281,7 @@ export class ActorEditorPanel {
         animationName: '',
         loopAnimation: true,
         animationSpeed: 1.0,
+        strictSkeletonMatching: false,
       },
     };
     this._asset.components.push(comp);
