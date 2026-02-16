@@ -545,65 +545,164 @@ registerNode('CheckBox OnCheckStateChanged', 'UI Events', () => new CheckBoxOnCh
 //  Widget Instance Interaction Nodes (for Actor Blueprints)
 //  These nodes allow actor blueprints to access widget variables,
 //  call widget functions, and interact with widget instances.
+//  Enhanced with widget blueprint type selection and dynamic dropdowns.
 // ============================================================
 
-// ── Get Widget Variable ─────────────────────────────────────
-export class GetWidgetVariableNode extends ClassicPreset.Node {
-  public variableName: ClassicPreset.InputControl<'text'>;
+// ── Widget Variable Selector Control ────────────────────────
+/**
+ * Custom control for selecting a variable from a widget blueprint.
+ * Shows dropdown of available variables from the selected widget blueprint type.
+ */
+export class WidgetVariableSelectorControl extends ClassicPreset.Control {
+  public value: string;         // selected variable name
+  public availableVariables: Array<{ name: string; type: string }> = [];
 
-  constructor(varName: string = '') {
+  constructor(initialValue: string = '') {
+    super();
+    this.value = initialValue;
+  }
+
+  setValue(varName: string) {
+    this.value = varName;
+  }
+
+  /**
+   * Update available variables from widget blueprint definition.
+   * Called when widget blueprint type changes.
+   */
+  setAvailableVariables(variables: Array<{ name: string; type: string }>) {
+    this.availableVariables = variables;
+  }
+}
+
+// ── Widget Function Selector Control ────────────────────────
+/**
+ * Custom control for selecting a function from a widget blueprint.
+ * Shows dropdown of available functions from the selected widget blueprint type.
+ */
+export class WidgetFunctionSelectorControl extends ClassicPreset.Control {
+  public value: string;         // selected function name
+  public availableFunctions: Array<{ name: string; inputs: any[]; outputs: any[] }> = [];
+
+  constructor(initialValue: string = '') {
+    super();
+    this.value = initialValue;
+  }
+
+  setValue(funcName: string) {
+    this.value = funcName;
+  }
+
+  /**
+   * Update available functions from widget blueprint definition.
+   * Called when widget blueprint type changes.
+   */
+  setAvailableFunctions(functions: Array<{ name: string; inputs: any[]; outputs: any[] }>) {
+    this.availableFunctions = functions;
+  }
+}
+
+// ── Get Widget Variable (Enhanced) ──────────────────────────
+export class GetWidgetVariableNode extends ClassicPreset.Node {
+  public widgetBPId: string;
+  public widgetBPName: string;
+  public widgetBPControl: WidgetBPSelectControl;
+  public variableControl: WidgetVariableSelectorControl;
+
+  constructor(bpId: string = '', bpName: string = '(none)', varName: string = '') {
     super('Get Widget Variable');
+    this.widgetBPId = bpId;
+    this.widgetBPName = bpName;
+
     this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.variableName = new ClassicPreset.InputControl('text', { initial: varName });
-    this.addControl('variableName', this.variableName);
-    this.addOutput('value', new ClassicPreset.Output(strSocket, 'Value')); // Generic output
+
+    // Widget blueprint type selector
+    this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
+    (this.widgetBPControl as any)._parentNode = this;
+    this.addControl('widgetBP', this.widgetBPControl);
+
+    // Variable selector dropdown (populated based on widget BP type)
+    this.variableControl = new WidgetVariableSelectorControl(varName);
+    this.addControl('variable', this.variableControl);
+
+    this.addOutput('value', new ClassicPreset.Output(strSocket, 'Value'));
   }
 
   getVariableName(): string {
-    return this.variableName.value || '';
+    return this.variableControl.value || '';
   }
 }
 registerNode('Get Widget Variable', 'UI', () => new GetWidgetVariableNode());
 
-// ── Set Widget Variable ─────────────────────────────────────
+// ── Set Widget Variable (Enhanced) ──────────────────────────
 export class SetWidgetVariableNode extends ClassicPreset.Node {
-  public variableName: ClassicPreset.InputControl<'text'>;
+  public widgetBPId: string;
+  public widgetBPName: string;
+  public widgetBPControl: WidgetBPSelectControl;
+  public variableControl: WidgetVariableSelectorControl;
 
-  constructor(varName: string = '') {
+  constructor(bpId: string = '', bpName: string = '(none)', varName: string = '') {
     super('Set Widget Variable');
+    this.widgetBPId = bpId;
+    this.widgetBPName = bpName;
+
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.variableName = new ClassicPreset.InputControl('text', { initial: varName });
-    this.addControl('variableName', this.variableName);
-    this.addInput('value', new ClassicPreset.Input(strSocket, 'Value')); // Generic input
+
+    // Widget blueprint type selector
+    this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
+    (this.widgetBPControl as any)._parentNode = this;
+    this.addControl('widgetBP', this.widgetBPControl);
+
+    // Variable selector dropdown
+    this.variableControl = new WidgetVariableSelectorControl(varName);
+    this.addControl('variable', this.variableControl);
+
+    this.addInput('value', new ClassicPreset.Input(strSocket, 'Value'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 
   getVariableName(): string {
-    return this.variableName.value || '';
+    return this.variableControl.value || '';
   }
 }
 registerNode('Set Widget Variable', 'UI', () => new SetWidgetVariableNode());
 
-// ── Call Widget Function ────────────────────────────────────
+// ── Call Widget Function (Enhanced) ─────────────────────────
 export class CallWidgetFunctionNode extends ClassicPreset.Node {
-  public functionName: ClassicPreset.InputControl<'text'>;
+  public widgetBPId: string;
+  public widgetBPName: string;
+  public widgetBPControl: WidgetBPSelectControl;
+  public functionControl: WidgetFunctionSelectorControl;
 
-  constructor(funcName: string = '') {
+  constructor(bpId: string = '', bpName: string = '(none)', funcName: string = '') {
     super('Call Widget Function');
+    this.widgetBPId = bpId;
+    this.widgetBPName = bpName;
+
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addInput('widget', new ClassicPreset.Input(strSocket, 'Widget'));
-    this.functionName = new ClassicPreset.InputControl('text', { initial: funcName });
-    this.addControl('functionName', this.functionName);
+
+    // Widget blueprint type selector
+    this.widgetBPControl = new WidgetBPSelectControl(bpId, bpName);
+    (this.widgetBPControl as any)._parentNode = this;
+    this.addControl('widgetBP', this.widgetBPControl);
+
+    // Function selector dropdown (populated based on widget BP type)
+    this.functionControl = new WidgetFunctionSelectorControl(funcName);
+    this.addControl('function', this.functionControl);
+
     // Generic inputs for function parameters (user can connect any type)
-    this.addInput('param1', new ClassicPreset.Input(strSocket, 'Param 1', true)); // optional
-    this.addInput('param2', new ClassicPreset.Input(strSocket, 'Param 2', true)); // optional
-    this.addInput('param3', new ClassicPreset.Input(strSocket, 'Param 3', true)); // optional
+    // TODO: Dynamically create pins based on selected function signature
+    this.addInput('param1', new ClassicPreset.Input(strSocket, 'Param 1', true));
+    this.addInput('param2', new ClassicPreset.Input(strSocket, 'Param 2', true));
+    this.addInput('param3', new ClassicPreset.Input(strSocket, 'Param 3', true));
+
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 
   getFunctionName(): string {
-    return this.functionName.value || '';
+    return this.functionControl.value || '';
   }
 }
 registerNode('Call Widget Function', 'UI', () => new CallWidgetFunctionNode());

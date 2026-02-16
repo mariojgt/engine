@@ -233,7 +233,6 @@ export class UIManager {
 
         // Wrap the compiled code to capture variables and functions in the state object
         const wrappedCode = `
-          const __widgetState = arguments[3];
           ${(bp as any).compiledCode}
           // Store all variables and functions in state for external access
           __widgetState.__variables = {};
@@ -243,7 +242,7 @@ export class UIManager {
           // Capture functions starting with __fn_
           ${this._generateFunctionCaptureCode((bp as any).compiledCode)}
           // Run setup
-          if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(arguments[0], arguments[1]);
+          if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
         `;
 
         const setupFn = new Function('__widgetHandle', '__uiManager', 'print', '__widgetState', wrappedCode);

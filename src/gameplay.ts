@@ -74,7 +74,7 @@ function gameLoop(time: number): void {
 
   // Update engine
   if (engine) {
-    engine.update(dt);
+    engine.update();
   }
 
   // Render

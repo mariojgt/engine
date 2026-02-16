@@ -264,6 +264,8 @@ import {
   // Widget / UI Nodes
   WidgetBPSelectControl,
   WidgetSelectorControl,
+  WidgetVariableSelectorControl,
+  WidgetFunctionSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -1089,8 +1091,9 @@ function resolveValue(
       return `(__uiManager ? __uiManager.isVisible(__widgetHandle, ${wName}) : false)`;
     }
     case 'Create Widget': {
-      const wn = node as CreateWidgetNode;
-      return `(__uiManager ? __uiManager.createWidget(${JSON.stringify(wn.widgetBPId || '')}) : '')`;
+      // Return the variable name that genAction creates, not an inline call
+      // This prevents createWidget from being called multiple times
+      return `__wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')}`;
     }
     case 'Get Widget Variable': {
       const n = node as GetWidgetVariableNode;
@@ -4168,12 +4171,18 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
 
   // Widget instance interaction nodes
   if (node instanceof GetWidgetVariableNode) {
+    data.widgetBPId = (node as GetWidgetVariableNode).widgetBPId;
+    data.widgetBPName = (node as GetWidgetVariableNode).widgetBPName;
     data.variableName = (node as GetWidgetVariableNode).getVariableName();
   }
   if (node instanceof SetWidgetVariableNode) {
+    data.widgetBPId = (node as SetWidgetVariableNode).widgetBPId;
+    data.widgetBPName = (node as SetWidgetVariableNode).widgetBPName;
     data.variableName = (node as SetWidgetVariableNode).getVariableName();
   }
   if (node instanceof CallWidgetFunctionNode) {
+    data.widgetBPId = (node as CallWidgetFunctionNode).widgetBPId;
+    data.widgetBPName = (node as CallWidgetFunctionNode).widgetBPName;
     data.functionName = (node as CallWidgetFunctionNode).getFunctionName();
   }
 
@@ -4631,9 +4640,52 @@ function createNodeFromData(
     case 'SetInputModeNode':                return new SetInputModeNode();
     case 'ShowMouseCursorNode':             return new ShowMouseCursorNode();
     // Widget Instance Interaction Nodes
-    case 'GetWidgetVariableNode':           return new GetWidgetVariableNode(d.variableName || '');
-    case 'SetWidgetVariableNode':           return new SetWidgetVariableNode(d.variableName || '');
-    case 'CallWidgetFunctionNode':          return new CallWidgetFunctionNode(d.functionName || '');
+    case 'GetWidgetVariableNode': {
+      const n = new GetWidgetVariableNode(d.widgetBPId || '', d.widgetBPName || '(none)', d.variableName || '');
+      // Populate available variables from widget blueprint
+      if (d.widgetBPId && _widgetBPMgr) {
+        const widgetBP = _widgetBPMgr.getAsset(d.widgetBPId);
+        if (widgetBP && n.variableControl) {
+          const variables = (widgetBP.blueprintData.variables || []).map((v: any) => ({
+            name: v.name,
+            type: v.type,
+          }));
+          n.variableControl.setAvailableVariables(variables);
+        }
+      }
+      return n;
+    }
+    case 'SetWidgetVariableNode': {
+      const n = new SetWidgetVariableNode(d.widgetBPId || '', d.widgetBPName || '(none)', d.variableName || '');
+      // Populate available variables from widget blueprint
+      if (d.widgetBPId && _widgetBPMgr) {
+        const widgetBP = _widgetBPMgr.getAsset(d.widgetBPId);
+        if (widgetBP && n.variableControl) {
+          const variables = (widgetBP.blueprintData.variables || []).map((v: any) => ({
+            name: v.name,
+            type: v.type,
+          }));
+          n.variableControl.setAvailableVariables(variables);
+        }
+      }
+      return n;
+    }
+    case 'CallWidgetFunctionNode': {
+      const n = new CallWidgetFunctionNode(d.widgetBPId || '', d.widgetBPName || '(none)', d.functionName || '');
+      // Populate available functions from widget blueprint
+      if (d.widgetBPId && _widgetBPMgr) {
+        const widgetBP = _widgetBPMgr.getAsset(d.widgetBPId);
+        if (widgetBP && n.functionControl) {
+          const functions = (widgetBP.blueprintData.functions || []).map((f: any) => ({
+            name: f.name,
+            inputs: f.inputs || [],
+            outputs: f.outputs || [],
+          }));
+          n.functionControl.setAvailableFunctions(functions);
+        }
+      }
+      return n;
+    }
     // Widget Event Nodes
     case 'ButtonOnClickedNode': {
       const widgetValue = d.controls?.widgetSelector || '';
@@ -5019,11 +5071,18 @@ async function createGraphEditor(
                     setSelected('(none)');
                     setOpen(false);
                     setSearch('');
-                    // Sync node fields
-                    const parentNode = ctrl as any;
-                    if (parentNode._parentNode) {
-                      parentNode._parentNode.widgetBPId = '';
-                      parentNode._parentNode.widgetBPName = '(none)';
+                    // Sync node fields and clear dropdowns
+                    const parentNode = (ctrl as any)._parentNode;
+                    if (parentNode) {
+                      parentNode.widgetBPId = '';
+                      parentNode.widgetBPName = '(none)';
+                      // Clear variable/function selectors
+                      if (parentNode.variableControl) {
+                        parentNode.variableControl.setAvailableVariables([]);
+                      }
+                      if (parentNode.functionControl) {
+                        parentNode.functionControl.setAvailableFunctions([]);
+                      }
                     }
                   },
                   style: {
@@ -5047,9 +5106,37 @@ async function createGraphEditor(
                       setOpen(false);
                       setSearch('');
                       // Sync node fields
-                      if ((ctrl as any)._parentNode) {
-                        (ctrl as any)._parentNode.widgetBPId = w.id;
-                        (ctrl as any)._parentNode.widgetBPName = w.name;
+                      const parentNode = (ctrl as any)._parentNode;
+                      if (parentNode) {
+                        parentNode.widgetBPId = w.id;
+                        parentNode.widgetBPName = w.name;
+
+                        // Populate variable/function selectors from widget blueprint data
+                        if (_widgetBPMgr) {
+                          const widgetBP = _widgetBPMgr.getAsset(w.id);
+                          if (widgetBP) {
+                            // Populate variables for GetWidgetVariableNode and SetWidgetVariableNode
+                            if (parentNode.variableControl) {
+                              const variables = (widgetBP.blueprintData.variables || []).map((v: any) => ({
+                                name: v.name,
+                                type: v.type,
+                              }));
+                              parentNode.variableControl.setAvailableVariables(variables);
+                              console.log(`[NodeEditor] Populated ${variables.length} variables for widget "${w.name}"`);
+                            }
+
+                            // Populate functions for CallWidgetFunctionNode
+                            if (parentNode.functionControl) {
+                              const functions = (widgetBP.blueprintData.functions || []).map((f: any) => ({
+                                name: f.name,
+                                inputs: f.inputs || [],
+                                outputs: f.outputs || [],
+                              }));
+                              parentNode.functionControl.setAvailableFunctions(functions);
+                              console.log(`[NodeEditor] Populated ${functions.length} functions for widget "${w.name}"`);
+                            }
+                          }
+                        }
                       }
                     },
                     style: {
@@ -5074,6 +5161,101 @@ async function createGraphEditor(
             );
           };
         }
+
+        // ── Widget Variable Selector Control ────────────────────────
+        if (data.payload instanceof WidgetVariableSelectorControl) {
+          const ctrl = data.payload as WidgetVariableSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+
+            // Sync React re-renders when control value changes externally
+            React.useEffect(() => {
+              const checkValue = () => forceUpdate();
+              const timer = setInterval(checkValue, 100);
+              return () => clearInterval(timer);
+            }, []);
+
+            const variables = ctrl.availableVariables || [];
+            const currentValue = ctrl.value || '';
+
+            return React.createElement('select', {
+              value: currentValue,
+              onChange: (e: any) => {
+                const newValue = e.target.value;
+                ctrl.setValue(newValue);
+                console.log(`[WidgetVariableSelector] Selected variable: "${newValue}"`);
+                forceUpdate();
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: currentValue ? '#e0e0e0' : '#888',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { key: '__none', value: '' }, '(select variable)'),
+              ...variables.map((v: any) =>
+                React.createElement('option', { key: v.name, value: v.name }, `${v.name} (${v.type})`),
+              ),
+              variables.length === 0 && React.createElement('option', { key: '__empty', value: '', disabled: true }, 'No variables available'),
+            );
+          };
+        }
+
+        // ── Widget Function Selector Control ────────────────────────
+        if (data.payload instanceof WidgetFunctionSelectorControl) {
+          const ctrl = data.payload as WidgetFunctionSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+
+            // Sync React re-renders when control value changes externally
+            React.useEffect(() => {
+              const checkValue = () => forceUpdate();
+              const timer = setInterval(checkValue, 100);
+              return () => clearInterval(timer);
+            }, []);
+
+            const functions = ctrl.availableFunctions || [];
+            const currentValue = ctrl.value || '';
+
+            return React.createElement('select', {
+              value: currentValue,
+              onChange: (e: any) => {
+                const newValue = e.target.value;
+                ctrl.setValue(newValue);
+                console.log(`[WidgetFunctionSelector] Selected function: "${newValue}"`);
+                forceUpdate();
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: currentValue ? '#e0e0e0' : '#888',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { key: '__none', value: '' }, '(select function)'),
+              ...functions.map((f: any) =>
+                React.createElement('option', { key: f.name, value: f.name }, f.name),
+              ),
+              functions.length === 0 && React.createElement('option', { key: '__empty', value: '', disabled: true }, 'No functions available'),
+            );
+          };
+        }
+
         if (data.payload instanceof KeySelectControl) {
           const ctrl = data.payload as KeySelectControl;
           return (props: any) => {

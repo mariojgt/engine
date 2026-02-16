@@ -301,6 +301,8 @@ export {
 export {
   WidgetBPSelectControl,
   WidgetSelectorControl,
+  WidgetVariableSelectorControl,
+  WidgetFunctionSelectorControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
