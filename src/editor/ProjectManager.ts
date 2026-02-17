@@ -91,6 +91,7 @@ export class ProjectManager {
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
+  private _compositionManager: import('./scene/SceneCompositionManager').SceneCompositionManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -139,6 +140,11 @@ export class ProjectManager {
   /** Wire up the ContentFolderManager for saving/loading folder structure */
   setFolderManager(mgr: ContentFolderManager): void {
     this._folderManager = mgr;
+  }
+
+  /** Wire up the SceneCompositionManager for saving/loading scene composition */
+  setCompositionManager(mgr: import('./scene/SceneCompositionManager').SceneCompositionManager): void {
+    this._compositionManager = mgr;
   }
 
   // ============================================================
@@ -356,9 +362,16 @@ export class ProjectManager {
       camera,
     );
 
+    // Include scene composition data alongside the scene
+    const compositionData = this._compositionManager?.serialize() ?? null;
+    const fullData = {
+      ...sceneData,
+      composition: compositionData,
+    };
+
     await fsWrite(
       `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`,
-      JSON.stringify(sceneData, null, 2),
+      JSON.stringify(fullData, null, 2),
     );
   }
 
@@ -373,9 +386,17 @@ export class ProjectManager {
     }
 
     const raw = await fsRead(filePath);
-    const sceneData: SceneJSON = JSON.parse(raw);
+    const sceneData: SceneJSON & { composition?: any } = JSON.parse(raw);
 
     deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
+
+    // Restore scene composition data if present
+    if (sceneData.composition && this._compositionManager) {
+      this._compositionManager.deserialize(sceneData.composition);
+    } else if (this._compositionManager) {
+      // No saved composition — create defaults
+      this._compositionManager.createDefaultComposition();
+    }
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {

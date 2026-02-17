@@ -46,6 +46,9 @@ export class Engine {
    */
   public assetManager: import('../editor/ActorAsset').ActorAssetManager | null = null;
 
+  /** PlayerStart spawn transform — set by the editor before play starts */
+  public playerStartTransform: { position: { x: number; y: number; z: number }; rotationY: number } | null = null;
+
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
@@ -81,6 +84,17 @@ export class Engine {
     // ── 0. Initialize UI overlay ──
     if (canvas) {
       this.uiManager.init(canvas);
+    }
+
+    // ── 0b. Apply PlayerStart spawn position to character/spectator pawns ──
+    if (this.playerStartTransform) {
+      const sp = this.playerStartTransform;
+      for (const go of this.scene.gameObjects) {
+        if (go.actorType === 'characterPawn' || go.actorType === 'spectatorPawn') {
+          go.mesh.position.set(sp.position.x, sp.position.y, sp.position.z);
+          go.mesh.rotation.y = sp.rotationY;
+        }
+      }
     }
 
     // ── 1. Create pawn controllers (CharacterController / SpectatorController) ──

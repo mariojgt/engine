@@ -25,6 +25,8 @@ import { StructureEditorPanel } from './StructureEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
 import type { CameraStateJSON } from './SceneSerializer';
+import { SceneCompositionManager } from './scene/SceneCompositionManager';
+import { WorldOutlinerPanel } from './WorldOutlinerPanel';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -76,6 +78,12 @@ export class EditorLayout {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
 
+  /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
+  public composition: SceneCompositionManager;
+
+  /** World Outliner panel reference */
+  private _outliner: WorldOutlinerPanel | null = null;
+
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
 
@@ -85,6 +93,7 @@ export class EditorLayout {
   constructor(container: HTMLElement, engine: Engine) {
     this._engine = engine;
     this.assetManager = new ActorAssetManager();
+    this.composition = new SceneCompositionManager(engine.scene.threeScene);
     this._init(container);
   }
 
@@ -110,10 +119,10 @@ export class EditorLayout {
       component: 'default',
     });
 
-    // 2. Scene panel (left)
+    // 2. World Outliner (left — replaces old Scene panel)
     const contentPanel = this._api.addPanel({
-      id: 'content-browser',
-      title: 'Scene',
+      id: 'world-outliner',
+      title: 'World Outliner',
       component: 'default',
       position: {
         direction: 'left',
@@ -128,7 +137,7 @@ export class EditorLayout {
       component: 'default',
       position: {
         direction: 'below',
-        referencePanel: 'content-browser',
+        referencePanel: 'world-outliner',
       },
     });
 
@@ -153,7 +162,7 @@ export class EditorLayout {
 
     // Initialize panel contents using renderer map
     this._initViewport('viewport');
-    this._initContentBrowser('content-browser');
+    this._initWorldOutliner('world-outliner');
     this._initAssetBrowser('asset-browser');
     this._initProperties('properties');
   }
@@ -167,16 +176,39 @@ export class EditorLayout {
     el.appendChild(wrapper);
 
     this._viewport = new ViewportPanel(wrapper, this._engine);
+
+    // Provide the viewport's WebGL renderer and camera to the composition manager
+    // so that PostProcessVolume can set up its composer pipeline.
+    if (this._viewport) {
+      const renderer = this._viewport.getRenderer();
+      const camera = this._viewport.getCamera();
+      if (renderer) this.composition.setRenderer(renderer);
+      if (camera) this.composition.setCamera(camera);
+
+      // Connect composition manager to viewport for actor gizmo + post-process support
+      this._viewport.setCompositionManager(this.composition);
+    }
   }
 
-  private _initContentBrowser(panelId: string): void {
+  private _initWorldOutliner(panelId: string): void {
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
     const el = renderer.element;
 
-    new ContentBrowserPanel(el, this._engine, (go: GameObject) => {
-      this._openNodeEditor(go);
-    });
+    this._outliner = new WorldOutlinerPanel(
+      el,
+      this._engine,
+      this.composition,
+      (go: GameObject) => {
+        this._openNodeEditor(go);
+      },
+      (actorId: string | null) => {
+        // When a composition actor is selected, show its properties
+        if (this._properties) {
+          this._properties.showCompositionActor(actorId);
+        }
+      },
+    );
   }
 
   private _initAssetBrowser(panelId: string): void {
@@ -221,6 +253,7 @@ export class EditorLayout {
     if (!renderer) return;
     const el = renderer.element;
     this._properties = new PropertiesPanel(el, this._engine);
+    this._properties.setCompositionManager(this.composition);
   }
 
   private _openNodeEditor(go: GameObject): void {

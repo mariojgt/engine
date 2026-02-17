@@ -12,6 +12,8 @@ export class PhysicsWorld {
   public isPlaying: boolean = false;
   public collision: CollisionSystem = new CollisionSystem();
   private _initialized = false;
+  private _groundCollider: RAPIER.Collider | null = null;
+  private _groundHalfExtent = 100.0;
 
   /** Map Rapier collider handle → GameObject id (for contact/intersection queries) */
   private _colliderToGoId = new Map<number, number>();
@@ -22,10 +24,36 @@ export class PhysicsWorld {
     this.world = new RAPIER.World(gravity);
     this._initialized = true;
 
-    // Create ground plane collider
-    const groundDesc = RAPIER.ColliderDesc.cuboid(10.0, 0.1, 10.0)
+    // Create ground plane collider (matches DevGroundPlane default size)
+    this._createGroundCollider();
+  }
+
+  /** Enable or disable the ground plane collider (called by DevGroundPlane hasCollision) */
+  setGroundCollisionEnabled(enabled: boolean): void {
+    if (!this.world || !this._initialized) return;
+    if (enabled && !this._groundCollider) {
+      this._createGroundCollider();
+    } else if (!enabled && this._groundCollider) {
+      this.world.removeCollider(this._groundCollider, false);
+      this._groundCollider = null;
+    }
+  }
+
+  /** Update the ground plane size to match a DevGroundPlane planeSize */
+  setGroundPlaneSize(halfExtent: number): void {
+    this._groundHalfExtent = halfExtent;
+    // Only recreate if currently exists
+    if (this._groundCollider && this.world) {
+      this.world.removeCollider(this._groundCollider, false);
+      this._createGroundCollider();
+    }
+  }
+
+  private _createGroundCollider(): void {
+    if (!this.world) return;
+    const groundDesc = RAPIER.ColliderDesc.cuboid(this._groundHalfExtent, 0.1, this._groundHalfExtent)
       .setTranslation(0, -0.1, 0);
-    this.world.createCollider(groundDesc);
+    this._groundCollider = this.world.createCollider(groundDesc);
   }
 
   addPhysicsBody(go: GameObject): void {
@@ -382,11 +410,10 @@ export class PhysicsWorld {
       this.world.free();
       const gravity = { x: 0.0, y: -9.81, z: 0.0 };
       this.world = new RAPIER.World(gravity);
+      this._groundCollider = null;
 
-      // Recreate ground plane
-      const groundDesc = RAPIER.ColliderDesc.cuboid(10.0, 0.1, 10.0)
-        .setTranslation(0, -0.1, 0);
-      this.world.createCollider(groundDesc);
+      // Recreate ground plane (matches DevGroundPlane default size)
+      this._createGroundCollider();
     }
   }
 }

@@ -14,25 +14,27 @@ import { AnimBlueprintManager } from '../editor/AnimBlueprintData';
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
 
-// Simple materials with flat colors
+// UE5-style default materials — smooth shading, neutral PBR
 const defaultMaterial = new THREE.MeshStandardMaterial({
-  color: 0x6c8ebf,
-  roughness: 0.7,
-  metalness: 0.1,
-  flatShading: true,
+  color: 0xcccccc,
+  roughness: 0.55,
+  metalness: 0.0,
+  flatShading: false,
+  envMapIntensity: 0.8,
 });
 
 const selectedMaterial = new THREE.MeshStandardMaterial({
   color: 0xf5a623,
-  roughness: 0.7,
-  metalness: 0.1,
-  flatShading: true,
+  roughness: 0.55,
+  metalness: 0.0,
+  flatShading: false,
+  envMapIntensity: 0.8,
 });
 
 const geometries: Record<MeshType, () => THREE.BufferGeometry> = {
   cube: () => new THREE.BoxGeometry(1, 1, 1),
-  sphere: () => new THREE.SphereGeometry(0.5, 16, 16),
-  cylinder: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 16),
+  sphere: () => new THREE.SphereGeometry(0.5, 32, 32),
+  cylinder: () => new THREE.CylinderGeometry(0.5, 0.5, 1, 32),
   plane: () => new THREE.PlaneGeometry(2, 2),
 };
 
@@ -51,38 +53,9 @@ export class Scene {
     this.threeScene = new THREE.Scene();
     this.threeScene.background = new THREE.Color(0x1a1a2e);
 
-    // Ambient light
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
-    this.threeScene.add(ambient);
-
-    // Directional light
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(5, 10, 7);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
-    dirLight.shadow.camera.left = -15;
-    dirLight.shadow.camera.right = 15;
-    dirLight.shadow.camera.top = 15;
-    dirLight.shadow.camera.bottom = -15;
-    dirLight.shadow.bias = -0.0005;
-    dirLight.shadow.normalBias = 0.02;
-    this.threeScene.add(dirLight);
-
-    // Grid helper
-    const grid = new THREE.GridHelper(20, 20, 0x333355, 0x222244);
-    this.threeScene.add(grid);
-
-    // Shadow-receiving ground plane (invisible flat mesh under the grid)
-    const groundGeo = new THREE.PlaneGeometry(40, 40);
-    const groundMat = new THREE.ShadowMaterial({ opacity: 0.35 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.01; // slightly below the grid to avoid z-fighting
-    ground.receiveShadow = true;
-    this.threeScene.add(ground);
+    // NOTE: Default lights, grid, and ground plane are now managed by
+    // SceneCompositionManager. The composition manager creates them
+    // when createDefaultComposition() is called from main.ts.
   }
 
   /**
@@ -387,14 +360,7 @@ export class Scene {
   }
 
   selectObject(go: GameObject | null): void {
-    // Reset previous selection material
-    if (this.selectedObject) {
-      (this.selectedObject.mesh.material as THREE.MeshStandardMaterial).color.set(0x6c8ebf);
-    }
     this.selectedObject = go;
-    if (go) {
-      (go.mesh.material as THREE.MeshStandardMaterial).color.set(0xf5a623);
-    }
     for (const cb of this._onSelectionChanged) cb(go);
   }
 
