@@ -26,6 +26,9 @@
 // ============================================================
 
 /** Minimal widget data needed at runtime (mirrors WidgetBlueprintData types) */
+
+import { TextureLibrary } from '../editor/TextureLibrary';
+import { FontLibrary } from '../editor/FontLibrary';
 export interface RuntimeWidgetNode {
   id: string;
   type: string;
@@ -109,6 +112,32 @@ export class UIManager {
   private _uiOnlyMode = false;
   /** Print function for widget blueprint print nodes - uses engine's print system */
   private _printFn: ((value: any) => void) | null = null;
+
+  /** Resolve a texture asset ID or raw URL to a usable src string */
+  private _resolveTextureSrc(value: string | undefined): string | null {
+    if (!value) return null;
+    // Already a data URL or regular URL — use as-is
+    if (value.startsWith('data:') || value.startsWith('http') || value.startsWith('/') || value.startsWith('blob:')) {
+      return value;
+    }
+    // Try to resolve as texture asset ID
+    const texLib = TextureLibrary.instance;
+    if (texLib) {
+      const asset = texLib.getAsset(value);
+      if (asset?.storedData) return asset.storedData;
+    }
+    return null;
+  }
+
+  /** Resolve a font asset ID to a CSS font-family string */
+  private _resolveFontFamily(value: string | undefined, fallback: string): string {
+    if (!value) return fallback;
+    const fontLib = FontLibrary.instance;
+    if (fontLib) {
+      return fontLib.resolveFontFamily(value) || fallback;
+    }
+    return fallback;
+  }
 
   /**
    * Set the function that resolves a widget blueprint ID to its data.
@@ -620,8 +649,9 @@ export class UIManager {
             el.style.border = `${bp.borderWidth}px solid ${bp.borderColor || '#888'}`;
           }
           if (bp.borderRadius > 0) el.style.borderRadius = `${bp.borderRadius}px`;
-          if (bp.backgroundImage) {
-            el.style.backgroundImage = `url(${bp.backgroundImage})`;
+          const borderBgSrc = this._resolveTextureSrc(bp.backgroundImage);
+          if (borderBgSrc) {
+            el.style.backgroundImage = `url(${borderBgSrc})`;
             el.style.backgroundSize = 'cover';
           }
         }
@@ -645,7 +675,9 @@ export class UIManager {
           textSpan.dataset.widgetText = 'true';
           textSpan.textContent = tp.text;
           textSpan.style.fontSize = `${tp.fontSize}px`;
-          textSpan.style.fontFamily = tp.fontFamily;
+          textSpan.style.fontFamily = tp.fontAsset
+            ? this._resolveFontFamily(tp.fontAsset, tp.fontFamily)
+            : tp.fontFamily;
           textSpan.style.color = tp.color;
           textSpan.style.textAlign = tp.justification.toLowerCase();
           if (tp.isBold) textSpan.style.fontWeight = 'bold';
@@ -666,20 +698,25 @@ export class UIManager {
       case 'Image': {
         const ip = widget.imageProps;
         if (ip && ip.imageSource) {
-          const img = document.createElement('img');
-          img.src = ip.imageSource;
-          img.style.width = '100%';
-          img.style.height = '100%';
-          if (ip.stretch === 'ScaleToFit') img.style.objectFit = 'contain';
-          else if (ip.stretch === 'ScaleToFill') img.style.objectFit = 'cover';
-          else if (ip.stretch === 'Fill') img.style.objectFit = 'fill';
-          else img.style.objectFit = 'none';
-          if (ip.tintColor && ip.tintColor !== '#ffffff') {
-            // Use CSS filter for tint approximation
-            el.style.backgroundColor = ip.tintColor;
-            img.style.mixBlendMode = 'multiply';
+          const imgSrc = this._resolveTextureSrc(ip.imageSource);
+          if (imgSrc) {
+            const img = document.createElement('img');
+            img.src = imgSrc;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            if (ip.stretch === 'ScaleToFit') img.style.objectFit = 'contain';
+            else if (ip.stretch === 'ScaleToFill') img.style.objectFit = 'cover';
+            else if (ip.stretch === 'Fill') img.style.objectFit = 'fill';
+            else img.style.objectFit = 'none';
+            if (ip.tintColor && ip.tintColor !== '#ffffff') {
+              // Use CSS filter for tint approximation
+              el.style.backgroundColor = ip.tintColor;
+              img.style.mixBlendMode = 'multiply';
+            }
+            el.appendChild(img);
+          } else {
+            el.style.backgroundColor = ip?.tintColor || '#444';
           }
-          el.appendChild(img);
         } else {
           el.style.backgroundColor = ip?.tintColor || '#444';
         }
@@ -693,7 +730,15 @@ export class UIManager {
         el.style.alignItems = 'center';
         el.style.justifyContent = 'center';
         if (bp) {
-          el.style.backgroundColor = bp.normalColor;
+          // Check for state textures first
+          const normalTexSrc = this._resolveTextureSrc(bp.stateTextures?.normal);
+          if (normalTexSrc) {
+            el.style.backgroundImage = `url(${normalTexSrc})`;
+            el.style.backgroundSize = 'cover';
+            el.style.backgroundColor = 'transparent';
+          } else {
+            el.style.backgroundColor = bp.normalColor;
+          }
           if (bp.borderRadius > 0) el.style.borderRadius = `${bp.borderRadius}px`;
           if (bp.borderWidth > 0) {
             el.style.border = `${bp.borderWidth}px solid ${bp.borderColor || '#888'}`;
@@ -702,10 +747,24 @@ export class UIManager {
           const normal = bp.normalColor;
           const hovered = bp.hoveredColor;
           const pressed = bp.pressedColor;
-          el.addEventListener('mouseenter', () => { el.style.backgroundColor = hovered; });
-          el.addEventListener('mouseleave', () => { el.style.backgroundColor = normal; });
-          el.addEventListener('mousedown', () => { el.style.backgroundColor = pressed; });
-          el.addEventListener('mouseup', () => { el.style.backgroundColor = hovered; });
+          const hoveredTexSrc = this._resolveTextureSrc(bp.stateTextures?.hovered);
+          const pressedTexSrc = this._resolveTextureSrc(bp.stateTextures?.pressed);
+          el.addEventListener('mouseenter', () => {
+            if (hoveredTexSrc) { el.style.backgroundImage = `url(${hoveredTexSrc})`; }
+            else { el.style.backgroundColor = hovered; }
+          });
+          el.addEventListener('mouseleave', () => {
+            if (normalTexSrc) { el.style.backgroundImage = `url(${normalTexSrc})`; }
+            else { el.style.backgroundColor = normal; }
+          });
+          el.addEventListener('mousedown', () => {
+            if (pressedTexSrc) { el.style.backgroundImage = `url(${pressedTexSrc})`; }
+            else { el.style.backgroundColor = pressed; }
+          });
+          el.addEventListener('mouseup', () => {
+            if (hoveredTexSrc) { el.style.backgroundImage = `url(${hoveredTexSrc})`; }
+            else { el.style.backgroundColor = hovered; }
+          });
         }
         break;
       }

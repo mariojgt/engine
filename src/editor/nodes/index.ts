@@ -341,3 +341,36 @@ export {
   CallWidgetFunctionNode,
   CallWidgetEventNode,
 } from './ui/WidgetNodes';
+
+// ── UI / Enhanced Widget Nodes ──────────────────────────────
+export {
+  // Image manipulation
+  SetImageTextureNode,
+  SetImageTintNode,
+  SetImageUVRectNode,
+  PlayImageFlipBookNode,
+  // Text manipulation
+  SetTextColorNode,
+  SetFontNode,
+  SetTextGradientNode,
+  SetTextShadowNode,
+  // Button manipulation
+  SetButtonTextureNode,
+  SetButtonTintNode,
+  SetButtonEnabledNode,
+  // Transform
+  SetWidgetPositionNode,
+  SetWidgetSizeNode,
+  SetWidgetScaleNode,
+  SetWidgetRotationNode,
+  GetWidgetPositionNode,
+  GetWidgetSizeNode,
+  // Animation
+  AnimateWidgetFloatNode,
+  AnimateWidgetColorNode,
+  StopWidgetAnimationNode,
+  PauseWidgetAnimationNode,
+  // Style
+  SetWidgetGradientNode,
+  SetWidgetNineSliceNode,
+} from './ui/WidgetEnhancedNodes';

@@ -811,3 +811,314 @@ function formatNumber(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
   return String(n);
 }
+
+// ============================================================
+//  Texture Import Dialog
+// ============================================================
+
+import { TextureLibrary, type TextureSettings, type TextureCategory, defaultTextureSettings } from './TextureLibrary';
+
+export interface TextureImportResult {
+  cancelled: boolean;
+  textureIds: string[];
+}
+
+/**
+ * Show a texture import dialog with settings (category, filtering, wrapping, 9-slice, etc.)
+ * Supports importing multiple files at once.
+ */
+export function showTextureImportDialog(files?: File[]): Promise<TextureImportResult> {
+  return new Promise((resolve) => {
+    const settings: any = { ...defaultTextureSettings(), category: 'UI' };
+    const selectedFiles: File[] = files ? [...files] : [];
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+
+    const dlg = document.createElement('div');
+    dlg.style.cssText = 'background:#1e1e2e;border:1px solid #444;border-radius:8px;padding:20px;width:460px;max-height:600px;overflow-y:auto;color:#ddd;';
+
+    // Title
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:12px;color:#fff;';
+    titleEl.textContent = 'Import Texture(s)';
+    dlg.appendChild(titleEl);
+
+    // File selection area
+    const fileArea = document.createElement('div');
+    fileArea.style.cssText = 'border:2px dashed #444;border-radius:6px;padding:20px;text-align:center;margin-bottom:12px;cursor:pointer;transition:border-color 0.2s;';
+    fileArea.innerHTML = selectedFiles.length > 0
+      ? `<div style="color:#aaa;font-size:12px;">${selectedFiles.length} file(s) selected</div>`
+      : '<div style="color:#666;font-size:12px;">Click to select image files or drag & drop</div>';
+
+    fileArea.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.multiple = true;
+      input.addEventListener('change', () => {
+        if (input.files) {
+          selectedFiles.length = 0;
+          for (let i = 0; i < input.files.length; i++) selectedFiles.push(input.files[i]);
+          fileArea.innerHTML = `<div style="color:#aaa;font-size:12px;">${selectedFiles.length} file(s) selected</div>`;
+          for (const f of selectedFiles) {
+            const fEl = document.createElement('div');
+            fEl.style.cssText = 'font-size:10px;color:#888;';
+            fEl.textContent = `  ${f.name} (${formatSize(f.size)})`;
+            fileArea.appendChild(fEl);
+          }
+        }
+      });
+      input.click();
+    });
+    fileArea.addEventListener('dragover', (e) => { e.preventDefault(); fileArea.style.borderColor = '#2a5db0'; });
+    fileArea.addEventListener('dragleave', () => { fileArea.style.borderColor = '#444'; });
+    fileArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      fileArea.style.borderColor = '#444';
+      if (e.dataTransfer?.files) {
+        selectedFiles.length = 0;
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          const f = e.dataTransfer.files[i];
+          if (f.type.startsWith('image/')) selectedFiles.push(f);
+        }
+        fileArea.innerHTML = `<div style="color:#aaa;font-size:12px;">${selectedFiles.length} file(s) selected</div>`;
+        for (const f of selectedFiles) {
+          const fEl = document.createElement('div');
+          fEl.style.cssText = 'font-size:10px;color:#888;';
+          fEl.textContent = `  ${f.name} (${formatSize(f.size)})`;
+          fileArea.appendChild(fEl);
+        }
+      }
+    });
+    dlg.appendChild(fileArea);
+
+    // Settings section
+    const settingsSection = document.createElement('div');
+    settingsSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:16px;';
+
+    const addRow = (label: string, control: HTMLElement) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:11px;color:#999;width:100px;flex-shrink:0;';
+      lbl.textContent = label;
+      row.appendChild(lbl);
+      row.appendChild(control);
+      settingsSection.appendChild(row);
+    };
+
+    // Category
+    const catSel = document.createElement('select');
+    catSel.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:3px 6px;border-radius:3px;font-size:11px;';
+    for (const cat of ['UI', 'Sprite', 'NormalMap', 'RenderTarget'] as TextureCategory[]) {
+      const o = document.createElement('option');
+      o.value = cat;
+      o.textContent = cat;
+      if (cat === settings.category) o.selected = true;
+      catSel.appendChild(o);
+    }
+    catSel.addEventListener('change', () => { settings.category = catSel.value as TextureCategory; });
+    addRow('Category', catSel);
+
+    // Filter
+    const filterSel = document.createElement('select');
+    filterSel.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:3px 6px;border-radius:3px;font-size:11px;';
+    for (const f of ['Linear', 'Nearest']) {
+      const o = document.createElement('option');
+      o.value = f;
+      o.textContent = f;
+      if (f === settings.filter) o.selected = true;
+      filterSel.appendChild(o);
+    }
+    filterSel.addEventListener('change', () => { settings.filter = filterSel.value as any; });
+    addRow('Filter', filterSel);
+
+    // Wrap
+    const wrapSel = document.createElement('select');
+    wrapSel.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:3px 6px;border-radius:3px;font-size:11px;';
+    for (const w of ['Repeat', 'Clamp', 'Mirror']) {
+      const o = document.createElement('option');
+      o.value = w;
+      o.textContent = w;
+      if (w === settings.wrap) o.selected = true;
+      wrapSel.appendChild(o);
+    }
+    wrapSel.addEventListener('change', () => { settings.wrap = wrapSel.value as any; });
+    addRow('Wrap', wrapSel);
+
+    // Generate Mipmaps
+    const mipChk = document.createElement('input');
+    mipChk.type = 'checkbox';
+    mipChk.checked = settings.generateMipmaps;
+    mipChk.addEventListener('change', () => { settings.generateMipmaps = mipChk.checked; });
+    addRow('Mipmaps', mipChk);
+
+    // sRGB
+    const srgbChk = document.createElement('input');
+    srgbChk.type = 'checkbox';
+    srgbChk.checked = settings.sRGB;
+    srgbChk.addEventListener('change', () => { settings.sRGB = srgbChk.checked; });
+    addRow('sRGB', srgbChk);
+
+    dlg.appendChild(settingsSection);
+
+    // Buttons
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.style.cssText = 'background:#333;color:#ccc;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve({ cancelled: true, textureIds: [] });
+    });
+
+    const importBtn = document.createElement('button');
+    importBtn.style.cssText = 'background:#2a5db0;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:bold;';
+    importBtn.textContent = 'Import';
+    importBtn.addEventListener('click', async () => {
+      if (selectedFiles.length === 0) return;
+      const texLib = TextureLibrary.instance;
+      if (!texLib) { overlay.remove(); resolve({ cancelled: true, textureIds: [] }); return; }
+      const ids: string[] = [];
+      for (const file of selectedFiles) {
+        const result = await texLib.importFromFile(file, settings);
+        if (result?.assetId) ids.push(result.assetId);
+      }
+      overlay.remove();
+      resolve({ cancelled: false, textureIds: ids });
+    });
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(importBtn);
+    dlg.appendChild(btnRow);
+
+    overlay.appendChild(dlg);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { overlay.remove(); resolve({ cancelled: true, textureIds: [] }); }
+    });
+    document.body.appendChild(overlay);
+  });
+}
+
+// ============================================================
+//  Font Import Dialog
+// ============================================================
+
+import { FontLibrary } from './FontLibrary';
+
+export interface FontImportResult {
+  cancelled: boolean;
+  fontId?: string;
+}
+
+/**
+ * Show a font import dialog with preview.
+ */
+export function showFontImportDialog(file?: File): Promise<FontImportResult> {
+  return new Promise((resolve) => {
+    let selectedFile: File | null = file ?? null;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+
+    const dlg = document.createElement('div');
+    dlg.style.cssText = 'background:#1e1e2e;border:1px solid #444;border-radius:8px;padding:20px;width:400px;color:#ddd;';
+
+    // Title
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:12px;color:#fff;';
+    titleEl.textContent = 'Import Font';
+    dlg.appendChild(titleEl);
+
+    // File selection
+    const fileArea = document.createElement('div');
+    fileArea.style.cssText = 'border:2px dashed #444;border-radius:6px;padding:16px;text-align:center;margin-bottom:12px;cursor:pointer;';
+    fileArea.innerHTML = selectedFile
+      ? `<div style="color:#aaa;font-size:12px;">${selectedFile.name} (${formatSize(selectedFile.size)})</div>`
+      : '<div style="color:#666;font-size:12px;">Click to select a font file (.ttf, .otf, .woff, .woff2)</div>';
+
+    fileArea.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.ttf,.otf,.woff,.woff2';
+      input.addEventListener('change', () => {
+        if (input.files?.[0]) {
+          selectedFile = input.files[0];
+          fileArea.innerHTML = `<div style="color:#aaa;font-size:12px;">${selectedFile.name} (${formatSize(selectedFile.size)})</div>`;
+          updatePreview();
+        }
+      });
+      input.click();
+    });
+    dlg.appendChild(fileArea);
+
+    // Preview
+    const previewEl = document.createElement('div');
+    previewEl.style.cssText = 'background:#111;border:1px solid #333;border-radius:4px;padding:12px;margin-bottom:12px;min-height:40px;';
+    previewEl.innerHTML = '<div style="color:#555;font-size:12px;text-align:center;">Preview will appear here</div>';
+    dlg.appendChild(previewEl);
+
+    const updatePreview = () => {
+      if (!selectedFile) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataURL = reader.result as string;
+        const fontName = 'preview_' + Date.now();
+        const face = new FontFace(fontName, `url(${dataURL})`);
+        face.load().then((loaded) => {
+          (document.fonts as any).add(loaded);
+          previewEl.innerHTML = '';
+          const sample = document.createElement('div');
+          sample.style.cssText = `font-family:'${fontName}';font-size:20px;color:#ddd;text-align:center;`;
+          sample.textContent = 'The quick brown fox jumps over the lazy dog';
+          previewEl.appendChild(sample);
+          const sample2 = document.createElement('div');
+          sample2.style.cssText = `font-family:'${fontName}';font-size:14px;color:#aaa;text-align:center;margin-top:4px;`;
+          sample2.textContent = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789';
+          previewEl.appendChild(sample2);
+        }).catch(() => {
+          previewEl.innerHTML = '<div style="color:#f55;font-size:11px;text-align:center;">Failed to load font preview</div>';
+        });
+      };
+      reader.readAsDataURL(selectedFile);
+    };
+    if (selectedFile) updatePreview();
+
+    // Buttons
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.style.cssText = 'background:#333;color:#ccc;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve({ cancelled: true });
+    });
+
+    const importBtn = document.createElement('button');
+    importBtn.style.cssText = 'background:#2a5db0;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:bold;';
+    importBtn.textContent = 'Import';
+    importBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      const fontLib = FontLibrary.instance;
+      if (!fontLib) { overlay.remove(); resolve({ cancelled: true }); return; }
+      const result = await fontLib.importFont(selectedFile);
+      overlay.remove();
+      resolve({ cancelled: false, fontId: result.assetId });
+    });
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(importBtn);
+    dlg.appendChild(btnRow);
+
+    overlay.appendChild(dlg);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { overlay.remove(); resolve({ cancelled: true }); }
+    });
+    document.body.appendChild(overlay);
+  });
+}

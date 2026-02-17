@@ -10,6 +10,8 @@ import { StructureAssetManager } from './editor/StructureAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
+import { TextureLibrary } from './editor/TextureLibrary';
+import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager } from './editor/NodeEditorPanel';
 
 async function main() {
@@ -58,18 +60,12 @@ async function main() {
   // Wire asset manager into the engine for controller blueprint resolution
   engine.assetManager = editor.assetManager;
 
-  // Initialize scene composition — creates default environment actors
-  // (directional light, sky atmosphere, sky light, fog, post-process, grid, player start)
-  editor.composition.createDefaultComposition();
-
-  // Track composition changes for auto-save
-  editor.composition.on('changed', () => projectManager?.markDirty());
+  // Create texture and font libraries (singletons used by widget editor)
+  new TextureLibrary();
+  new FontLibrary();
 
   // Create project manager
   const projectManager = new ProjectManager(engine, editor.assetManager);
-
-  // Wire composition manager into project manager for save/load
-  projectManager.setCompositionManager(editor.composition);
 
   // Create structure/enum asset manager (project-level types)
   const structManager = new StructureAssetManager();
@@ -388,18 +384,8 @@ async function main() {
         console.error('[Editor] Error details:', err);
         console.log('[Editor] Falling back to in-editor play mode');
 
-        // Set PlayerStart spawn position
-        engine.playerStartTransform = editor.composition.getPlayerStartTransform();
-
         // Fallback to in-editor mode
-        await engine.scene.waitForMeshLoads();
         engine.physics.play(engine.scene);
-
-        // Apply ground plane collision settings
-        const groundSettingsA = editor.composition.getGroundPlaneSettings();
-        engine.physics.setGroundPlaneSize(groundSettingsA.halfExtent);
-        engine.physics.setGroundCollisionEnabled(groundSettingsA.hasCollision);
-
         const canvas = editor.getCanvas();
         engine.onPlayStarted(canvas ?? undefined);
 
@@ -412,7 +398,6 @@ async function main() {
         engine.scene.setTriggerHelpersVisible(false);
         engine.scene.setLightHelpersVisible(false);
         engine.scene.setComponentHelpersVisible(false);
-        editor.composition.setPlayMode(true);
         playBtn.style.display = 'none';
         stopBtn.style.display = '';
       }
@@ -420,17 +405,7 @@ async function main() {
       // ── In-editor play mode (for browser/non-Tauri) ──
       console.log('[Editor] Starting in-editor play mode (not in Tauri)');
 
-      // Set PlayerStart spawn position
-      engine.playerStartTransform = editor.composition.getPlayerStartTransform();
-
-      await engine.scene.waitForMeshLoads();
       engine.physics.play(engine.scene);
-
-      // Apply ground plane collision settings
-      const groundSettings = editor.composition.getGroundPlaneSettings();
-      engine.physics.setGroundPlaneSize(groundSettings.halfExtent);
-      engine.physics.setGroundCollisionEnabled(groundSettings.hasCollision);
-
       const canvas = editor.getCanvas();
       engine.onPlayStarted(canvas ?? undefined);
 
@@ -443,7 +418,6 @@ async function main() {
       engine.scene.setTriggerHelpersVisible(false);
       engine.scene.setLightHelpersVisible(false);
       engine.scene.setComponentHelpersVisible(false);
-      editor.composition.setPlayMode(true);
       playBtn.style.display = 'none';
       stopBtn.style.display = '';
     }
@@ -473,8 +447,6 @@ async function main() {
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     engine.scene.setLightHelpersVisible(true);     // restore light editor helpers
     engine.scene.setComponentHelpersVisible(true); // restore component helpers
-    editor.composition.setPlayMode(false);         // restore composition editor visuals
-    engine.playerStartTransform = null;            // clear spawn override
 
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);

@@ -158,15 +158,101 @@ export interface TextProperties {
   shadowOffset: { x: number; y: number };
   /** Enable auto-wrap text */
   autoWrap: boolean;
+  /** Font asset ID (from FontLibrary) — overrides fontFamily when set */
+  fontAsset?: string;
+  /** Font weight (e.g., 'normal', 'bold', '100'-'900') */
+  fontWeight?: string;
+  /** Font style ('normal', 'italic', 'oblique') */
+  fontStyle?: string;
+  /** Letter spacing in pixels */
+  letterSpacing?: number;
+  /** Line height multiplier */
+  lineHeight?: number;
+  /** Text shadow (enhanced) */
+  shadow?: {
+    enabled: boolean;
+    color: string;
+    offset: { x: number; y: number };
+    blur: number;
+  };
+  /** Text outline */
+  outline?: {
+    enabled: boolean;
+    color: string;
+    width: number;
+  };
+  /** Text gradient fill */
+  gradient?: {
+    enabled: boolean;
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ position: number; color: string }>;
+  };
+  /** Text truncation */
+  truncation?: {
+    mode: 'none' | 'ellipsis' | 'clip';
+    maxLines: number;
+    ellipsis: string;
+  };
+  /** Animated text (typewriter etc.) */
+  animated?: {
+    enabled: boolean;
+    type: 'typewriter' | 'fade' | 'slide';
+    speed: number;
+  };
 }
 
 export interface ImageProperties {
-  /** Data URL or asset reference */
+  /** Data URL or texture asset ID */
   imageSource: string;
   /** Tint color */
   tintColor: string;
   /** Scale mode */
   stretch: 'None' | 'Fill' | 'ScaleToFit' | 'ScaleToFill';
+  /** Tint blend mode */
+  tintMode?: 'multiply' | 'overlay' | 'colorize' | 'screen' | 'add';
+  /** Tint strength (0-1) */
+  tintStrength?: number;
+  /** Flip horizontally */
+  flipX?: boolean;
+  /** Flip vertically */
+  flipY?: boolean;
+  /** Rotation in degrees */
+  rotation?: number;
+  /** 9-slice border support */
+  nineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** UV rectangle for sprite sheets */
+  uvRect?: { x: number; y: number; width: number; height: number };
+  /** Gradient overlay (overrides texture if no texture) */
+  gradient?: {
+    enabled: boolean;
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ position: number; color: string; opacity?: number }>;
+  };
+  /** Visual effects */
+  effects?: {
+    shadow?: {
+      enabled: boolean;
+      color: string;
+      offset: { x: number; y: number };
+      blur: number;
+    };
+    glow?: {
+      enabled: boolean;
+      color: string;
+      blur: number;
+      strength: number;
+    };
+    outline?: {
+      enabled: boolean;
+      color: string;
+      width: number;
+    };
+  };
 }
 
 export interface ButtonProperties {
@@ -184,6 +270,64 @@ export interface ButtonProperties {
   borderWidth: number;
   /** Border color */
   borderColor: string;
+  /** Texture backgrounds per state (texture asset IDs) */
+  stateTextures?: {
+    normal?: string;
+    hovered?: string;
+    pressed?: string;
+    disabled?: string;
+  };
+  /** Tint per state (when using textures) */
+  stateTints?: {
+    normal?: string;
+    hovered?: string;
+    pressed?: string;
+    disabled?: string;
+  };
+  /** 9-slice border support */
+  nineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Gradient background */
+  gradient?: {
+    enabled: boolean;
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ position: number; color: string }>;
+  };
+  /** Button content (icon + text composite) */
+  content?: {
+    type: 'text' | 'image' | 'composite';
+    icon?: {
+      texture: string;
+      size: { width: number; height: number };
+      tint: string;
+      position: 'left' | 'right' | 'top' | 'bottom';
+      padding: number;
+    };
+    text?: {
+      value: string;
+      font: string;
+      size: number;
+      color: string;
+    };
+    padding?: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Hover/press animation config */
+  animations?: {
+    hoverIn?: { duration: number; easing: string };
+    hoverOut?: { duration: number; easing: string };
+    press?: { duration: number };
+    release?: { duration: number };
+  };
+  /** Scale per state (for hover/press effects) */
+  stateScales?: {
+    normal?: number;
+    hovered?: number;
+    pressed?: number;
+    disabled?: number;
+  };
 }
 
 export interface ProgressBarProperties {
@@ -197,6 +341,27 @@ export interface ProgressBarProperties {
   borderRadius: number;
   /** Fill direction */
   fillDirection: 'LeftToRight' | 'RightToLeft' | 'TopToBottom' | 'BottomToTop';
+  /** Background texture asset ID */
+  backgroundTexture?: string;
+  /** Fill texture asset ID */
+  fillTexture?: string;
+  /** Fill gradient */
+  fillGradient?: {
+    enabled: boolean;
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ position: number; color: string }>;
+  };
+  /** Background 9-slice */
+  backgroundNineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Fill 9-slice */
+  fillNineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
 }
 
 export interface SliderProperties {
@@ -251,7 +416,7 @@ export interface CheckBoxProperties {
 export interface BorderProperties {
   /** Background color / brush */
   backgroundColor: string;
-  /** Background image (data URL or empty) */
+  /** Background image (data URL or texture asset ID) */
   backgroundImage: string;
   /** Border color */
   borderColor: string;
@@ -259,6 +424,18 @@ export interface BorderProperties {
   borderWidth: number;
   /** Corner radius */
   borderRadius: number;
+  /** 9-slice support for background image */
+  nineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Gradient background */
+  gradient?: {
+    enabled: boolean;
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ position: number; color: string }>;
+  };
 }
 
 export interface SizeBoxProperties {

@@ -16,6 +16,9 @@ import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJS
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import type { ContentFolderManager } from './ContentFolderManager';
+import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
+import { TextureLibrary } from './TextureLibrary';
+import { FontLibrary } from './FontLibrary';
 import {
   serializeScene,
   deserializeScene,
@@ -76,6 +79,8 @@ const ENUMS_DIR = 'Enums';
 const MESHES_DIR = 'Meshes';
 const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
+const TEXTURES_DIR = 'Textures';
+const FONTS_DIR = 'Fonts';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const FOLDER_STRUCTURE_FILE = 'Config/folders.json';
@@ -91,7 +96,7 @@ export class ProjectManager {
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
-  private _compositionManager: import('./scene/SceneCompositionManager').SceneCompositionManager | null = null;
+  private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
@@ -142,8 +147,8 @@ export class ProjectManager {
     this._folderManager = mgr;
   }
 
-  /** Wire up the SceneCompositionManager for saving/loading scene composition */
-  setCompositionManager(mgr: import('./scene/SceneCompositionManager').SceneCompositionManager): void {
+  /** Wire up the SceneCompositionManager for saving/loading environment actors */
+  setCompositionManager(mgr: SceneCompositionManager): void {
     this._compositionManager = mgr;
   }
 
@@ -278,8 +283,17 @@ export class ProjectManager {
       // Load widget blueprints
       await this._loadWidgetBlueprints();
 
+      // Load texture library
+      await this._loadTextures();
+
+      // Load font library
+      await this._loadFonts();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
+
+      // Load composition (environment actors)
+      await this._loadComposition();
 
       // Load active scene
       await this._loadScene(meta.activeScene);
@@ -332,8 +346,17 @@ export class ProjectManager {
       // Save widget blueprints
       await this._saveWidgetBlueprints();
 
+      // Save texture library
+      await this._saveTextures();
+
+      // Save font library
+      await this._saveFonts();
+
       // Save folder structure
       await this._saveFolderStructure();
+
+      // Save composition (environment actors)
+      await this._saveComposition();
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
@@ -362,16 +385,9 @@ export class ProjectManager {
       camera,
     );
 
-    // Include scene composition data alongside the scene
-    const compositionData = this._compositionManager?.serialize() ?? null;
-    const fullData = {
-      ...sceneData,
-      composition: compositionData,
-    };
-
     await fsWrite(
       `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`,
-      JSON.stringify(fullData, null, 2),
+      JSON.stringify(sceneData, null, 2),
     );
   }
 
@@ -386,21 +402,43 @@ export class ProjectManager {
     }
 
     const raw = await fsRead(filePath);
-    const sceneData: SceneJSON & { composition?: any } = JSON.parse(raw);
+    const sceneData: SceneJSON = JSON.parse(raw);
 
     deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
-
-    // Restore scene composition data if present
-    if (sceneData.composition && this._compositionManager) {
-      this._compositionManager.deserialize(sceneData.composition);
-    } else if (this._compositionManager) {
-      // No saved composition — create defaults
-      this._compositionManager.createDefaultComposition();
-    }
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {
       this.applyCameraState(sceneData.camera);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Composition (Environment Actors)
+  // ============================================================
+
+  private async _saveComposition(): Promise<void> {
+    if (!this._projectPath || !this._compositionManager) return;
+
+    const data = this._compositionManager.serialize();
+    await fsWrite(
+      `${this._projectPath}/${CONFIG_DIR}/composition.json`,
+      JSON.stringify(data, null, 2),
+    );
+  }
+
+  private async _loadComposition(): Promise<void> {
+    if (!this._projectPath || !this._compositionManager) return;
+
+    const filePath = `${this._projectPath}/${CONFIG_DIR}/composition.json`;
+    const exists = await fsExists(filePath);
+    if (!exists) return;
+
+    try {
+      const raw = await fsRead(filePath);
+      const data: SceneCompositionJSON = JSON.parse(raw);
+      this._compositionManager.deserialize(data);
+    } catch (err) {
+      console.warn('[ProjectManager] Failed to load composition:', err);
     }
   }
 
@@ -850,6 +888,145 @@ export class ProjectManager {
 
     if (allWidgetBPs.length > 0) {
       this._widgetBPManager.importAll(allWidgetBPs);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Textures
+  // ============================================================
+
+  private async _saveTextures(): Promise<void> {
+    if (!this._projectPath) return;
+    const texLib = TextureLibrary.instance;
+    if (!texLib) return;
+
+    const texDir = `${this._projectPath}/${TEXTURES_DIR}`;
+    const assets = texLib.exportAll();
+
+    // Save each texture as individual files for better diff/version control
+    for (const asset of assets) {
+      const safeName = asset.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${texDir}/${safeName}_${asset.assetId}.json`,
+        JSON.stringify(asset, null, 2),
+      );
+    }
+
+    // Save index
+    const index = assets.map(a => ({
+      id: a.assetId,
+      name: a.assetName,
+      file: `${a.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${a.assetId}.json`,
+    }));
+    await fsWrite(`${texDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadTextures(): Promise<void> {
+    if (!this._projectPath) return;
+    const texLib = TextureLibrary.instance;
+    if (!texLib) return;
+
+    const texDir = `${this._projectPath}/${TEXTURES_DIR}`;
+    if (!(await fsExists(texDir))) return;
+
+    const indexPath = `${texDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    const allTextures: any[] = [];
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${texDir}/${entry.file}`);
+          allTextures.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load texture ${entry.name}:`, e);
+        }
+      }
+    } else {
+      // Fallback: scan directory
+      const fileNames = await fsListDir(texDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${texDir}/${name}`);
+          allTextures.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load texture file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allTextures.length > 0) {
+      await texLib.importAll(allTextures);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Fonts
+  // ============================================================
+
+  private async _saveFonts(): Promise<void> {
+    if (!this._projectPath) return;
+    const fontLib = FontLibrary.instance;
+    if (!fontLib) return;
+
+    const fontDir = `${this._projectPath}/${FONTS_DIR}`;
+    const assets = fontLib.exportAll();
+
+    for (const asset of assets) {
+      const safeName = asset.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${fontDir}/${safeName}_${asset.assetId}.json`,
+        JSON.stringify(asset, null, 2),
+      );
+    }
+
+    const index = assets.map(a => ({
+      id: a.assetId,
+      name: a.assetName,
+      file: `${a.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${a.assetId}.json`,
+    }));
+    await fsWrite(`${fontDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadFonts(): Promise<void> {
+    if (!this._projectPath) return;
+    const fontLib = FontLibrary.instance;
+    if (!fontLib) return;
+
+    const fontDir = `${this._projectPath}/${FONTS_DIR}`;
+    if (!(await fsExists(fontDir))) return;
+
+    const indexPath = `${fontDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${fontDir}/${entry.file}`);
+          const asset = JSON.parse(raw);
+          await fontLib.loadFromAsset(asset);
+        } catch (e) {
+          console.warn(`Failed to load font ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(fontDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${fontDir}/${name}`);
+          const asset = JSON.parse(raw);
+          await fontLib.loadFromAsset(asset);
+        } catch (e) {
+          console.warn(`Failed to load font file ${name}:`, e);
+        }
+      }
     }
   }
 
