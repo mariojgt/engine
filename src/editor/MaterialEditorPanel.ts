@@ -244,8 +244,22 @@ export class MaterialEditorPanel {
       d.alphaMode = val as any;
       this._emit();
     });
+    if (d.alphaMode === 'MASK') {
+      this._addSliderRow(detailsGroup, 'Alpha Cutoff', d.alphaCutoff ?? 0.5, 0, 1, 0.01, (val) => {
+        d.alphaCutoff = val;
+        this._emit();
+      });
+    }
     this._addCheckboxRow(detailsGroup, 'Two Sided', d.doubleSided, (val) => {
       d.doubleSided = val;
+      this._emit();
+    });
+    this._addCheckboxRow(detailsGroup, 'Flat Shading', d.flatShading ?? false, (val) => {
+      d.flatShading = val;
+      this._emit();
+    });
+    this._addCheckboxRow(detailsGroup, 'Wireframe', d.wireframe ?? false, (val) => {
+      d.wireframe = val;
       this._emit();
     });
 
@@ -276,6 +290,11 @@ export class MaterialEditorPanel {
       this._emit();
       this._rebuildProps();
     });
+    this._addTextureSlot(mrGroup, 'Roughness Map', d.roughnessMap ?? null, (val) => {
+      d.roughnessMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
 
     // ── Emissive ──
     const emissiveGroup = this._addGroup(parent, 'Emissive', true);
@@ -300,19 +319,220 @@ export class MaterialEditorPanel {
       this._emit();
       this._rebuildProps();
     });
+    this._addSliderRow(normalGroup, 'Normal Scale', d.normalScale ?? 1.0, 0, 2, 0.01, (val) => {
+      d.normalScale = val;
+      this._emit();
+    });
 
-    // ── Occlusion ──
+    // ── Ambient Occlusion ──
     const aoGroup = this._addGroup(parent, 'Ambient Occlusion', true);
     this._addTextureSlot(aoGroup, 'Occlusion Map', d.occlusionMap, (val) => {
       d.occlusionMap = val;
       this._emit();
       this._rebuildProps();
     });
+    this._addSliderRow(aoGroup, 'AO Intensity', d.aoIntensity ?? 1.0, 0, 2, 0.01, (val) => {
+      d.aoIntensity = val;
+      this._emit();
+    });
 
     // ── Opacity ──
     const opacityGroup = this._addGroup(parent, 'Opacity', true);
     this._addSliderRow(opacityGroup, 'Opacity', d.opacity, 0, 1, 0.01, (val) => {
       d.opacity = val;
+      this._emit();
+    });
+
+    // ── Height / Displacement ──
+    const heightGroup = this._addGroup(parent, 'Height / Displacement', false);
+    this._addTextureSlot(heightGroup, 'Height Map', d.heightMap ?? null, (val) => {
+      d.heightMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addSliderRow(heightGroup, 'Displacement Scale', d.displacementScale ?? 0.05, 0, 1, 0.001, (val) => {
+      d.displacementScale = val;
+      this._emit();
+    });
+    this._addSliderRow(heightGroup, 'Displacement Bias', d.displacementBias ?? 0, -0.5, 0.5, 0.001, (val) => {
+      d.displacementBias = val;
+      this._emit();
+    });
+
+    // ── Clearcoat ── (car paint, lacquered surfaces)
+    const clearcoatGroup = this._addGroup(parent, 'Clearcoat', false);
+    this._addGroupHint(clearcoatGroup, 'Adds a secondary clear reflective layer (car paint, lacquered wood)');
+    this._addSliderRow(clearcoatGroup, 'Clearcoat', d.clearcoat ?? 0, 0, 1, 0.01, (val) => {
+      d.clearcoat = val;
+      this._emit();
+    });
+    this._addSliderRow(clearcoatGroup, 'CC Roughness', d.clearcoatRoughness ?? 0, 0, 1, 0.01, (val) => {
+      d.clearcoatRoughness = val;
+      this._emit();
+    });
+    this._addTextureSlot(clearcoatGroup, 'Clearcoat Map', d.clearcoatMap ?? null, (val) => {
+      d.clearcoatMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addTextureSlot(clearcoatGroup, 'CC Roughness Map', d.clearcoatRoughnessMap ?? null, (val) => {
+      d.clearcoatRoughnessMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addTextureSlot(clearcoatGroup, 'CC Normal Map', d.clearcoatNormalMap ?? null, (val) => {
+      d.clearcoatNormalMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addSliderRow(clearcoatGroup, 'CC Normal Scale', d.clearcoatNormalScale ?? 1.0, 0, 2, 0.01, (val) => {
+      d.clearcoatNormalScale = val;
+      this._emit();
+    });
+
+    // ── Sheen ── (fabric, velvet)
+    const sheenGroup = this._addGroup(parent, 'Sheen', false);
+    this._addGroupHint(sheenGroup, 'Soft fabric-like reflections (velvet, cloth, felt)');
+    this._addSliderRow(sheenGroup, 'Sheen', d.sheen ?? 0, 0, 1, 0.01, (val) => {
+      d.sheen = val;
+      this._emit();
+    });
+    this._addSliderRow(sheenGroup, 'Sheen Roughness', d.sheenRoughness ?? 0, 0, 1, 0.01, (val) => {
+      d.sheenRoughness = val;
+      this._emit();
+    });
+    this._addColorRow(sheenGroup, 'Sheen Color', d.sheenColor ?? '#ffffff', (val) => {
+      d.sheenColor = val;
+      this._emit();
+    });
+    this._addTextureSlot(sheenGroup, 'Sheen Color Map', d.sheenColorMap ?? null, (val) => {
+      d.sheenColorMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addTextureSlot(sheenGroup, 'Sheen Roughness Map', d.sheenRoughnessMap ?? null, (val) => {
+      d.sheenRoughnessMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+
+    // ── Anisotropy ── (brushed metal, hair)
+    const anisotropyGroup = this._addGroup(parent, 'Anisotropy', false);
+    this._addGroupHint(anisotropyGroup, 'Directional stretched highlights (brushed metal, hair, carbon fiber)');
+    this._addSliderRow(anisotropyGroup, 'Anisotropy', d.anisotropy ?? 0, -1, 1, 0.01, (val) => {
+      d.anisotropy = val;
+      this._emit();
+    });
+    this._addSliderRow(anisotropyGroup, 'Rotation', d.anisotropyRotation ?? 0, 0, Math.PI * 2, 0.01, (val) => {
+      d.anisotropyRotation = val;
+      this._emit();
+    });
+    this._addTextureSlot(anisotropyGroup, 'Anisotropy Map', d.anisotropyMap ?? null, (val) => {
+      d.anisotropyMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+
+    // ── Iridescence ── (soap bubbles, oil slick, beetle shells)
+    const iridGroup = this._addGroup(parent, 'Iridescence', false);
+    this._addGroupHint(iridGroup, 'Thin-film interference (soap bubbles, oil slicks, beetle shells)');
+    this._addSliderRow(iridGroup, 'Iridescence', d.iridescence ?? 0, 0, 1, 0.01, (val) => {
+      d.iridescence = val;
+      this._emit();
+    });
+    this._addSliderRow(iridGroup, 'Iridescence IOR', d.iridescenceIOR ?? 1.3, 1.0, 2.333, 0.01, (val) => {
+      d.iridescenceIOR = val;
+      this._emit();
+    });
+    this._addSliderRow(iridGroup, 'Thickness Min', d.iridescenceThicknessMin ?? 100, 0, 800, 1, (val) => {
+      d.iridescenceThicknessMin = val;
+      this._emit();
+    });
+    this._addSliderRow(iridGroup, 'Thickness Max', d.iridescenceThicknessMax ?? 400, 0, 800, 1, (val) => {
+      d.iridescenceThicknessMax = val;
+      this._emit();
+    });
+    this._addTextureSlot(iridGroup, 'Iridescence Map', d.iridescenceMap ?? null, (val) => {
+      d.iridescenceMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addTextureSlot(iridGroup, 'Thickness Map', d.iridescenceThicknessMap ?? null, (val) => {
+      d.iridescenceThicknessMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+
+    // ── Transmission / Refraction ── (glass, water, crystal)
+    const transGroup = this._addGroup(parent, 'Transmission / Refraction', false);
+    this._addGroupHint(transGroup, 'Light passes through the surface (glass, water, crystal, gemstones)');
+    this._addSliderRow(transGroup, 'Transmission', d.transmission ?? 0, 0, 1, 0.01, (val) => {
+      d.transmission = val;
+      this._emit();
+    });
+    this._addTextureSlot(transGroup, 'Transmission Map', d.transmissionMap ?? null, (val) => {
+      d.transmissionMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addSliderRow(transGroup, 'Thickness', d.thickness ?? 0, 0, 10, 0.01, (val) => {
+      d.thickness = val;
+      this._emit();
+    });
+    this._addTextureSlot(transGroup, 'Thickness Map', d.thicknessMap ?? null, (val) => {
+      d.thicknessMap = val;
+      this._emit();
+      this._rebuildProps();
+    });
+    this._addSliderRow(transGroup, 'IOR', d.ior ?? 1.5, 1.0, 2.5, 0.01, (val) => {
+      d.ior = val;
+      this._emit();
+    });
+    this._addColorRow(transGroup, 'Attenuation Color', d.attenuationColor ?? '#ffffff', (val) => {
+      d.attenuationColor = val;
+      this._emit();
+    });
+    this._addSliderRow(transGroup, 'Attenuation Dist.', d.attenuationDistance ?? Infinity, 0, 100, 0.1, (val) => {
+      d.attenuationDistance = val;
+      this._emit();
+    });
+
+    // ── UV Transform ──
+    const uvGroup = this._addGroup(parent, 'UV Transform', false);
+    this._addGroupHint(uvGroup, 'Scale, offset, and rotate all texture maps');
+    const tilingX = d.uvTiling?.[0] ?? 1;
+    const tilingY = d.uvTiling?.[1] ?? 1;
+    this._addSliderRow(uvGroup, 'Tiling X', tilingX, 0.01, 20, 0.01, (val) => {
+      if (!d.uvTiling) d.uvTiling = [1, 1];
+      d.uvTiling[0] = val;
+      this._emit();
+    });
+    this._addSliderRow(uvGroup, 'Tiling Y', tilingY, 0.01, 20, 0.01, (val) => {
+      if (!d.uvTiling) d.uvTiling = [1, 1];
+      d.uvTiling[1] = val;
+      this._emit();
+    });
+    const offsetX = d.uvOffset?.[0] ?? 0;
+    const offsetY = d.uvOffset?.[1] ?? 0;
+    this._addSliderRow(uvGroup, 'Offset X', offsetX, -5, 5, 0.01, (val) => {
+      if (!d.uvOffset) d.uvOffset = [0, 0];
+      d.uvOffset[0] = val;
+      this._emit();
+    });
+    this._addSliderRow(uvGroup, 'Offset Y', offsetY, -5, 5, 0.01, (val) => {
+      if (!d.uvOffset) d.uvOffset = [0, 0];
+      d.uvOffset[1] = val;
+      this._emit();
+    });
+    this._addSliderRow(uvGroup, 'UV Rotation', d.uvRotation ?? 0, 0, 6.2832, 0.01, (val) => {
+      d.uvRotation = val;
+      this._emit();
+    });
+
+    // ── Environment ──
+    const envGroup = this._addGroup(parent, 'Environment', false);
+    this._addSliderRow(envGroup, 'Env Map Intensity', d.envMapIntensity ?? 1.0, 0, 5, 0.01, (val) => {
+      d.envMapIntensity = val;
       this._emit();
     });
   }
@@ -372,6 +592,21 @@ export class MaterialEditorPanel {
     group.appendChild(body);
     parent.appendChild(group);
     return body;
+  }
+
+  /** Add a small description hint inside a group */
+  private _addGroupHint(parent: HTMLElement, text: string): void {
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      fontSize: '10px',
+      color: 'var(--text-dim)',
+      fontStyle: 'italic',
+      marginBottom: '6px',
+      padding: '2px 0',
+      lineHeight: '1.3',
+    });
+    hint.textContent = text;
+    parent.appendChild(hint);
   }
 
   // ============================================================
@@ -1204,12 +1439,12 @@ export class MaterialEditorPanel {
   }
 
   // ============================================================
-  //  Material → THREE.js
+  //  Material → THREE.js (MeshPhysicalMaterial for full PBR)
   // ============================================================
 
-  private _buildThreeMaterial(): THREE.MeshStandardMaterial {
+  private _buildThreeMaterial(): THREE.MeshPhysicalMaterial {
     const d = this._material.materialData;
-    const mat = new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(d.baseColor),
       metalness: d.metalness,
       roughness: d.roughness,
@@ -1219,18 +1454,107 @@ export class MaterialEditorPanel {
       transparent: d.alphaMode === 'BLEND' || d.opacity < 1,
       side: d.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
       depthWrite: d.alphaMode !== 'BLEND',
+      flatShading: d.flatShading ?? false,
+      wireframe: d.wireframe ?? false,
+      envMapIntensity: d.envMapIntensity ?? 1.0,
     });
 
-    if (d.baseColorMap) this._applyTexture(mat, 'map', d.baseColorMap);
-    if (d.normalMap) this._applyTexture(mat, 'normalMap', d.normalMap);
-    if (d.metallicRoughnessMap) this._applyTexture(mat, 'metalnessMap', d.metallicRoughnessMap);
-    if (d.emissiveMap) this._applyTexture(mat, 'emissiveMap', d.emissiveMap);
-    if (d.occlusionMap) this._applyTexture(mat, 'aoMap', d.occlusionMap);
+    // Alpha cutoff
+    if (d.alphaMode === 'MASK') {
+      mat.alphaTest = d.alphaCutoff ?? 0.5;
+    }
+
+    // Normal map scale
+    if (d.normalScale !== undefined && d.normalScale !== 1.0) {
+      mat.normalScale = new THREE.Vector2(d.normalScale, d.normalScale);
+    }
+
+    // Displacement
+    mat.displacementScale = d.displacementScale ?? 0;
+    mat.displacementBias = d.displacementBias ?? 0;
+
+    // AO intensity
+    mat.aoMapIntensity = d.aoIntensity ?? 1.0;
+
+    // Clearcoat
+    mat.clearcoat = d.clearcoat ?? 0;
+    mat.clearcoatRoughness = d.clearcoatRoughness ?? 0;
+    if (d.clearcoatNormalScale !== undefined) {
+      mat.clearcoatNormalScale = new THREE.Vector2(d.clearcoatNormalScale, d.clearcoatNormalScale);
+    }
+
+    // Sheen
+    mat.sheen = d.sheen ?? 0;
+    mat.sheenRoughness = d.sheenRoughness ?? 0;
+    if (d.sheenColor) mat.sheenColor = new THREE.Color(d.sheenColor);
+
+    // Anisotropy
+    mat.anisotropy = d.anisotropy ?? 0;
+    mat.anisotropyRotation = d.anisotropyRotation ?? 0;
+
+    // Iridescence
+    mat.iridescence = d.iridescence ?? 0;
+    mat.iridescenceIOR = d.iridescenceIOR ?? 1.3;
+    if (d.iridescenceThicknessMin !== undefined || d.iridescenceThicknessMax !== undefined) {
+      mat.iridescenceThicknessRange = [
+        d.iridescenceThicknessMin ?? 100,
+        d.iridescenceThicknessMax ?? 400,
+      ];
+    }
+
+    // Transmission / Refraction
+    mat.transmission = d.transmission ?? 0;
+    mat.thickness = d.thickness ?? 0;
+    mat.ior = d.ior ?? 1.5;
+    if (d.attenuationColor) mat.attenuationColor = new THREE.Color(d.attenuationColor);
+    if (d.attenuationDistance !== undefined) mat.attenuationDistance = d.attenuationDistance;
+
+    // UV Transform
+    const uvTiling = d.uvTiling ?? [1, 1];
+    const uvOffset = d.uvOffset ?? [0, 0];
+    const uvRotation = d.uvRotation ?? 0;
+    const hasUVTransform = uvTiling[0] !== 1 || uvTiling[1] !== 1 ||
+                           uvOffset[0] !== 0 || uvOffset[1] !== 0 || uvRotation !== 0;
+
+    // Apply textures
+    const applyTex = (slot: string, textureId: string | null | undefined) => {
+      if (!textureId) return;
+      this._applyTexture(mat, slot, textureId, hasUVTransform, uvTiling, uvOffset, uvRotation);
+    };
+
+    // Core maps
+    applyTex('map', d.baseColorMap);
+    applyTex('normalMap', d.normalMap);
+    applyTex('metalnessMap', d.metallicRoughnessMap);
+    applyTex('roughnessMap', d.roughnessMap);
+    applyTex('emissiveMap', d.emissiveMap);
+    applyTex('aoMap', d.occlusionMap);
+    applyTex('displacementMap', d.heightMap);
+
+    // Advanced maps
+    applyTex('clearcoatMap', d.clearcoatMap);
+    applyTex('clearcoatRoughnessMap', d.clearcoatRoughnessMap);
+    applyTex('clearcoatNormalMap', d.clearcoatNormalMap);
+    applyTex('sheenColorMap', d.sheenColorMap);
+    applyTex('sheenRoughnessMap', d.sheenRoughnessMap);
+    applyTex('anisotropyMap', d.anisotropyMap);
+    applyTex('iridescenceMap', d.iridescenceMap);
+    applyTex('iridescenceThicknessMap', d.iridescenceThicknessMap);
+    applyTex('transmissionMap', d.transmissionMap);
+    applyTex('thicknessMap', d.thicknessMap);
 
     return mat;
   }
 
-  private _applyTexture(mat: THREE.MeshStandardMaterial, slot: string, textureId: string): void {
+  private _applyTexture(
+    mat: THREE.MeshPhysicalMaterial,
+    slot: string,
+    textureId: string,
+    hasUVTransform = false,
+    uvTiling: [number, number] = [1, 1],
+    uvOffset: [number, number] = [0, 0],
+    uvRotation = 0,
+  ): void {
     const texAsset = this._meshManager.getTexture(textureId);
     if (!texAsset || !texAsset.dataUrl) return;
 
@@ -1238,16 +1562,25 @@ export class MaterialEditorPanel {
     const tex = loader.load(texAsset.dataUrl, () => {
       mat.needsUpdate = true;
     });
-    tex.colorSpace = slot === 'map' || slot === 'emissiveMap' ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
+    tex.colorSpace = (slot === 'map' || slot === 'emissiveMap' || slot === 'sheenColorMap')
+      ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
+
+    if (hasUVTransform) {
+      tex.repeat.set(uvTiling[0], uvTiling[1]);
+      tex.offset.set(uvOffset[0], uvOffset[1]);
+      tex.rotation = uvRotation;
+      tex.center.set(0.5, 0.5);
+    }
+
     (mat as any)[slot] = tex;
     mat.needsUpdate = true;
   }
 
   private _updatePreviewMaterial(): void {
     if (!this._previewMesh) return;
-    const oldMat = this._previewMesh.material as THREE.MeshStandardMaterial;
+    const oldMat = this._previewMesh.material as THREE.Material;
     if (oldMat) oldMat.dispose();
     this._previewMesh.material = this._buildThreeMaterial();
   }

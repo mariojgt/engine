@@ -128,6 +128,9 @@ export {
   GetComponentScaleNode,
   SetComponentScaleNode,
   SetComponentVisibilityNode,
+  SetStaticMeshNode,
+  SetMeshMaterialNode,
+  GetMeshMaterialNode,
 } from './components/MeshComponentNodes';
 export {
   OnTriggerComponentBeginOverlapNode,

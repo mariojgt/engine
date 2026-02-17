@@ -41,6 +41,9 @@ export class Scene {
   public gameObjects: GameObject[] = [];
   public selectedObject: GameObject | null = null;
 
+  /** Pending mesh load promises — awaited before physics play to avoid race conditions */
+  private _pendingMeshLoads: Promise<void>[] = [];
+
   private _onChanged: (() => void)[] = [];
   private _onSelectionChanged: ((obj: GameObject | null) => void)[] = [];
 
@@ -80,6 +83,17 @@ export class Scene {
     ground.position.y = -0.01; // slightly below the grid to avoid z-fighting
     ground.receiveShadow = true;
     this.threeScene.add(ground);
+  }
+
+  /**
+   * Wait for all pending async mesh loads (static mesh components, skeletal meshes)
+   * to complete. Call before physics.play() to ensure colliders are accurate.
+   */
+  async waitForMeshLoads(): Promise<void> {
+    if (this._pendingMeshLoads.length > 0) {
+      await Promise.allSettled(this._pendingMeshLoads);
+      this._pendingMeshLoads = [];
+    }
   }
 
   addGameObject(name: string, type: RootMeshType): GameObject {
@@ -812,44 +826,98 @@ export class Scene {
           }
         }
       } else {
-        // Mesh component — add as child mesh
-        const geo = geometries[comp.meshType]();
-        let mat: THREE.Material = defaultMaterial.clone();
-
-        // Apply material override if set (slot 0 for primitive mesh components)
-        if (comp.materialOverrides && comp.materialOverrides['0']) {
+        // Mesh component — add as child mesh (Primitive or Static Mesh)
+        if (comp.customMeshAssetId) {
+          // ── Static Mesh (imported 3D asset) ──
           const mgr = MeshAssetManager.getInstance();
-          if (mgr) {
-            const matAsset = mgr.getMaterial(comp.materialOverrides['0']);
-            if (matAsset) {
-              mat.dispose();
-              mat = buildThreeMaterialFromAsset(matAsset, mgr);
+          const meshAsset = mgr?.getAsset(comp.customMeshAssetId);
+
+          if (meshAsset && mgr) {
+            const wrapper = new THREE.Group();
+            wrapper.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+            wrapper.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+            wrapper.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+            wrapper.userData.__meshAssetId = meshAsset.id;
+            wrapper.userData.__isStaticMesh = true;
+            wrapper.userData.__collisionData = meshAsset.collisionData || null;
+            wrapper.userData.__compCollision = comp.collision || null;
+            wrapper.userData.__compPhysics = comp.physics || null;
+            wrapper.name = comp.name;
+            go.mesh.add(wrapper);
+
+            // Track immediately (before async load) so blueprint codegen indices are stable
+            meshComps.push({ mesh: wrapper, name: comp.name, index: meshIdx++ });
+
+            const loadPromise = loadMeshFromAsset(meshAsset).then(({ scene: loadedScene }) => {
+              if (!wrapper.parent) return; // GO removed while loading
+
+              // Move children from loaded scene into wrapper
+              while (loadedScene.children.length > 0) {
+                const child = loadedScene.children[0];
+                loadedScene.remove(child);
+                wrapper.add(child);
+              }
+
+              wrapper.updateMatrixWorld(true);
+
+              // Mark wrapper as loaded so collision system can find sub-meshes
+              wrapper.userData.__meshLoaded = true;
+
+              // Apply material overrides for each slot
+              if (comp.materialOverrides && Object.keys(comp.materialOverrides).length > 0) {
+                const meshChildren: THREE.Mesh[] = [];
+                wrapper.traverse(c => { if ((c as THREE.Mesh).isMesh) meshChildren.push(c as THREE.Mesh); });
+                for (const [slotKey, matId] of Object.entries(comp.materialOverrides)) {
+                  const idx = parseInt(slotKey, 10);
+                  if (isNaN(idx) || idx < 0 || idx >= meshChildren.length) continue;
+                  const matAsset = mgr.getMaterial(matId);
+                  if (!matAsset) continue;
+                  const m = meshChildren[idx];
+                  const oldM = m.material;
+                  if (Array.isArray(oldM)) oldM.forEach(x => x.dispose());
+                  else (oldM as THREE.Material).dispose();
+                  m.material = buildThreeMaterialFromAsset(matAsset, mgr);
+                }
+              }
+            }).catch(err => {
+              console.error('Failed to load static mesh component:', err);
+            });
+            this._pendingMeshLoads.push(loadPromise);
+          }
+        } else {
+          // ── Primitive Mesh ──
+          const geo = geometries[comp.meshType]();
+          let mat: THREE.Material = defaultMaterial.clone();
+
+          // Apply material override if set (slot 0 for primitive mesh components)
+          if (comp.materialOverrides && comp.materialOverrides['0']) {
+            const mgr = MeshAssetManager.getInstance();
+            if (mgr) {
+              const matAsset = mgr.getMaterial(comp.materialOverrides['0']);
+              if (matAsset) {
+                mat.dispose();
+                mat = buildThreeMaterialFromAsset(matAsset, mgr);
+              }
             }
           }
+
+          const child = new THREE.Mesh(geo, mat);
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+          child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+          child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+
+          // Mark editor-only component visualization meshes (camera, spring arm, capsule, etc.)
+          const editorOnlyTypes = ['camera', 'springArm', 'capsule', 'characterMovement'];
+          if (editorOnlyTypes.includes(comp.type)) {
+            child.userData.__isComponentHelper = true;
+            child.userData.__hiddenInGame = comp.hiddenInGame !== false;
+          }
+
+          go.mesh.add(child);
+          meshComps.push({ mesh: child, name: comp.name, index: meshIdx++ });
         }
-
-        const child = new THREE.Mesh(geo, mat);
-        child.castShadow = true;
-        child.receiveShadow = true;
-        child.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
-        child.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
-        child.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
-
-        // Mark editor-only component visualization meshes (camera, spring arm, capsule, etc.)
-        // These are hidden at runtime just like UE hides component gizmos during play.
-        const editorOnlyTypes = ['camera', 'springArm', 'capsule', 'characterMovement'];
-        if (editorOnlyTypes.includes(comp.type)) {
-          child.userData.__isComponentHelper = true;
-          // hiddenInGame defaults to true for helper types; user can override per-component
-          child.userData.__hiddenInGame = comp.hiddenInGame !== false;
-        }
-
-        go.mesh.add(child);
-
-        // Track mesh-type children for blueprint codegen (Get/Set Location, etc.)
-        // Editor-only helpers (camera, capsule, etc.) are also tracked so
-        // Set Visibility nodes can toggle them.
-        meshComps.push({ mesh: child, name: comp.name, index: meshIdx++ });
       }
     }
 

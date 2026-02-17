@@ -10,6 +10,8 @@ import { AIControllerManager, AIController } from './AIController';
 import type { Controller } from './Controller';
 import type { AnimationInstance } from './AnimationInstance';
 import { UIManager } from './UIManager';
+import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
+import { loadMeshFromAsset } from '../editor/MeshImporter';
 
 export class Engine {
   public scene: Scene;
@@ -47,6 +49,22 @@ export class Engine {
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
+  }
+
+  /** Build a ScriptContext with all runtime helpers */
+  private _buildCtx(go: import('./GameObject').GameObject, dt: number, elapsed: number, print: (v: any) => void): ScriptContext {
+    return {
+      gameObject: go,
+      deltaTime: dt,
+      elapsedTime: elapsed,
+      print,
+      physics: this.physics,
+      scene: this.scene,
+      uiManager: this.uiManager,
+      meshAssetManager: MeshAssetManager.getInstance(),
+      loadMeshFromAsset,
+      buildThreeMaterialFromAsset,
+    };
   }
 
   async init(): Promise<void> {
@@ -170,14 +188,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+        const ctx = this._buildCtx(go, 0, 0, print);
         script.beginPlay(ctx);
       }
     }
     // Fire BeginPlay on controller blueprint scripts
     for (const { go, script } of this._controllerScripts) {
       scriptCount++;
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: 0, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+      const ctx = this._buildCtx(go, 0, 0, print);
       script.beginPlay(ctx);
     }
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
@@ -190,14 +208,14 @@ export class Engine {
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+        const ctx = this._buildCtx(go, 0, this._elapsedTime, print);
         script.onDestroy(ctx);
         script.reset();
       }
     }
     // OnDestroy for controller scripts
     for (const { go, script } of this._controllerScripts) {
-      const ctx: ScriptContext = { gameObject: go, deltaTime: 0, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+      const ctx = this._buildCtx(go, 0, this._elapsedTime, print);
       script.onDestroy(ctx);
       script.reset();
     }
@@ -232,13 +250,13 @@ export class Engine {
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
         for (const script of go.scripts) {
-          const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+          const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
           script.tick(ctx);
         }
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
-        const ctx: ScriptContext = { gameObject: go, deltaTime: dt, elapsedTime: this._elapsedTime, print, physics: this.physics, scene: this.scene, uiManager: this.uiManager };
+        const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
         script.tick(ctx);
       }
 

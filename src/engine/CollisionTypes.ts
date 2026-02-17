@@ -172,6 +172,10 @@ export interface CollisionConfig {
   shape: CollisionShapeType;
   /** Dimensions for the chosen shape */
   dimensions: ShapeDimensions;
+  /** Local position offset of the collision shape relative to the component */
+  offset: { x: number; y: number; z: number };
+  /** Local rotation offset of the collision shape in degrees */
+  rotationOffset: { x: number; y: number; z: number };
   /** Per-channel response overrides (default = ignore for triggers) */
   channelResponses: ChannelResponses;
   /** Fire OnBeginOverlap / OnEndOverlap events */
@@ -189,12 +193,37 @@ export function defaultCollisionConfig(): CollisionConfig {
     collisionMode: 'trigger',
     shape: 'box',
     dimensions: { width: 2, height: 2, depth: 2 } as BoxShapeDimensions,
+    offset: { x: 0, y: 0, z: 0 },
+    rotationOffset: { x: 0, y: 0, z: 0 },
     channelResponses: {
       WorldDynamic: 'overlap',
       Pawn: 'overlap',
       Player: 'overlap',
     },
     generateOverlapEvents: true,
+    generateHitEvents: false,
+    showInEditor: true,
+  };
+}
+
+/** Default collision config for a Static Mesh component (UE-style physics blocking) */
+export function defaultMeshCollisionConfig(): CollisionConfig {
+  return {
+    enabled: true,
+    collisionMode: 'physics',
+    shape: 'box',
+    dimensions: { width: 2, height: 2, depth: 2 } as BoxShapeDimensions,
+    offset: { x: 0, y: 0, z: 0 },
+    rotationOffset: { x: 0, y: 0, z: 0 },
+    channelResponses: {
+      WorldStatic: 'block',
+      WorldDynamic: 'block',
+      Pawn: 'block',
+      Player: 'block',
+      Projectile: 'block',
+      Trigger: 'overlap',
+    },
+    generateOverlapEvents: false,
     generateHitEvents: false,
     showInEditor: true,
   };

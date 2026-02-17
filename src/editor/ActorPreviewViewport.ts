@@ -11,6 +11,7 @@ import type { ActorAsset, ActorComponentData, LightConfig } from './ActorAsset';
 import { defaultLightConfig } from './ActorAsset';
 import { MeshAssetManager, buildThreeMaterialFromAsset } from './MeshAsset';
 import { loadMeshFromAsset } from './MeshImporter';
+import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 
 type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 
@@ -54,6 +55,8 @@ export class ActorPreviewViewport {
   private _asset: ActorAsset;
   private _rootMesh: THREE.Object3D | null = null;
   private _componentMeshes: Map<string, THREE.Object3D> = new Map();
+  /** Collision wireframe helpers — separate from component meshes so they don't interfere with picking/transforms */
+  private _collisionHelpers: Map<string, THREE.Object3D> = new Map();
   private _resizeObserver: ResizeObserver;
   private _disposed = false;
   private _animFrameId = 0;
@@ -332,6 +335,13 @@ export class ActorPreviewViewport {
       }
     }
     this._componentMeshes.clear();
+
+    // Remove old collision helpers
+    for (const h of this._collisionHelpers.values()) {
+      this._scene.remove(h);
+      this._disposeObject3D(h);
+    }
+    this._collisionHelpers.clear();
 
     if (this._transformControls) this._transformControls.detach();
 
@@ -768,6 +778,79 @@ export class ActorPreviewViewport {
         continue;
       }
 
+      // ── Static Mesh component (imported mesh) ──
+      if (comp.type === 'mesh' && comp.customMeshAssetId) {
+        const meshAsset = MeshAssetManager.getAsset(comp.customMeshAssetId);
+        if (meshAsset) {
+          const toRad = (d: number) => (d * Math.PI) / 180;
+
+          // Try to reuse existing loaded wrapper
+          const existing = existingSkeletalMeshes.get(comp.id);
+          const existingMeshAssetId = existing?.userData.__meshAssetId;
+
+          if (existing && existingMeshAssetId === comp.customMeshAssetId && existing.children.length > 0) {
+            existing.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+            existing.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+            existing.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+            // Remove old collision helpers from children (legacy cleanup)
+            const oldHelpers = existing.children.filter(c => c.userData.__isCollisionHelper);
+            oldHelpers.forEach(h => { existing.remove(h); this._disposeObject3D(h); });
+            this._scene.add(existing);
+            this._componentMeshes.set(comp.id, existing);
+            existingSkeletalMeshes.delete(comp.id);
+            // Add collision wireframe helper as separate scene object
+            this._addCollisionHelper(comp);
+            continue;
+          }
+
+          // Dispose old one if mesh asset changed
+          if (existing) {
+            this._disposeObject3D(existing);
+            existingSkeletalMeshes.delete(comp.id);
+          }
+
+          const group = new THREE.Group();
+          group.userData.__componentId = comp.id;
+          group.userData.__isStaticMesh = true;
+          group.userData.__meshAssetId = comp.customMeshAssetId;
+          group.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+          group.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+          group.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+          this._scene.add(group);
+          this._componentMeshes.set(comp.id, group);
+
+          // Add collision wireframe helper as separate scene object
+          this._addCollisionHelper(comp);
+
+          loadMeshFromAsset(meshAsset).then(({ scene: loadedScene }) => {
+            if (this._disposed || this._rebuildCounter !== currentRebuild) return;
+            while (loadedScene.children.length > 0) {
+              const child = loadedScene.children[0];
+              loadedScene.remove(child);
+              group.add(child);
+            }
+            group.updateMatrixWorld(true);
+            // Apply material overrides after load
+            this.applyMaterialOverrides();
+          }).catch(err => console.error('Failed to load static mesh for preview:', err));
+          continue;
+        } else {
+          // Custom mesh asset ID set but asset not found — show placeholder
+          const toRad = (d: number) => (d * Math.PI) / 180;
+          const placeholder = new THREE.Mesh(
+            new THREE.BoxGeometry(0.5, 0.5, 0.5),
+            new THREE.MeshStandardMaterial({ color: 0xcc6633, wireframe: true }),
+          );
+          placeholder.userData.__componentId = comp.id;
+          placeholder.position.set(comp.offset.x, comp.offset.y, comp.offset.z);
+          placeholder.rotation.set(toRad(comp.rotation.x), toRad(comp.rotation.y), toRad(comp.rotation.z));
+          placeholder.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
+          this._scene.add(placeholder);
+          this._componentMeshes.set(comp.id, placeholder);
+          continue;
+        }
+      }
+
       const geo = geometries[comp.meshType]();
       const mesh = new THREE.Mesh(geo, childMaterial.clone());
       mesh.userData.__componentId = comp.id;
@@ -777,6 +860,9 @@ export class ActorPreviewViewport {
       mesh.scale.set(comp.scale.x, comp.scale.y, comp.scale.z);
       this._scene.add(mesh);
       this._componentMeshes.set(comp.id, mesh);
+
+      // Add collision wireframe helper for primitive mesh component
+      this._addCollisionHelper(comp);
     }
 
     // Dispose any leftover skeletal meshes that were not reused
@@ -920,6 +1006,75 @@ export class ActorPreviewViewport {
     if (this._renderer) this._renderer.setSize(w, h);
   }
 
+  // ================================================================
+  //  Collision wireframe helper — shows collision shape in the editor
+  // ================================================================
+
+  /**
+   * Creates a semi-transparent wireframe mesh as a top-level scene object
+   * representing the collision volume of a component.  Positioned at the
+   * component's offset so it overlays the mesh regardless of scale.
+   * Only created when `collision.enabled && collision.showInEditor`.
+   */
+  private _addCollisionHelper(comp: ActorComponentData): void {
+    const col = comp.collision;
+    if (!col || !col.enabled || !col.showInEditor) return;
+
+    const helperMat = new THREE.MeshBasicMaterial({
+      color: col.collisionMode === 'trigger' ? 0x44ccff : 0x44ff44,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.45,
+      depthTest: true,
+    });
+
+    let helperGeo: THREE.BufferGeometry;
+    const dim = col.dimensions;
+
+    switch (col.shape) {
+      case 'box': {
+        const d = dim as BoxShapeDimensions;
+        helperGeo = new THREE.BoxGeometry(d.width, d.height, d.depth);
+        break;
+      }
+      case 'sphere': {
+        const d = dim as SphereShapeDimensions;
+        helperGeo = new THREE.SphereGeometry(d.radius, 20, 20);
+        break;
+      }
+      case 'capsule': {
+        const d = dim as CapsuleShapeDimensions;
+        helperGeo = new THREE.CapsuleGeometry(d.radius, d.height, 8, 16);
+        break;
+      }
+      default:
+        return;
+    }
+
+    const helperMesh = new THREE.Mesh(helperGeo, helperMat);
+    helperMesh.userData.__isCollisionHelper = true;
+    helperMesh.raycast = () => {}; // make un-pickable by selection raycaster
+
+    // Position at the component's offset + collision offset
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const colOff = col.offset ?? { x: 0, y: 0, z: 0 };
+    const colRot = col.rotationOffset ?? { x: 0, y: 0, z: 0 };
+    helperMesh.position.set(
+      comp.offset.x + colOff.x,
+      comp.offset.y + colOff.y,
+      comp.offset.z + colOff.z,
+    );
+    helperMesh.rotation.set(
+      toRad(comp.rotation.x + colRot.x),
+      toRad(comp.rotation.y + colRot.y),
+      toRad(comp.rotation.z + colRot.z),
+    );
+    // Do NOT apply the component's scale — collision dimensions are absolute
+
+    this._scene.add(helperMesh);
+    this._collisionHelpers.set(comp.id, helperMesh);
+  }
+
   dispose(): void {
     this._disposed = true;
     cancelAnimationFrame(this._animFrameId);
@@ -931,5 +1086,6 @@ export class ActorPreviewViewport {
     // Dispose geometries
     if (this._rootMesh) this._disposeObject3D(this._rootMesh);
     for (const m of this._componentMeshes.values()) this._disposeObject3D(m);
+    for (const h of this._collisionHelpers.values()) this._disposeObject3D(h);
   }
 }

@@ -182,7 +182,12 @@ export class AnimationInstance {
       this.setEventGraphCode(this.asset.compiledCode);
     } else if (!this._eventScript && !this.asset.compiledCode && !this._debugLoggedNoCode) {
       this._debugLoggedNoCode = true;
-      console.warn(`[AnimBP] No compiled code for ${this.asset.name}`);
+      // Only warn once per asset globally to avoid log spam in editor preview
+      const key = `__animBP_noCode_${this.asset.name}`;
+      if (!(globalThis as any)[key]) {
+        (globalThis as any)[key] = true;
+        console.warn(`[AnimBP] No compiled code for ${this.asset.name}`);
+      }
     }
 
     // 1. Update event variables — either from event graph script or auto-populate

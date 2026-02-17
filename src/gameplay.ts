@@ -141,7 +141,8 @@ async function startGameplay(sceneData: any): Promise<void> {
     console.log('[Gameplay] Scene loaded:', engine.scene.gameObjects.length, 'game objects');
   }
 
-  // Start physics
+  // Wait for async mesh loads then start physics
+  await engine.scene.waitForMeshLoads();
   engine.physics.play(engine.scene);
 
   // Start game runtime

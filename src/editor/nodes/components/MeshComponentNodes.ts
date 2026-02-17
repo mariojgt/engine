@@ -10,7 +10,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket } from '../sockets';
+import { execSocket, numSocket, boolSocket, strSocket } from '../sockets';
 import { registerComponentRule } from './ComponentNodeRules';
 import type { ActorComponentData } from '../../ActorAsset';
 
@@ -113,6 +113,47 @@ export class SetComponentVisibilityNode extends ClassicPreset.Node {
   }
 }
 
+// ---- Static Mesh / Material runtime control nodes ----
+
+export class SetStaticMeshNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`Set Static Mesh (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('meshAssetId', new ClassicPreset.Input(strSocket, 'Mesh Asset ID'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+
+export class SetMeshMaterialNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`Set Material (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('slotIndex', new ClassicPreset.Input(numSocket, 'Slot Index'));
+    this.addInput('materialId', new ClassicPreset.Input(strSocket, 'Material ID'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+
+export class GetMeshMaterialNode extends ClassicPreset.Node {
+  public compName: string;
+  public compIndex: number;
+  constructor(compName: string, compIndex: number) {
+    super(`Get Material (${compName})`);
+    this.compName = compName;
+    this.compIndex = compIndex;
+    this.addInput('slotIndex', new ClassicPreset.Input(numSocket, 'Slot Index'));
+    this.addOutput('materialId', new ClassicPreset.Output(strSocket, 'Material ID'));
+  }
+}
+
 // ---- Register the mesh component rule ----
 
 registerComponentRule({
@@ -127,6 +168,9 @@ registerComponentRule({
       { label: `Get Scale (${n})`,       factory: () => new GetComponentScaleNode(n, index) },
       { label: `Set Scale (${n})`,       factory: () => new SetComponentScaleNode(n, index) },
       { label: `Set Visibility (${n})`,  factory: () => new SetComponentVisibilityNode(n, index) },
+      { label: `Set Static Mesh (${n})`, factory: () => new SetStaticMeshNode(n, index) },
+      { label: `Set Material (${n})`,    factory: () => new SetMeshMaterialNode(n, index) },
+      { label: `Get Material (${n})`,    factory: () => new GetMeshMaterialNode(n, index) },
     ];
   },
 });

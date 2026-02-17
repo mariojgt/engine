@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
 import type { PhysicsWorld } from './PhysicsWorld';
+import type { PhysicsConfig } from '../editor/ActorAsset';
 import {
   triggerSensorGroups,
   type CollisionConfig,
@@ -218,31 +219,47 @@ export class CollisionSystem {
       // to create a blocking collider for — they only have sensor colliders).
       const hasTriggerSensors = this._sensors.some(s => s.gameObjectId === go.id);
 
-      const geo = go.mesh.geometry;
-      if (!geo) continue;
-
-      // Skip invisible placeholder meshes (e.g. DefaultSceneRoot with tiny geometry)
-      const params = (geo as any).parameters;
-      if (params && params.width && params.width < 0.01) continue;
-
       const pos = go.mesh.position;
       const rot = go.mesh.quaternion;
+
+      // Check if this GO has any static mesh component children that need colliders
+      const hasStaticMeshChildren = go.mesh.children.some(
+        (c) => c.userData?.__isStaticMesh,
+      );
+
+      const geo = go.mesh.geometry;
+      // If no root geometry and no static mesh children, skip
+      if (!geo && !hasStaticMeshChildren) continue;
+
+      // Skip invisible placeholder meshes (e.g. DefaultSceneRoot with tiny geometry)
+      if (geo) {
+        const params = (geo as any).parameters;
+        if (params && params.width && params.width < 0.01) {
+          if (!hasStaticMeshChildren) continue;
+        }
+      }
+
       const rb = physics.world!.createRigidBody(
         RAPIER.RigidBodyDesc.fixed()
           .setTranslation(pos.x, pos.y, pos.z)
           .setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w }),
       );
 
-      const colDesc = this._colliderDescFromGeometry(geo);
-      colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
-      colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-      const col = physics.world!.createCollider(colDesc, rb);
-
-      // Only register the static body collider if this GO doesn't already have sensors
-      // (avoid self-overlap between the actor's static mesh and its own sensor)
-      if (!hasTriggerSensors) {
-        this._handleToGoId.set(col.handle, go.id);
+      // Root geometry collider (if it exists and is large enough)
+      if (geo) {
+        const params = (geo as any).parameters;
+        const skipRoot = params && params.width && params.width < 0.01;
+        if (!skipRoot) {
+          const colDesc = this._colliderDescFromGeometry(geo);
+          colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+          colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+          const col = physics.world!.createCollider(colDesc, rb);
+          if (!hasTriggerSensors) {
+            this._handleToGoId.set(col.handle, go.id);
+          }
+        }
       }
+
       this._staticBodies.push({ goId: go.id, rb });
 
       // Child meshes
@@ -252,6 +269,15 @@ export class CollisionSystem {
         if (child.userData?.__isComponentHelper) continue;
         if (child.userData?.__lightCompName) continue;
         if (child.userData?.__isSkeletalMesh) continue;
+
+        // Handle static mesh component Groups — use collision data or traverse sub-meshes
+        if (child.userData?.__isStaticMesh) {
+          this._addStaticMeshFixedColliders(
+            child as THREE.Group, rb, go.id, hasTriggerSensors, physics,
+          );
+          continue;
+        }
+
         if (!(child as any).isMesh) continue;
         const mesh = child as THREE.Mesh;
         if (!mesh.geometry) continue;
@@ -602,7 +628,175 @@ export class CollisionSystem {
       const p = (geo as any).parameters;
       return RAPIER.ColliderDesc.cylinder(p.height / 2, p.radiusTop);
     }
+
+    // For imported mesh BufferGeometry — compute bounding box and use a cuboid
+    if (geo.isBufferGeometry && geo.attributes?.position) {
+      geo.computeBoundingBox();
+      if (geo.boundingBox) {
+        const size = new THREE.Vector3();
+        geo.boundingBox.getSize(size);
+        if (size.x > 0.001 && size.y > 0.001 && size.z > 0.001) {
+          return RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2);
+        }
+      }
+    }
+
     return RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
+  }
+
+  /**
+   * Create fixed colliders for a static mesh component Group.
+   * Reads per-component collision config (__compCollision) to determine
+   * shape, dimensions, enabled state, and mode.
+   * Falls back to MeshAsset collision data or bounding-box sub-mesh colliders.
+   */
+  private _addStaticMeshFixedColliders(
+    group: THREE.Group,
+    rb: RAPIER.RigidBody,
+    goId: number,
+    hasTriggerSensors: boolean,
+    physics: PhysicsWorld,
+  ): void {
+    if (!physics.world) return;
+
+    const compCollision: CollisionConfig | null = group.userData.__compCollision || null;
+    const compPhysics: PhysicsConfig | null = group.userData.__compPhysics || null;
+
+    // Per-component collision disabled → skip entirely
+    if (compCollision && !compCollision.enabled) return;
+    if (compCollision && compCollision.collisionMode === 'none') return;
+
+    const friction = compPhysics?.friction ?? 0.5;
+    const restitution = compPhysics?.restitution ?? 0.3;
+    const isSensor = compCollision
+      ? compCollision.collisionMode === 'trigger'
+      : false;
+
+    const groupPos = group.position;
+    const groupQuat = group.quaternion;
+
+    // If per-component collision config specifies a simple shape, use it directly
+    if (compCollision && (compCollision.shape === 'box' || compCollision.shape === 'sphere' || compCollision.shape === 'capsule')) {
+      let colDesc: RAPIER.ColliderDesc | null = null;
+      const dim = compCollision.dimensions;
+
+      if (compCollision.shape === 'box') {
+        const d = dim as BoxShapeDimensions;
+        colDesc = RAPIER.ColliderDesc.cuboid(d.width / 2, d.height / 2, d.depth / 2);
+      } else if (compCollision.shape === 'sphere') {
+        const d = dim as SphereShapeDimensions;
+        colDesc = RAPIER.ColliderDesc.ball(d.radius);
+      } else if (compCollision.shape === 'capsule') {
+        const d = dim as CapsuleShapeDimensions;
+        colDesc = RAPIER.ColliderDesc.capsule(d.height / 2, d.radius);
+      }
+
+      if (colDesc) {
+        // Apply collision offset on top of the component group position
+        const colOff = compCollision.offset ?? { x: 0, y: 0, z: 0 };
+        const colRot = compCollision.rotationOffset ?? { x: 0, y: 0, z: 0 };
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const offsetQuat = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(toRad(colRot.x), toRad(colRot.y), toRad(colRot.z)),
+        );
+        const finalQuat = groupQuat.clone().multiply(offsetQuat);
+        colDesc.setTranslation(
+          groupPos.x + colOff.x,
+          groupPos.y + colOff.y,
+          groupPos.z + colOff.z,
+        );
+        colDesc.setRotation({ x: finalQuat.x, y: finalQuat.y, z: finalQuat.z, w: finalQuat.w });
+        colDesc.setFriction(friction);
+        colDesc.setRestitution(restitution);
+        if (isSensor) colDesc.setSensor(true);
+        colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+        colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+        const col = physics.world.createCollider(colDesc, rb);
+        if (!hasTriggerSensors) {
+          this._handleToGoId.set(col.handle, goId);
+        }
+      }
+      return;
+    }
+
+    // Otherwise use pre-generated collision data from the MeshAsset
+    const collisionData = group.userData.__collisionData;
+
+    if (collisionData && collisionData.hulls && collisionData.hulls.length > 0) {
+      for (const hull of collisionData.hulls) {
+        let colDesc: RAPIER.ColliderDesc | null = null;
+
+        if (hull.type === 'box' && hull.halfExtents) {
+          colDesc = RAPIER.ColliderDesc.cuboid(
+            hull.halfExtents.x, hull.halfExtents.y, hull.halfExtents.z,
+          );
+        } else if (hull.type === 'sphere' && hull.radius != null) {
+          colDesc = RAPIER.ColliderDesc.ball(hull.radius);
+        } else if (hull.type === 'capsule' && hull.radius != null && hull.height != null) {
+          colDesc = RAPIER.ColliderDesc.capsule(hull.height / 2, hull.radius);
+        } else if ((hull.type === 'convexHull' || hull.type === 'autoConvex') && hull.vertices.length >= 9) {
+          const verts = new Float32Array(hull.vertices);
+          const desc = RAPIER.ColliderDesc.convexHull(verts);
+          if (desc) colDesc = desc;
+        }
+
+        if (!colDesc && hull.halfExtents) {
+          colDesc = RAPIER.ColliderDesc.cuboid(
+            hull.halfExtents.x, hull.halfExtents.y, hull.halfExtents.z,
+          );
+        }
+
+        if (colDesc) {
+          const cx = groupPos.x + (hull.center?.x ?? 0);
+          const cy = groupPos.y + (hull.center?.y ?? 0);
+          const cz = groupPos.z + (hull.center?.z ?? 0);
+          colDesc.setTranslation(cx, cy, cz);
+          colDesc.setRotation({ x: groupQuat.x, y: groupQuat.y, z: groupQuat.z, w: groupQuat.w });
+          colDesc.setFriction(friction);
+          colDesc.setRestitution(restitution);
+          if (isSensor) colDesc.setSensor(true);
+          colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+          colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+          const col = physics.world.createCollider(colDesc, rb);
+          if (!hasTriggerSensors) {
+            this._handleToGoId.set(col.handle, goId);
+          }
+        }
+      }
+      return;
+    }
+
+    // Fallback: traverse sub-meshes and create bounding-box colliders
+    group.traverse((child) => {
+      if (!(child as any).isMesh) return;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.geometry) return;
+
+      const colDesc = this._colliderDescFromGeometry(mesh.geometry);
+
+      const worldPos = new THREE.Vector3();
+      mesh.getWorldPosition(worldPos);
+      const rootInv = new THREE.Matrix4();
+      if (group.parent) {
+        rootInv.copy(group.parent.matrixWorld).invert();
+        worldPos.applyMatrix4(rootInv);
+      }
+
+      const worldQuat = new THREE.Quaternion();
+      mesh.getWorldQuaternion(worldQuat);
+
+      colDesc.setTranslation(worldPos.x, worldPos.y, worldPos.z);
+      colDesc.setRotation({ x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w });
+      colDesc.setFriction(friction);
+      colDesc.setRestitution(restitution);
+      if (isSensor) colDesc.setSensor(true);
+      colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
+      colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+      const col = physics.world!.createCollider(colDesc, rb);
+      if (!hasTriggerSensors) {
+        this._handleToGoId.set(col.handle, goId);
+      }
+    });
   }
 
   /** Build ColliderDesc from a CollisionConfig. */

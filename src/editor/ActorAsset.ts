@@ -136,7 +136,7 @@ export interface ActorComponentData {
   scale: { x: number; y: number; z: number };
   /** Per-component physics configuration */
   physics?: PhysicsConfig;
-  /** Collision / trigger configuration (for type='trigger') */
+  /** Collision / trigger configuration (for type='trigger' or type='mesh') */
   collision?: CollisionConfig;
   /** Light configuration (for type='light') */
   light?: LightConfig;

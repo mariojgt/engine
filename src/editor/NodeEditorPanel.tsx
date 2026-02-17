@@ -106,6 +106,9 @@ import {
   GetComponentScaleNode,
   SetComponentScaleNode,
   SetComponentVisibilityNode,
+  SetStaticMeshNode,
+  SetMeshMaterialNode,
+  GetMeshMaterialNode,
   getComponentNodeEntries,
   // Light Component Nodes
   SetLightEnabledNode,
@@ -692,6 +695,17 @@ function resolveValue(
     return `${ref}.scale.${outputKey}`;
   }
 
+  // Get Material node — returns the material asset ID on a specific slot
+  if (node instanceof GetMeshMaterialNode) {
+    const ci = (node as GetMeshMaterialNode).compIndex;
+    const ref = ci === -1
+      ? 'gameObject.mesh'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
+    const sS = inputSrc.get(`${nodeId}.slotIndex`);
+    const slotExpr = sS ? rv(sS.nid, sS.ok) : '0';
+    return `(function(){ const _ref = ${ref}; if (!_ref) return ""; const _ms = []; _ref.traverse(c => { if (c.isMesh) _ms.push(c); }); const _si = ${slotExpr}; return (_si >= 0 && _si < _ms.length && _ms[_si].material && _ms[_si].material.userData && _ms[_si].material.userData.__materialAssetId) ? _ms[_si].material.userData.__materialAssetId : ""; })()`;
+  }
+
   // Trigger component getter nodes
   if (node instanceof GetTriggerEnabledNode) {
     return `(((gameObject._triggerComponents || [])[${(node as GetTriggerEnabledNode).compIndex}] || {}).config || {}).enabled ? 1 : 0`;
@@ -1181,6 +1195,34 @@ function genAction(
       : `((gameObject._meshComponents || [])[${(node as SetComponentVisibilityNode).compIndex}] || {}).mesh`;
     const vS = inputSrc.get(`${nodeId}.visible`);
     lines.push(`${ref}.visible = ${vS ? rv(vS.nid, vS.ok) : 'true'};`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Set Static Mesh — swap the mesh asset on a component at runtime
+  if (node instanceof SetStaticMeshNode) {
+    const ci = (node as SetStaticMeshNode).compIndex;
+    const ref = ci === -1
+      ? 'gameObject.mesh'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
+    const mS = inputSrc.get(`${nodeId}.meshAssetId`);
+    const meshIdExpr = mS ? rv(mS.nid, mS.ok) : '""';
+    lines.push(`{ const _ref = ${ref}; if (_ref) { const _mgr = __meshAssetManager; const _ma = _mgr && _mgr.getAsset(${meshIdExpr}); if (_ma) { while (_ref.children.length) _ref.remove(_ref.children[0]); __loadMeshFromAsset(_ma).then(({ scene: _ls }) => { while (_ls.children.length) { const _c = _ls.children[0]; _ls.remove(_c); _ref.add(_c); } _ref.updateMatrixWorld(true); }); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // Set Material — change material on a mesh component slot at runtime
+  if (node instanceof SetMeshMaterialNode) {
+    const ci = (node as SetMeshMaterialNode).compIndex;
+    const ref = ci === -1
+      ? 'gameObject.mesh'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
+    const sS = inputSrc.get(`${nodeId}.slotIndex`);
+    const mS = inputSrc.get(`${nodeId}.materialId`);
+    const slotExpr = sS ? rv(sS.nid, sS.ok) : '0';
+    const matIdExpr = mS ? rv(mS.nid, mS.ok) : '""';
+    lines.push(`{ const _ref = ${ref}; if (_ref) { const _mgr = __meshAssetManager; const _matA = _mgr && _mgr.getMaterial(${matIdExpr}); if (_matA) { const _meshes = []; _ref.traverse(c => { if (c.isMesh) _meshes.push(c); }); const _si = ${slotExpr}; if (_si >= 0 && _si < _meshes.length) { const _old = _meshes[_si].material; if (Array.isArray(_old)) _old.forEach(x => x.dispose()); else _old.dispose(); _meshes[_si].material = __buildThreeMaterialFromAsset(_matA, _mgr); } } } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3910,6 +3952,9 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetComponentScaleNode) return 'GetComponentScaleNode';
   if (node instanceof SetComponentScaleNode) return 'SetComponentScaleNode';
   if (node instanceof SetComponentVisibilityNode) return 'SetComponentVisibilityNode';
+  if (node instanceof SetStaticMeshNode) return 'SetStaticMeshNode';
+  if (node instanceof SetMeshMaterialNode) return 'SetMeshMaterialNode';
+  if (node instanceof GetMeshMaterialNode) return 'GetMeshMaterialNode';
   // Light component nodes
   if (node instanceof SetLightEnabledNode) return 'SetLightEnabledNode';
   if (node instanceof GetLightEnabledNode) return 'GetLightEnabledNode';
@@ -4167,7 +4212,9 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     node instanceof GetComponentLocationNode || node instanceof SetComponentLocationNode ||
     node instanceof GetComponentRotationNode || node instanceof SetComponentRotationNode ||
     node instanceof GetComponentScaleNode || node instanceof SetComponentScaleNode ||
-    node instanceof SetComponentVisibilityNode
+    node instanceof SetComponentVisibilityNode ||
+    node instanceof SetStaticMeshNode || node instanceof SetMeshMaterialNode ||
+    node instanceof GetMeshMaterialNode
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
@@ -4461,6 +4508,9 @@ function createNodeFromData(
     case 'GetComponentScaleNode':     return new GetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
     case 'SetComponentScaleNode':     return new SetComponentScaleNode(d.compName || 'Root', d.compIndex ?? -1);
     case 'SetComponentVisibilityNode': return new SetComponentVisibilityNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetStaticMeshNode':          return new SetStaticMeshNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'SetMeshMaterialNode':        return new SetMeshMaterialNode(d.compName || 'Root', d.compIndex ?? -1);
+    case 'GetMeshMaterialNode':        return new GetMeshMaterialNode(d.compName || 'Root', d.compIndex ?? -1);
 
     // Light component nodes
     case 'SetLightEnabledNode':    return new SetLightEnabledNode(d.compName || 'Light', d.compIndex ?? 0);

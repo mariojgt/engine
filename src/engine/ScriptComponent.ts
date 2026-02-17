@@ -13,6 +13,12 @@ export interface ScriptContext {
   uiManager?: any;
   /** AnimationInstance reference for AnimBP event graphs */
   animInstance?: any;
+  /** MeshAssetManager singleton for runtime mesh/material swapping */
+  meshAssetManager?: any;
+  /** loadMeshFromAsset helper for runtime mesh loading */
+  loadMeshFromAsset?: any;
+  /** buildThreeMaterialFromAsset helper for runtime material building */
+  buildThreeMaterialFromAsset?: any;
 }
 
 /**
@@ -96,7 +102,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance;
+  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset;
 
 ${preamble}
 
@@ -113,6 +119,9 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
   __animInstance = ctx.animInstance || null;
+  __meshAssetManager = ctx.meshAssetManager || null;
+  __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
+  __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   ${beginPlay}
 };` : ''}
 
@@ -125,6 +134,9 @@ ${tick.trim() ? `__tk = function(ctx) {
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
   __animInstance = ctx.animInstance || null;
+  __meshAssetManager = ctx.meshAssetManager || null;
+  __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
+  __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   ${tick}
 };` : ''}
 
@@ -137,6 +149,9 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   __scene = ctx.scene || null;
   __uiManager = ctx.uiManager || null;
   __animInstance = ctx.animInstance || null;
+  __meshAssetManager = ctx.meshAssetManager || null;
+  __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
+  __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   ${onDestroy}
 };` : ''}
 
@@ -156,7 +171,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
     if (!body.trim()) return null;
     return new Function(
       'ctx',
-      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\n${body}`
+      `const { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\nconst __meshAssetManager = ctx.meshAssetManager || null;\nconst __loadMeshFromAsset = ctx.loadMeshFromAsset || null;\nconst __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;\n${body}`
     ) as (ctx: ScriptContext) => void;
   }
 

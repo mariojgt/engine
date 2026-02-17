@@ -11,7 +11,7 @@ import type { MeshAssetManager, MeshAsset, MaterialAssetJSON } from './MeshAsset
 import { buildThreeMaterialFromAsset } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintAsset } from './AnimBlueprintData';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
-import { defaultCollisionConfig, defaultDimensionsForShape, defaultPawnCollisionProfile, defaultCameraCollisionProfile } from '../engine/CollisionTypes';
+import { defaultCollisionConfig, defaultMeshCollisionConfig, defaultDimensionsForShape, defaultPawnCollisionProfile, defaultCameraCollisionProfile } from '../engine/CollisionTypes';
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType, RootMeshType } from '../engine/Scene';
@@ -645,6 +645,8 @@ export class ActorEditorPanel {
         meshAsset = this._meshManager.getAsset(comp.skeletalMesh.meshAssetId);
       } else if (comp.customMeshAssetId) {
         meshAsset = this._meshManager.getAsset(comp.customMeshAssetId);
+      } else if (comp.type === 'mesh') {
+        isPrimitive = true; // Primitive mesh component — show single material slot
       }
       if (!comp.materialOverrides) comp.materialOverrides = {};
       overrides = comp.materialOverrides;
@@ -1162,14 +1164,53 @@ export class ActorEditorPanel {
         this._onAssetChanged();
       }));
     } else {
-      // ---- Mesh component properties ----
-      // Mesh type
-      container.appendChild(this._makeDropdownRow('Mesh', comp.meshType, ['cube', 'sphere', 'cylinder', 'plane'], (v) => {
-        comp.meshType = v as MeshType;
+      // ---- Mesh component properties (Static Mesh or Primitive) ----
+
+      // Build unified mesh dropdown: Primitives + Imported meshes (UE-style)
+      const primitiveOptions = ['Cube', 'Sphere', 'Cylinder', 'Plane'];
+      const importedMeshes: { label: string; id: string }[] = [];
+      if (this._meshManager) {
+        for (const ma of this._meshManager.assets) {
+          importedMeshes.push({ label: ma.name, id: ma.id });
+        }
+      }
+      const allMeshOptions = [
+        ...primitiveOptions,
+        ...(importedMeshes.length > 0 ? ['──── Imported Meshes ────'] : []),
+        ...importedMeshes.map(m => `📁 ${m.label}`),
+      ];
+
+      // Determine current display value
+      let currentMeshDisplay: string;
+      if (comp.customMeshAssetId) {
+        const ma = this._meshManager?.getAsset(comp.customMeshAssetId);
+        currentMeshDisplay = ma ? `📁 ${ma.name}` : '(Missing Mesh)';
+      } else {
+        currentMeshDisplay = comp.meshType.charAt(0).toUpperCase() + comp.meshType.slice(1);
+      }
+
+      container.appendChild(this._makeDropdownRow('Static Mesh', currentMeshDisplay, allMeshOptions, (v) => {
+        if (v.startsWith('────')) return; // separator — ignore
+        if (v.startsWith('📁 ')) {
+          const meshName = v.slice(3);
+          const ma = importedMeshes.find(m => m.label === meshName);
+          if (ma) {
+            comp.customMeshAssetId = ma.id;
+            comp.materialOverrides = {}; // reset overrides on mesh change
+          }
+        } else {
+          delete comp.customMeshAssetId;
+          comp.meshType = v.toLowerCase() as MeshType;
+          comp.materialOverrides = {};
+        }
         this._asset.touch();
         if (this._preview) this._preview.rebuild();
+        this._refreshComponentProps();
         this._onAssetChanged();
       }));
+
+      // ── Material Slots ──
+      this._buildMaterialSlotsSection(container, comp.id);
 
       // Offset
       container.appendChild(this._makeVec3Row('Offset', comp.offset, () => {
@@ -1195,6 +1236,10 @@ export class ActorEditorPanel {
       // Physics section for mesh child component
       if (!comp.physics) comp.physics = defaultPhysicsConfig();
       this._buildPhysicsSection(container, comp.physics);
+
+      // Collision section for mesh child component (UE-style per-component collision)
+      if (!comp.collision) comp.collision = defaultMeshCollisionConfig();
+      this._buildCollisionSection(container, comp.collision);
     }
   }
 
@@ -1211,6 +1256,17 @@ export class ActorEditorPanel {
     meshHeader.className = 'context-menu-header';
     meshHeader.textContent = '📦 Mesh';
     menu.appendChild(meshHeader);
+
+    // Static Mesh Component (imported mesh)
+    const staticMeshItem = document.createElement('div');
+    staticMeshItem.className = 'context-menu-item';
+    staticMeshItem.textContent = 'Static Mesh Component';
+    staticMeshItem.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      this._addStaticMeshComponent();
+    });
+    menu.appendChild(staticMeshItem);
 
     const meshTypes: { label: string; type: MeshType }[] = [
       { label: 'Cube Mesh', type: 'cube' },
@@ -1342,6 +1398,33 @@ export class ActorEditorPanel {
       offset: { x: 0, y: 1.5, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
+      physics: defaultPhysicsConfig(),
+      collision: defaultMeshCollisionConfig(),
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  /** Add a Static Mesh Component (user picks an imported mesh from the properties panel) */
+  private _addStaticMeshComponent(): void {
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'mesh',
+      meshType: 'cube',           // placeholder — not rendered as primitive when customMeshAssetId is set
+      name: 'StaticMesh_' + this._asset.components.length,
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      customMeshAssetId: '',      // user picks from dropdown in properties panel
+      materialOverrides: {},
+      physics: defaultPhysicsConfig(),
+      collision: defaultMeshCollisionConfig(),
     };
     this._asset.components.push(comp);
     this._asset.touch();
@@ -1536,6 +1619,7 @@ export class ActorEditorPanel {
     body.appendChild(this._makeCheckboxRow('Enabled', col.enabled, (v) => {
       col.enabled = v;
       notifyChanged();
+      if (this._preview) this._preview.rebuild();
     }));
 
     // -- Shape dropdown --
@@ -1543,6 +1627,7 @@ export class ActorEditorPanel {
       col.shape = v as CollisionShapeType;
       col.dimensions = defaultDimensionsForShape(col.shape);
       notifyChanged();
+      if (this._preview) this._preview.rebuild();
       this._refreshComponentProps();
     }));
 
@@ -1555,28 +1640,44 @@ export class ActorEditorPanel {
     if (col.shape === 'box') {
       const dim = col.dimensions as BoxShapeDimensions;
       body.appendChild(this._makeNumberRow('Width', dim.width, 0.1, 0.01, 1000, (v) => {
-        dim.width = v; notifyChanged();
+        dim.width = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
       body.appendChild(this._makeNumberRow('Height', dim.height, 0.1, 0.01, 1000, (v) => {
-        dim.height = v; notifyChanged();
+        dim.height = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
       body.appendChild(this._makeNumberRow('Depth', dim.depth, 0.1, 0.01, 1000, (v) => {
-        dim.depth = v; notifyChanged();
+        dim.depth = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
     } else if (col.shape === 'sphere') {
       const dim = col.dimensions as SphereShapeDimensions;
       body.appendChild(this._makeNumberRow('Radius', dim.radius, 0.1, 0.01, 1000, (v) => {
-        dim.radius = v; notifyChanged();
+        dim.radius = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
     } else if (col.shape === 'capsule') {
       const dim = col.dimensions as CapsuleShapeDimensions;
       body.appendChild(this._makeNumberRow('Radius', dim.radius, 0.1, 0.01, 1000, (v) => {
-        dim.radius = v; notifyChanged();
+        dim.radius = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
       body.appendChild(this._makeNumberRow('Height', dim.height, 0.1, 0.01, 1000, (v) => {
-        dim.height = v; notifyChanged();
+        dim.height = v; notifyChanged(); if (this._preview) this._preview.rebuild();
       }));
     }
+
+    // -- Collision Offset --
+    const offsetHeader = document.createElement('div');
+    offsetHeader.className = 'physics-subsection-header';
+    offsetHeader.textContent = 'Offset';
+    body.appendChild(offsetHeader);
+
+    if (!col.offset) col.offset = { x: 0, y: 0, z: 0 };
+    body.appendChild(this._makeVec3Row('Location Offset', col.offset, () => {
+      notifyChanged(); if (this._preview) this._preview.rebuild();
+    }));
+
+    if (!col.rotationOffset) col.rotationOffset = { x: 0, y: 0, z: 0 };
+    body.appendChild(this._makeVec3Row('Rotation Offset', col.rotationOffset, () => {
+      notifyChanged(); if (this._preview) this._preview.rebuild();
+    }));
 
     // -- Collision Mode --
     const modeHeader = document.createElement('div');
@@ -1587,6 +1688,7 @@ export class ActorEditorPanel {
     body.appendChild(this._makeDropdownRow('Collision Mode', col.collisionMode, ['none', 'trigger', 'physics'], (v) => {
       col.collisionMode = v as CollisionMode;
       notifyChanged();
+      if (this._preview) this._preview.rebuild();
       this._refreshComponentProps();
     }));
 

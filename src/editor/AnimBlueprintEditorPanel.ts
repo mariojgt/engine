@@ -96,6 +96,11 @@ export class AnimBlueprintEditorPanel {
   private _previewDebugLast = 0;
   private _graphOverlayLast = 0;
 
+  // Persistent preview section — survives _renderProps() re-renders
+  private _previewSection: HTMLElement | null = null;
+  private _previewHintEl: HTMLElement | null = null;
+  private _previewInitialised = false;
+
   constructor(
     container: HTMLElement,
     asset: AnimBlueprintAsset,
@@ -843,29 +848,32 @@ export class AnimBlueprintEditorPanel {
       del.style.color = 'var(--danger, #ff5555)';
     } else {
       this._addCtxItem(menu, '➕ Add State', () => {
-        const name = prompt('State name:', 'NewState');
-        if (!name) return;
-        const state = defaultAnimState(name, worldX, worldY);
-        this._asset.stateMachine.states.push(state);
-        if (this._asset.stateMachine.states.length === 1) {
-          this._asset.stateMachine.entryStateId = state.id;
-        }
-        this._asset.touch();
-        this._renderGraph();
+        this._showInlinePrompt('New State Name', 'NewState', (name) => {
+          if (!name) return;
+          const state = defaultAnimState(name, worldX, worldY);
+          this._asset.stateMachine.states.push(state);
+          if (this._asset.stateMachine.states.length === 1) {
+            this._asset.stateMachine.entryStateId = state.id;
+          }
+          this._asset.touch();
+          this._renderGraph();
+        });
       });
 
       this._addCtxItem(menu, '⭐ Add Wildcard Transition', () => {
         const targets = this._asset.stateMachine.states;
         if (targets.length === 0) return;
-        // Prompt for target
-        const targetName = prompt('Target state name:', targets[0].name);
-        const target = targets.find(s => s.name === targetName);
-        if (!target) { alert('State not found'); return; }
-        const t = defaultTransition('*', target.id, '');
-        t.priority = 100;
-        this._asset.stateMachine.transitions.push(t);
-        this._asset.touch();
-        this._renderGraph();
+        // Build a selection dialog instead of prompt
+        this._showInlineSelect('Target State', targets.map(s => s.name), (targetName) => {
+          if (!targetName) return;
+          const target = targets.find(s => s.name === targetName);
+          if (!target) return;
+          const t = defaultTransition('*', target.id, '');
+          t.priority = 100;
+          this._asset.stateMachine.transitions.push(t);
+          this._asset.touch();
+          this._renderGraph();
+        });
       });
     }
 
@@ -902,6 +910,130 @@ export class AnimBlueprintEditorPanel {
     });
     menu.appendChild(item);
     return item;
+  }
+
+  // ---- Cross-platform inline prompt (replaces window.prompt) ----
+
+  /**
+   * Show a small inline modal to get a text value from the user.
+   * Works on macOS Tauri (WKWebView) where window.prompt() is unavailable.
+   */
+  private _showInlinePrompt(title: string, defaultValue: string, onConfirm: (value: string | null) => void): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'anim-inline-prompt-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '10000',
+      background: 'rgba(0,0,0,0.45)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+    });
+
+    const dialog = document.createElement('div');
+    Object.assign(dialog.style, {
+      background: 'var(--bg-panel, #1e2028)', border: '1px solid #555',
+      borderRadius: '6px', padding: '16px 20px', minWidth: '280px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', color: '#ddd', fontFamily: 'inherit',
+    });
+
+    const label = document.createElement('div');
+    label.textContent = title;
+    Object.assign(label.style, { marginBottom: '10px', fontWeight: '600', fontSize: '13px' });
+    dialog.appendChild(label);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = defaultValue;
+    input.className = 'prop-input';
+    Object.assign(input.style, { width: '100%', boxSizing: 'border-box', marginBottom: '12px', fontSize: '13px', padding: '6px 8px' });
+    dialog.appendChild(input);
+
+    const btnRow = document.createElement('div');
+    Object.assign(btnRow.style, { display: 'flex', gap: '8px', justifyContent: 'flex-end' });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'toolbar-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => { overlay.remove(); onConfirm(null); });
+    btnRow.appendChild(cancelBtn);
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'toolbar-btn';
+    okBtn.textContent = 'OK';
+    Object.assign(okBtn.style, { background: 'var(--accent, #4a9eff)', color: '#fff' });
+    okBtn.addEventListener('click', () => { overlay.remove(); onConfirm(input.value.trim() || null); });
+    btnRow.appendChild(okBtn);
+
+    dialog.appendChild(btnRow);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Focus input and select text
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+
+    // Enter to confirm, Escape to cancel
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); okBtn.click(); }
+      if (e.key === 'Escape') { e.preventDefault(); cancelBtn.click(); }
+    });
+
+    // Click outside to cancel
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) cancelBtn.click();
+    });
+  }
+
+  /**
+   * Show a small inline select dialog for picking from a list.
+   * Works on macOS Tauri (WKWebView) where window.prompt() is unavailable.
+   */
+  private _showInlineSelect(title: string, options: string[], onSelect: (value: string | null) => void): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'anim-inline-prompt-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '10000',
+      background: 'rgba(0,0,0,0.45)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+    });
+
+    const dialog = document.createElement('div');
+    Object.assign(dialog.style, {
+      background: 'var(--bg-panel, #1e2028)', border: '1px solid #555',
+      borderRadius: '6px', padding: '16px 20px', minWidth: '280px', maxHeight: '400px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', color: '#ddd', fontFamily: 'inherit',
+      display: 'flex', flexDirection: 'column',
+    });
+
+    const label = document.createElement('div');
+    label.textContent = title;
+    Object.assign(label.style, { marginBottom: '10px', fontWeight: '600', fontSize: '13px' });
+    dialog.appendChild(label);
+
+    const list = document.createElement('div');
+    Object.assign(list.style, { overflowY: 'auto', maxHeight: '260px', marginBottom: '12px' });
+    for (const opt of options) {
+      const item = document.createElement('div');
+      item.textContent = opt;
+      Object.assign(item.style, {
+        padding: '6px 10px', cursor: 'pointer', borderRadius: '3px', fontSize: '13px',
+      });
+      item.addEventListener('mouseenter', () => { item.style.background = 'var(--accent, #4a9eff)'; item.style.color = '#fff'; });
+      item.addEventListener('mouseleave', () => { item.style.background = ''; item.style.color = '#ddd'; });
+      item.addEventListener('click', () => { overlay.remove(); onSelect(opt); });
+      list.appendChild(item);
+    }
+    dialog.appendChild(list);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'toolbar-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => { overlay.remove(); onSelect(null); });
+    dialog.appendChild(cancelBtn);
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) cancelBtn.click();
+    });
   }
 
   // ============================================================
@@ -992,8 +1124,13 @@ export class AnimBlueprintEditorPanel {
       }
     }
 
-    // Preview viewport
-    this._buildPreviewSection(p);
+    // Preview viewport — reuse existing section to avoid WebGL context leak
+    if (this._previewSection && this._previewInitialised) {
+      // Re-attach the persistent preview section without recreating the renderer
+      p.appendChild(this._previewSection);
+    } else {
+      this._buildPreviewSection(p);
+    }
 
     // Stats
     const sm = this._asset.stateMachine;
@@ -1658,6 +1795,12 @@ export class AnimBlueprintEditorPanel {
   // ============================================================
 
   private _buildPreviewSection(container: HTMLElement): void {
+    // If already initialised, just re-attach and skip renderer creation
+    if (this._previewSection && this._previewInitialised) {
+      container.appendChild(this._previewSection);
+      return;
+    }
+
     const section = document.createElement('div');
     section.className = 'anim-bp-preview';
 
@@ -1726,14 +1869,22 @@ export class AnimBlueprintEditorPanel {
 
     container.appendChild(section);
 
+    // Persist references so we can re-attach without recreating
+    this._previewSection = section;
+    this._previewHintEl = hint;
     this._previewContainer = viewport;
     this._previewDebugEl = debug;
+    this._previewInitialised = true;
+
     this._initPreviewRenderer(viewport, hint);
     this._refreshPreview(false);
   }
 
   private _initPreviewRenderer(container: HTMLElement, hintEl: HTMLElement): void {
-    this._disposePreview();
+    // Only dispose if there was a previous renderer
+    if (this._previewRenderer) {
+      this._disposePreview();
+    }
     this._previewContainer = container;
 
     try {
@@ -1999,6 +2150,11 @@ export class AnimBlueprintEditorPanel {
     this._previewAutoFit = true;
     this._previewDebugEl = null;
     this._previewDebugLast = 0;
+
+    // Mark persistent section as needing re-creation
+    this._previewSection = null;
+    this._previewHintEl = null;
+    this._previewInitialised = false;
   }
 
   // ============================================================
@@ -2040,13 +2196,14 @@ export class AnimBlueprintEditorPanel {
     addBtn.textContent = '+ Add Variable';
     addBtn.style.marginBottom = '8px';
     addBtn.addEventListener('click', () => {
-      const name = prompt('Variable name:', 'myVar');
-      if (!name) return;
-      const cleanName = name.trim();
-      if (!cleanName) return;
-      this._asset.blueprintData.addVariable(cleanName, 'Float');
-      this._asset.touch();
-      this._buildEventGraphTabVarList(varTable);
+      this._showInlinePrompt('Variable Name', 'myVar', (name) => {
+        if (!name) return;
+        const cleanName = name.trim();
+        if (!cleanName) return;
+        this._asset.blueprintData.addVariable(cleanName, 'Float');
+        this._asset.touch();
+        this._buildEventGraphTabVarList(varTable);
+      });
     });
     varPanel.appendChild(addBtn);
 
@@ -2210,12 +2367,13 @@ export class AnimBlueprintEditorPanel {
     addBtn.textContent = '+ New 1D Blend Space';
     addBtn.style.marginTop = '8px';
     addBtn.addEventListener('click', () => {
-      const name = prompt('Blend Space name:', 'BS_Locomotion');
-      if (!name) return;
-      const bs = defaultBlendSpace1D(name);
-      this._asset.blendSpaces1D.push(bs);
-      this._asset.touch();
-      this._buildBlendSpacesTab();
+      this._showInlinePrompt('Blend Space Name', 'BS_Locomotion', (name) => {
+        if (!name) return;
+        const bs = defaultBlendSpace1D(name);
+        this._asset.blendSpaces1D.push(bs);
+        this._asset.touch();
+        this._buildBlendSpacesTab();
+      });
     });
     wrapper.appendChild(addBtn);
 

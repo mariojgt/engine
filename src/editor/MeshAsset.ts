@@ -557,6 +557,74 @@ export interface MaterialAssetJSON {
     metallicRoughnessMap: string | null;
     emissiveMap: string | null;
     occlusionMap: string | null;
+
+    // ── Advanced PBR Properties ──
+
+    /** Normal map intensity (default 1.0) */
+    normalScale?: number;
+    /** Alpha cutoff for MASK blend mode (default 0.5) */
+    alphaCutoff?: number;
+    /** Height / displacement map */
+    heightMap?: string | null;
+    /** Displacement scale (default 0.05) */
+    displacementScale?: number;
+    /** Displacement bias (default 0) */
+    displacementBias?: number;
+    /** Separate roughness map (if metallicRoughnessMap is metallic only) */
+    roughnessMap?: string | null;
+    /** Ambient occlusion intensity (default 1.0) */
+    aoIntensity?: number;
+
+    // ── Clearcoat (car paint, lacquered surfaces) ──
+    clearcoat?: number;
+    clearcoatRoughness?: number;
+    clearcoatMap?: string | null;
+    clearcoatRoughnessMap?: string | null;
+    clearcoatNormalMap?: string | null;
+    clearcoatNormalScale?: number;
+
+    // ── Sheen (fabric, velvet) ──
+    sheen?: number;
+    sheenRoughness?: number;
+    sheenColor?: string;
+    sheenColorMap?: string | null;
+    sheenRoughnessMap?: string | null;
+
+    // ── Anisotropy (brushed metal, hair) ──
+    anisotropy?: number;
+    anisotropyRotation?: number;
+    anisotropyMap?: string | null;
+
+    // ── Iridescence (soap bubble, oil slick) ──
+    iridescence?: number;
+    iridescenceIOR?: number;
+    iridescenceThicknessMin?: number;
+    iridescenceThicknessMax?: number;
+    iridescenceMap?: string | null;
+    iridescenceThicknessMap?: string | null;
+
+    // ── Transmission / Refraction (glass, water) ──
+    transmission?: number;
+    transmissionMap?: string | null;
+    thickness?: number;
+    thicknessMap?: string | null;
+    ior?: number;
+    attenuationColor?: string;
+    attenuationDistance?: number;
+
+    // ── UV Transform ──
+    uvTiling?: [number, number];
+    uvOffset?: [number, number];
+    uvRotation?: number;
+    /** Each texture slot can use UV channel 0 or 1 */
+    texCoordIndex?: number;
+
+    // ── Flat shading / wireframe ──
+    flatShading?: boolean;
+    wireframe?: boolean;
+
+    // ── Environment map ──
+    envMapIntensity?: number;
   };
 }
 
@@ -876,9 +944,11 @@ import * as THREE from 'three';
 export function buildThreeMaterialFromAsset(
   matAsset: MaterialAssetJSON,
   mgr: MeshAssetManager,
-): THREE.MeshStandardMaterial {
+): THREE.MeshPhysicalMaterial {
   const d = matAsset.materialData;
-  const mat = new THREE.MeshStandardMaterial({
+
+  // Use MeshPhysicalMaterial for full PBR feature set (clearcoat, sheen, transmission, iridescence)
+  const mat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(d.baseColor),
     metalness: d.metalness,
     roughness: d.roughness,
@@ -888,27 +958,113 @@ export function buildThreeMaterialFromAsset(
     transparent: d.alphaMode === 'BLEND' || d.opacity < 1,
     side: d.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
     depthWrite: d.alphaMode !== 'BLEND',
+    flatShading: d.flatShading ?? false,
+    wireframe: d.wireframe ?? false,
+    envMapIntensity: d.envMapIntensity ?? 1.0,
   });
 
-  const applyTex = (slot: string, textureId: string | null) => {
+  // Alpha cutoff for MASK mode
+  if (d.alphaMode === 'MASK') {
+    mat.alphaTest = d.alphaCutoff ?? 0.5;
+  }
+
+  // Normal map scale
+  if (d.normalScale !== undefined && d.normalScale !== 1.0) {
+    mat.normalScale = new THREE.Vector2(d.normalScale, d.normalScale);
+  }
+
+  // Displacement
+  mat.displacementScale = d.displacementScale ?? 0;
+  mat.displacementBias = d.displacementBias ?? 0;
+
+  // AO intensity
+  mat.aoMapIntensity = d.aoIntensity ?? 1.0;
+
+  // Clearcoat
+  mat.clearcoat = d.clearcoat ?? 0;
+  mat.clearcoatRoughness = d.clearcoatRoughness ?? 0;
+  if (d.clearcoatNormalScale !== undefined) {
+    mat.clearcoatNormalScale = new THREE.Vector2(d.clearcoatNormalScale, d.clearcoatNormalScale);
+  }
+
+  // Sheen
+  mat.sheen = d.sheen ?? 0;
+  mat.sheenRoughness = d.sheenRoughness ?? 0;
+  if (d.sheenColor) mat.sheenColor = new THREE.Color(d.sheenColor);
+
+  // Anisotropy
+  mat.anisotropy = d.anisotropy ?? 0;
+  mat.anisotropyRotation = d.anisotropyRotation ?? 0;
+
+  // Iridescence
+  mat.iridescence = d.iridescence ?? 0;
+  mat.iridescenceIOR = d.iridescenceIOR ?? 1.3;
+  if (d.iridescenceThicknessMin !== undefined || d.iridescenceThicknessMax !== undefined) {
+    mat.iridescenceThicknessRange = [
+      d.iridescenceThicknessMin ?? 100,
+      d.iridescenceThicknessMax ?? 400,
+    ];
+  }
+
+  // Transmission / Refraction
+  mat.transmission = d.transmission ?? 0;
+  mat.thickness = d.thickness ?? 0;
+  mat.ior = d.ior ?? 1.5;
+  if (d.attenuationColor) mat.attenuationColor = new THREE.Color(d.attenuationColor);
+  if (d.attenuationDistance !== undefined) mat.attenuationDistance = d.attenuationDistance;
+
+  // UV transform
+  const uvTiling = d.uvTiling ?? [1, 1];
+  const uvOffset = d.uvOffset ?? [0, 0];
+  const uvRotation = d.uvRotation ?? 0;
+  const hasUVTransform = uvTiling[0] !== 1 || uvTiling[1] !== 1 ||
+                         uvOffset[0] !== 0 || uvOffset[1] !== 0 || uvRotation !== 0;
+
+  // Texture loader helper with UV transform support
+  const applyTex = (slot: string, textureId: string | null | undefined) => {
     if (!textureId) return;
     const texAsset = mgr.getTexture(textureId);
     if (!texAsset || !texAsset.dataUrl) return;
     const loader = new THREE.TextureLoader();
     const tex = loader.load(texAsset.dataUrl, () => { mat.needsUpdate = true; });
-    tex.colorSpace = (slot === 'map' || slot === 'emissiveMap')
+    tex.colorSpace = (slot === 'map' || slot === 'emissiveMap' || slot === 'sheenColorMap')
       ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
+    // Apply UV transform
+    if (hasUVTransform) {
+      tex.repeat.set(uvTiling[0], uvTiling[1]);
+      tex.offset.set(uvOffset[0], uvOffset[1]);
+      tex.rotation = uvRotation;
+      tex.center.set(0.5, 0.5);
+    }
     (mat as any)[slot] = tex;
     mat.needsUpdate = true;
   };
 
+  // Core texture maps
   applyTex('map', d.baseColorMap);
   applyTex('normalMap', d.normalMap);
   applyTex('metalnessMap', d.metallicRoughnessMap);
+  applyTex('roughnessMap', d.roughnessMap);
   applyTex('emissiveMap', d.emissiveMap);
   applyTex('aoMap', d.occlusionMap);
+  applyTex('displacementMap', d.heightMap);
+
+  // Advanced texture maps
+  applyTex('clearcoatMap', d.clearcoatMap);
+  applyTex('clearcoatRoughnessMap', d.clearcoatRoughnessMap);
+  applyTex('clearcoatNormalMap', d.clearcoatNormalMap);
+  applyTex('sheenColorMap', d.sheenColorMap);
+  applyTex('sheenRoughnessMap', d.sheenRoughnessMap);
+  applyTex('anisotropyMap', d.anisotropyMap);
+  applyTex('iridescenceMap', d.iridescenceMap);
+  applyTex('iridescenceThicknessMap', d.iridescenceThicknessMap);
+  applyTex('transmissionMap', d.transmissionMap);
+  applyTex('thicknessMap', d.thicknessMap);
+
+  // Store the material asset ID so blueprint nodes can read it back at runtime
+  mat.userData.__materialAssetId = matAsset.assetId;
 
   return mat;
 }

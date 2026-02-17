@@ -346,6 +346,9 @@ function extractMaterials(
       const matName = mat.name || `Material_${materials.length}`;
       const prefix = settings.autoGenerateSubNames ? 'M_' : '';
 
+      // Extract advanced PBR props from MeshPhysicalMaterial when available
+      const physMat = mat as THREE.MeshPhysicalMaterial;
+
       materials.push({
         assetId: matId,
         assetName: prefix + matName,
@@ -365,6 +368,33 @@ function extractMaterials(
           metallicRoughnessMap: getTexId(stdMat.metalnessMap || stdMat.roughnessMap),
           emissiveMap: getTexId(stdMat.emissiveMap),
           occlusionMap: getTexId(stdMat.aoMap),
+          // Advanced PBR
+          normalScale: stdMat.normalScale?.x ?? 1.0,
+          alphaCutoff: stdMat.alphaTest ?? 0.5,
+          heightMap: getTexId(stdMat.displacementMap),
+          displacementScale: stdMat.displacementScale ?? 0.05,
+          displacementBias: stdMat.displacementBias ?? 0,
+          roughnessMap: getTexId(stdMat.roughnessMap),
+          aoIntensity: stdMat.aoMapIntensity ?? 1.0,
+          clearcoat: physMat.clearcoat ?? 0,
+          clearcoatRoughness: physMat.clearcoatRoughness ?? 0,
+          clearcoatMap: getTexId(physMat.clearcoatMap ?? null),
+          clearcoatRoughnessMap: getTexId(physMat.clearcoatRoughnessMap ?? null),
+          clearcoatNormalMap: getTexId(physMat.clearcoatNormalMap ?? null),
+          sheen: physMat.sheen ?? 0,
+          sheenRoughness: physMat.sheenRoughness ?? 0,
+          sheenColor: physMat.sheenColor ? colorToHex(physMat.sheenColor) : '#ffffff',
+          transmission: physMat.transmission ?? 0,
+          thickness: physMat.thickness ?? 0,
+          ior: physMat.ior ?? 1.5,
+          iridescence: physMat.iridescence ?? 0,
+          iridescenceIOR: physMat.iridescenceIOR ?? 1.3,
+          flatShading: stdMat.flatShading ?? false,
+          wireframe: stdMat.wireframe ?? false,
+          envMapIntensity: stdMat.envMapIntensity ?? 1.0,
+          uvTiling: [1, 1],
+          uvOffset: [0, 0],
+          uvRotation: 0,
         },
       });
     }

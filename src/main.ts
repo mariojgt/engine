@@ -379,6 +379,7 @@ async function main() {
         console.log('[Editor] Falling back to in-editor play mode');
 
         // Fallback to in-editor mode
+        await engine.scene.waitForMeshLoads();
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         engine.onPlayStarted(canvas ?? undefined);
@@ -399,6 +400,7 @@ async function main() {
       // ── In-editor play mode (for browser/non-Tauri) ──
       console.log('[Editor] Starting in-editor play mode (not in Tauri)');
 
+      await engine.scene.waitForMeshLoads();
       engine.physics.play(engine.scene);
       const canvas = editor.getCanvas();
       engine.onPlayStarted(canvas ?? undefined);

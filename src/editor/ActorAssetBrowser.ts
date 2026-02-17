@@ -201,6 +201,25 @@ export class ActorAssetBrowser {
 
     this.container.appendChild(body);
 
+    // Drag-and-drop mesh files onto the grid
+    this._gridEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._gridEl.classList.add('drag-over');
+    });
+    this._gridEl.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      this._gridEl.classList.remove('drag-over');
+    });
+    this._gridEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._gridEl.classList.remove('drag-over');
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        this._handleMeshFileDrop(e.dataTransfer.files);
+      }
+    });
+
     // Right-click on empty space in grid → create new
     this._gridEl.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -932,11 +951,30 @@ export class ActorAssetBrowser {
     input.type = 'file';
     input.accept = '.gltf,.glb,.fbx,.obj,.dae,.stl,.ply';
     input.multiple = true;
+    // Must be in the DOM for Tauri WebView to reliably fire the change event
+    input.style.position = 'absolute';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
     input.addEventListener('change', () => {
       if (input.files && input.files.length > 0) {
         this._handleMeshFileDrop(input.files);
       }
+      // Clean up — remove from DOM after the event fires
+      input.remove();
     });
+    // Also clean up if user cancels the picker (no change event fires)
+    // Use a focus-back heuristic: when the window regains focus after the picker
+    // closes, if the input is still in the DOM with no files, remove it.
+    const cleanup = () => {
+      setTimeout(() => {
+        if (input.parentNode && (!input.files || input.files.length === 0)) {
+          input.remove();
+        }
+      }, 300);
+      window.removeEventListener('focus', cleanup);
+    };
+    window.addEventListener('focus', cleanup);
     input.click();
   }
 
@@ -963,8 +1001,9 @@ export class ActorAssetBrowser {
       let detectedInfo;
       try {
         detectedInfo = await detectFileContent(file, extras.size > 0 ? extras : undefined);
-      } catch {
-        // Detection failed — proceed without detection info
+      } catch (err) {
+        console.warn('[Import] File detection failed for', file.name, err);
+        // Proceed without detection info — dialog will still show
       }
 
       // Show import dialog with detection info
