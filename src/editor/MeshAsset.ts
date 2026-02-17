@@ -865,3 +865,50 @@ export class MeshAssetManager {
     this._notifyChanged();
   }
 }
+
+// ============================================================
+//  buildThreeMaterialFromAsset — Shared utility to create a
+//  THREE.MeshStandardMaterial from a MaterialAssetJSON.
+//  Used by MaterialEditorPanel, ActorPreviewViewport, Scene, etc.
+// ============================================================
+import * as THREE from 'three';
+
+export function buildThreeMaterialFromAsset(
+  matAsset: MaterialAssetJSON,
+  mgr: MeshAssetManager,
+): THREE.MeshStandardMaterial {
+  const d = matAsset.materialData;
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(d.baseColor),
+    metalness: d.metalness,
+    roughness: d.roughness,
+    emissive: new THREE.Color(d.emissive),
+    emissiveIntensity: d.emissiveIntensity,
+    opacity: d.opacity,
+    transparent: d.alphaMode === 'BLEND' || d.opacity < 1,
+    side: d.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    depthWrite: d.alphaMode !== 'BLEND',
+  });
+
+  const applyTex = (slot: string, textureId: string | null) => {
+    if (!textureId) return;
+    const texAsset = mgr.getTexture(textureId);
+    if (!texAsset || !texAsset.dataUrl) return;
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load(texAsset.dataUrl, () => { mat.needsUpdate = true; });
+    tex.colorSpace = (slot === 'map' || slot === 'emissiveMap')
+      ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    (mat as any)[slot] = tex;
+    mat.needsUpdate = true;
+  };
+
+  applyTex('map', d.baseColorMap);
+  applyTex('normalMap', d.normalMap);
+  applyTex('metalnessMap', d.metallicRoughnessMap);
+  applyTex('emissiveMap', d.emissiveMap);
+  applyTex('aoMap', d.occlusionMap);
+
+  return mat;
+}

@@ -355,7 +355,7 @@ export function showImportDialog(
           (v) => { settings.textureWrapT = v as TextureWrap; }),
       ]));
 
-      // Show detected material slots  
+      // Show detected material slots
       if (detectedInfo && detectedInfo.complexity.materialCount > 0) {
         matPanel.appendChild(createSection(`Detected Materials (${detectedInfo.complexity.materialCount})`, [
           createInfoRow(`${detectedInfo.complexity.materialCount} material slot(s) detected. ${detectedInfo.complexity.textureCount} texture(s) found.`),

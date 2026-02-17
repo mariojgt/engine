@@ -136,16 +136,166 @@ function generateThumbnail(scene: THREE.Object3D, size = 256): string {
 
 // ── Helper: export Three.js scene to GLB binary (base64) ──
 
-async function exportToGLBBase64(scene: THREE.Object3D, animations: THREE.AnimationClip[]): Promise<string> {
-  const exporter = new GLTFExporter();
-  const glb: ArrayBuffer = await new Promise((resolve, reject) => {
-    exporter.parse(
-      scene,
-      (result) => resolve(result as ArrayBuffer),
-      (error) => reject(error),
-      { binary: true, animations },
-    );
+/**
+ * Convert a raw-data texture image ({ data, width, height } from FBXLoader)
+ * into a canvas element that GLTFExporter can handle.
+ * Returns the canvas, or null if conversion failed.
+ */
+function rawTextureToCanvas(img: any): HTMLCanvasElement | null {
+  try {
+    const w: number = img.width;
+    const h: number = img.height;
+    if (!w || !h || !img.data) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    let pixelData: Uint8ClampedArray;
+    if (img.data instanceof Uint8ClampedArray) {
+      pixelData = img.data;
+    } else {
+      pixelData = new Uint8ClampedArray(img.data as ArrayLike<number>);
+    }
+
+    // Expand RGB → RGBA if needed
+    if (pixelData.length === w * h * 3) {
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let px = 0; px < w * h; px++) {
+        rgba[px * 4]     = pixelData[px * 3];
+        rgba[px * 4 + 1] = pixelData[px * 3 + 1];
+        rgba[px * 4 + 2] = pixelData[px * 3 + 2];
+        rgba[px * 4 + 3] = 255;
+      }
+      pixelData = rgba;
+    }
+
+    // Ensure we have exactly RGBA (4 channels)
+    if (pixelData.length !== w * h * 4) return null;
+
+    const imgData = new ImageData(pixelData as unknown as Uint8ClampedArray<ArrayBuffer>, w, h);
+    ctx.putImageData(imgData, 0, 0);
+    return canvas;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * All known texture slot names across every THREE.js material type:
+ * MeshStandardMaterial, MeshPhongMaterial, MeshLambertMaterial,
+ * MeshBasicMaterial, MeshPhysicalMaterial, MeshToonMaterial, etc.
+ */
+const ALL_TEXTURE_SLOTS = [
+  'map', 'normalMap', 'metalnessMap', 'roughnessMap',
+  'emissiveMap', 'aoMap', 'alphaMap', 'bumpMap',
+  'displacementMap', 'envMap', 'lightMap', 'specularMap',
+  'gradientMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap',
+  'sheenColorMap', 'sheenRoughnessMap', 'transmissionMap', 'thicknessMap',
+  'iridescenceMap', 'iridescenceThicknessMap', 'anisotropyMap',
+  'specularIntensityMap', 'specularColorMap',
+];
+
+/**
+ * Convert raw-data textures (from FBXLoader/etc) to canvas-backed textures
+ * that GLTFExporter can process without crashing.
+ *
+ * Scans ALL known texture slots plus any own properties, covering every
+ * material type (MeshPhongMaterial, MeshStandardMaterial, etc.).
+ */
+function sanitizeTexturesForExport(scene: THREE.Object3D): void {
+  scene.traverse((child) => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const mesh = child as THREE.Mesh;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+    for (const mat of mats) {
+      // Combine explicit known slots + own property keys for maximum coverage
+      const keysToCheck = new Set<string>(ALL_TEXTURE_SLOTS);
+      for (const k of Object.keys(mat)) keysToCheck.add(k);
+
+      for (const key of keysToCheck) {
+        const val = (mat as any)[key];
+        if (!val) continue;
+        // Check if this property is a THREE.Texture (has isTexture flag)
+        if (!val.isTexture) continue;
+
+        const tex = val as THREE.Texture;
+        if (!tex.image) {
+          // Texture with no image at all — remove it to prevent GLTFExporter crash
+          console.warn(`[MeshImport] Texture on "${key}" has null image, removing`);
+          (mat as any)[key] = null;
+          continue;
+        }
+
+        const img = tex.image as any;
+
+        // Already a valid image source for GLTFExporter
+        if (img instanceof HTMLImageElement || img instanceof HTMLCanvasElement || img instanceof ImageBitmap || (typeof OffscreenCanvas !== 'undefined' && img instanceof OffscreenCanvas)) continue;
+
+        // Raw data texture (e.g. from FBXLoader) — convert to canvas
+        const canvas = rawTextureToCanvas(img);
+        if (canvas) {
+          tex.image = canvas;
+          tex.needsUpdate = true;
+        } else {
+          // Conversion failed — remove the texture to prevent GLTFExporter crash
+          console.warn(`[MeshImport] Could not convert raw texture on "${key}", removing`);
+          (mat as any)[key] = null;
+        }
+      }
+    }
   });
+}
+
+async function exportToGLBBase64(scene: THREE.Object3D, animations: THREE.AnimationClip[]): Promise<string> {
+  // Sanitize textures so GLTFExporter doesn't crash on raw data textures
+  sanitizeTexturesForExport(scene);
+
+  const exporter = new GLTFExporter();
+
+  const doExport = (): Promise<ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      exporter.parse(
+        scene,
+        (result) => resolve(result as ArrayBuffer),
+        (error) => reject(error),
+        { binary: true, animations },
+      );
+    });
+  };
+
+  let glb: ArrayBuffer;
+  try {
+    glb = await doExport();
+  } catch (err: any) {
+    // If the export fails due to texture issues, strip ALL textures and retry
+    const msg = err?.message ?? String(err);
+    if (msg.includes('image') || msg.includes('texture') || msg.includes('Texture')) {
+      console.warn('[MeshImport] GLTFExporter failed with texture error, stripping all textures and retrying:', msg);
+      scene.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) {
+          const keysToCheck = new Set<string>(ALL_TEXTURE_SLOTS);
+          for (const k of Object.keys(mat)) keysToCheck.add(k);
+          for (const key of keysToCheck) {
+            const val = (mat as any)[key];
+            if (val && val.isTexture) {
+              (mat as any)[key] = null;
+            }
+          }
+        }
+      });
+      glb = await doExport();
+    } else {
+      throw err;
+    }
+  }
+
   // Convert ArrayBuffer to base64
   const bytes = new Uint8Array(glb);
   let binary = '';
@@ -239,15 +389,10 @@ function extractTextures(
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
     for (const mat of mats) {
-      const stdMat = mat as THREE.MeshStandardMaterial;
-      const allTextures = [
-        stdMat.map, stdMat.normalMap, stdMat.metalnessMap,
-        stdMat.roughnessMap, stdMat.emissiveMap, stdMat.aoMap,
-        stdMat.alphaMap, stdMat.bumpMap,
-      ];
-
-      for (const tex of allTextures) {
-        if (!tex || seen.has(tex.id)) continue;
+      // Scan ALL material properties for textures (works with Phong, Lambert, Standard, etc.)
+      for (const key of Object.keys(mat)) {
+        const tex = (mat as any)[key] as THREE.Texture | null;
+        if (!tex || !tex.isTexture || seen.has(tex.id)) continue;
         seen.add(tex.id);
 
         const texId = genId('tex');
@@ -259,11 +404,26 @@ function extractTextures(
         let height = 0;
 
         if (tex.image) {
-          const imgSource = tex.image;
-          if (imgSource instanceof HTMLImageElement || imgSource instanceof HTMLCanvasElement || imgSource instanceof ImageBitmap) {
-            const srcWidth = imgSource.width || 256;
-            const srcHeight = imgSource.height || 256;
+          const imgSource = tex.image as any;
+          let srcWidth = 0;
+          let srcHeight = 0;
+          let drawable: CanvasImageSource | null = null;
 
+          if (imgSource instanceof HTMLImageElement || imgSource instanceof HTMLCanvasElement || imgSource instanceof ImageBitmap) {
+            srcWidth = imgSource.width || 256;
+            srcHeight = imgSource.height || 256;
+            drawable = imgSource;
+          } else {
+            // Try raw data texture conversion (FBX / DataTexture)
+            const rawCanvas = rawTextureToCanvas(imgSource);
+            if (rawCanvas) {
+              srcWidth = rawCanvas.width;
+              srcHeight = rawCanvas.height;
+              drawable = rawCanvas;
+            }
+          }
+
+          if (drawable && srcWidth > 0 && srcHeight > 0) {
             // Apply texture resolution setting
             let targetWidth = srcWidth;
             let targetHeight = srcHeight;
@@ -285,7 +445,7 @@ function extractTextures(
             width = targetWidth;
             height = targetHeight;
             const ctx2d = canvas.getContext('2d')!;
-            ctx2d.drawImage(imgSource, 0, 0, targetWidth, targetHeight);
+            ctx2d.drawImage(drawable, 0, 0, targetWidth, targetHeight);
             dataUrl = canvas.toDataURL('image/png');
           }
         }

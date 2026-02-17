@@ -152,6 +152,8 @@ export interface ActorComponentData {
   customMeshAssetId?: string;
   /** Skeletal Mesh configuration (for type='skeletalMesh') */
   skeletalMesh?: SkeletalMeshConfig;
+  /** Per-slot material overrides: maps slot index (as string) → MaterialAssetJSON.assetId */
+  materialOverrides?: Record<string, string>;
 }
 
 /** Configuration for skeletal mesh components */
@@ -207,6 +209,8 @@ export interface ActorAssetJSON {
   controllerClass?: ControllerType;
   /** ID of a controller blueprint asset to use (overrides controllerClass) */
   controllerBlueprintId?: string;
+  /** Per-slot material overrides for the root mesh: maps slot index (as string) → MaterialAssetJSON.assetId */
+  rootMaterialOverrides?: Record<string, string>;
   /** Created timestamp */
   createdAt: number;
   /** Last modified timestamp */
@@ -228,6 +232,8 @@ export class ActorAsset {
   public rootMeshType: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'none' = 'cube';
   /** When set, root uses an imported mesh asset instead of a primitive */
   public rootCustomMeshAssetId: string = '';
+  /** Per-slot material overrides for the root mesh: maps slot index (as string) → MaterialAssetJSON.assetId */
+  public rootMaterialOverrides: Record<string, string> = {};
   public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
   public components: ActorComponentData[] = [];
   public blueprintData: BlueprintData;
@@ -280,6 +286,8 @@ export class ActorAsset {
       description: this.description,
       rootMeshType: this.rootMeshType,
       rootCustomMeshAssetId: this.rootCustomMeshAssetId || undefined,
+      rootMaterialOverrides: Object.keys(this.rootMaterialOverrides).length > 0
+        ? structuredClone(this.rootMaterialOverrides) : undefined,
       rootPhysics: structuredClone(this.rootPhysics),
       components: structuredClone(this.components),
       variables: structuredClone(bp.variables),
@@ -314,6 +322,7 @@ export class ActorAsset {
     asset.description = json.description || '';
     asset.rootMeshType = json.rootMeshType || 'cube';
     asset.rootCustomMeshAssetId = json.rootCustomMeshAssetId || '';
+    asset.rootMaterialOverrides = json.rootMaterialOverrides ? structuredClone(json.rootMaterialOverrides) : {};
     asset.characterPawnConfig = json.characterPawnConfig
       ? {
           ...defaultCharacterPawnConfig(),

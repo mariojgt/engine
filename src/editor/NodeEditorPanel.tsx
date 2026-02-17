@@ -369,7 +369,7 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof MacroCallNode) return 'Macros';
   if (node instanceof CustomEventNode || node instanceof CallCustomEventNode) return 'Events';
   if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode || node instanceof InputAxisNode) return 'Input';
-  // Physics event nodes  
+  // Physics event nodes
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
       node instanceof OnComponentSleepNode) return 'Events';

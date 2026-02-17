@@ -125,6 +125,7 @@ async function startGameplay(sceneData: any): Promise<void> {
           goData.characterPawnConfig || null,
           goData.controllerClass,
           goData.controllerBlueprintId,
+          goData.rootMaterialOverrides,
         );
 
         // Apply rotation and scale

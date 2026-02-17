@@ -19,10 +19,11 @@ import { AnimBlueprintEditorPanel } from './AnimBlueprintEditorPanel';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
 import { WidgetBlueprintEditorPanel } from './WidgetBlueprintEditorPanel';
 import type { StructureAssetManager, StructureAsset, EnumAsset } from './StructureAsset';
-import type { MeshAssetManager } from './MeshAsset';
+import type { MeshAssetManager, MaterialAssetJSON } from './MeshAsset';
 import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
+import { MaterialEditorPanel } from './MaterialEditorPanel';
 import type { CameraStateJSON } from './SceneSerializer';
 
 // Store renderers by panel id for reliable element access
@@ -73,6 +74,7 @@ export class EditorLayout {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
+  private _materialEditor: MaterialEditorPanel | null = null;
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
@@ -208,6 +210,7 @@ export class EditorLayout {
           asset.characterPawnConfig,
           asset.controllerClass,
           asset.controllerBlueprintId,
+          asset.rootMaterialOverrides,
         );
       },
     );
@@ -307,6 +310,7 @@ export class EditorLayout {
         asset.characterPawnConfig,
         asset.controllerClass,
         asset.controllerBlueprintId,
+        asset.rootMaterialOverrides,
       );
     };
 
@@ -349,15 +353,19 @@ export class EditorLayout {
   setMeshManager(mgr: MeshAssetManager): void {
     this._meshManager = mgr;
     if (this._assetBrowser) {
-      this._assetBrowser.setMeshManager(mgr, (meshAsset: MeshAsset, mx: number, my: number) => {
-        // Mesh drop: check if the mouse is over the viewport
-        if (!this._viewport) return;
-        const rect = this._viewport.container.getBoundingClientRect();
-        if (mx < rect.left || mx > rect.right || my < rect.top || my > rect.bottom) return;
+      this._assetBrowser.setMeshManager(
+        mgr,
+        (meshAsset: MeshAsset, mx: number, my: number) => {
+          // Mesh drop: check if the mouse is over the viewport
+          if (!this._viewport) return;
+          const rect = this._viewport.container.getBoundingClientRect();
+          if (mx < rect.left || mx > rect.right || my < rect.top || my > rect.bottom) return;
 
-        // Place the imported mesh in the scene
-        this._engine.scene.addGameObjectFromMeshAsset(meshAsset, { x: 0, y: 3, z: 0 });
-      });
+          // Place the imported mesh in the scene
+          this._engine.scene.addGameObjectFromMeshAsset(meshAsset, { x: 0, y: 3, z: 0 });
+        },
+        (mat: MaterialAssetJSON) => this._openMaterialEditor(mat),
+      );
     }
   }
 
@@ -519,6 +527,70 @@ export class EditorLayout {
     });
   }
 
+  /** Open a material editor panel */
+  private _openMaterialEditor(mat: MaterialAssetJSON): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'material-editor-' + mat.assetId;
+    this._api.addPanel({
+      id: panelId,
+      title: `🎨 Material: ${mat.assetName}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._meshManager) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._materialEditor = new MaterialEditorPanel(
+      wrapper,
+      mat,
+      this._meshManager,
+      () => {
+        // Update panel title when name changes
+        const panel = this._api.getPanel(panelId);
+        if (panel) {
+          try { panel.setTitle(`🎨 Material: ${mat.assetName}`); } catch (_e) {}
+        }
+
+        // Sync all scene instances whose material overrides reference this material
+        for (const asset of this.assetManager.assets) {
+          const rootUsed = Object.values(asset.rootMaterialOverrides).includes(mat.assetId);
+          const compUsed = asset.components.some(c =>
+            c.materialOverrides && Object.values(c.materialOverrides).includes(mat.assetId),
+          );
+          if (rootUsed || compUsed) {
+            this._engine.scene.syncActorAssetInstances(
+              asset.id,
+              asset.name,
+              asset.rootMeshType,
+              asset.blueprintData,
+              asset.compiledCode,
+              asset.components,
+              asset.rootPhysics,
+              asset.actorType,
+              asset.characterPawnConfig,
+              asset.controllerClass,
+              asset.controllerBlueprintId,
+              asset.rootMaterialOverrides,
+            );
+          }
+        }
+      },
+    );
+  }
+
   private _closeTypeEditor(): void {
     if (this._animBPEditor) {
       this._animBPEditor.dispose();
@@ -528,10 +600,14 @@ export class EditorLayout {
       this._widgetBPEditor.dispose();
       this._widgetBPEditor = null;
     }
+    if (this._materialEditor) {
+      this._materialEditor.dispose();
+      this._materialEditor = null;
+    }
 
     const panels = this._api.panels;
     for (const p of panels) {
-      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-')) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-')) {
         this._api.removePanel(p);
       }
     }

@@ -624,6 +624,21 @@ export class ProjectManager {
       file: `${m.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${m.assetId}.json`,
     }));
     await fsWrite(`${meshDir}/_index.json`, JSON.stringify(index, null, 2));
+
+    // Save standalone materials & textures not belonging to any mesh asset
+    const meshMatIds = new Set(exported.meshAssets.flatMap(m => m.materials));
+    const meshTexIds = new Set(exported.meshAssets.flatMap(m => m.textures));
+    const standaloneMats = exported.materials.filter(m => !meshMatIds.has(m.assetId));
+    const standaloneTex = exported.textures.filter(t => !meshTexIds.has(t.assetId));
+    if (standaloneMats.length > 0 || standaloneTex.length > 0) {
+      await fsWrite(
+        `${meshDir}/_standalone_materials.json`,
+        JSON.stringify({ materials: standaloneMats, textures: standaloneTex }, null, 2),
+      );
+    } else {
+      // Clean up old file if no standalone materials remain
+      try { await fsWrite(`${meshDir}/_standalone_materials.json`, '{}'); } catch (_e) {}
+    }
   }
 
   private async _loadMeshes(): Promise<void> {
@@ -672,7 +687,20 @@ export class ProjectManager {
       }
     }
 
-    if (allMeshAssets.length > 0) {
+    // Load standalone materials & textures (not tied to any mesh asset)
+    const standaloneFile = `${meshDir}/_standalone_materials.json`;
+    try {
+      if (await fsExists(standaloneFile)) {
+        const raw = await fsRead(standaloneFile);
+        const standalone = JSON.parse(raw);
+        if (standalone.materials) allMaterials.push(...standalone.materials);
+        if (standalone.textures) allTextures.push(...standalone.textures);
+      }
+    } catch (_e) {
+      // standalone materials file not found or invalid — skip
+    }
+
+    if (allMeshAssets.length > 0 || allMaterials.length > 0) {
       this._meshManager.importAll({
         meshAssets: allMeshAssets,
         materials: allMaterials,

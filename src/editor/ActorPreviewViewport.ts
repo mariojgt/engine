@@ -9,7 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ActorAsset, ActorComponentData, LightConfig } from './ActorAsset';
 import { defaultLightConfig } from './ActorAsset';
-import { MeshAssetManager } from './MeshAsset';
+import { MeshAssetManager, buildThreeMaterialFromAsset } from './MeshAsset';
 import { loadMeshFromAsset } from './MeshImporter';
 
 type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
@@ -787,6 +787,94 @@ export class ActorPreviewViewport {
     // Re-select
     if (this._selectedId) {
       this._selectById(this._selectedId);
+    }
+
+    // Apply any material overrides
+    this.applyMaterialOverrides();
+  }
+
+  /**
+   * Apply material overrides from the actor asset onto the preview meshes.
+   * Reads rootMaterialOverrides and per-component materialOverrides,
+   * builds THREE materials via buildThreeMaterialFromAsset(), and swaps them in.
+   */
+  applyMaterialOverrides(): void {
+    const mgr = MeshAssetManager.getInstance();
+    if (!mgr) return;
+
+    // ── Root mesh overrides ──
+    if (this._rootMesh && this._asset.rootMaterialOverrides) {
+      const overrides = this._asset.rootMaterialOverrides;
+      if (Object.keys(overrides).length > 0) {
+        if ((this._rootMesh as THREE.Mesh).isMesh) {
+          // Primitive root — single material at slot 0
+          const matId = overrides['0'];
+          if (matId) {
+            const matAsset = mgr.getMaterial(matId);
+            if (matAsset) {
+              const oldMat = (this._rootMesh as THREE.Mesh).material as THREE.Material;
+              oldMat.dispose();
+              (this._rootMesh as THREE.Mesh).material = buildThreeMaterialFromAsset(matAsset, mgr);
+            }
+          }
+        } else {
+          // Group (imported mesh) — traverse children and apply per-slot
+          this._applyOverridesToGroup(this._rootMesh, overrides, mgr);
+        }
+      }
+    }
+
+    // ── Component mesh overrides ──
+    for (const comp of this._asset.components) {
+      if (!comp.materialOverrides || Object.keys(comp.materialOverrides).length === 0) continue;
+      const meshObj = this._componentMeshes.get(comp.id);
+      if (!meshObj) continue;
+
+      if ((meshObj as THREE.Mesh).isMesh) {
+        const matId = comp.materialOverrides['0'];
+        if (matId) {
+          const matAsset = mgr.getMaterial(matId);
+          if (matAsset) {
+            const oldMat = (meshObj as THREE.Mesh).material as THREE.Material;
+            oldMat.dispose();
+            (meshObj as THREE.Mesh).material = buildThreeMaterialFromAsset(matAsset, mgr);
+          }
+        }
+      } else {
+        this._applyOverridesToGroup(meshObj, comp.materialOverrides, mgr);
+      }
+    }
+  }
+
+  /**
+   * Apply material overrides to a group (imported/skeletal mesh).
+   * Traverses the group collecting all Mesh children in order and applies overrides by slot index.
+   */
+  private _applyOverridesToGroup(
+    group: THREE.Object3D,
+    overrides: Record<string, string>,
+    mgr: MeshAssetManager,
+  ): void {
+    // Collect all mesh children in traversal order — each is a "slot"
+    const meshChildren: THREE.Mesh[] = [];
+    group.traverse(child => {
+      if ((child as THREE.Mesh).isMesh) meshChildren.push(child as THREE.Mesh);
+    });
+
+    for (const [slotKey, matId] of Object.entries(overrides)) {
+      const idx = parseInt(slotKey, 10);
+      if (isNaN(idx) || idx < 0 || idx >= meshChildren.length) continue;
+      const matAsset = mgr.getMaterial(matId);
+      if (!matAsset) continue;
+
+      const mesh = meshChildren[idx];
+      const oldMat = mesh.material;
+      if (Array.isArray(oldMat)) {
+        oldMat.forEach(m => m.dispose());
+      } else {
+        (oldMat as THREE.Material).dispose();
+      }
+      mesh.material = buildThreeMaterialFromAsset(matAsset, mgr);
     }
   }
 

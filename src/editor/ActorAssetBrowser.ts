@@ -9,7 +9,7 @@
 
 import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
 import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
-import { MeshAssetManager, type MeshAsset, isImportableFile } from './MeshAsset';
+import { MeshAssetManager, type MeshAsset, type MaterialAssetJSON, isImportableFile } from './MeshAsset';
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
@@ -22,7 +22,7 @@ export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: numb
 /** Callback fired when a mesh asset is dropped onto the viewport */
 export type MeshDropCallback = (meshAsset: MeshAsset, mouseX: number, mouseY: number) => void;
 
-export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP' | 'Widgets';
+export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP' | 'Widgets' | 'Materials';
 
 export class ActorAssetBrowser {
   public container: HTMLElement;
@@ -40,6 +40,7 @@ export class ActorAssetBrowser {
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
   private _onOpenAnimBP: ((asset: AnimBlueprintAsset) => void) | null = null;
   private _onOpenWidgetBP: ((asset: WidgetBlueprintAsset) => void) | null = null;
+  private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
   private _selectedAssetId: string | null = null;
@@ -95,10 +96,11 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
-  /** Wire up MeshAssetManager + drop callback */
-  public setMeshManager(mgr: MeshAssetManager, onMeshDrop?: MeshDropCallback): void {
+  /** Wire up MeshAssetManager + drop callback + material open callback */
+  public setMeshManager(mgr: MeshAssetManager, onMeshDrop?: MeshDropCallback, onOpenMaterial?: (material: MaterialAssetJSON) => void): void {
     this._meshManager = mgr;
     this._onMeshDrop = onMeshDrop ?? null;
+    this._onOpenMaterial = onOpenMaterial ?? null;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -311,6 +313,7 @@ export class ActorAssetBrowser {
     else if (assetType === 'structure') this._renderStructureCard(assetId);
     else if (assetType === 'enum') this._renderEnumCard(assetId);
     else if (assetType === 'mesh') this._renderMeshCard(assetId);
+    else if (assetType === 'material') this._renderMaterialCard(assetId);
     else if (assetType === 'animBP') this._renderAnimBPCard(assetId);
     else if (assetType === 'widget') this._renderWidgetCard(assetId);
   }
@@ -462,6 +465,56 @@ export class ActorAssetBrowser {
       () => this._onOpenWidgetBP?.(wbp),
       (e) => this._showWidgetBPContextMenu(e, wbp),
     );
+    this._gridEl.appendChild(card);
+  }
+
+  private _renderMaterialCard(assetId: string): void {
+    if (!this._meshManager) return;
+    const mat = this._meshManager.getMaterial(assetId);
+    if (!mat) return;
+
+    const card = document.createElement('div');
+    card.className = 'asset-card material-asset-card';
+    if (this._selectedAssetId === mat.assetId) card.classList.add('selected');
+
+    const iconEl = document.createElement('div');
+    iconEl.className = 'asset-card-icon';
+    // Show a color preview swatch
+    const swatch = document.createElement('div');
+    swatch.style.cssText = `width:36px;height:36px;border-radius:50%;border:2px solid var(--border);background:${mat.materialData.baseColor};`;
+    if (mat.materialData.metalness > 0.5) {
+      swatch.style.background = `linear-gradient(135deg, ${mat.materialData.baseColor}, #888)`;
+    }
+    iconEl.appendChild(swatch);
+    card.appendChild(iconEl);
+
+    const label = document.createElement('div');
+    label.className = 'asset-card-name';
+    label.textContent = mat.assetName;
+    card.appendChild(label);
+
+    const sub = document.createElement('div');
+    sub.className = 'asset-card-subtitle';
+    sub.textContent = mat.materialData.type;
+    card.appendChild(sub);
+
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._selectedAssetId = mat.assetId;
+      this._refreshGrid();
+    });
+    card.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this._onOpenMaterial?.(mat);
+    });
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._selectedAssetId = mat.assetId;
+      this._refreshGrid();
+      this._showMaterialContextMenu(e, mat);
+    });
+
     this._gridEl.appendChild(card);
   }
 
@@ -949,6 +1002,11 @@ export class ActorAssetBrowser {
         // Register in folder manager
         this._folderManager.setAssetLocation(result.meshAsset.assetId, 'mesh', this._currentFolderId);
 
+        // Auto-register imported materials in folder (UE-style: materials are first-class assets)
+        for (const mat of result.materials) {
+          this._folderManager.setAssetLocation(mat.assetId, 'material', this._currentFolderId);
+        }
+
         const duration = (result.report.duration / 1000).toFixed(1);
         progress.update(`Import complete in ${duration}s!`, 100);
         setTimeout(() => progress.close(), 1200);
@@ -991,6 +1049,53 @@ export class ActorAssetBrowser {
       if (confirm(`Delete mesh asset "${meshAsset.name}"?`)) {
         this._meshManager!.removeAsset(meshAsset.id);
         if (this._selectedAssetId === meshAsset.id) this._selectedAssetId = null;
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  private _showMaterialContextMenu(e: MouseEvent, mat: MaterialAssetJSON): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '📝 Open Editor', () => {
+      this._onOpenMaterial?.(mat);
+    });
+
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Material', mat.assetName);
+      if (newName) {
+        mat.assetName = newName;
+        this._refreshGrid();
+      }
+    });
+
+    // Info row
+    const infoItem = document.createElement('div');
+    infoItem.className = 'context-menu-item';
+    infoItem.style.opacity = '0.6';
+    infoItem.style.fontSize = '11px';
+    infoItem.style.cursor = 'default';
+    infoItem.textContent = `${mat.materialData.type} · ${mat.materialData.baseColor}`;
+    menu.appendChild(infoItem);
+
+    const sep = document.createElement('div');
+    sep.className = 'context-menu-separator';
+    menu.appendChild(sep);
+
+    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete material "${mat.assetName}"?`)) {
+        const idx = this._meshManager!.allMaterials.findIndex(m => m.assetId === mat.assetId);
+        if (idx >= 0) this._meshManager!.allMaterials.splice(idx, 1);
+        this._folderManager.removeAssetLocation(mat.assetId, 'material');
+        if (this._selectedAssetId === mat.assetId) this._selectedAssetId = null;
+        this._refreshGrid();
       }
     });
     delItem.style.color = 'var(--danger)';
@@ -1327,6 +1432,39 @@ export class ActorAssetBrowser {
       const sepMesh = document.createElement('div');
       sepMesh.className = 'context-menu-separator';
       menu.appendChild(sepMesh);
+
+      this._addMenuItem(menu, '🎨 New Material', async () => {
+        const name = await this._showNameDialog('New Material', 'M_NewMaterial');
+        if (name) {
+          const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+          const newMat: MaterialAssetJSON = {
+            assetId: matId,
+            assetName: name,
+            meshAssetId: '',
+            materialData: {
+              type: 'PBR',
+              baseColor: '#808080',
+              metalness: 0,
+              roughness: 0.8,
+              emissive: '#000000',
+              emissiveIntensity: 0,
+              opacity: 1,
+              doubleSided: false,
+              alphaMode: 'OPAQUE',
+              baseColorMap: null,
+              normalMap: null,
+              metallicRoughnessMap: null,
+              emissiveMap: null,
+              occlusionMap: null,
+            },
+          };
+          this._meshManager!.allMaterials.push(newMat);
+          this._folderManager.setAssetLocation(matId, 'material', this._currentFolderId);
+          this._selectedAssetId = matId;
+          this._refreshGrid();
+          this._onOpenMaterial?.(newMat);
+        }
+      });
 
       this._addMenuItem(menu, '📦 Import Mesh…', () => this._triggerMeshFileImport());
     }

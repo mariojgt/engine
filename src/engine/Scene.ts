@@ -6,7 +6,7 @@ import { defaultLightConfig } from '../editor/ActorAsset';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
-import { MeshAssetManager, type MeshAsset } from '../editor/MeshAsset';
+import { MeshAssetManager, type MeshAsset, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
 import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { AnimationInstance } from './AnimationInstance';
 import { AnimBlueprintManager } from '../editor/AnimBlueprintData';
@@ -204,9 +204,15 @@ export class Scene {
     characterPawnConfig?: CharacterPawnConfig | null,
     controllerClass?: import('./Controller').ControllerType,
     controllerBlueprintId?: string,
+    rootMaterialOverrides?: Record<string, string>,
   ): GameObject {
     const go = this.addGameObject(assetName, meshType);
     go.actorAssetId = assetId;
+
+    // Apply root material overrides
+    if (rootMaterialOverrides && Object.keys(rootMaterialOverrides).length > 0) {
+      this._applyMaterialOverridesToMesh(go.mesh, rootMaterialOverrides);
+    }
 
     // Apply physics config from the actor asset
     if (physicsConfig) {
@@ -265,6 +271,7 @@ export class Scene {
     characterPawnConfig?: CharacterPawnConfig | null,
     controllerClass?: import('./Controller').ControllerType,
     controllerBlueprintId?: string,
+    rootMaterialOverrides?: Record<string, string>,
   ): void {
     for (const go of this.gameObjects) {
       if (go.actorAssetId !== assetId) continue;
@@ -280,6 +287,10 @@ export class Scene {
         const newGeo = geometries[meshType]();
         go.mesh.geometry.dispose();
         go.mesh.geometry = newGeo;
+        // Re-apply root material overrides
+        if (rootMaterialOverrides && Object.keys(rootMaterialOverrides).length > 0) {
+          this._applyMaterialOverridesToMesh(go.mesh, rootMaterialOverrides);
+        }
       }
 
       // --- Rebuild child component meshes & trigger data ---
@@ -712,6 +723,26 @@ export class Scene {
               // Rebuild world matrices so skinned mesh bones resolve correctly
               wrapper.updateMatrixWorld(true);
 
+              // Apply material overrides for this skeletal mesh component
+              if (comp.materialOverrides && Object.keys(comp.materialOverrides).length > 0) {
+                const overMgr = MeshAssetManager.getInstance();
+                if (overMgr) {
+                  const meshChildren: THREE.Mesh[] = [];
+                  wrapper.traverse(c => { if ((c as THREE.Mesh).isMesh) meshChildren.push(c as THREE.Mesh); });
+                  for (const [slotKey, matId] of Object.entries(comp.materialOverrides)) {
+                    const idx = parseInt(slotKey, 10);
+                    if (isNaN(idx) || idx < 0 || idx >= meshChildren.length) continue;
+                    const matAsset = overMgr.getMaterial(matId);
+                    if (!matAsset) continue;
+                    const m = meshChildren[idx];
+                    const oldM = m.material;
+                    if (Array.isArray(oldM)) oldM.forEach(x => x.dispose());
+                    else (oldM as THREE.Material).dispose();
+                    m.material = buildThreeMaterialFromAsset(matAsset, overMgr);
+                  }
+                }
+              }
+
               // Setup animation mixer if there are animations.
               // Use the wrapper as root — animations reference bone names, and
               // Three.js AnimationMixer.findNode walks the full subtree.
@@ -783,7 +814,20 @@ export class Scene {
       } else {
         // Mesh component — add as child mesh
         const geo = geometries[comp.meshType]();
-        const mat = defaultMaterial.clone();
+        let mat: THREE.Material = defaultMaterial.clone();
+
+        // Apply material override if set (slot 0 for primitive mesh components)
+        if (comp.materialOverrides && comp.materialOverrides['0']) {
+          const mgr = MeshAssetManager.getInstance();
+          if (mgr) {
+            const matAsset = mgr.getMaterial(comp.materialOverrides['0']);
+            if (matAsset) {
+              mat.dispose();
+              mat = buildThreeMaterialFromAsset(matAsset, mgr);
+            }
+          }
+        }
+
         const child = new THREE.Mesh(geo, mat);
         child.castShadow = true;
         child.receiveShadow = true;
@@ -853,6 +897,47 @@ export class Scene {
           }
         }
       });
+    }
+  }
+
+  /**
+   * Apply material overrides to a mesh (root or child).
+   * For a simple Mesh, swaps slot 0. For a Group, traverses children by slot index.
+   */
+  private _applyMaterialOverridesToMesh(
+    mesh: THREE.Mesh | THREE.Object3D,
+    overrides: Record<string, string>,
+  ): void {
+    const mgr = MeshAssetManager.getInstance();
+    if (!mgr) return;
+
+    if ((mesh as THREE.Mesh).isMesh) {
+      const matId = overrides['0'];
+      if (matId) {
+        const matAsset = mgr.getMaterial(matId);
+        if (matAsset) {
+          const oldMat = (mesh as THREE.Mesh).material as THREE.Material;
+          oldMat.dispose();
+          (mesh as THREE.Mesh).material = buildThreeMaterialFromAsset(matAsset, mgr);
+        }
+      }
+    } else {
+      // Group — traverse all mesh children and apply per-slot
+      const meshChildren: THREE.Mesh[] = [];
+      mesh.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) meshChildren.push(child as THREE.Mesh);
+      });
+      for (const [slotKey, matId] of Object.entries(overrides)) {
+        const idx = parseInt(slotKey, 10);
+        if (isNaN(idx) || idx < 0 || idx >= meshChildren.length) continue;
+        const matAsset = mgr.getMaterial(matId);
+        if (!matAsset) continue;
+        const m = meshChildren[idx];
+        const oldMat = m.material;
+        if (Array.isArray(oldMat)) oldMat.forEach(x => x.dispose());
+        else (oldMat as THREE.Material).dispose();
+        m.material = buildThreeMaterialFromAsset(matAsset, mgr);
+      }
     }
   }
 }

@@ -224,6 +224,7 @@ async function main() {
         asset.characterPawnConfig,
         asset.controllerClass,
         asset.controllerBlueprintId,
+        asset.rootMaterialOverrides,
       );
     }
 

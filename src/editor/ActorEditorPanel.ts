@@ -7,7 +7,8 @@
 
 import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType, SkeletalMeshConfig } from './ActorAsset';
 import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
-import type { MeshAssetManager, MeshAsset } from './MeshAsset';
+import type { MeshAssetManager, MeshAsset, MaterialAssetJSON } from './MeshAsset';
+import { buildThreeMaterialFromAsset } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintAsset } from './AnimBlueprintData';
 import type { CollisionConfig, CollisionShapeType, CollisionMode, CollisionResponse, CollisionChannelName, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from '../engine/CollisionTypes';
 import { defaultCollisionConfig, defaultDimensionsForShape, defaultPawnCollisionProfile, defaultCameraCollisionProfile } from '../engine/CollisionTypes';
@@ -539,6 +540,11 @@ export class ActorEditorPanel {
       this._onAssetChanged();
     }));
 
+    // ── Material Slots for root mesh ──
+    if (this._asset.rootMeshType !== 'none') {
+      this._buildMaterialSlotsSection(container, 'root');
+    }
+
     // Physics section for root component (only for mesh roots)
     if (this._asset.rootMeshType !== 'none') {
       this._buildPhysicsSection(container, this._asset.rootPhysics);
@@ -609,6 +615,131 @@ export class ActorEditorPanel {
       }));
 
       this._buildCharacterPawnSection(container);
+    }
+  }
+
+  /**
+   * Build a UE-style "Material Slots" section showing each material slot
+   * from the mesh and a dropdown to override it with any available material.
+   * @param container Parent DOM element to append into
+   * @param targetId  'root' for the root mesh, or component id for skeletal mesh components
+   */
+  private _buildMaterialSlotsSection(container: HTMLElement, targetId: string): void {
+    if (!this._meshManager) return;
+
+    // ── Determine the mesh asset and current overrides map ──
+    let meshAsset: MeshAsset | undefined;
+    let overrides: Record<string, string>;
+    let isPrimitive = false;
+
+    if (targetId === 'root') {
+      if (this._asset.rootCustomMeshAssetId) {
+        meshAsset = this._meshManager.getAsset(this._asset.rootCustomMeshAssetId);
+      }
+      overrides = this._asset.rootMaterialOverrides;
+      isPrimitive = !this._asset.rootCustomMeshAssetId;
+    } else {
+      const comp = this._asset.components.find(c => c.id === targetId);
+      if (!comp) return;
+      if (comp.type === 'skeletalMesh' && comp.skeletalMesh?.meshAssetId) {
+        meshAsset = this._meshManager.getAsset(comp.skeletalMesh.meshAssetId);
+      } else if (comp.customMeshAssetId) {
+        meshAsset = this._meshManager.getAsset(comp.customMeshAssetId);
+      }
+      if (!comp.materialOverrides) comp.materialOverrides = {};
+      overrides = comp.materialOverrides;
+    }
+
+    // Determine slot names
+    let slotNames: string[];
+    if (meshAsset && meshAsset.materials.length > 0) {
+      slotNames = meshAsset.materials.map((m, i) => m.assetName || `Slot ${i}`);
+    } else if (isPrimitive) {
+      slotNames = ['Material'];
+    } else {
+      return; // no mesh → no slots
+    }
+
+    // ── Section header ──
+    const header = document.createElement('div');
+    header.className = 'physics-section-header';
+    header.textContent = '🎨 Material Slots';
+    container.appendChild(header);
+
+    // Build all available material options
+    const allMaterials = this._meshManager.allMaterials;
+    const materialOptions = ['(Default)', ...allMaterials.map(m => m.assetName)];
+
+    // ── One row per slot ──
+    for (let i = 0; i < slotNames.length; i++) {
+      const slotKey = String(i);
+      const currentOverride = overrides[slotKey];
+      const currentMat = currentOverride
+        ? (allMaterials.find(m => m.assetId === currentOverride)?.assetName ?? '(Default)')
+        : '(Default)';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:2px 0;';
+
+      // Color swatch
+      const swatch = document.createElement('div');
+      swatch.style.cssText = 'width:14px;height:14px;border-radius:3px;border:1px solid #555;flex-shrink:0;';
+      const swatchColor = currentOverride
+        ? (allMaterials.find(m => m.assetId === currentOverride)?.materialData.baseColor ?? '#6c8ebf')
+        : (meshAsset?.materials[i]?.materialData.baseColor ?? '#6c8ebf');
+      swatch.style.backgroundColor = swatchColor;
+      row.appendChild(swatch);
+
+      // Slot label
+      const label = document.createElement('span');
+      label.className = 'prop-label';
+      label.style.cssText = 'flex:0 0 auto;min-width:50px;font-size:11px;';
+      label.textContent = slotNames[i];
+      row.appendChild(label);
+
+      // Dropdown
+      const select = document.createElement('select');
+      select.className = 'prop-input';
+      select.style.cssText = 'flex:1;';
+      for (const optName of materialOptions) {
+        const opt = document.createElement('option');
+        opt.value = optName;
+        opt.textContent = optName;
+        if (optName === currentMat) opt.selected = true;
+        select.appendChild(opt);
+      }
+      select.addEventListener('change', () => {
+        const v = select.value;
+        if (v === '(Default)') {
+          delete overrides[slotKey];
+        } else {
+          const mat = allMaterials.find(m => m.assetName === v);
+          if (mat) overrides[slotKey] = mat.assetId;
+        }
+        this._asset.touch();
+        if (this._preview) this._preview.applyMaterialOverrides();
+        this._refreshComponentProps();
+        this._onAssetChanged();
+      });
+      row.appendChild(select);
+
+      // Reset button
+      if (currentOverride) {
+        const resetBtn = document.createElement('button');
+        resetBtn.textContent = '↺';
+        resetBtn.title = 'Reset to default';
+        resetBtn.style.cssText = 'background:none;border:1px solid #555;color:#ccc;border-radius:3px;cursor:pointer;padding:1px 4px;font-size:12px;flex-shrink:0;';
+        resetBtn.addEventListener('click', () => {
+          delete overrides[slotKey];
+          this._asset.touch();
+          if (this._preview) this._preview.applyMaterialOverrides();
+          this._refreshComponentProps();
+          this._onAssetChanged();
+        });
+        row.appendChild(resetBtn);
+      }
+
+      container.appendChild(row);
     }
   }
 
@@ -887,11 +1018,18 @@ export class ActorEditorPanel {
             cfg.animationName = ''; // reset animation when mesh changes
           }
         }
+        // Clear material overrides when mesh changes
+        comp.materialOverrides = {};
         this._asset.touch();
         if (this._preview) this._preview.rebuild();
         this._refreshComponentProps(); // re-render to update animation list
         this._onAssetChanged();
       }));
+
+      // ── Material Slots for skeletal mesh component ──
+      if (cfg.meshAssetId) {
+        this._buildMaterialSlotsSection(container, comp.id);
+      }
 
       // ---- Animation Blueprint picker ----
       if (this._animBPManager && this._animBPManager.assets.length > 0) {
