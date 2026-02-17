@@ -10,9 +10,11 @@ import { StructureAssetManager } from './editor/StructureAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
+import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager } from './editor/NodeEditorPanel';
+import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -35,6 +37,10 @@ async function main() {
         <div class="toolbar-dropdown-item" id="menu-new-project">New Project…</div>
         <div class="toolbar-dropdown-item" id="menu-open-project">Open Project…</div>
         <div class="toolbar-dropdown-divider"></div>
+        <div class="toolbar-dropdown-item" id="menu-new-scene">New Scene…</div>
+        <div class="toolbar-dropdown-item" id="menu-open-scene">Open Scene…</div>
+        <div class="toolbar-dropdown-item" id="menu-duplicate-scene">Duplicate Scene…</div>
+        <div class="toolbar-dropdown-divider"></div>
         <div class="toolbar-dropdown-item" id="menu-save"><span>Save</span><span class="shortcut">Ctrl+S</span></div>
       </div>
     </div>
@@ -45,6 +51,8 @@ async function main() {
     <button class="toolbar-btn" id="btn-add-cube">+ Cube</button>
     <button class="toolbar-btn" id="btn-add-sphere">+ Sphere</button>
     <div class="toolbar-spacer"></div>
+    <span class="toolbar-scene-name" id="toolbar-scene-name"></span>
+    <div class="toolbar-separator"></div>
     <span class="toolbar-project-name" id="toolbar-project-name"></span>
   `;
   app.appendChild(toolbar);
@@ -93,11 +101,23 @@ async function main() {
   projectManager.setWidgetBPManager(widgetBPManager);
   editor.setWidgetBPManager(widgetBPManager);
 
+  // Create game instance blueprint manager
+  const gameInstanceManager = new GameInstanceBlueprintManager();
+  projectManager.setGameInstanceManager(gameInstanceManager);
+  editor.setGameInstanceManager(gameInstanceManager);
+  engine.gameInstanceManager = gameInstanceManager;
+
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);
 
   // Wire widget BP manager into node editor for Create Widget picker
   setWidgetBPManager(widgetBPManager);
+
+  // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
+  engine.projectManager = projectManager;
+
+  // Wire scene list provider so Open Scene node dropdown can list available scenes
+  setSceneListProvider(() => projectManager.listScenes());
 
   // Wire widget blueprint resolver so UIManager can create widgets at runtime
   engine.uiManager.setBlueprintResolver((id: string) => {
@@ -117,6 +137,9 @@ async function main() {
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
 
+  // Wire composition manager so environment actors (lights, sky, fog, etc.) are saved/loaded
+  projectManager.setCompositionManager(editor.composition);
+
   // Wire auto-save: mark dirty when scene or assets change
   engine.scene.onChanged(() => projectManager.markDirty());
   editor.assetManager.onChanged(() => projectManager.markDirty());
@@ -124,6 +147,7 @@ async function main() {
   meshManager.onChanged(() => projectManager.markDirty());
   animBPManager.onChanged(() => projectManager.markDirty());
   widgetBPManager.onChanged(() => projectManager.markDirty());
+  gameInstanceManager.onChanged(() => projectManager.markDirty());
 
   // Output log for Print String nodes
   const outputLog = new OutputLog(app);
@@ -137,13 +161,21 @@ async function main() {
 
   // Update toolbar project name
   const projectNameEl = document.getElementById('toolbar-project-name')!;
+  const sceneNameEl = document.getElementById('toolbar-scene-name')!;
   function updateProjectName() {
     if (projectManager.isProjectOpen) {
       projectNameEl.textContent = `📁 ${projectManager.projectName}`;
+      sceneNameEl.textContent = `🎬 ${projectManager.activeSceneName}`;
     } else {
       projectNameEl.textContent = '';
+      sceneNameEl.textContent = '';
     }
   }
+
+  // Keep scene name in sync when ProjectManager switches scenes
+  projectManager.onSceneChanged = (name: string) => {
+    sceneNameEl.textContent = `🎬 ${name}`;
+  };
 
   // Wire save handler for blueprint editor Compile/Save buttons
   editor.setSaveHandler(async () => {
@@ -185,6 +217,49 @@ async function main() {
     fileDropdown.classList.remove('show');
     if (projectManager.isProjectOpen) {
       await projectManager.saveProject();
+    }
+  });
+
+  // --- New Scene ---
+  document.getElementById('menu-new-scene')!.addEventListener('click', async () => {
+    fileDropdown.classList.remove('show');
+    if (!projectManager.isProjectOpen) return;
+    const name = await showSceneNameDialog(app, 'New Scene', 'Enter a name for the new scene:');
+    if (!name) return;
+    const ok = await projectManager.createScene(name);
+    if (ok) {
+      updateProjectName();
+      projectNameEl.textContent = `🎬 Scene created!`;
+      setTimeout(updateProjectName, 1500);
+    }
+  });
+
+  // --- Open Scene ---
+  document.getElementById('menu-open-scene')!.addEventListener('click', async () => {
+    fileDropdown.classList.remove('show');
+    if (!projectManager.isProjectOpen) return;
+    const scenes = await projectManager.listScenes();
+    if (scenes.length === 0) return;
+    const chosen = await showScenePickerDialog(app, scenes, projectManager.activeSceneName);
+    if (!chosen || chosen === projectManager.activeSceneName) return;
+    const ok = await projectManager.openScene(chosen);
+    if (ok) {
+      updateProjectName();
+    }
+  });
+
+  // --- Duplicate Scene ---
+  document.getElementById('menu-duplicate-scene')!.addEventListener('click', async () => {
+    fileDropdown.classList.remove('show');
+    if (!projectManager.isProjectOpen) return;
+    const defaultName = `${projectManager.activeSceneName}_Copy`;
+    const name = await showSceneNameDialog(app, 'Duplicate Scene', 'Enter a name for the duplicated scene:', defaultName);
+    if (!name) return;
+    const ok = await projectManager.duplicateScene(name);
+    if (ok) {
+      // Switch to the duplicate
+      await projectManager.openScene(name);
+      updateProjectName();
     }
   });
 
@@ -234,7 +309,10 @@ async function main() {
       );
     }
 
-    // ── 2. Save FULL state snapshot before play ──
+    // ── 2a. Save pre-play scene snapshot to disk so Stop can restore it ──
+    await projectManager.savePrePlaySnapshot();
+
+    // ── 2b. Save FULL state snapshot before play ──
     for (const go of engine.scene.gameObjects) {
       (go as any)._savedPos = go.mesh.position.clone();
       (go as any)._savedRot = go.mesh.rotation.clone();
@@ -451,42 +529,52 @@ async function main() {
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 
-    // ── Restore FULL saved state ──
-    for (const go of engine.scene.gameObjects) {
-      // Position, rotation, scale
-      if ((go as any)._savedPos) go.mesh.position.copy((go as any)._savedPos);
-      if ((go as any)._savedRot) go.mesh.rotation.copy((go as any)._savedRot);
-      if ((go as any)._savedScl) go.mesh.scale.copy((go as any)._savedScl);
+    // ── Restore the original scene ──
+    // If a Load Scene node changed the scene at runtime, we must fully
+    // reload the pre-play scene from disk. Otherwise, per-GO transform
+    // restore is sufficient.
+    const sceneWasRestored = await projectManager.restorePrePlayScene();
 
-      // Name
-      if ((go as any)._savedName !== undefined) go.name = (go as any)._savedName;
+    if (sceneWasRestored) {
+      console.log('[Editor] Pre-play scene restored from disk after runtime scene change');
+    } else {
+      // ── Restore FULL saved state (in-place, no scene change happened) ──
+      for (const go of engine.scene.gameObjects) {
+        // Position, rotation, scale
+        if ((go as any)._savedPos) go.mesh.position.copy((go as any)._savedPos);
+        if ((go as any)._savedRot) go.mesh.rotation.copy((go as any)._savedRot);
+        if ((go as any)._savedScl) go.mesh.scale.copy((go as any)._savedScl);
 
-      // Restore mesh visibility (character pawn may have hidden it)
-      if ((go as any)._savedVisible !== undefined) go.mesh.visible = (go as any)._savedVisible;
+        // Name
+        if ((go as any)._savedName !== undefined) go.name = (go as any)._savedName;
 
-      // Physics config
-      if ((go as any)._savedPhysicsCfg !== undefined) {
-        go.physicsConfig = (go as any)._savedPhysicsCfg;
-      }
+        // Restore mesh visibility (character pawn may have hidden it)
+        if ((go as any)._savedVisible !== undefined) go.mesh.visible = (go as any)._savedVisible;
 
-      // Child mesh transforms
-      const childSnaps = (go as any)._savedChildren as Array<{ pos: any; rot: any; scl: any }> | undefined;
-      if (childSnaps) {
-        for (let i = 0; i < Math.min(childSnaps.length, go.mesh.children.length); i++) {
-          go.mesh.children[i].position.copy(childSnaps[i].pos);
-          go.mesh.children[i].rotation.copy(childSnaps[i].rot);
-          go.mesh.children[i].scale.copy(childSnaps[i].scl);
+        // Physics config
+        if ((go as any)._savedPhysicsCfg !== undefined) {
+          go.physicsConfig = (go as any)._savedPhysicsCfg;
         }
-      }
 
-      // Clean up snapshot data
-      delete (go as any)._savedPos;
-      delete (go as any)._savedRot;
-      delete (go as any)._savedScl;
-      delete (go as any)._savedName;
-      delete (go as any)._savedVisible;
-      delete (go as any)._savedPhysicsCfg;
-      delete (go as any)._savedChildren;
+        // Child mesh transforms
+        const childSnaps = (go as any)._savedChildren as Array<{ pos: any; rot: any; scl: any }> | undefined;
+        if (childSnaps) {
+          for (let i = 0; i < Math.min(childSnaps.length, go.mesh.children.length); i++) {
+            go.mesh.children[i].position.copy(childSnaps[i].pos);
+            go.mesh.children[i].rotation.copy(childSnaps[i].rot);
+            go.mesh.children[i].scale.copy(childSnaps[i].scl);
+          }
+        }
+
+        // Clean up snapshot data
+        delete (go as any)._savedPos;
+        delete (go as any)._savedRot;
+        delete (go as any)._savedScl;
+        delete (go as any)._savedName;
+        delete (go as any)._savedVisible;
+        delete (go as any)._savedPhysicsCfg;
+        delete (go as any)._savedChildren;
+      }
     }
 
     // Re-sync from assets so the editor-side state is authoritative
@@ -541,6 +629,139 @@ async function main() {
   updateProjectName();
 
   console.log('Feather Engine ready');
+}
+
+// ============================================================
+//  Scene Name Dialog — prompts user for a scene name
+// ============================================================
+
+function showSceneNameDialog(
+  parentEl: HTMLElement,
+  title: string,
+  label: string,
+  defaultValue: string = '',
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'scene-dialog-overlay';
+
+    overlay.innerHTML = `
+      <div class="scene-dialog">
+        <div class="scene-dialog-title">${title}</div>
+        <label class="scene-dialog-label">${label}</label>
+        <input class="scene-dialog-input" type="text" value="${defaultValue}" placeholder="MyScene" maxlength="64" />
+        <div class="scene-dialog-actions">
+          <button class="scene-dialog-btn cancel">Cancel</button>
+          <button class="scene-dialog-btn confirm">Create</button>
+        </div>
+      </div>
+    `;
+
+    parentEl.appendChild(overlay);
+
+    const input = overlay.querySelector('.scene-dialog-input') as HTMLInputElement;
+    const confirmBtn = overlay.querySelector('.scene-dialog-btn.confirm') as HTMLButtonElement;
+    const cancelBtn = overlay.querySelector('.scene-dialog-btn.cancel') as HTMLButtonElement;
+
+    input.focus();
+    input.select();
+
+    const close = (value: string | null) => {
+      overlay.remove();
+      resolve(value);
+    };
+
+    confirmBtn.addEventListener('click', () => {
+      const val = input.value.trim();
+      close(val || null);
+    });
+
+    cancelBtn.addEventListener('click', () => close(null));
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close(null);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = input.value.trim();
+        close(val || null);
+      } else if (e.key === 'Escape') {
+        close(null);
+      }
+    });
+  });
+}
+
+// ============================================================
+//  Scene Picker Dialog — shows list of scenes to open
+// ============================================================
+
+function showScenePickerDialog(
+  parentEl: HTMLElement,
+  scenes: string[],
+  activeScene: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'scene-dialog-overlay';
+
+    const sceneItems = scenes.map(s => {
+      const isActive = s === activeScene;
+      return `
+        <div class="scene-picker-item ${isActive ? 'active' : ''}" data-scene="${s}">
+          <span class="scene-picker-icon">${isActive ? '🎬' : '📄'}</span>
+          <span class="scene-picker-name">${s}</span>
+          ${isActive ? '<span class="scene-picker-badge">Current</span>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="scene-dialog scene-picker">
+        <div class="scene-dialog-title">Open Scene</div>
+        <div class="scene-dialog-label">Select a scene to open:</div>
+        <div class="scene-picker-list">
+          ${sceneItems}
+        </div>
+        <div class="scene-dialog-actions">
+          <button class="scene-dialog-btn cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    parentEl.appendChild(overlay);
+
+    const close = (value: string | null) => {
+      overlay.remove();
+      resolve(value);
+    };
+
+    // Scene item click
+    overlay.querySelectorAll('.scene-picker-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const name = (item as HTMLElement).dataset.scene;
+        close(name ?? null);
+      });
+    });
+
+    // Cancel
+    overlay.querySelector('.scene-dialog-btn.cancel')!.addEventListener('click', () => close(null));
+
+    // Overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close(null);
+    });
+
+    // Escape key
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        document.removeEventListener('keydown', keyHandler);
+        close(null);
+      }
+    };
+    document.addEventListener('keydown', keyHandler);
+  });
 }
 
 main().catch((err) => {

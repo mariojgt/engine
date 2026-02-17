@@ -43,7 +43,8 @@ export interface SceneJSON {
 
 // ---- Helpers ----
 
-function meshTypeFromGeometry(geo: BufferGeometry): MeshType {
+function meshTypeFromGeometry(geo: BufferGeometry | undefined): MeshType {
+  if (!geo) return 'cube'; // Groups (imported meshes) have no geometry
   switch (geo.type) {
     case 'BoxGeometry': return 'cube';
     case 'SphereGeometry': return 'sphere';
@@ -76,10 +77,12 @@ export function serializeScene(
 ): SceneJSON {
   const gameObjects: GameObjectJSON[] = [];
 
+  console.log(`[SceneSerializer] Serializing scene "${sceneName}" — ${scene.gameObjects.length} game objects`);
+
   for (const go of scene.gameObjects) {
     const obj: GameObjectJSON = {
       name: go.name,
-      meshType: meshTypeFromGeometry(go.mesh.geometry),
+      meshType: meshTypeFromGeometry((go.mesh as any).geometry),
       position: {
         x: go.mesh.position.x,
         y: go.mesh.position.y,
@@ -110,6 +113,8 @@ export function serializeScene(
     gameObjects.push(obj);
   }
 
+  console.log(`[SceneSerializer] Serialized ${gameObjects.length} objects for scene "${sceneName}"`);
+
   return {
     name: sceneName,
     gameObjects,
@@ -125,10 +130,13 @@ export function deserializeScene(
   assetManager: ActorAssetManager,
   meshManager?: MeshAssetManager,
 ): void {
+  console.log(`[SceneSerializer] Deserializing scene "${data.name}" — ${data.gameObjects.length} objects to restore`);
+
   // Clear existing game objects
   while (scene.gameObjects.length > 0) {
     scene.removeGameObject(scene.gameObjects[0]);
   }
+  console.log(`[SceneSerializer] Scene cleared, now restoring objects...`);
 
   for (const goData of data.gameObjects) {
     // Check if this is a custom mesh asset instance

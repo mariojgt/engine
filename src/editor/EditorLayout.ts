@@ -18,6 +18,8 @@ import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintDa
 import { AnimBlueprintEditorPanel } from './AnimBlueprintEditorPanel';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
 import { WidgetBlueprintEditorPanel } from './WidgetBlueprintEditorPanel';
+import { GameInstanceBlueprintManager, type GameInstanceBlueprintAsset } from './GameInstanceData';
+import { GameInstanceEditorPanel } from './GameInstanceEditorPanel';
 import type { StructureAssetManager, StructureAsset, EnumAsset } from './StructureAsset';
 import type { MeshAssetManager, MaterialAssetJSON } from './MeshAsset';
 import type { MeshAsset } from './MeshAsset';
@@ -76,6 +78,8 @@ export class EditorLayout {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
+  private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
+  private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
 
   /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
@@ -416,6 +420,47 @@ export class EditorLayout {
     if (this._assetBrowser) {
       this._assetBrowser.setWidgetBPManager(mgr, (asset: WidgetBlueprintAsset) => this._openWidgetBlueprintEditor(asset));
     }
+  }
+
+  /** Wire up the GameInstanceBlueprintManager for the content browser */
+  setGameInstanceManager(mgr: GameInstanceBlueprintManager): void {
+    this._gameInstanceManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setGameInstanceManager(mgr, (asset: GameInstanceBlueprintAsset) => this._openGameInstanceEditor(asset));
+    }
+  }
+
+  /** Open a game instance blueprint editor panel */
+  private _openGameInstanceEditor(asset: GameInstanceBlueprintAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'game-instance-editor-' + asset.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `🌐 GameInstance: ${asset.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._gameInstanceEditor = new GameInstanceEditorPanel(
+      wrapper,
+      asset,
+      this._onSave ?? undefined,
+    );
   }
 
   /** Open an animation blueprint editor panel */

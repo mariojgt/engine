@@ -12,6 +12,7 @@ import { StructureAssetManager, type StructureAsset, type EnumAsset } from './St
 import { MeshAssetManager, type MeshAsset, type MaterialAssetJSON, isImportableFile } from './MeshAsset';
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
+import { GameInstanceBlueprintManager, type GameInstanceBlueprintAsset } from './GameInstanceData';
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
 import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
@@ -31,6 +32,7 @@ export class ActorAssetBrowser {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
+  private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _folderManager: ContentFolderManager;
   private _treeEl!: HTMLElement;
   private _gridEl!: HTMLElement;
@@ -40,6 +42,7 @@ export class ActorAssetBrowser {
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
   private _onOpenAnimBP: ((asset: AnimBlueprintAsset) => void) | null = null;
   private _onOpenWidgetBP: ((asset: WidgetBlueprintAsset) => void) | null = null;
+  private _onOpenGameInstance: ((asset: GameInstanceBlueprintAsset) => void) | null = null;
   private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
@@ -117,6 +120,14 @@ export class ActorAssetBrowser {
   public setWidgetBPManager(mgr: WidgetBlueprintManager, onOpenWidgetBP: (asset: WidgetBlueprintAsset) => void): void {
     this._widgetBPManager = mgr;
     this._onOpenWidgetBP = onOpenWidgetBP;
+    mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  /** Wire up GameInstanceBlueprintManager + open callback */
+  public setGameInstanceManager(mgr: GameInstanceBlueprintManager, onOpenGameInstance: (asset: GameInstanceBlueprintAsset) => void): void {
+    this._gameInstanceManager = mgr;
+    this._onOpenGameInstance = onOpenGameInstance;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -335,6 +346,7 @@ export class ActorAssetBrowser {
     else if (assetType === 'material') this._renderMaterialCard(assetId);
     else if (assetType === 'animBP') this._renderAnimBPCard(assetId);
     else if (assetType === 'widget') this._renderWidgetCard(assetId);
+    else if (assetType === 'gameInstance') this._renderGameInstanceCard(assetId);
   }
 
   private _renderActorCard(assetId: string): void {
@@ -485,6 +497,51 @@ export class ActorAssetBrowser {
       (e) => this._showWidgetBPContextMenu(e, wbp),
     );
     this._gridEl.appendChild(card);
+  }
+
+  private _renderGameInstanceCard(assetId: string): void {
+    if (!this._gameInstanceManager) return;
+    const gi = this._gameInstanceManager.getAsset(assetId);
+    if (!gi) return;
+    const varCount = gi.blueprintData.variables.length;
+    const card = this._createTypeCard(
+      gi.id, gi.name, '🌐', `${varCount} var${varCount !== 1 ? 's' : ''}`,
+      () => this._onOpenGameInstance?.(gi),
+      (e) => this._showGameInstanceContextMenu(e, gi),
+    );
+    this._gridEl.appendChild(card);
+  }
+
+  private _showGameInstanceContextMenu(e: MouseEvent, gi: GameInstanceBlueprintAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenGameInstance?.(gi));
+    this._addMenuItem(menu, '✏ Rename', async () => {
+      const newName = await this._showNameDialog('Rename Game Instance', gi.name);
+      if (newName && newName !== gi.name) {
+        this._gameInstanceManager!.renameAsset(gi.id, newName);
+      }
+    });
+    this._addMenuItem(menu, '🗑 Delete', () => {
+      if (confirm(`Delete game instance "${gi.name}"?`)) {
+        this._gameInstanceManager!.removeAsset(gi.id);
+        this._folderManager.removeAsset(gi.id);
+      }
+    });
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+    const close = (ev: MouseEvent) => {
+      if (!menu.contains(ev.target as Node)) {
+        this._closeContextMenu();
+        document.removeEventListener('mousedown', close);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', close), 0);
   }
 
   private _renderMaterialCard(assetId: string): void {
@@ -1463,6 +1520,22 @@ export class ActorAssetBrowser {
           this._folderManager.setAssetLocation(wbp.id, 'widget', this._currentFolderId);
           this._selectedAssetId = wbp.id;
           if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
+        }
+      });
+    }
+
+    if (this._gameInstanceManager) {
+      const sepGI = document.createElement('div');
+      sepGI.className = 'context-menu-separator';
+      menu.appendChild(sepGI);
+
+      this._addMenuItem(menu, '🌐 New Game Instance', async () => {
+        const name = await this._showNameDialog('New Game Instance', 'GI_Default');
+        if (name) {
+          const gi = this._gameInstanceManager!.createAsset(name);
+          this._folderManager.setAssetLocation(gi.id, 'gameInstance', this._currentFolderId);
+          this._selectedAssetId = gi.id;
+          if (this._onOpenGameInstance) this._onOpenGameInstance(gi);
         }
       });
     }

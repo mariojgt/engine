@@ -303,6 +303,16 @@ import {
   SetWidgetVariableNode,
   CallWidgetFunctionNode,
   CallWidgetEventNode,
+  // Utility Nodes (Scene)
+  OpenSceneNode,
+  LoadSceneNode,
+  SceneSelectControl,
+  getSceneListProvider,
+  // Game Instance Nodes
+  GetGameInstanceNode,
+  GetGameInstanceVariableNode,
+  SetGameInstanceVariableNode,
+  GameInstanceVarNameControl,
 } from './nodes';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -404,7 +414,9 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof IsValidNode || node instanceof GetActorNameNode ||
       node instanceof GetActorVariableNode || node instanceof SetActorVariableNode ||
       node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode ||
-      node instanceof CallActorFunctionNode) return 'Casting';
+      node instanceof CallActorFunctionNode ||
+      node instanceof GetGameInstanceNode || node instanceof GetGameInstanceVariableNode ||
+      node instanceof SetGameInstanceVariableNode) return 'Casting';
   // Animation BP nodes
   if (node instanceof AnimUpdateEventNode) return 'Events';
   if (node instanceof TryGetPawnOwnerNode || node instanceof SetAnimVarNode ||
@@ -908,6 +920,20 @@ function resolveValue(
     const targetVal = tS ? rv(tS.nid, tS.ok) : 'null';
     const vn = (node as GetActorVariableNode).varName;
     return `(${targetVal} && ${targetVal}._scriptVars ? ${targetVal}._scriptVars[${JSON.stringify(vn)}] : 0)`;
+  }
+  // ── Game Instance nodes ──
+  if (node instanceof GetGameInstanceNode) {
+    return `(__gameInstance || null)`;
+  }
+  if (node instanceof GetGameInstanceVariableNode) {
+    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+    const varName = JSON.stringify(ctrl?.value ?? '');
+    return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
+  }
+  if (node instanceof SetGameInstanceVariableNode) {
+    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+    const varName = JSON.stringify(ctrl?.value ?? '');
+    return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof GetOwnerNode) {
     return `(gameObject.owner || gameObject)`;
@@ -2117,6 +2143,39 @@ function genAction(
       }
       const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
       lines.push(`if (__uiManager) __uiManager.callWidgetEvent(${widgetHandle}, ${eventName}${paramsStr});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Open Scene': {
+      const ctrl = node.controls['scene'] as SceneSelectControl;
+      const sceneName = JSON.stringify(ctrl?.value ?? '');
+      lines.push(`if (__projectManager && ${sceneName}) { __projectManager.openScene(${sceneName}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Load Scene': {
+      const ctrl = node.controls['scene'] as SceneSelectControl;
+      const sceneName = JSON.stringify(ctrl?.value ?? '');
+      lines.push(`if (__projectManager && ${sceneName}) { __projectManager.loadSceneRuntime(${sceneName}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Get Game Instance': {
+      // Pure node — value resolved inline via rv()
+      break;
+    }
+    case 'Get Game Instance Variable': {
+      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+      const varName = JSON.stringify(ctrl?.value ?? '');
+      // Pure node — value resolved inline via rv()
+      break;
+    }
+    case 'Set Game Instance Variable': {
+      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+      const varName = JSON.stringify(ctrl?.value ?? '');
+      const valSrc = inputSrc.get(`${nodeId}.value`);
+      const val = valSrc ? rv(valSrc.nid, valSrc.ok) : 'undefined';
+      lines.push(`if (__gameInstance) { __gameInstance.setVariable(${varName}, ${val}); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -4126,6 +4185,13 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SliderOnValueChangedNode) return 'SliderOnValueChangedNode';
   if (node instanceof CheckBoxOnCheckStateChangedNode) return 'CheckBoxOnCheckStateChangedNode';
 
+  // Scene & Game Instance nodes
+  if (node instanceof OpenSceneNode) return 'OpenSceneNode';
+  if (node instanceof LoadSceneNode) return 'LoadSceneNode';
+  if (node instanceof GetGameInstanceNode) return 'GetGameInstanceNode';
+  if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
+  if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
+
   return 'Unknown';
 }
 
@@ -4290,6 +4356,16 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.widgetBPId = (node as SetWidgetVariableNode).widgetBPId;
     data.widgetBPName = (node as SetWidgetVariableNode).widgetBPName;
     data.variableName = (node as SetWidgetVariableNode).getVariableName();
+  }
+
+  // Scene & Game Instance nodes
+  if (node instanceof OpenSceneNode || node instanceof LoadSceneNode) {
+    const sceneCtrl = node.controls['scene'] as SceneSelectControl;
+    if (sceneCtrl) data.sceneName = sceneCtrl.value;
+  }
+  if (node instanceof GetGameInstanceVariableNode || node instanceof SetGameInstanceVariableNode) {
+    const varCtrl = node.controls['varName'] as GameInstanceVarNameControl;
+    if (varCtrl) data.varName = varCtrl.value;
   }
   if (node instanceof CallWidgetFunctionNode) {
     const n = node as CallWidgetFunctionNode;
@@ -4904,6 +4980,29 @@ function createNodeFromData(
       return n;
     }
 
+    // Scene & Game Instance nodes
+    case 'OpenSceneNode': {
+      const n = new OpenSceneNode();
+      if (d.sceneName) (n.controls['scene'] as SceneSelectControl)?.setValue(d.sceneName);
+      return n;
+    }
+    case 'LoadSceneNode': {
+      const n = new LoadSceneNode();
+      if (d.sceneName) (n.controls['scene'] as SceneSelectControl)?.setValue(d.sceneName);
+      return n;
+    }
+    case 'GetGameInstanceNode':              return new GetGameInstanceNode();
+    case 'GetGameInstanceVariableNode': {
+      const n = new GetGameInstanceVariableNode();
+      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
+      return n;
+    }
+    case 'SetGameInstanceVariableNode': {
+      const n = new SetGameInstanceVariableNode();
+      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
+      return n;
+    }
+
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -5114,6 +5213,69 @@ async function createGraphEditor(
                 React.createElement('option', { key: m, value: m }, m.charAt(0).toUpperCase() + m.slice(1)),
               ),
             );
+          };
+        }
+        if (data.payload instanceof SceneSelectControl) {
+          const ctrl = data.payload as SceneSelectControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const [scenes, setScenes] = React.useState<string[]>([]);
+
+            React.useEffect(() => {
+              const provider = getSceneListProvider();
+              if (provider) {
+                provider().then(list => setScenes(list));
+              }
+            }, []);
+
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#64b5f6',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: 120,
+              },
+            },
+              React.createElement('option', { value: '', disabled: true }, '-- Select Scene --'),
+              ...scenes.map(s =>
+                React.createElement('option', { key: s, value: s }, s),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof GameInstanceVarNameControl) {
+          const ctrl = data.payload as GameInstanceVarNameControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            return React.createElement('input', {
+              type: 'text',
+              value: val,
+              placeholder: 'Variable Name',
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#81c784',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                outline: 'none',
+                minWidth: 100,
+              },
+            });
           };
         }
         if (data.payload instanceof WidgetBPSelectControl) {

@@ -69,6 +69,8 @@ export { SetScaleNode }    from './transform/SetScaleNode';
 
 // ── Utility ─────────────────────────────────────────────────
 export { PrintStringNode } from './utility/PrintStringNode';
+export { OpenSceneNode, SceneSelectControl, setSceneListProvider, getSceneListProvider } from './utility/OpenSceneNode';
+export { LoadSceneNode } from './utility/LoadSceneNode';
 
 
 // ── Physics ─────────────────────────────────────────────────
@@ -291,6 +293,14 @@ export {
   CallActorFunctionNode,
 } from './casting/CastingNodes';
 export { objectSocket, getClassRefSocket } from './sockets';
+
+// ── Game Instance Nodes ─────────────────────────────────────
+export {
+  GetGameInstanceNode,
+  GetGameInstanceVariableNode,
+  SetGameInstanceVariableNode,
+  GameInstanceVarNameControl,
+} from './casting/GameInstanceNodes';
 
 // ── Animation BP Nodes ──────────────────────────────────────
 export {

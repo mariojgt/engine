@@ -15,6 +15,7 @@ import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from '.
 import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
+import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
 import type { ContentFolderManager } from './ContentFolderManager';
 import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
 import { TextureLibrary } from './TextureLibrary';
@@ -79,6 +80,7 @@ const ENUMS_DIR = 'Enums';
 const MESHES_DIR = 'Meshes';
 const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
+const GAME_INSTANCES_DIR = 'GameInstances';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
 const CONFIG_DIR = 'Config';
@@ -95,15 +97,23 @@ export class ProjectManager {
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
+  private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
 
+  /** Scene that was active when the user pressed Play — used to restore on Stop */
+  private _prePlaySceneName: string | null = null;
+  /** Whether a runtime scene load happened during the current play session */
+  private _runtimeSceneChanged = false;
+
   /** Callback to obtain camera state from the viewport */
   public getCameraState: (() => CameraStateJSON | undefined) | null = null;
   /** Callback to apply camera state to the viewport */
   public applyCameraState: ((state: CameraStateJSON) => void) | null = null;
+  /** Callback fired when the active scene changes (name) */
+  public onSceneChanged: ((sceneName: string) => void) | null = null;
 
   get isProjectOpen(): boolean {
     return this._projectPath !== null;
@@ -140,6 +150,11 @@ export class ProjectManager {
   /** Wire up the WidgetBlueprintManager for saving/loading widget blueprints */
   setWidgetBPManager(mgr: WidgetBlueprintManager): void {
     this._widgetBPManager = mgr;
+  }
+
+  /** Wire up the GameInstanceBlueprintManager for saving/loading game instances */
+  setGameInstanceManager(mgr: GameInstanceBlueprintManager): void {
+    this._gameInstanceManager = mgr;
   }
 
   /** Wire up the ContentFolderManager for saving/loading folder structure */
@@ -222,6 +237,9 @@ export class ProjectManager {
       this._clearScene();
       await this._loadScene(DEFAULT_SCENE);
 
+      // Save the initial composition so lights/sky are persisted from the start
+      await this._saveComposition();
+
       this._startAutoSave();
       console.log(`[ProjectManager] Created project: ${name} at ${projectRoot}`);
       return true;
@@ -270,6 +288,10 @@ export class ProjectManager {
       this._projectPath = projectRoot;
       this._meta = meta;
 
+      console.log(`[ProjectManager] ▶ Opening project "${meta.name}" at ${projectRoot}`);
+      console.log(`[ProjectManager]   Active scene: ${meta.activeScene}`);
+      console.log(`[ProjectManager]   Composition manager wired: ${!!this._compositionManager}`);
+
       // Load structures and enums first (actors may reference them)
       await this._loadStructures();
       await this._loadEnums();
@@ -282,6 +304,9 @@ export class ProjectManager {
 
       // Load widget blueprints
       await this._loadWidgetBlueprints();
+
+      // Load game instances
+      await this._loadGameInstances();
 
       // Load texture library
       await this._loadTextures();
@@ -306,6 +331,7 @@ export class ProjectManager {
 
       this._dirty = false;
       this._startAutoSave();
+      console.log(`[ProjectManager] ✅ Project opened successfully: ${meta.name}`);
       return true;
     } catch (err) {
       console.error('[ProjectManager] Failed to open project:', err);
@@ -318,9 +344,17 @@ export class ProjectManager {
   // ============================================================
 
   async saveProject(): Promise<void> {
-    if (!this._projectPath || !this._meta) return;
+    if (!this._projectPath || !this._meta) {
+      console.warn('[ProjectManager] saveProject skipped — no project open', { path: this._projectPath, meta: !!this._meta });
+      return;
+    }
 
     try {
+      console.log(`[ProjectManager] ▶ Saving project "${this._meta.name}" at ${this._projectPath}`);
+      console.log(`[ProjectManager]   Active scene: ${this._meta.activeScene}`);
+      console.log(`[ProjectManager]   Scene game objects: ${this._engine.scene.gameObjects.length}`);
+      console.log(`[ProjectManager]   Composition manager wired: ${!!this._compositionManager}`);
+
       // Update modified timestamp
       this._meta.modifiedAt = Date.now();
 
@@ -329,31 +363,44 @@ export class ProjectManager {
         `${this._projectPath}/${PROJECT_FILE}`,
         JSON.stringify(this._meta, null, 2),
       );
+      console.log('[ProjectManager]   ✓ project.json');
 
       // Save actors
       await this._saveActors();
+      console.log(`[ProjectManager]   ✓ actors (${this._assetManager.assets.length})`);
 
       // Save structures and enums
       await this._saveStructures();
       await this._saveEnums();
+      console.log('[ProjectManager]   ✓ structures & enums');
 
       // Save mesh assets
       await this._saveMeshes();
+      console.log('[ProjectManager]   ✓ meshes');
 
       // Save animation blueprints
       await this._saveAnimBlueprints();
+      console.log('[ProjectManager]   ✓ anim blueprints');
 
       // Save widget blueprints
       await this._saveWidgetBlueprints();
+      console.log('[ProjectManager]   ✓ widget blueprints');
+
+      // Save game instances
+      await this._saveGameInstances();
+      console.log('[ProjectManager]   ✓ game instances');
 
       // Save texture library
       await this._saveTextures();
+      console.log('[ProjectManager]   ✓ textures');
 
       // Save font library
       await this._saveFonts();
+      console.log('[ProjectManager]   ✓ fonts');
 
       // Save folder structure
       await this._saveFolderStructure();
+      console.log('[ProjectManager]   ✓ folder structure');
 
       // Save composition (environment actors)
       await this._saveComposition();
@@ -363,11 +410,12 @@ export class ProjectManager {
 
       // Save editor state
       await this._saveEditorState();
+      console.log('[ProjectManager]   ✓ editor state');
 
       this._dirty = false;
-      console.log(`[ProjectManager] Project saved: ${this._meta.name}`);
+      console.log(`[ProjectManager] ✅ Project saved successfully: ${this._meta.name}`);
     } catch (err) {
-      console.error('[ProjectManager] Failed to save project:', err);
+      console.error('[ProjectManager] ❌ Failed to save project:', err);
     }
   }
 
@@ -376,7 +424,10 @@ export class ProjectManager {
   // ============================================================
 
   private async _saveScene(sceneName: string): Promise<void> {
-    if (!this._projectPath) return;
+    if (!this._projectPath) {
+      console.warn('[ProjectManager] _saveScene skipped — no project path');
+      return;
+    }
 
     const camera = this.getCameraState?.();
     const sceneData = serializeScene(
@@ -385,30 +436,41 @@ export class ProjectManager {
       camera,
     );
 
-    await fsWrite(
-      `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`,
-      JSON.stringify(sceneData, null, 2),
-    );
+    const scenePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
+    const json = JSON.stringify(sceneData, null, 2);
+    console.log(`[ProjectManager]   ✓ scene "${sceneName}" (${sceneData.gameObjects.length} objects, ${json.length} bytes, camera: ${!!camera})`);
+
+    await fsWrite(scenePath, json);
   }
 
   private async _loadScene(sceneName: string): Promise<void> {
-    if (!this._projectPath) return;
+    if (!this._projectPath) {
+      console.warn('[ProjectManager] _loadScene skipped — no project path');
+      return;
+    }
 
     const filePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
     const fileFound = await fsExists(filePath);
     if (!fileFound) {
-      console.warn(`Scene file not found: ${filePath}`);
+      console.warn(`[ProjectManager] Scene file not found: ${filePath}`);
       return;
     }
 
     const raw = await fsRead(filePath);
     const sceneData: SceneJSON = JSON.parse(raw);
+    console.log(`[ProjectManager] Loading scene "${sceneName}": ${sceneData.gameObjects.length} objects`);
+
+    for (const go of sceneData.gameObjects) {
+      console.log(`[ProjectManager]   → Object "${go.name}" type=${go.meshType} actorAssetId=${go.actorAssetId ?? 'none'} meshAssetId=${go.customMeshAssetId ?? 'none'}`);
+    }
 
     deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
+    console.log(`[ProjectManager] Scene deserialized — engine now has ${this._engine.scene.gameObjects.length} game objects`);
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {
       this.applyCameraState(sceneData.camera);
+      console.log('[ProjectManager]   Camera state restored');
     }
   }
 
@@ -417,26 +479,53 @@ export class ProjectManager {
   // ============================================================
 
   private async _saveComposition(): Promise<void> {
-    if (!this._projectPath || !this._compositionManager) return;
+    if (!this._projectPath) {
+      console.warn('[ProjectManager] _saveComposition skipped — no project path');
+      return;
+    }
+    if (!this._compositionManager) {
+      console.warn('[ProjectManager] _saveComposition skipped — compositionManager not wired! Lights/sky/fog will NOT be saved.');
+      return;
+    }
 
     const data = this._compositionManager.serialize();
+    const json = JSON.stringify(data, null, 2);
+    console.log(`[ProjectManager]   ✓ composition (${data.actors.length} actors, ${json.length} bytes)`);
+    for (const a of data.actors) {
+      console.log(`[ProjectManager]       actor: "${a.actorName}" type=${a.actorType} visible=${a.visible}`);
+    }
     await fsWrite(
       `${this._projectPath}/${CONFIG_DIR}/composition.json`,
-      JSON.stringify(data, null, 2),
+      json,
     );
   }
 
   private async _loadComposition(): Promise<void> {
-    if (!this._projectPath || !this._compositionManager) return;
+    if (!this._projectPath) {
+      console.warn('[ProjectManager] _loadComposition skipped — no project path');
+      return;
+    }
+    if (!this._compositionManager) {
+      console.warn('[ProjectManager] _loadComposition skipped — compositionManager not wired! Lights/sky/fog will NOT load.');
+      return;
+    }
 
     const filePath = `${this._projectPath}/${CONFIG_DIR}/composition.json`;
     const exists = await fsExists(filePath);
-    if (!exists) return;
+    if (!exists) {
+      console.log('[ProjectManager] No composition.json found — using defaults');
+      return;
+    }
 
     try {
       const raw = await fsRead(filePath);
       const data: SceneCompositionJSON = JSON.parse(raw);
+      console.log(`[ProjectManager] Loading composition: ${data.actors.length} actors`);
+      for (const a of data.actors) {
+        console.log(`[ProjectManager]   → actor "${a.actorName}" type=${a.actorType} visible=${a.visible}`);
+      }
       this._compositionManager.deserialize(data);
+      console.log('[ProjectManager] Composition deserialized successfully');
     } catch (err) {
       console.warn('[ProjectManager] Failed to load composition:', err);
     }
@@ -892,6 +981,67 @@ export class ProjectManager {
   }
 
   // ============================================================
+  //  Save/Load Game Instances
+  // ============================================================
+
+  private async _saveGameInstances(): Promise<void> {
+    if (!this._projectPath || !this._gameInstanceManager) return;
+    const giDir = `${this._projectPath}/${GAME_INSTANCES_DIR}`;
+    const gameInstances = this._gameInstanceManager.exportAll();
+    for (const json of gameInstances) {
+      const safeName = json.gameInstanceName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${giDir}/${safeName}_${json.gameInstanceId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = gameInstances.map(gi => ({
+      id: gi.gameInstanceId,
+      name: gi.gameInstanceName,
+      file: `${gi.gameInstanceName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${gi.gameInstanceId}.json`,
+    }));
+    await fsWrite(`${giDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadGameInstances(): Promise<void> {
+    if (!this._projectPath || !this._gameInstanceManager) return;
+    const giDir = `${this._projectPath}/${GAME_INSTANCES_DIR}`;
+    if (!(await fsExists(giDir))) return;
+
+    const allGameInstances: GameInstanceBlueprintJSON[] = [];
+    const indexPath = `${giDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${giDir}/${entry.file}`);
+          allGameInstances.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load game instance ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(giDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${giDir}/${name}`);
+          allGameInstances.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load game instance file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allGameInstances.length > 0) {
+      this._gameInstanceManager.importAll(allGameInstances);
+    }
+  }
+
+  // ============================================================
   //  Save/Load Textures
   // ============================================================
 
@@ -1125,6 +1275,280 @@ export class ProjectManager {
     if (this._autoSaveTimer !== null) {
       clearInterval(this._autoSaveTimer);
       this._autoSaveTimer = null;
+    }
+  }
+
+  // ============================================================
+  //  Public Scene Management API
+  // ============================================================
+
+  /** Get the name of the currently active scene */
+  get activeSceneName(): string {
+    return this._meta?.activeScene ?? DEFAULT_SCENE;
+  }
+
+  /**
+   * List all scene files in the project's Scenes/ directory.
+   * Returns an array of scene names (without .json extension).
+   */
+  async listScenes(): Promise<string[]> {
+    if (!this._projectPath) return [];
+
+    const scenesDir = `${this._projectPath}/${SCENES_DIR}`;
+    const dirExists = await fsExists(scenesDir);
+    if (!dirExists) return [];
+
+    try {
+      const fileNames = await fsListDir(scenesDir, '.json');
+      return fileNames
+        .map(f => f.replace(/\.json$/i, ''))
+        .filter(n => n.length > 0);
+    } catch (err) {
+      console.warn('[ProjectManager] Failed to list scenes:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Create a new scene with the given name and switch to it.
+   * Saves the current scene first so nothing is lost.
+   * Returns true on success.
+   */
+  async createScene(name: string): Promise<boolean> {
+    if (!this._projectPath || !this._meta) return false;
+
+    // Sanitise scene name
+    const safeName = name.trim().replace(/[^a-zA-Z0-9_ -]/g, '');
+    if (!safeName) return false;
+
+    // Check if it already exists
+    const filePath = `${this._projectPath}/${SCENES_DIR}/${safeName}.json`;
+    if (await fsExists(filePath)) {
+      console.warn(`[ProjectManager] Scene "${safeName}" already exists.`);
+      return false;
+    }
+
+    try {
+      // 1. Save the current scene & editor state before switching
+      await this._saveScene(this._meta.activeScene);
+      await this._saveEditorState();
+
+      // 2. Create the new scene file with an empty scene
+      const newScene: SceneJSON = {
+        name: safeName,
+        gameObjects: [],
+      };
+      await fsWrite(filePath, JSON.stringify(newScene, null, 2));
+
+      // 3. Clear the editor scene
+      this._clearScene();
+
+      // 4. Update active scene metadata
+      this._meta.activeScene = safeName;
+      this._meta.modifiedAt = Date.now();
+      await fsWrite(
+        `${this._projectPath}/${PROJECT_FILE}`,
+        JSON.stringify(this._meta, null, 2),
+      );
+
+      // 5. Notify listeners
+      this.onSceneChanged?.(safeName);
+
+      console.log(`[ProjectManager] Created and switched to scene: ${safeName}`);
+      return true;
+    } catch (err) {
+      console.error('[ProjectManager] Failed to create scene:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Open (switch to) an existing scene by name.
+   * Saves the current scene first so nothing is lost.
+   * Returns true on success.
+   */
+  async openScene(sceneName: string): Promise<boolean> {
+    if (!this._projectPath || !this._meta) return false;
+    if (sceneName === this._meta.activeScene) return true; // already open
+
+    const filePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
+    if (!(await fsExists(filePath))) {
+      console.warn(`[ProjectManager] Scene file not found: ${filePath}`);
+      return false;
+    }
+
+    try {
+      // 1. Save the current scene & editor state
+      await this._saveScene(this._meta.activeScene);
+      await this._saveEditorState();
+
+      // 2. Clear current scene
+      this._clearScene();
+
+      // 3. Load the new scene
+      await this._loadScene(sceneName);
+
+      // 4. Update active scene metadata & persist
+      this._meta.activeScene = sceneName;
+      this._meta.modifiedAt = Date.now();
+      await fsWrite(
+        `${this._projectPath}/${PROJECT_FILE}`,
+        JSON.stringify(this._meta, null, 2),
+      );
+
+      // 5. Notify listeners
+      this.onSceneChanged?.(sceneName);
+
+      console.log(`[ProjectManager] Switched to scene: ${sceneName}`);
+      return true;
+    } catch (err) {
+      console.error('[ProjectManager] Failed to open scene:', err);
+      return false;
+    }
+  }
+
+  // ============================================================
+  //  Play / Stop scene restoration
+  // ============================================================
+
+  /**
+   * Call BEFORE entering play mode.
+   * Saves the current scene to disk and remembers its name so we can
+   * restore it when the user presses Stop.
+   */
+  async savePrePlaySnapshot(): Promise<void> {
+    this._prePlaySceneName = this.activeSceneName;
+    this._runtimeSceneChanged = false;
+
+    // Persist the current scene to disk so restorePrePlayScene can reload it
+    await this._saveScene(this._prePlaySceneName);
+    console.log(`[ProjectManager] Pre-play snapshot saved — scene: ${this._prePlaySceneName}`);
+  }
+
+  /**
+   * Call AFTER exiting play mode.
+   * If a runtime scene load occurred, clears the scene and reloads the
+   * original scene that was active when the user pressed Play.
+   * Returns true if a scene restore was performed.
+   */
+  async restorePrePlayScene(): Promise<boolean> {
+    if (!this._prePlaySceneName || !this._runtimeSceneChanged) {
+      // No runtime scene change happened — the per-GO transform restore
+      // in main.ts is sufficient.
+      this._prePlaySceneName = null;
+      this._runtimeSceneChanged = false;
+      return false;
+    }
+
+    console.log(`[ProjectManager] Restoring pre-play scene: ${this._prePlaySceneName}`);
+    this._clearScene();
+    await this._loadScene(this._prePlaySceneName);
+
+    // Restore active scene metadata in case loadSceneRuntime changed it implicitly
+    if (this._meta) {
+      this._meta.activeScene = this._prePlaySceneName;
+    }
+
+    this._prePlaySceneName = null;
+    this._runtimeSceneChanged = false;
+    return true;
+  }
+
+  /** True if a Load Scene node changed the scene during the current play session */
+  get didRuntimeSceneChange(): boolean {
+    return this._runtimeSceneChanged;
+  }
+
+  /**
+   * Runtime scene load — clears the current scene objects and loads a new
+   * scene's game objects WITHOUT saving editor state or disrupting the
+   * Game Instance (which must persist across scene transitions).
+   */
+  async loadSceneRuntime(sceneName: string): Promise<boolean> {
+    if (!this._projectPath) return false;
+
+    const filePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
+    if (!(await fsExists(filePath))) {
+      console.warn(`[ProjectManager] loadSceneRuntime — scene not found: ${filePath}`);
+      return false;
+    }
+
+    try {
+      // Mark that a runtime scene transition happened
+      this._runtimeSceneChanged = true;
+
+      // 1. Clear current scene objects
+      this._clearScene();
+
+      // 2. Load & deserialize scene data
+      const raw = await fsRead(filePath);
+      const sceneData: SceneJSON = JSON.parse(raw);
+      deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
+      console.log(`[ProjectManager] loadSceneRuntime — loaded "${sceneName}" (${sceneData.gameObjects.length} objects)`);
+
+      // 3. Re-compile scripts so the new actors start running
+      if ((this._engine as any).recompileScripts) {
+        (this._engine as any).recompileScripts();
+      }
+
+      return true;
+    } catch (err) {
+      console.error('[ProjectManager] loadSceneRuntime failed:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a scene by name. Cannot delete the currently active scene.
+   * Returns true on success.
+   */
+  async deleteScene(sceneName: string): Promise<boolean> {
+    if (!this._projectPath || !this._meta) return false;
+    if (sceneName === this._meta.activeScene) {
+      console.warn('[ProjectManager] Cannot delete the active scene.');
+      return false;
+    }
+
+    try {
+      // Overwrite the file with an empty object to "delete" it
+      // (Tauri invoke-based FS doesn't have a delete command, so we write empty)
+      const filePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
+      await fsWrite(filePath, '');
+      console.log(`[ProjectManager] Deleted scene: ${sceneName}`);
+      return true;
+    } catch (err) {
+      console.error('[ProjectManager] Failed to delete scene:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Duplicate the currently active scene under a new name.
+   * Returns true on success.
+   */
+  async duplicateScene(newName: string): Promise<boolean> {
+    if (!this._projectPath || !this._meta) return false;
+
+    const safeName = newName.trim().replace(/[^a-zA-Z0-9_ -]/g, '');
+    if (!safeName) return false;
+
+    const destPath = `${this._projectPath}/${SCENES_DIR}/${safeName}.json`;
+    if (await fsExists(destPath)) {
+      console.warn(`[ProjectManager] Scene "${safeName}" already exists.`);
+      return false;
+    }
+
+    try {
+      // Serialize current scene under the new name
+      const camera = this.getCameraState?.();
+      const sceneData = serializeScene(this._engine.scene, safeName, camera);
+      await fsWrite(destPath, JSON.stringify(sceneData, null, 2));
+
+      console.log(`[ProjectManager] Duplicated scene as: ${safeName}`);
+      return true;
+    } catch (err) {
+      console.error('[ProjectManager] Failed to duplicate scene:', err);
+      return false;
     }
   }
 
