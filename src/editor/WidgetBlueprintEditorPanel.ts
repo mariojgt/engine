@@ -32,46 +32,80 @@ interface PaletteCategory {
 
 const PALETTE: PaletteCategory[] = [
   {
-    label: 'Panel', icon: '📐',
+    label: 'COMMON', icon: '⭐',
     widgets: [
-      { type: 'CanvasPanel', label: 'Canvas Panel', icon: '📐' },
-      { type: 'VerticalBox', label: 'Vertical Box', icon: '⬇' },
-      { type: 'HorizontalBox', label: 'Horizontal Box', icon: '➡' },
-      { type: 'Overlay', label: 'Overlay', icon: '🔲' },
-      { type: 'GridPanel', label: 'Grid Panel', icon: '▦' },
-      { type: 'WrapBox', label: 'Wrap Box', icon: '↩' },
-      { type: 'ScrollBox', label: 'Scroll Box', icon: '📜' },
-      { type: 'SizeBox', label: 'Size Box', icon: '📏' },
-      { type: 'ScaleBox', label: 'Scale Box', icon: '🔎' },
-      { type: 'WidgetSwitcher', label: 'Widget Switcher', icon: '🔀' },
-    ],
-  },
-  {
-    label: 'Common', icon: '⭐',
-    widgets: [
-      { type: 'Text', label: 'Text', icon: '📝' },
-      { type: 'Image', label: 'Image', icon: '🖼' },
-      { type: 'Button', label: 'Button', icon: '🔘' },
-      { type: 'Border', label: 'Border', icon: '🔳' },
-      { type: 'Spacer', label: 'Spacer', icon: '⬜' },
-    ],
-  },
-  {
-    label: 'Input', icon: '✏',
-    widgets: [
-      { type: 'TextBox', label: 'Text Box', icon: '📋' },
+      { type: 'Border', label: 'Border', icon: '▢' },
+      { type: 'Button', label: 'Button', icon: '▣' },
       { type: 'CheckBox', label: 'Check Box', icon: '☑' },
-      { type: 'Slider', label: 'Slider', icon: '🎚' },
-      { type: 'ComboBox', label: 'Combo Box', icon: '📃' },
+      { type: 'Image', label: 'Image', icon: '▨' },
+      { type: 'ProgressBar', label: 'Progress Bar', icon: '▬' },
+      { type: 'Slider', label: 'Slider', icon: '⊶' },
+      { type: 'Text', label: 'Text', icon: 'T' },
+      { type: 'TextBox', label: 'Text Box', icon: '⊏' },
     ],
   },
   {
-    label: 'Feedback', icon: '📊',
+    label: 'INPUT', icon: '✎',
     widgets: [
-      { type: 'ProgressBar', label: 'Progress Bar', icon: '📊' },
-      { type: 'CircularThrobber', label: 'Throbber', icon: '⏳' },
+      { type: 'CheckBox', label: 'Check Box', icon: '☑' },
+      { type: 'ComboBox', label: 'Combo Box', icon: '☰' },
+      { type: 'Slider', label: 'Slider', icon: '⊶' },
+      { type: 'TextBox', label: 'Text Box', icon: '⊏' },
     ],
   },
+  {
+    label: 'PANEL', icon: '◫',
+    widgets: [
+      { type: 'CanvasPanel', label: 'Canvas Panel', icon: '◫' },
+      { type: 'GridPanel', label: 'Grid Panel', icon: '⊞' },
+      { type: 'HorizontalBox', label: 'Horizontal Box', icon: '⊟' },
+      { type: 'Overlay', label: 'Overlay', icon: '◰' },
+      { type: 'ScaleBox', label: 'Scale Box', icon: '⧈' },
+      { type: 'ScrollBox', label: 'Scroll Box', icon: '◱' },
+      { type: 'SizeBox', label: 'Size Box', icon: '□' },
+      { type: 'VerticalBox', label: 'Vertical Box', icon: '⊞' },
+      { type: 'WidgetSwitcher', label: 'Widget Switcher', icon: '⇆' },
+      { type: 'WrapBox', label: 'Wrap Box', icon: '⊟' },
+    ],
+  },
+  {
+    label: 'PRIMITIVE', icon: '◇',
+    widgets: [
+      { type: 'Border', label: 'Border', icon: '▢' },
+      { type: 'Image', label: 'Image', icon: '▨' },
+      { type: 'Spacer', label: 'Spacer', icon: '⊔' },
+    ],
+  },
+  {
+    label: 'SPECIAL EFFECTS', icon: '✦',
+    widgets: [
+      { type: 'CircularThrobber', label: 'Throbber', icon: '◎' },
+      { type: 'ProgressBar', label: 'Progress Bar', icon: '▬' },
+    ],
+  },
+  {
+    label: 'LISTS', icon: '≣',
+    widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
+  },
+  {
+    label: 'UNCATEGORIZED', icon: '…',
+    widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
+  },
+  {
+    label: 'USER CREATED', icon: '★',
+    widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
+  },
+];
+
+/** Screen size presets matching UE */
+const SCREEN_SIZES: Array<{ label: string; width: number; height: number }> = [
+  { label: '1920×1080 (Full HD)', width: 1920, height: 1080 },
+  { label: '2560×1440 (QHD)', width: 2560, height: 1440 },
+  { label: '3840×2160 (4K)', width: 3840, height: 2160 },
+  { label: '1280×720 (720p)', width: 1280, height: 720 },
+  { label: '1024×768', width: 1024, height: 768 },
+  { label: '800×600', width: 800, height: 600 },
+  { label: 'Custom...', width: 0, height: 0 },
 ];
 
 export class WidgetBlueprintEditorPanel {
@@ -123,6 +157,15 @@ export class WidgetBlueprintEditorPanel {
   // Event graph cleanup
   private _eventGraphCleanup: (() => void) | null = null;
 
+  // Designer toolbar state
+  private _screenSizeIdx = 0;
+  private _dpiScale = 1.0;
+  private _showRulers = true;
+  private _leftPanelTab: 'palette' | 'library' = 'palette';
+  private _paletteSearch = '';
+  private _designerToolbarEl: HTMLElement | null = null;
+  private _zoomLabelEl: HTMLElement | null = null;
+
   constructor(
     container: HTMLElement,
     asset: WidgetBlueprintAsset,
@@ -162,17 +205,16 @@ export class WidgetBlueprintEditorPanel {
     this._container.style.flexDirection = 'column';
     this._container.style.height = '100%';
     this._container.style.overflow = 'hidden';
+    this._container.classList.add('wbp-root');
 
-    // Tab bar
+    // Top toolbar (UE style)
     this._tabBar = document.createElement('div');
-    this._tabBar.className = 'anim-bp-tab-bar'; // reuse anim-bp styling
+    this._tabBar.className = 'wbp-toolbar';
     this._container.appendChild(this._tabBar);
 
     // Content area
     this._contentArea = document.createElement('div');
-    this._contentArea.style.flex = '1';
-    this._contentArea.style.display = 'flex';
-    this._contentArea.style.overflow = 'hidden';
+    this._contentArea.className = 'wbp-content';
     this._container.appendChild(this._contentArea);
 
     this._rebuildTabBar();
@@ -182,64 +224,119 @@ export class WidgetBlueprintEditorPanel {
   private _rebuildTabBar(): void {
     this._tabBar.innerHTML = '';
 
-    // ── Left side: Designer + Event Graph tabs ──
-    const tabsLeft = document.createElement('div');
-    tabsLeft.style.cssText = 'display:flex;gap:4px;flex:1;';
-
-    const tabs: Array<{ key: EditorTab; label: string; icon: string }> = [
-      { key: 'designer', label: 'Designer', icon: '🎨' },
-      { key: 'eventGraph', label: 'Event Graph', icon: '📊' },
-    ];
-
-    for (const tab of tabs) {
-      const btn = document.createElement('div');
-      btn.className = `anim-bp-tab${this._activeTab === tab.key ? ' active' : ''}`;
-      btn.textContent = `${tab.icon} ${tab.label}`;
-      btn.addEventListener('click', () => {
-        this._activeTab = tab.key;
-        this._rebuildTabBar();
-        this._switchTab(tab.key);
-      });
-      tabsLeft.appendChild(btn);
-    }
-    this._tabBar.appendChild(tabsLeft);
-
-    // ── Right side: Compile + Save buttons (UE-style toolbar) ──
-    const toolbarRight = document.createElement('div');
-    toolbarRight.className = 'ae-toolbar-right';
+    // ── Left: Compile + Diff + Play controls ──
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'wbp-toolbar-group';
 
     // Compile button
     const compileBtn = document.createElement('button');
-    compileBtn.className = 'ae-toolbar-btn ae-compile-btn';
+    compileBtn.className = 'wbp-tb-btn';
     compileBtn.title = 'Compile this widget blueprint (Ctrl+F7)';
     this._compileBtnEl = compileBtn;
     this._updateCompileButton();
     compileBtn.addEventListener('click', () => this._doCompile());
-    toolbarRight.appendChild(compileBtn);
+    leftGroup.appendChild(compileBtn);
 
-    // Compile status indicator
+    // Compile status
     const statusEl = document.createElement('span');
-    statusEl.className = 'ae-compile-status';
+    statusEl.className = 'wbp-compile-status';
     this._compileStatusEl = statusEl;
     this._updateCompileStatus();
-    toolbarRight.appendChild(statusEl);
+    leftGroup.appendChild(statusEl);
 
     // Separator
-    const sep = document.createElement('div');
-    sep.className = 'ae-toolbar-separator';
-    toolbarRight.appendChild(sep);
+    leftGroup.appendChild(this._makeTbSep());
+
+    // Diff button (placeholder)
+    const diffBtn = document.createElement('button');
+    diffBtn.className = 'wbp-tb-btn wbp-tb-secondary';
+    diffBtn.innerHTML = '<span class="wbp-tb-icon">⇋</span> Diff';
+    diffBtn.title = 'Diff against previous version';
+    leftGroup.appendChild(diffBtn);
+
+    leftGroup.appendChild(this._makeTbSep());
+
+    // Play controls
+    const playBtn = document.createElement('button');
+    playBtn.className = 'wbp-tb-btn wbp-tb-play';
+    playBtn.innerHTML = '▶';
+    playBtn.title = 'Play in viewport';
+    leftGroup.appendChild(playBtn);
+
+    const playDropdown = document.createElement('button');
+    playDropdown.className = 'wbp-tb-btn wbp-tb-play-dd';
+    playDropdown.innerHTML = '▾';
+    leftGroup.appendChild(playDropdown);
+
+    leftGroup.appendChild(this._makeTbSep());
+
+    // Debug object selector (placeholder)
+    const debugSel = document.createElement('select');
+    debugSel.className = 'wbp-tb-select';
+    const opt = document.createElement('option');
+    opt.textContent = 'No debug object selected';
+    debugSel.appendChild(opt);
+    leftGroup.appendChild(debugSel);
+
+    this._tabBar.appendChild(leftGroup);
+
+    // ── Center: Widget Reflector (placeholder) ──
+    const centerGroup = document.createElement('div');
+    centerGroup.className = 'wbp-toolbar-center';
+    const reflectorBtn = document.createElement('button');
+    reflectorBtn.className = 'wbp-tb-btn wbp-tb-secondary';
+    reflectorBtn.textContent = 'Widget Reflector';
+    centerGroup.appendChild(reflectorBtn);
+    this._tabBar.appendChild(centerGroup);
+
+    // ── Right: Designer / Graph toggle + Save ──
+    const rightGroup = document.createElement('div');
+    rightGroup.className = 'wbp-toolbar-group';
 
     // Save button
     if (this._onSave) {
       const saveBtn = document.createElement('button');
-      saveBtn.className = 'ae-toolbar-btn ae-save-btn';
-      saveBtn.innerHTML = '💾 Save';
+      saveBtn.className = 'wbp-tb-btn wbp-tb-secondary';
+      saveBtn.innerHTML = '💾';
       saveBtn.title = 'Save all (Ctrl+S)';
       saveBtn.addEventListener('click', () => this._doSave());
-      toolbarRight.appendChild(saveBtn);
+      rightGroup.appendChild(saveBtn);
+      rightGroup.appendChild(this._makeTbSep());
     }
 
-    this._tabBar.appendChild(toolbarRight);
+    // Designer tab
+    const designerBtn = document.createElement('button');
+    designerBtn.className = `wbp-tb-mode${this._activeTab === 'designer' ? ' wbp-tb-mode-active wbp-tb-mode-designer' : ''}`;
+    designerBtn.innerHTML = '✎ Designer';
+    designerBtn.addEventListener('click', () => {
+      if (this._activeTab !== 'designer') {
+        this._activeTab = 'designer';
+        this._rebuildTabBar();
+        this._switchTab('designer');
+      }
+    });
+    rightGroup.appendChild(designerBtn);
+
+    // Graph tab
+    const graphBtn = document.createElement('button');
+    graphBtn.className = `wbp-tb-mode${this._activeTab === 'eventGraph' ? ' wbp-tb-mode-active wbp-tb-mode-graph' : ''}`;
+    graphBtn.innerHTML = '⊞ Graph';
+    graphBtn.addEventListener('click', () => {
+      if (this._activeTab !== 'eventGraph') {
+        this._activeTab = 'eventGraph';
+        this._rebuildTabBar();
+        this._switchTab('eventGraph');
+      }
+    });
+    rightGroup.appendChild(graphBtn);
+
+    this._tabBar.appendChild(rightGroup);
+  }
+
+  private _makeTbSep(): HTMLElement {
+    const s = document.createElement('div');
+    s.className = 'wbp-tb-sep';
+    return s;
   }
 
   private _setCompileStatus(status: 'compiled' | 'dirty' | 'error'): void {
@@ -254,19 +351,16 @@ export class WidgetBlueprintEditorPanel {
     const btn = this._compileBtnEl;
     switch (this._compileStatus) {
       case 'compiled':
-        btn.innerHTML = '✅ Compile';
-        btn.classList.remove('ae-compile-dirty', 'ae-compile-error');
-        btn.classList.add('ae-compile-ok');
+        btn.innerHTML = '<span class="wbp-tb-icon">✓</span> Compile';
+        btn.className = 'wbp-tb-btn wbp-compile-ok';
         break;
       case 'dirty':
-        btn.innerHTML = '🔨 Compile';
-        btn.classList.remove('ae-compile-ok', 'ae-compile-error');
-        btn.classList.add('ae-compile-dirty');
+        btn.innerHTML = '<span class="wbp-tb-icon">⟳</span> Compile';
+        btn.className = 'wbp-tb-btn wbp-compile-dirty';
         break;
       case 'error':
-        btn.innerHTML = '❌ Compile';
-        btn.classList.remove('ae-compile-ok', 'ae-compile-dirty');
-        btn.classList.add('ae-compile-error');
+        btn.innerHTML = '<span class="wbp-tb-icon">✗</span> Compile';
+        btn.className = 'wbp-tb-btn wbp-compile-error';
         break;
     }
   }
@@ -276,17 +370,17 @@ export class WidgetBlueprintEditorPanel {
     switch (this._compileStatus) {
       case 'compiled': {
         const ago = this._lastCompileTime ? this._timeSince(this._lastCompileTime) : '';
-        this._compileStatusEl.textContent = ago ? `Widget blueprint compiled ${ago}` : 'Blueprint up to date';
-        this._compileStatusEl.className = 'ae-compile-status ae-status-ok';
+        this._compileStatusEl.textContent = ago ? `Compiled ${ago}` : 'Up to date';
+        this._compileStatusEl.className = 'wbp-compile-status wbp-status-ok';
         break;
       }
       case 'dirty':
-        this._compileStatusEl.textContent = 'Widget blueprint needs recompile';
-        this._compileStatusEl.className = 'ae-compile-status ae-status-dirty';
+        this._compileStatusEl.textContent = 'Needs recompile';
+        this._compileStatusEl.className = 'wbp-compile-status wbp-status-dirty';
         break;
       case 'error':
         this._compileStatusEl.textContent = 'Compile error!';
-        this._compileStatusEl.className = 'ae-compile-status ae-status-error';
+        this._compileStatusEl.className = 'wbp-compile-status wbp-status-error';
         break;
     }
   }
@@ -416,115 +510,357 @@ export class WidgetBlueprintEditorPanel {
 
   private _buildDesignerTab(): void {
     const wrapper = document.createElement('div');
-    wrapper.style.display = 'flex';
-    wrapper.style.flex = '1';
-    wrapper.style.overflow = 'hidden';
+    wrapper.className = 'wbp-designer-layout';
 
-    // ── Left: Palette + Hierarchy ──
+    // ══════════════ LEFT PANEL: Palette tabs + Hierarchy ══════════════
     const leftPanel = document.createElement('div');
-    leftPanel.style.width = '220px';
-    leftPanel.style.minWidth = '180px';
-    leftPanel.style.borderRight = '1px solid #333';
-    leftPanel.style.display = 'flex';
-    leftPanel.style.flexDirection = 'column';
-    leftPanel.style.background = '#1a1a2e';
-    leftPanel.style.overflowY = 'auto';
+    leftPanel.className = 'wbp-left-panel';
 
-    // Palette
-    const paletteSection = document.createElement('div');
-    paletteSection.style.padding = '8px';
-    paletteSection.style.borderBottom = '1px solid #333';
+    // ── Top section: Palette / Library tabs ──
+    const leftTopSection = document.createElement('div');
+    leftTopSection.className = 'wbp-left-top';
 
-    const paletteHeader = document.createElement('div');
-    paletteHeader.style.cssText = 'font-weight:bold;font-size:12px;color:#ccc;margin-bottom:6px;';
-    paletteHeader.textContent = '🧩 Palette';
-    paletteSection.appendChild(paletteHeader);
+    // Tab row
+    const leftTabRow = document.createElement('div');
+    leftTabRow.className = 'wbp-panel-tabs';
 
-    for (const cat of PALETTE) {
-      const catEl = document.createElement('div');
-      catEl.style.marginBottom = '4px';
+    const paletteTab = document.createElement('button');
+    paletteTab.className = `wbp-panel-tab${this._leftPanelTab === 'palette' ? ' active' : ''}`;
+    paletteTab.textContent = 'Palette';
+    paletteTab.addEventListener('click', () => { this._leftPanelTab = 'palette'; this._rebuildLeftPanel(leftTopSection); });
 
-      const catHeader = document.createElement('div');
-      catHeader.style.cssText = 'font-size:11px;color:#888;cursor:pointer;padding:2px 4px;';
-      catHeader.textContent = `${cat.icon} ${cat.label}`;
-      let collapsed = false;
-      const catBody = document.createElement('div');
-      catBody.style.cssText = 'padding-left:8px;';
-      catHeader.addEventListener('click', () => {
-        collapsed = !collapsed;
-        catBody.style.display = collapsed ? 'none' : '';
-      });
-      catEl.appendChild(catHeader);
+    const libraryTab = document.createElement('button');
+    libraryTab.className = `wbp-panel-tab${this._leftPanelTab === 'library' ? ' active' : ''}`;
+    libraryTab.textContent = 'Library';
+    libraryTab.addEventListener('click', () => { this._leftPanelTab = 'library'; this._rebuildLeftPanel(leftTopSection); });
 
-      for (const w of cat.widgets) {
-        const item = document.createElement('div');
-        item.style.cssText = 'padding:3px 6px;font-size:11px;color:#ddd;cursor:pointer;border-radius:3px;';
-        item.textContent = `${w.icon} ${w.label}`;
-        item.addEventListener('mouseenter', () => { item.style.background = '#2a2a4e'; });
-        item.addEventListener('mouseleave', () => { item.style.background = ''; });
-        item.addEventListener('click', () => {
-          this._addWidgetToSelected(w.type, w.label);
-        });
-        catBody.appendChild(item);
-      }
-      catEl.appendChild(catBody);
-      paletteSection.appendChild(catEl);
-    }
-    leftPanel.appendChild(paletteSection);
+    // Close button for left panel
+    const closeLeftBtn = document.createElement('button');
+    closeLeftBtn.className = 'wbp-panel-close';
+    closeLeftBtn.textContent = '×';
 
-    // Hierarchy
-    const hierarchySection = document.createElement('div');
-    hierarchySection.style.padding = '8px';
-    hierarchySection.style.flex = '1';
+    leftTabRow.appendChild(paletteTab);
+    leftTabRow.appendChild(libraryTab);
+    leftTabRow.appendChild(closeLeftBtn);
+    leftTopSection.appendChild(leftTabRow);
 
-    const hierarchyHeader = document.createElement('div');
-    hierarchyHeader.style.cssText = 'font-weight:bold;font-size:12px;color:#ccc;margin-bottom:6px;';
-    hierarchyHeader.textContent = '🌳 Hierarchy';
-    hierarchySection.appendChild(hierarchyHeader);
+    // Panel content area
+    const leftContent = document.createElement('div');
+    leftContent.className = 'wbp-panel-content';
+    leftTopSection.appendChild(leftContent);
+    this._rebuildLeftPanelContent(leftContent);
 
+    leftPanel.appendChild(leftTopSection);
+
+    // ── Bottom section: Hierarchy ──
+    const leftBottomSection = document.createElement('div');
+    leftBottomSection.className = 'wbp-left-bottom';
+
+    const hierTabRow = document.createElement('div');
+    hierTabRow.className = 'wbp-panel-tabs';
+    const hierTab = document.createElement('button');
+    hierTab.className = 'wbp-panel-tab active';
+    hierTab.textContent = 'Hierarchy';
+    hierTabRow.appendChild(hierTab);
+
+    const bindBtn = document.createElement('button');
+    bindBtn.className = 'wbp-panel-tab-action';
+    bindBtn.innerHTML = '⊞ Bind Widgets';
+    hierTabRow.appendChild(bindBtn);
+
+    const closeHierBtn = document.createElement('button');
+    closeHierBtn.className = 'wbp-panel-close';
+    closeHierBtn.textContent = '×';
+    hierTabRow.appendChild(closeHierBtn);
+
+    leftBottomSection.appendChild(hierTabRow);
+
+    // Search widgets box
+    const hierSearch = document.createElement('div');
+    hierSearch.className = 'wbp-search-box';
+    const hierSearchIcon = document.createElement('span');
+    hierSearchIcon.className = 'wbp-search-icon';
+    hierSearchIcon.textContent = '⌕';
+    const hierSearchInput = document.createElement('input');
+    hierSearchInput.className = 'wbp-search-input';
+    hierSearchInput.placeholder = 'Search Widgets';
+    hierSearch.appendChild(hierSearchIcon);
+    hierSearch.appendChild(hierSearchInput);
+    leftBottomSection.appendChild(hierSearch);
+
+    // Hierarchy tree
     this._hierarchyEl = document.createElement('div');
-    hierarchySection.appendChild(this._hierarchyEl);
-    leftPanel.appendChild(hierarchySection);
+    this._hierarchyEl.className = 'wbp-hierarchy-tree';
+    leftBottomSection.appendChild(this._hierarchyEl);
 
+    leftPanel.appendChild(leftBottomSection);
     wrapper.appendChild(leftPanel);
 
-    // ── Center: Canvas ──
-    const canvasContainer = document.createElement('div');
-    canvasContainer.style.flex = '1';
-    canvasContainer.style.position = 'relative';
-    canvasContainer.style.overflow = 'hidden';
-    canvasContainer.style.background = '#0d0d1a';
+    // ══════════════ CENTER: Designer Canvas ══════════════
+    const centerArea = document.createElement('div');
+    centerArea.className = 'wbp-center-area';
+
+    // Designer toolbar (alignment, screen size, etc.)
+    const designerToolbar = document.createElement('div');
+    designerToolbar.className = 'wbp-designer-toolbar';
+    this._designerToolbarEl = designerToolbar;
+    this._buildDesignerToolbar(designerToolbar);
+    centerArea.appendChild(designerToolbar);
+
+    // Canvas container with rulers
+    const canvasWrapper = document.createElement('div');
+    canvasWrapper.className = 'wbp-canvas-wrapper';
 
     this._canvas = document.createElement('canvas');
-    this._canvas.style.width = '100%';
-    this._canvas.style.height = '100%';
-    canvasContainer.appendChild(this._canvas);
-    wrapper.appendChild(canvasContainer);
+    this._canvas.className = 'wbp-canvas';
+    canvasWrapper.appendChild(this._canvas);
 
-    // ── Right: Properties ──
+    // Zoom indicator
+    const zoomLabel = document.createElement('div');
+    zoomLabel.className = 'wbp-zoom-label';
+    zoomLabel.textContent = `Zoom ${Math.round(this._designerZoom * 100)}%`;
+    this._zoomLabelEl = zoomLabel;
+    canvasWrapper.appendChild(zoomLabel);
+
+    // DPI Scale indicator (bottom-right)
+    const dpiLabel = document.createElement('div');
+    dpiLabel.className = 'wbp-dpi-label';
+    dpiLabel.innerHTML = `DPI Scale ${this._dpiScale.toFixed(1)} <span class="wbp-dpi-gear">⚙</span>`;
+    canvasWrapper.appendChild(dpiLabel);
+
+    centerArea.appendChild(canvasWrapper);
+    wrapper.appendChild(centerArea);
+
+    // ══════════════ RIGHT PANEL: Details ══════════════
     const rightPanel = document.createElement('div');
-    rightPanel.style.width = '260px';
-    rightPanel.style.minWidth = '220px';
-    rightPanel.style.borderLeft = '1px solid #333';
-    rightPanel.style.overflowY = 'auto';
-    rightPanel.style.background = '#1a1a2e';
-    rightPanel.style.padding = '8px';
+    rightPanel.className = 'wbp-right-panel';
 
-    const propsHeader = document.createElement('div');
-    propsHeader.style.cssText = 'font-weight:bold;font-size:12px;color:#ccc;margin-bottom:6px;';
-    propsHeader.textContent = '⚙ Properties';
-    rightPanel.appendChild(propsHeader);
+    const detailsTabRow = document.createElement('div');
+    detailsTabRow.className = 'wbp-panel-tabs';
+    const detailsTab = document.createElement('button');
+    detailsTab.className = 'wbp-panel-tab active';
+    detailsTab.innerHTML = '✎ Details';
+    detailsTabRow.appendChild(detailsTab);
+    const closeDetailsBtn = document.createElement('button');
+    closeDetailsBtn.className = 'wbp-panel-close';
+    closeDetailsBtn.textContent = '×';
+    detailsTabRow.appendChild(closeDetailsBtn);
+    rightPanel.appendChild(detailsTabRow);
 
     this._propsEl = document.createElement('div');
+    this._propsEl.className = 'wbp-details-content';
     rightPanel.appendChild(this._propsEl);
     wrapper.appendChild(rightPanel);
 
     this._contentArea.appendChild(wrapper);
 
     // Initialize canvas
-    this._initDesignerCanvas(canvasContainer);
+    this._initDesignerCanvas(canvasWrapper);
     this._rebuildHierarchy();
     this._rebuildProperties();
+  }
+
+  /** Build the left panel content (palette or library) */
+  private _rebuildLeftPanel(container: HTMLElement): void {
+    // Rebuild tabs + content
+    const tabRow = container.querySelector('.wbp-panel-tabs');
+    if (tabRow) {
+      const tabs = tabRow.querySelectorAll('.wbp-panel-tab');
+      tabs.forEach((t, i) => {
+        t.classList.toggle('active', (i === 0 && this._leftPanelTab === 'palette') || (i === 1 && this._leftPanelTab === 'library'));
+      });
+    }
+    const content = container.querySelector('.wbp-panel-content');
+    if (content) this._rebuildLeftPanelContent(content as HTMLElement);
+  }
+
+  private _rebuildLeftPanelContent(container: HTMLElement): void {
+    container.innerHTML = '';
+    if (this._leftPanelTab === 'palette') {
+      this._buildPalette(container);
+    } else {
+      const lib = document.createElement('div');
+      lib.className = 'wbp-library-placeholder';
+      lib.textContent = 'Widget Library — user-created widgets will appear here.';
+      container.appendChild(lib);
+    }
+  }
+
+  /** Build the UE-style widget palette with search */
+  private _buildPalette(container: HTMLElement): void {
+    // Search box
+    const searchBox = document.createElement('div');
+    searchBox.className = 'wbp-search-box';
+    const searchIcon = document.createElement('span');
+    searchIcon.className = 'wbp-search-icon';
+    searchIcon.textContent = '⌕';
+    const searchInput = document.createElement('input');
+    searchInput.className = 'wbp-search-input';
+    searchInput.placeholder = 'Search Palette';
+    searchInput.value = this._paletteSearch;
+    searchInput.addEventListener('input', () => {
+      this._paletteSearch = searchInput.value;
+      this._rebuildPaletteItems(itemsContainer);
+    });
+    searchBox.appendChild(searchIcon);
+    searchBox.appendChild(searchInput);
+    container.appendChild(searchBox);
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'wbp-palette-items';
+    this._rebuildPaletteItems(itemsContainer);
+    container.appendChild(itemsContainer);
+  }
+
+  private _rebuildPaletteItems(container: HTMLElement): void {
+    container.innerHTML = '';
+    const filter = this._paletteSearch.toLowerCase();
+
+    for (const cat of PALETTE) {
+      const matchingWidgets = cat.widgets.filter(w =>
+        !filter || w.label.toLowerCase().includes(filter) || cat.label.toLowerCase().includes(filter)
+      );
+      if (matchingWidgets.length === 0 && filter) continue;
+
+      const catEl = document.createElement('div');
+      catEl.className = 'wbp-palette-cat';
+
+      const catHeader = document.createElement('div');
+      catHeader.className = 'wbp-palette-cat-header';
+      const arrow = document.createElement('span');
+      arrow.className = 'wbp-palette-arrow';
+      arrow.textContent = '▶';
+      catHeader.appendChild(arrow);
+      const catLabel = document.createElement('span');
+      catLabel.textContent = cat.label;
+      catHeader.appendChild(catLabel);
+
+      let collapsed = matchingWidgets.length === 0;
+      const catBody = document.createElement('div');
+      catBody.className = 'wbp-palette-cat-body';
+      if (collapsed) {
+        catBody.style.display = 'none';
+        arrow.textContent = '▶';
+      } else {
+        arrow.textContent = '▼';
+      }
+
+      catHeader.addEventListener('click', () => {
+        collapsed = !collapsed;
+        catBody.style.display = collapsed ? 'none' : '';
+        arrow.textContent = collapsed ? '▶' : '▼';
+      });
+
+      for (const w of matchingWidgets) {
+        const item = document.createElement('div');
+        item.className = 'wbp-palette-item';
+        const icon = document.createElement('span');
+        icon.className = 'wbp-palette-item-icon';
+        icon.textContent = w.icon;
+        const label = document.createElement('span');
+        label.textContent = w.label;
+        item.appendChild(icon);
+        item.appendChild(label);
+
+        item.addEventListener('click', () => this._addWidgetToSelected(w.type, w.label));
+        catBody.appendChild(item);
+      }
+
+      catEl.appendChild(catHeader);
+      catEl.appendChild(catBody);
+      container.appendChild(catEl);
+    }
+  }
+
+  /** Build designer toolbar (alignment tools, screen size, etc) */
+  private _buildDesignerToolbar(toolbar: HTMLElement): void {
+    toolbar.innerHTML = '';
+
+    // Alignment group
+    const alignGroup = document.createElement('div');
+    alignGroup.className = 'wbp-dt-group';
+
+    const alignLabel = document.createElement('span');
+    alignLabel.className = 'wbp-dt-label';
+    alignLabel.textContent = 'None';
+    alignGroup.appendChild(alignLabel);
+
+    // Alignment buttons (UE-style icons approximation)
+    const alignments = [
+      { icon: '⬒', title: 'Align left edges', action: 'left' },
+      { icon: '⬓', title: 'Center horizontally', action: 'center-h' },
+      { icon: '⬔', title: 'Align right edges', action: 'right' },
+      { icon: '⬒', title: 'Align top edges', action: 'top', rotate: true },
+      { icon: '⬓', title: 'Center vertically', action: 'center-v' },
+      { icon: '⬔', title: 'Align bottom edges', action: 'bottom' },
+    ];
+
+    for (const a of alignments) {
+      const btn = document.createElement('button');
+      btn.className = 'wbp-dt-btn';
+      btn.innerHTML = a.icon;
+      btn.title = a.title;
+      if (a.rotate) btn.style.transform = 'rotate(90deg)';
+      alignGroup.appendChild(btn);
+    }
+
+    toolbar.appendChild(alignGroup);
+    toolbar.appendChild(this._makeDtSep());
+
+    // Grid/guideline toggles
+    const viewGroup = document.createElement('div');
+    viewGroup.className = 'wbp-dt-group';
+    const gridIcons = ['▦', '⊞', '⊟', '4'];
+    for (const ic of gridIcons) {
+      const btn = document.createElement('button');
+      btn.className = 'wbp-dt-btn';
+      btn.textContent = ic;
+      viewGroup.appendChild(btn);
+    }
+    toolbar.appendChild(viewGroup);
+
+    toolbar.appendChild(this._makeDtSep());
+
+    // Screen size selector
+    const screenGroup = document.createElement('div');
+    screenGroup.className = 'wbp-dt-group';
+
+    const screenIcon = document.createElement('span');
+    screenIcon.className = 'wbp-dt-screen-icon';
+    screenIcon.textContent = '⊟';
+    screenGroup.appendChild(screenIcon);
+
+    const screenLabel = document.createElement('span');
+    screenLabel.className = 'wbp-dt-label wbp-dt-screen';
+    screenLabel.textContent = 'Screen Size ▾';
+
+    const screenSel = document.createElement('select');
+    screenSel.className = 'wbp-dt-select';
+    for (let i = 0; i < SCREEN_SIZES.length; i++) {
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = SCREEN_SIZES[i].label;
+      if (i === this._screenSizeIdx) o.selected = true;
+      screenSel.appendChild(o);
+    }
+    screenSel.addEventListener('change', () => {
+      this._screenSizeIdx = parseInt(screenSel.value, 10);
+    });
+    screenGroup.appendChild(screenSel);
+
+    // Desired label
+    const desiredLabel = document.createElement('span');
+    desiredLabel.className = 'wbp-dt-label';
+    desiredLabel.textContent = 'Desired';
+    screenGroup.appendChild(desiredLabel);
+
+    toolbar.appendChild(screenGroup);
+  }
+
+  private _makeDtSep(): HTMLElement {
+    const s = document.createElement('div');
+    s.className = 'wbp-dt-sep';
+    return s;
   }
 
   // ============================================================
@@ -548,6 +884,7 @@ export class WidgetBlueprintEditorPanel {
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       this._designerZoom = Math.max(0.1, Math.min(3, this._designerZoom * factor));
+      if (this._zoomLabelEl) this._zoomLabelEl.textContent = `Zoom ${Math.round(this._designerZoom * 100)}%`;
       this._saveDesignerState();
     });
 
@@ -815,8 +1152,8 @@ export class WidgetBlueprintEditorPanel {
     const dpr = window.devicePixelRatio;
     ctx.clearRect(0, 0, w, h);
 
-    // Background grid
-    ctx.fillStyle = '#0d0d1a';
+    // Background — deep dark like UE designer
+    ctx.fillStyle = '#0e0e18';
     ctx.fillRect(0, 0, w, h);
 
     const zoom = this._designerZoom;
@@ -825,27 +1162,142 @@ export class WidgetBlueprintEditorPanel {
     const centerX = w / 2 + panX;
     const centerY = h / 2 + panY;
 
-    // Draw grid
-    const gridSize = 50 * zoom * dpr;
-    if (gridSize > 4) {
-      ctx.strokeStyle = '#1a1a2e';
+    // Minor grid (small squares)
+    const minorGrid = 10 * zoom * dpr;
+    if (minorGrid > 6) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      const startX = centerX % gridSize;
-      const startY = centerY % gridSize;
-      for (let x = startX; x < w; x += gridSize) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-      }
-      for (let y = startY; y < h; y += gridSize) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-      }
+      const startX = centerX % minorGrid;
+      const startY = centerY % minorGrid;
+      for (let x = startX; x < w; x += minorGrid) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+      for (let y = startY; y < h; y += minorGrid) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
       ctx.stroke();
+    }
+
+    // Major grid
+    const majorGrid = 50 * zoom * dpr;
+    if (majorGrid > 4) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const startX = centerX % majorGrid;
+      const startY = centerY % majorGrid;
+      for (let x = startX; x < w; x += majorGrid) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+      for (let y = startY; y < h; y += majorGrid) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+      ctx.stroke();
+    }
+
+    // Center axes (origin crosshair)
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(centerX, 0); ctx.lineTo(centerX, h);
+    ctx.moveTo(0, centerY); ctx.lineTo(w, centerY);
+    ctx.stroke();
+
+    // Rulers –– top and left (only if _showRulers)
+    if (this._showRulers) {
+      this._drawRulers(ctx, w, h, dpr, zoom, centerX, centerY);
     }
 
     // Draw widget tree
     this._renderWidgetNode(ctx, this._asset.rootWidgetId, centerX, centerY, zoom * dpr);
+  }
+
+  /** Draw UE-style rulers along top and left edges */
+  private _drawRulers(
+    ctx: CanvasRenderingContext2D,
+    w: number, h: number, dpr: number,
+    zoom: number, centerX: number, centerY: number,
+  ): void {
+    const rulerSize = 20 * dpr;
+
+    // Ruler background
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(0, 0, w, rulerSize); // top
+    ctx.fillRect(0, 0, rulerSize, h); // left
+
+    // Corner square
+    ctx.fillStyle = '#222238';
+    ctx.fillRect(0, 0, rulerSize, rulerSize);
+
+    // Divider line
+    ctx.strokeStyle = '#2d2d44';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, rulerSize); ctx.lineTo(w, rulerSize);
+    ctx.moveTo(rulerSize, 0); ctx.lineTo(rulerSize, h);
+    ctx.stroke();
+
+    // Tick marks & labels — top ruler
+    ctx.fillStyle = '#888';
+    ctx.font = `${9 * dpr}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const step = this._rulerStep(zoom * dpr);
+    const minorStep = step / 5;
+
+    // Top ruler ticks
+    {
+      const origin = centerX;
+      const startVal = -Math.ceil((origin - rulerSize) / (step)) * step;
+      const endVal = Math.ceil((w - origin) / step) * step;
+      for (let v = startVal; v <= endVal; v += minorStep) {
+        const x = origin + v;
+        if (x < rulerSize || x > w) continue;
+        const isMajor = Math.abs(v % step) < 0.01;
+        const tickH = isMajor ? rulerSize * 0.6 : rulerSize * 0.25;
+        ctx.strokeStyle = isMajor ? '#888' : '#555';
+        ctx.beginPath();
+        ctx.moveTo(x, rulerSize - tickH);
+        ctx.lineTo(x, rulerSize);
+        ctx.stroke();
+        if (isMajor) {
+          ctx.fillText(String(Math.round(v / (zoom * dpr))), x, 2 * dpr);
+        }
+      }
+    }
+
+    // Left ruler ticks
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    {
+      const origin = centerY;
+      const startVal = -Math.ceil((origin - rulerSize) / step) * step;
+      const endVal = Math.ceil((h - origin) / step) * step;
+      for (let v = startVal; v <= endVal; v += minorStep) {
+        const y = origin + v;
+        if (y < rulerSize || y > h) continue;
+        const isMajor = Math.abs(v % step) < 0.01;
+        const tickW = isMajor ? rulerSize * 0.6 : rulerSize * 0.25;
+        ctx.strokeStyle = isMajor ? '#888' : '#555';
+        ctx.beginPath();
+        ctx.moveTo(rulerSize - tickW, y);
+        ctx.lineTo(rulerSize, y);
+        ctx.stroke();
+        if (isMajor) {
+          ctx.save();
+          ctx.translate(rulerSize * 0.35, y);
+          ctx.rotate(-Math.PI / 2);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(String(Math.round(v / (zoom * dpr))), 0, 0);
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  /** Choose a nice ruler tick step based on current zoom */
+  private _rulerStep(pixelPerUnit: number): number {
+    const targets = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000];
+    const idealPx = 80; // roughly 80px between major ticks
+    for (const t of targets) {
+      if (t * pixelPerUnit >= idealPx) return t * pixelPerUnit;
+    }
+    return 2000 * pixelPerUnit;
   }
 
   /** Recursively render a widget and its children */
@@ -1329,6 +1781,13 @@ export class WidgetBlueprintEditorPanel {
   //  Hierarchy Tree
   // ============================================================
 
+  /** Select a widget by ID and rebuild the UI */
+  private _selectWidget(widgetId: string | null): void {
+    this._selectedWidgetId = widgetId;
+    this._rebuildHierarchy();
+    this._rebuildProperties();
+  }
+
   private _rebuildHierarchy(): void {
     if (!this._hierarchyEl) return;
     this._hierarchyEl.innerHTML = '';
@@ -1340,27 +1799,59 @@ export class WidgetBlueprintEditorPanel {
     if (!widget) return;
 
     const row = document.createElement('div');
-    row.style.cssText = `
-      padding: 3px 4px 3px ${8 + depth * 14}px;
-      font-size: 11px;
-      cursor: pointer;
-      border-radius: 3px;
-      color: ${widgetId === this._selectedWidgetId ? '#fff' : '#ccc'};
-      background: ${widgetId === this._selectedWidgetId ? '#2a5db044' : 'transparent'};
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    `;
+    row.className = `wbp-hier-row${widgetId === this._selectedWidgetId ? ' selected' : ''}`;
+    row.style.paddingLeft = `${4 + depth * 16}px`;
 
-    const icon = this._getWidgetIcon(widget.type);
-    row.textContent = `${icon} ${widget.name}`;
+    // Expand arrow (for containers with children)
+    const hasChildren = widget.children.length > 0;
+    const arrow = document.createElement('span');
+    arrow.className = 'wbp-hier-arrow';
+    if (hasChildren) {
+      arrow.textContent = '▼';
+      arrow.style.cursor = 'pointer';
+    } else {
+      arrow.textContent = ' ';
+    }
+    row.appendChild(arrow);
 
-    row.addEventListener('click', () => {
+    // Checkbox
+    const check = document.createElement('span');
+    check.className = 'wbp-hier-check';
+    check.innerHTML = '☐';
+    row.appendChild(check);
+
+    // Icon
+    const icon = document.createElement('span');
+    icon.className = 'wbp-hier-icon';
+    icon.textContent = this._getWidgetIcon(widget.type);
+    row.appendChild(icon);
+
+    // Name
+    const name = document.createElement('span');
+    name.className = 'wbp-hier-name';
+    name.textContent = widget.name;
+    row.appendChild(name);
+
+    // Spacer
+    const spacer = document.createElement('span');
+    spacer.style.flex = '1';
+    row.appendChild(spacer);
+
+    // Reparent / navigation buttons (UE style)
+    const navBtn = document.createElement('span');
+    navBtn.className = 'wbp-hier-actions';
+    navBtn.innerHTML = '⇅ \u2699';
+    row.appendChild(navBtn);
+
+    // Click to select
+    row.addEventListener('click', (e) => {
+      if (e.target === arrow) return; // Don't select on arrow click
       this._selectedWidgetId = widgetId;
       this._rebuildHierarchy();
       this._rebuildProperties();
     });
 
+    // Right-click context menu
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1370,21 +1861,37 @@ export class WidgetBlueprintEditorPanel {
       this._showWidgetContextMenu(e.clientX, e.clientY, widgetId);
     });
 
+    // Arrow click to collapse/expand
+    let childrenVisible = true;
+    const childContainer = document.createElement('div');
+
+    if (hasChildren) {
+      arrow.addEventListener('click', (e) => {
+        e.stopPropagation();
+        childrenVisible = !childrenVisible;
+        childContainer.style.display = childrenVisible ? '' : 'none';
+        arrow.textContent = childrenVisible ? '▼' : '▶';
+      });
+    }
+
     container.appendChild(row);
 
     // Children
     for (const childId of widget.children) {
-      this._renderHierarchyNode(container, childId, depth + 1);
+      this._renderHierarchyNode(childContainer, childId, depth + 1);
+    }
+    if (widget.children.length > 0) {
+      container.appendChild(childContainer);
     }
   }
 
   private _getWidgetIcon(type: WidgetType): string {
     const icons: Partial<Record<WidgetType, string>> = {
-      CanvasPanel: '📐', VerticalBox: '⬇', HorizontalBox: '➡', Overlay: '🔲',
-      GridPanel: '▦', WrapBox: '↩', ScrollBox: '📜', SizeBox: '📏', ScaleBox: '🔎',
-      Border: '🔳', Spacer: '⬜', Text: '📝', RichText: '📝', Image: '🖼',
-      Button: '🔘', CheckBox: '☑', Slider: '🎚', ProgressBar: '📊',
-      TextBox: '📋', ComboBox: '📃', CircularThrobber: '⏳', WidgetSwitcher: '🔀',
+      CanvasPanel: '◫', VerticalBox: '⊞', HorizontalBox: '⊟', Overlay: '◰',
+      GridPanel: '⊞', WrapBox: '⊟', ScrollBox: '◱', SizeBox: '□', ScaleBox: '⊡',
+      Border: '▢', Spacer: '⊔', Text: 'T', RichText: 'T', Image: '▨',
+      Button: '▣', CheckBox: '☑', Slider: '⊶', ProgressBar: '▬',
+      TextBox: '⊏', ComboBox: '☰', CircularThrobber: '◎', WidgetSwitcher: '⇆',
     };
     return icons[type] ?? '▪';
   }
@@ -1566,7 +2073,7 @@ export class WidgetBlueprintEditorPanel {
 
     if (!this._selectedWidgetId) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'color:#666;font-size:11px;padding:12px 0;';
+      empty.className = 'wbp-prop-empty';
       empty.textContent = 'Select a widget to edit its properties.';
       this._propsEl.appendChild(empty);
       return;
@@ -2227,17 +2734,26 @@ export class WidgetBlueprintEditorPanel {
 
   private _addPropHeader(label: string): void {
     const el = document.createElement('div');
-    el.style.cssText = 'font-weight:bold;font-size:11px;color:#aaa;margin-top:10px;margin-bottom:4px;padding-bottom:2px;border-bottom:1px solid #333;';
-    el.textContent = label;
+    el.className = 'wbp-prop-header';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'wbp-prop-header-arrow';
+    arrow.textContent = '▼';
+    el.appendChild(arrow);
+
+    const txt = document.createElement('span');
+    txt.textContent = label;
+    el.appendChild(txt);
+
     this._propsEl.appendChild(el);
   }
 
   private _addPropRow(label: string, input: HTMLElement): void {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;margin-bottom:3px;gap:4px;';
+    row.className = 'wbp-prop-row';
 
     const lbl = document.createElement('div');
-    lbl.style.cssText = 'font-size:11px;color:#999;width:80px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    lbl.className = 'wbp-prop-label';
     lbl.textContent = label;
     lbl.title = label;
 
@@ -2250,7 +2766,7 @@ export class WidgetBlueprintEditorPanel {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = value;
-    input.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:2px 4px;border-radius:3px;font-size:11px;min-width:0;';
+    input.className = 'wbp-prop-input';
     input.addEventListener('change', () => onChange(input.value));
     return input;
   }
@@ -2262,25 +2778,25 @@ export class WidgetBlueprintEditorPanel {
     input.min = String(min);
     input.max = String(max);
     input.step = String(step);
-    input.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:2px 4px;border-radius:3px;font-size:11px;min-width:0;width:60px;';
+    input.className = 'wbp-prop-input wbp-prop-num';
     input.addEventListener('change', () => onChange(parseFloat(input.value) || 0));
     return input;
   }
 
   private _makeColorInput(value: string, onChange: (v: string) => void): HTMLElement {
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:flex;gap:2px;flex:1;align-items:center;';
+    wrapper.className = 'wbp-prop-color-wrap';
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
     colorInput.value = value.startsWith('#') ? value.slice(0, 7) : '#ffffff';
-    colorInput.style.cssText = 'width:24px;height:20px;border:none;padding:0;cursor:pointer;background:none;';
+    colorInput.className = 'wbp-prop-color-swatch';
     colorInput.addEventListener('input', () => onChange(colorInput.value));
 
     const textInput = document.createElement('input');
     textInput.type = 'text';
     textInput.value = value;
-    textInput.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:2px 4px;border-radius:3px;font-size:11px;min-width:0;';
+    textInput.className = 'wbp-prop-input';
     textInput.addEventListener('change', () => {
       onChange(textInput.value);
       if (textInput.value.startsWith('#')) colorInput.value = textInput.value.slice(0, 7);
@@ -2295,14 +2811,14 @@ export class WidgetBlueprintEditorPanel {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = value;
-    input.style.cssText = 'cursor:pointer;';
+    input.className = 'wbp-prop-check';
     input.addEventListener('change', () => onChange(input.checked));
     return input;
   }
 
   private _makeSelect(options: string[], current: string, onChange: (v: string) => void): HTMLElement {
     const sel = document.createElement('select');
-    sel.style.cssText = 'flex:1;background:#111;border:1px solid #333;color:#ddd;padding:2px 4px;border-radius:3px;font-size:11px;min-width:0;';
+    sel.className = 'wbp-prop-select';
     for (const opt of options) {
       const o = document.createElement('option');
       o.value = opt;
@@ -2316,7 +2832,7 @@ export class WidgetBlueprintEditorPanel {
 
   private _makeLabel(text: string): HTMLElement {
     const el = document.createElement('div');
-    el.style.cssText = 'font-size:11px;color:#888;';
+    el.className = 'wbp-prop-label-static';
     el.textContent = text;
     return el;
   }

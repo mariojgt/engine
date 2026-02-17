@@ -4187,3 +4187,757 @@ html, body, #app {
   outline: none;
   font-family: monospace;
 }
+
+/* ============================================================
+   Widget Blueprint Editor — UE-inspired UI
+   ============================================================ */
+
+/* ── Root & Layout ── */
+.wbp-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-darkest);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.wbp-toolbar {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  min-height: 34px;
+  background: linear-gradient(180deg, #22223a 0%, #1a1a2e 100%);
+  border-bottom: 1px solid #111;
+  padding: 0 6px;
+  gap: 2px;
+  user-select: none;
+}
+
+.wbp-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Toolbar Buttons ── */
+.wbp-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wbp-toolbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.wbp-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #bbb;
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.wbp-tb-btn:hover {
+  background: rgba(255,255,255,.07);
+  border-color: rgba(255,255,255,.1);
+  color: #e0e0e0;
+}
+.wbp-tb-btn:active {
+  background: rgba(255,255,255,.12);
+}
+
+.wbp-tb-secondary {
+  color: #888;
+  font-size: 11px;
+}
+
+.wbp-tb-play {
+  color: #4ec959;
+  font-weight: 600;
+}
+.wbp-tb-play:hover {
+  color: #6aef75;
+  background: rgba(78, 201, 89, 0.1);
+}
+
+.wbp-tb-play-dd {
+  padding: 3px 3px;
+  font-size: 9px;
+  color: #888;
+  min-width: auto;
+}
+
+.wbp-tb-select {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #bbb;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.wbp-tb-select:hover {
+  border-color: #555;
+}
+
+.wbp-tb-sep {
+  width: 1px;
+  height: 20px;
+  background: #333;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.wbp-tb-icon {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  text-align: center;
+}
+
+/* ── Mode Toggle (Designer / Graph) ── */
+.wbp-tb-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #999;
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+.wbp-tb-mode-designer { border-radius: 3px 0 0 3px; border-right: none; }
+.wbp-tb-mode-graph    { border-radius: 0 3px 3px 0; }
+
+.wbp-tb-mode-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.wbp-tb-mode:not(.wbp-tb-mode-active):hover {
+  background: #252540;
+  color: #ccc;
+}
+
+/* ── Compile Button States ── */
+.wbp-compile-ok    .wbp-tb-icon { color: var(--success); }
+.wbp-compile-dirty .wbp-tb-icon { color: var(--warning); }
+.wbp-compile-error .wbp-tb-icon { color: var(--danger); }
+
+.wbp-compile-status {
+  font-size: 10px;
+  margin-left: 2px;
+  font-style: italic;
+}
+.wbp-status-ok    { color: var(--success); }
+.wbp-status-dirty { color: var(--warning); }
+.wbp-status-error { color: var(--danger); }
+
+/* ── Designer Layout (3-column) ── */
+.wbp-designer-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Left Panel ── */
+.wbp-left-panel {
+  width: 260px;
+  min-width: 200px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid #222;
+  overflow: hidden;
+}
+
+.wbp-left-top {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 2px solid #222;
+  overflow: hidden;
+}
+
+.wbp-left-bottom {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Panel Tabs (shared between left/right sections) ── */
+.wbp-panel-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  min-height: 28px;
+  background: #181828;
+  border-bottom: 1px solid #222;
+}
+
+.wbp-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-family: var(--font);
+  color: #888;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .12s, border-color .12s;
+}
+.wbp-panel-tab:hover {
+  color: #ccc;
+}
+.wbp-panel-tab.active {
+  color: #e0e0e0;
+  border-bottom-color: var(--accent);
+}
+
+.wbp-panel-tab-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-family: var(--font);
+  color: #777;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  margin-left: auto;
+}
+.wbp-panel-tab-action:hover { color: var(--accent); }
+
+.wbp-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  font-size: 14px;
+  color: #555;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.wbp-panel-close:hover { color: #e74c3c; }
+
+.wbp-panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── Search Box ── */
+.wbp-search-box {
+  display: flex;
+  align-items: center;
+  margin: 4px 6px;
+  background: #13131f;
+  border: 1px solid #2a2a40;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.wbp-search-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  color: #555;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.wbp-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 4px 4px 4px 0;
+  outline: none;
+}
+.wbp-search-input::placeholder {
+  color: #555;
+}
+
+/* ── Palette ── */
+.wbp-palette-items {
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.wbp-palette-cat {}
+
+.wbp-palette-cat-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  user-select: none;
+  transition: color .1s;
+}
+.wbp-palette-cat-header:hover {
+  color: #bbb;
+}
+
+.wbp-palette-arrow {
+  display: inline-flex;
+  width: 12px;
+  font-size: 8px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.wbp-palette-cat-body {
+  padding-left: 4px;
+}
+
+.wbp-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 24px;
+  font-size: 11px;
+  color: #bbb;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background .1s;
+}
+.wbp-palette-item:hover {
+  background: rgba(91,138,245,.15);
+  color: #e0e0f0;
+}
+
+.wbp-palette-item-icon {
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+/* ── Hierarchy Tree ── */
+.wbp-hierarchy-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 0;
+}
+
+.wbp-hier-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  font-size: 11px;
+  color: #bbb;
+  cursor: pointer;
+  border-radius: 2px;
+  padding-right: 4px;
+  transition: background .1s;
+}
+.wbp-hier-row:hover {
+  background: rgba(91,138,245,.10);
+}
+.wbp-hier-row.selected {
+  background: rgba(74, 158, 255, 0.2);
+  color: #fff;
+}
+
+.wbp-hier-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 8px;
+  color: #666;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.wbp-hier-check {
+  font-size: 11px;
+  color: #555;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.wbp-hier-check:hover { color: #aaa; }
+
+.wbp-hier-icon {
+  font-size: 11px;
+  color: #888;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.wbp-hier-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wbp-hier-actions {
+  display: none;
+  font-size: 10px;
+  color: #555;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.wbp-hier-row:hover .wbp-hier-actions {
+  display: inline-flex;
+}
+
+/* ── Center Area ── */
+.wbp-center-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0e0e18;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Designer Toolbar ── */
+.wbp-designer-toolbar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  min-height: 30px;
+  background: #1a1a2a;
+  border-bottom: 1px solid #222;
+  padding: 0 6px;
+  gap: 2px;
+  user-select: none;
+}
+
+.wbp-dt-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wbp-dt-label {
+  font-size: 10px;
+  color: #888;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.wbp-dt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #888;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all .1s;
+  font-family: var(--font);
+}
+.wbp-dt-btn:hover {
+  background: rgba(255,255,255,.06);
+  border-color: #444;
+  color: #ccc;
+}
+
+.wbp-dt-sep {
+  width: 1px;
+  height: 18px;
+  background: #333;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.wbp-dt-select {
+  background: #141425;
+  border: 1px solid #333;
+  color: #bbb;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.wbp-dt-screen-icon {
+  font-size: 14px;
+  color: #666;
+  margin-right: 2px;
+}
+
+.wbp-dt-screen {
+  cursor: pointer;
+}
+
+/* ── Canvas Wrapper ── */
+.wbp-canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #0e0e18;
+}
+
+.wbp-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.wbp-zoom-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  font-size: 10px;
+  color: #666;
+  background: rgba(0,0,0,.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+}
+
+.wbp-dpi-label {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 10px;
+  color: #666;
+  background: rgba(0,0,0,.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: none;
+  z-index: 2;
+}
+
+.wbp-dpi-gear {
+  cursor: pointer;
+  color: #888;
+  margin-left: 2px;
+}
+.wbp-dpi-gear:hover { color: var(--accent); }
+
+/* ── Right Panel (Details) ── */
+.wbp-right-panel {
+  width: 280px;
+  min-width: 220px;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-left: 1px solid #222;
+  overflow: hidden;
+}
+
+.wbp-details-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 12px;
+}
+
+/* ── Library Placeholder ── */
+.wbp-library-placeholder {
+  padding: 16px 12px;
+  font-size: 11px;
+  color: #555;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ── Property Panel ── */
+.wbp-prop-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 10px;
+  margin-bottom: 4px;
+  padding: 3px 0 3px 2px;
+  border-bottom: 1px solid #2a2a3e;
+  cursor: pointer;
+  user-select: none;
+}
+.wbp-prop-header:hover {
+  color: #ddd;
+}
+.wbp-prop-header:first-child {
+  margin-top: 2px;
+}
+
+.wbp-prop-header-arrow {
+  font-size: 8px;
+  color: #666;
+  width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wbp-prop-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+  gap: 4px;
+  min-height: 22px;
+}
+
+.wbp-prop-label {
+  font-size: 11px;
+  color: #888;
+  width: 80px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wbp-prop-input {
+  flex: 1;
+  background: #141425;
+  border: 1px solid #2a2a40;
+  color: #ddd;
+  padding: 3px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: var(--font);
+  min-width: 0;
+  outline: none;
+  transition: border-color .15s;
+}
+.wbp-prop-input:focus {
+  border-color: var(--accent);
+}
+
+.wbp-prop-num {
+  width: 60px;
+}
+
+.wbp-prop-color-wrap {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  align-items: center;
+}
+
+.wbp-prop-color-swatch {
+  width: 24px;
+  height: 22px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+.wbp-prop-check {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.wbp-prop-select {
+  flex: 1;
+  background: #141425;
+  border: 1px solid #2a2a40;
+  color: #ddd;
+  padding: 3px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: var(--font);
+  min-width: 0;
+  outline: none;
+  cursor: pointer;
+}
+.wbp-prop-select:focus {
+  border-color: var(--accent);
+}
+
+.wbp-prop-label-static {
+  font-size: 11px;
+  color: #888;
+}
+
+.wbp-prop-empty {
+  color: #555;
+  font-size: 11px;
+  padding: 16px 4px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ── Scrollbar styling for wbp panels ── */
+.wbp-left-panel ::-webkit-scrollbar,
+.wbp-right-panel ::-webkit-scrollbar,
+.wbp-hierarchy-tree::-webkit-scrollbar,
+.wbp-palette-items::-webkit-scrollbar,
+.wbp-details-content::-webkit-scrollbar {
+  width: 6px;
+}
+.wbp-left-panel ::-webkit-scrollbar-track,
+.wbp-right-panel ::-webkit-scrollbar-track,
+.wbp-hierarchy-tree::-webkit-scrollbar-track,
+.wbp-palette-items::-webkit-scrollbar-track,
+.wbp-details-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.wbp-left-panel ::-webkit-scrollbar-thumb,
+.wbp-right-panel ::-webkit-scrollbar-thumb,
+.wbp-hierarchy-tree::-webkit-scrollbar-thumb,
+.wbp-palette-items::-webkit-scrollbar-thumb,
+.wbp-details-content::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.08);
+  border-radius: 3px;
+}
+.wbp-left-panel ::-webkit-scrollbar-thumb:hover,
+.wbp-right-panel ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,.15);
+}

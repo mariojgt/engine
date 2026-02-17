@@ -1,0 +1,1548 @@
+I want to add a complete 2D scene mode to my existing 3D game engine, exactly like Unreal Engine's Paper2D system. The 2D system should reuse ALL existing engine systems (blueprint nodes, animation graph, physics, widgets, casting, class inheritance, content browser, project save/load) but adapted for 2D. This means 2D actors, sprites, tilemaps, 2D physics, 2D camera, and a 2D animation system that reuses the existing animation graph architecture.
+IMPORTANT: Please consider the current architecture and what we've already implemented:
+
+Three.js rendering engine (3D)
+Actor system with components
+Blueprint/Node visual programming system
+Animation Graph (state machine, blend spaces)
+Physics system (Cannon.js/Rapier)
+Widget/UI system
+Casting and reference system
+Class inheritance system
+Scene composition system (lights, skybox, etc.)
+Viewport navigation system
+Content Browser
+Project save/load system
+JSON storage
+FBX/GLTF import system
+Socket/attachment system
+
+YES - All existing systems can be reused for 2D with adaptations.
+
+Research: How to Build 2D in Three.js
+Three.js 2D Approach (Best Practices):
+Three.js is 3D but perfect for 2D because:
+
+Option 1: Orthographic Camera (RECOMMENDED)
+├── Use THREE.OrthographicCamera instead of PerspectiveCamera
+├── Lock Z-axis movement (depth = layer order)
+├── All objects are flat planes (PlaneGeometry)
+├── Use Z position for draw order (sprites stacked)
+├── Physics runs in 2D (X/Y only)
+├── Perfect for platformers, top-down, puzzle games
+└── Full Three.js features available (shaders, post-fx)
+
+Option 2: Pure CSS/Canvas 2D (NOT recommended)
+└── Would require rewriting everything, loses engine features
+
+Option 3: Three.js Sprites
+├── THREE.Sprite for billboard sprites
+└── Less control than PlaneGeometry approach
+
+BEST APPROACH: OrthographicCamera + PlaneGeometry
+├── Sprites = PlaneGeometry + MeshBasicMaterial (texture)
+├── Layers = Z-position (0.001 increments)
+├── Physics = 2D wrapper (ignore Z axis)
+├── Animation = Sprite sheet UV animation
+└── Camera = OrthographicCamera with 2D controls
+Coordinate System for 2D:
+3D Engine:          2D Mode:
+X = Right           X = Right (same)
+Y = Up              Y = Up (same)
+Z = Forward/Back    Z = Draw Layer (0-100)
+
+2D World Space:
+├── X: -∞ to +∞ (horizontal)
+├── Y: -∞ to +∞ (vertical)
+└── Z: 0.0 to 100.0 (layer depth)
+    ├── 0.0 = Background
+    ├── 50.0 = Midground
+    └── 100.0 = Foreground
+
+2D Scene Mode Architecture
+Switching Between 2D and 3D
+Scene Type Selection:
+New Scene Dialog:
+┌─────────────────────────────────────────────────────────┐
+│ Create New Scene                                         │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  Scene Type:                                            │
+│                                                          │
+│  ┌──────────────┐    ┌──────────────┐                  │
+│  │   🎮 3D      │    │   📺 2D      │                  │
+│  │              │    │              │                  │
+│  │  Perspective │    │ Orthographic │                  │
+│  │  Camera      │    │ Camera       │                  │
+│  │              │    │              │                  │
+│  │  Actors,     │    │  Sprites,    │                  │
+│  │  Meshes,     │    │  Tilemaps,   │                  │
+│  │  Lights      │    │  Layers      │                  │
+│  └──────────────┘    └──────────────┘                  │
+│     (selected)            ↑ click                       │
+│                                                          │
+│  Name: [MyGame2D]                                       │
+│  Template:                                              │
+│  ├── [Blank]                                            │
+│  ├── [Platformer]                                       │
+│  ├── [Top Down]                                         │
+│  └── [Puzzle]                                           │
+│                                                          │
+│  [Create Scene]                                         │
+└─────────────────────────────────────────────────────────┘
+Scene Mode JSON:
+json{
+  "sceneId": "2d-scene-001",
+  "sceneName": "MyPlatformerScene",
+  "sceneMode": "2D",
+  "sceneVersion": 1,
+  "renderSettings": {
+    "cameraType": "orthographic",
+    "pixelsPerUnit": 100,
+    "referenceResolution": {
+      "width": 1920,
+      "height": 1080
+    },
+    "backgroundColor": "#1A1A2E",
+    "sortingMode": "zPosition"
+  },
+  "worldSettings": {
+    "gravity": {"x": 0, "y": -980},
+    "physicsMode": "2D",
+    "pixelsPerUnit": 100
+  }
+}
+
+2D Camera System
+Orthographic Camera Setup:
+javascriptclass Camera2D {
+  constructor(renderer, settings = {}) {
+    this.renderer = renderer;
+    this.settings = {
+      pixelsPerUnit: settings.pixelsPerUnit || 100,
+      zoom: settings.zoom || 1.0,
+      position: settings.position || { x: 0, y: 0 },
+      ...settings
+    };
+
+    this.setupCamera();
+    this.setupControls();
+  }
+
+  setupCamera() {
+    const aspect = window.innerWidth / window.innerHeight;
+    const viewHeight = window.innerHeight / this.settings.pixelsPerUnit;
+    const viewWidth = viewHeight * aspect;
+
+    this.camera = new THREE.OrthographicCamera(
+      -viewWidth / 2 * this.settings.zoom,   // left
+       viewWidth / 2 * this.settings.zoom,   // right
+       viewHeight / 2 * this.settings.zoom,  // top
+      -viewHeight / 2 * this.settings.zoom,  // bottom
+      -1000,                                  // near
+       1000                                   // far
+    );
+
+    this.camera.position.set(
+      this.settings.position.x,
+      this.settings.position.y,
+      100  // Z offset to see all layers
+    );
+
+    this.camera.lookAt(
+      this.settings.position.x,
+      this.settings.position.y,
+      0
+    );
+  }
+
+  setupControls() {
+    // 2D viewport navigation
+    this.isPanning = false;
+    this.lastMousePos = new THREE.Vector2();
+
+    const canvas = this.renderer.domElement;
+
+    // Middle mouse pan
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 1) {
+        this.isPanning = true;
+        this.lastMousePos.set(e.clientX, e.clientY);
+        e.preventDefault();
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      this.isPanning = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!this.isPanning) return;
+
+      const dx = (e.clientX - this.lastMousePos.x) / this.settings.pixelsPerUnit;
+      const dy = (e.clientY - this.lastMousePos.y) / this.settings.pixelsPerUnit;
+
+      this.camera.position.x -= dx * this.settings.zoom;
+      this.camera.position.y += dy * this.settings.zoom;
+
+      this.lastMousePos.set(e.clientX, e.clientY);
+    });
+
+    // Scroll to zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+      this.setZoom(this.settings.zoom * zoomFactor);
+    });
+
+    // Keyboard pan (Arrow keys)
+    window.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName === 'INPUT') return;
+      const speed = 5 * this.settings.zoom;
+      switch (e.key) {
+        case 'ArrowLeft':  this.camera.position.x -= speed; break;
+        case 'ArrowRight': this.camera.position.x += speed; break;
+        case 'ArrowUp':    this.camera.position.y += speed; break;
+        case 'ArrowDown':  this.camera.position.y -= speed; break;
+        case 'f': case 'F': this.focusOnSelection(); break;
+      }
+    });
+  }
+
+  setZoom(zoom) {
+    this.settings.zoom = Math.max(0.1, Math.min(20, zoom));
+    const aspect = window.innerWidth / window.innerHeight;
+    const viewHeight = window.innerHeight / this.settings.pixelsPerUnit;
+    const viewWidth = viewHeight * aspect;
+
+    this.camera.left   = -viewWidth  / 2 * this.settings.zoom;
+    this.camera.right  =  viewWidth  / 2 * this.settings.zoom;
+    this.camera.top    =  viewHeight / 2 * this.settings.zoom;
+    this.camera.bottom = -viewHeight / 2 * this.settings.zoom;
+
+    this.camera.updateProjectionMatrix();
+  }
+
+  worldToScreen(worldPos) {
+    const vector = new THREE.Vector3(worldPos.x, worldPos.y, 0);
+    vector.project(this.camera);
+
+    return {
+      x: (vector.x + 1) / 2 * window.innerWidth,
+      y: (-vector.y + 1) / 2 * window.innerHeight
+    };
+  }
+
+  screenToWorld(screenPos) {
+    const vector = new THREE.Vector3(
+      (screenPos.x / window.innerWidth) * 2 - 1,
+      -((screenPos.y / window.innerHeight) * 2 - 1),
+      0
+    );
+    vector.unproject(this.camera);
+
+    return { x: vector.x, y: vector.y };
+  }
+
+  focusOnSelection(objects) {
+    if (!objects || objects.length === 0) return;
+
+    const box = new THREE.Box3();
+    objects.forEach(obj => box.expandByObject(obj));
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    this.camera.position.x = center.x;
+    this.camera.position.y = center.y;
+
+    const requiredZoom = Math.max(
+      size.x / (window.innerWidth / this.settings.pixelsPerUnit),
+      size.y / (window.innerHeight / this.settings.pixelsPerUnit)
+    ) * 1.5;
+
+    this.setZoom(requiredZoom);
+  }
+
+  follow(target, smoothing = 0.1) {
+    // Camera follow for runtime
+    this.followTarget = target;
+    this.followSmoothing = smoothing;
+  }
+
+  update(deltaTime) {
+    if (this.followTarget) {
+      const targetX = this.followTarget.position.x;
+      const targetY = this.followTarget.position.y;
+
+      this.camera.position.x += (targetX - this.camera.position.x) * this.followSmoothing;
+      this.camera.position.y += (targetY - this.camera.position.y) * this.followSmoothing;
+    }
+  }
+}
+
+2D Actor System
+Sprite Actor (Core 2D Actor)
+Sprite Actor JSON:
+json{
+  "actorId": "sprite-player-001",
+  "actorName": "Player2D",
+  "actorType": "SpriteActor",
+  "sceneMode": "2D",
+  "parentClass": "Character2D",
+  "transform": {
+    "position": {"x": 0, "y": 0, "z": 10},
+    "rotation": {"z": 0},
+    "scale": {"x": 1, "y": 1}
+  },
+  "components": [
+    {
+      "componentId": "sprite-comp",
+      "type": "SpriteRenderer",
+      "spriteSheet": "player-spritesheet",
+      "sprite": "player-idle-frame-0",
+      "color": "#FFFFFF",
+      "flipX": false,
+      "flipY": false,
+      "sortingLayer": "Characters",
+      "orderInLayer": 0,
+      "pixelsPerUnit": 100,
+      "pivot": {"x": 0.5, "y": 0.5}
+    },
+    {
+      "componentId": "anim-comp",
+      "type": "SpriteAnimator",
+      "animationBlueprint": "abp-player-2d",
+      "defaultAnimation": "Idle"
+    },
+    {
+      "componentId": "collision-comp",
+      "type": "BoxCollider2D",
+      "size": {"x": 0.8, "y": 1.8},
+      "offset": {"x": 0, "y": 0},
+      "isTrigger": false
+    },
+    {
+      "componentId": "physics-comp",
+      "type": "RigidBody2D",
+      "bodyType": "Dynamic",
+      "mass": 1.0,
+      "gravityScale": 1.0,
+      "linearDrag": 0,
+      "angularDrag": 0.05,
+      "freezeRotation": true
+    },
+    {
+      "componentId": "movement-comp",
+      "type": "CharacterMovement2D",
+      "moveSpeed": 300,
+      "jumpForce": 600,
+      "maxJumps": 2,
+      "coyoteTime": 0.1,
+      "jumpBuffer": 0.1
+    }
+  ],
+  "variables": [
+    {"name": "health", "type": "float", "value": 100},
+    {"name": "speed", "type": "float", "value": 0},
+    {"name": "isGrounded", "type": "boolean", "value": false},
+    {"name": "isJumping", "type": "boolean", "value": false},
+    {"name": "facingRight", "type": "boolean", "value": true}
+  ],
+  "nodes": []
+}
+
+2D Component System
+SpriteRenderer Component
+javascriptclass SpriteRenderer {
+  constructor(actor, properties = {}) {
+    this.actor = actor;
+    this.type = 'SpriteRenderer';
+
+    this.properties = {
+      texture: null,
+      color: '#FFFFFF',
+      flipX: false,
+      flipY: false,
+      sortingLayer: 'Default',
+      orderInLayer: 0,
+      pixelsPerUnit: 100,
+      pivot: { x: 0.5, y: 0.5 },
+      ...properties
+    };
+
+    this.mesh = null;
+    this.material = null;
+
+    this.create();
+  }
+
+  create() {
+    const ppu = this.properties.pixelsPerUnit;
+
+    let width = 1;
+    let height = 1;
+
+    if (this.properties.texture) {
+      const tex = this.properties.texture;
+      width = tex.image.width / ppu;
+      height = tex.image.height / ppu;
+    }
+
+    // Create plane geometry (the sprite quad)
+    const geometry = new THREE.PlaneGeometry(width, height);
+
+    // Adjust pivot point
+    const pivotOffsetX = (0.5 - this.properties.pivot.x) * width;
+    const pivotOffsetY = (0.5 - this.properties.pivot.y) * height;
+    geometry.translate(pivotOffsetX, pivotOffsetY, 0);
+
+    // Sprite material
+    this.material = new THREE.MeshBasicMaterial({
+      map: this.properties.texture,
+      color: new THREE.Color(this.properties.color),
+      transparent: true,
+      alphaTest: 0.01,
+      side: THREE.DoubleSide
+    });
+
+    this.mesh = new THREE.Mesh(geometry, this.material);
+    this.mesh.userData.componentType = 'SpriteRenderer';
+    this.mesh.userData.isActor = true;
+    this.mesh.userData.actorId = this.actor.actorId;
+
+    // Apply flip
+    if (this.properties.flipX) this.mesh.scale.x = -1;
+    if (this.properties.flipY) this.mesh.scale.y = -1;
+
+    // Set Z based on layer
+    this.updateSortingOrder();
+
+    this.actor.group.add(this.mesh);
+  }
+
+  updateSortingOrder() {
+    // Use Z position for sorting
+    // Higher Z = drawn on top
+    const layerZ = this.getSortingLayerZ(this.properties.sortingLayer);
+    const orderZ = this.properties.orderInLayer * 0.001;
+    this.mesh.position.z = layerZ + orderZ;
+  }
+
+  getSortingLayerZ(layerName) {
+    const layers = {
+      'Background': 0,
+      'BackgroundDetail': 1,
+      'Ground': 10,
+      'Default': 20,
+      'Characters': 30,
+      'Projectiles': 40,
+      'Effects': 50,
+      'UI': 90,
+      'Overlay': 100
+    };
+    return layers[layerName] ?? 20;
+  }
+
+  setSprite(texture) {
+    this.properties.texture = texture;
+    this.material.map = texture;
+    this.material.needsUpdate = true;
+
+    // Update size from texture
+    const ppu = this.properties.pixelsPerUnit;
+    const width = texture.image.width / ppu;
+    const height = texture.image.height / ppu;
+
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = new THREE.PlaneGeometry(width, height);
+  }
+
+  setColor(color) {
+    this.properties.color = color;
+    this.material.color.set(color);
+  }
+
+  setFlipX(flip) {
+    this.properties.flipX = flip;
+    this.mesh.scale.x = flip ? -1 : 1;
+  }
+
+  setOpacity(opacity) {
+    this.material.opacity = opacity;
+  }
+
+  setUVRect(x, y, width, height) {
+    // For sprite sheet animation
+    const uv = this.mesh.geometry.attributes.uv;
+
+    uv.setXY(0, x, y + height);
+    uv.setXY(1, x + width, y + height);
+    uv.setXY(2, x, y);
+    uv.setXY(3, x + width, y);
+
+    uv.needsUpdate = true;
+  }
+}
+RigidBody2D Component
+javascriptclass RigidBody2D {
+  constructor(actor, properties = {}) {
+    this.actor = actor;
+    this.type = 'RigidBody2D';
+
+    this.properties = {
+      bodyType: 'Dynamic', // Dynamic, Static, Kinematic
+      mass: 1.0,
+      gravityScale: 1.0,
+      linearDrag: 0,
+      angularDrag: 0.05,
+      freezeRotation: true,
+      ...properties
+    };
+
+    // Physics state (pure 2D)
+    this.velocity = new THREE.Vector2(0, 0);
+    this.acceleration = new THREE.Vector2(0, 0);
+    this.force = new THREE.Vector2(0, 0);
+    this.angularVelocity = 0;
+
+    this.isGrounded = false;
+    this.isTouching = {
+      left: false,
+      right: false,
+      top: false,
+      bottom: false
+    };
+  }
+
+  addForce(x, y) {
+    if (this.properties.bodyType !== 'Dynamic') return;
+    this.force.x += x;
+    this.force.y += y;
+  }
+
+  addImpulse(x, y) {
+    if (this.properties.bodyType !== 'Dynamic') return;
+    this.velocity.x += x / this.properties.mass;
+    this.velocity.y += y / this.properties.mass;
+  }
+
+  setVelocity(x, y) {
+    this.velocity.set(x, y);
+  }
+
+  setVelocityX(x) {
+    this.velocity.x = x;
+  }
+
+  setVelocityY(y) {
+    this.velocity.y = y;
+  }
+
+  update(deltaTime, gravity) {
+    if (this.properties.bodyType !== 'Dynamic') return;
+
+    // Apply gravity
+    this.force.y += gravity * this.properties.gravityScale * this.properties.mass;
+
+    // Apply forces to velocity
+    this.acceleration.x = this.force.x / this.properties.mass;
+    this.acceleration.y = this.force.y / this.properties.mass;
+
+    this.velocity.x += this.acceleration.x * deltaTime;
+    this.velocity.y += this.acceleration.y * deltaTime;
+
+    // Apply drag
+    this.velocity.x *= Math.max(0, 1 - this.properties.linearDrag * deltaTime);
+    this.velocity.y *= Math.max(0, 1 - this.properties.linearDrag * deltaTime);
+
+    // Move actor
+    this.actor.group.position.x += this.velocity.x * deltaTime;
+    this.actor.group.position.y += this.velocity.y * deltaTime;
+
+    // Reset forces
+    this.force.set(0, 0);
+  }
+}
+BoxCollider2D Component
+javascriptclass BoxCollider2D {
+  constructor(actor, properties = {}) {
+    this.actor = actor;
+    this.type = 'BoxCollider2D';
+
+    this.properties = {
+      size: { x: 1, y: 1 },
+      offset: { x: 0, y: 0 },
+      isTrigger: false,
+      layer: 'Default',
+      ...properties
+    };
+
+    this.debugMesh = this.createDebugMesh();
+  }
+
+  createDebugMesh() {
+    const geo = new THREE.EdgesGeometry(
+      new THREE.BoxGeometry(
+        this.properties.size.x,
+        this.properties.size.y,
+        0.01
+      )
+    );
+    const mat = new THREE.LineBasicMaterial({
+      color: this.properties.isTrigger ? 0x00FFFF : 0x00FF00,
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false
+    });
+
+    const mesh = new THREE.LineSegments(geo, mat);
+    mesh.position.x = this.properties.offset.x;
+    mesh.position.y = this.properties.offset.y;
+    mesh.position.z = 200;
+    mesh.visible = false;
+    mesh.userData.isDebugGizmo = true;
+
+    this.actor.group.add(mesh);
+    return mesh;
+  }
+
+  getBounds() {
+    const worldPos = new THREE.Vector3();
+    this.actor.group.getWorldPosition(worldPos);
+
+    const halfW = this.properties.size.x / 2;
+    const halfH = this.properties.size.y / 2;
+    const offsetX = this.properties.offset.x;
+    const offsetY = this.properties.offset.y;
+
+    return {
+      left:   worldPos.x + offsetX - halfW,
+      right:  worldPos.x + offsetX + halfW,
+      top:    worldPos.y + offsetY + halfH,
+      bottom: worldPos.y + offsetY - halfH,
+      centerX: worldPos.x + offsetX,
+      centerY: worldPos.y + offsetY
+    };
+  }
+
+  intersects(other) {
+    const a = this.getBounds();
+    const b = other.getBounds();
+
+    return a.left < b.right &&
+           a.right > b.left &&
+           a.bottom < b.top &&
+           a.top > b.bottom;
+  }
+
+  getOverlap(other) {
+    const a = this.getBounds();
+    const b = other.getBounds();
+
+    const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const overlapY = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+
+    return { x: overlapX, y: overlapY };
+  }
+
+  setDebugVisible(visible) {
+    this.debugMesh.visible = visible;
+  }
+}
+
+2D Sprite Sheet System
+Sprite Sheet Asset:
+json{
+  "assetId": "ss-player",
+  "assetType": "spriteSheet",
+  "assetName": "Player_SpriteSheet",
+  "sourceTexture": "player-spritesheet.png",
+  "textureWidth": 512,
+  "textureHeight": 256,
+  "pixelsPerUnit": 100,
+  "sprites": [
+    {
+      "spriteId": "idle-0",
+      "name": "Idle_0",
+      "x": 0, "y": 192,
+      "width": 64, "height": 64,
+      "pivot": {"x": 0.5, "y": 0}
+    },
+    {
+      "spriteId": "idle-1",
+      "name": "Idle_1",
+      "x": 64, "y": 192,
+      "width": 64, "height": 64,
+      "pivot": {"x": 0.5, "y": 0}
+    },
+    {
+      "spriteId": "run-0",
+      "name": "Run_0",
+      "x": 0, "y": 128,
+      "width": 64, "height": 64,
+      "pivot": {"x": 0.5, "y": 0}
+    }
+  ],
+  "animations": [
+    {
+      "animId": "anim-idle",
+      "animName": "Idle",
+      "frames": ["idle-0", "idle-1", "idle-2", "idle-3"],
+      "fps": 8,
+      "loop": true
+    },
+    {
+      "animId": "anim-run",
+      "animName": "Run",
+      "frames": ["run-0", "run-1", "run-2", "run-3", "run-4", "run-5"],
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "animId": "anim-jump",
+      "animName": "Jump",
+      "frames": ["jump-0", "jump-1", "jump-2"],
+      "fps": 8,
+      "loop": false
+    },
+    {
+      "animId": "anim-fall",
+      "animName": "Fall",
+      "frames": ["fall-0", "fall-1"],
+      "fps": 8,
+      "loop": true
+    },
+    {
+      "animId": "anim-attack",
+      "animName": "Attack",
+      "frames": ["attack-0", "attack-1", "attack-2", "attack-3", "attack-4"],
+      "fps": 16,
+      "loop": false
+    }
+  ]
+}
+```
+
+**Sprite Sheet Editor:**
+```
+Sprite Sheet Editor: Player_SpriteSheet
+
+┌──────────────────────────────────────────────────────┐
+│ [Texture View]                  [Sprite List]        │
+│                                                       │
+│  ┌─────────────────────────┐   ├── Idle_0  (64x64)  │
+│  │ 📷 Texture: 512x256     │   ├── Idle_1  (64x64)  │
+│  │                         │   ├── Idle_2  (64x64)  │
+│  │ [■][■][■][■] ← Idle Row │   ├── Run_0   (64x64)  │
+│  │ [■][■][■][■] ← Run Row  │   ├── Run_1   (64x64)  │
+│  │ [■][■][■]    ← Jump     │   └── ...              │
+│  │                         │                         │
+│  └─────────────────────────┘   [+ Slice Automatic]  │
+│                                 [+ Slice by Grid]   │
+│                                 [+ Add Sprite]       │
+│                                                       │
+│ [Animation List]                                     │
+│ ├── Idle (4 frames, 8fps) ▶                         │
+│ ├── Run (6 frames, 12fps) ▶                         │
+│ ├── Jump (3 frames, 8fps) ▶                         │
+│ └── [+ New Animation]                               │
+│                                                       │
+│ [Preview Animation: Idle ▼] ▶️ Playing               │
+└──────────────────────────────────────────────────────┘
+
+2D Animation Graph (Reuses Existing System!)
+The key insight: The existing Animation Graph architecture is REUSED for 2D, just with sprite frames instead of skeletal poses.
+2D Animation Blueprint:
+json{
+  "assetId": "abp-player-2d",
+  "assetType": "animationBlueprint2D",
+  "assetName": "ABP_Player2D",
+  "spriteSheet": "ss-player",
+  "variables": [
+    {"name": "speed",      "type": "float",   "default": 0.0},
+    {"name": "isGrounded", "type": "boolean", "default": true},
+    {"name": "isJumping",  "type": "boolean", "default": false},
+    {"name": "isFalling",  "type": "boolean", "default": false},
+    {"name": "isAttacking","type": "boolean", "default": false}
+  ],
+  "eventGraph": {
+    "nodes": [
+      {
+        "nodeId": "event-update",
+        "nodeType": "EventUpdateAnimation2D",
+        "outputs": {"exec": ["get-owner"]}
+      },
+      {
+        "nodeId": "get-owner",
+        "nodeType": "TryGetOwner",
+        "outputs": {"exec": ["cast-player"], "owner": "cast-player"}
+      },
+      {
+        "nodeId": "cast-player",
+        "nodeType": "Cast",
+        "parameters": {"targetClass": "player-2d-class"},
+        "outputs": {
+          "success": ["get-vel", "get-grounded"],
+          "castedObject": ["get-vel", "get-grounded"]
+        }
+      },
+      {
+        "nodeId": "get-vel",
+        "nodeType": "GetVelocity2D",
+        "inputs": {"target": "cast-player.castedObject"},
+        "outputs": {"velocity": "get-speed"}
+      },
+      {
+        "nodeId": "get-speed",
+        "nodeType": "Vector2Length",
+        "inputs": {"vector": "get-vel.velocity"},
+        "outputs": {"length": "set-speed"}
+      },
+      {
+        "nodeId": "set-speed",
+        "nodeType": "SetVariable",
+        "parameters": {"variableName": "speed"},
+        "inputs": {"value": "get-speed.length"}
+      },
+      {
+        "nodeId": "get-grounded",
+        "nodeType": "IsGrounded2D",
+        "inputs": {"target": "cast-player.castedObject"},
+        "outputs": {"result": "set-grounded"}
+      },
+      {
+        "nodeId": "set-grounded",
+        "nodeType": "SetVariable",
+        "parameters": {"variableName": "isGrounded"},
+        "inputs": {"value": "get-grounded.result"}
+      }
+    ]
+  },
+  "animationGraph": {
+    "stateMachines": [
+      {
+        "stateMachineId": "sm-locomotion",
+        "stateMachineName": "Locomotion",
+        "states": [
+          {
+            "stateId": "state-idle",
+            "stateName": "Idle",
+            "animation2D": "anim-idle",
+            "loop": true,
+            "position": {"x": 100, "y": 100}
+          },
+          {
+            "stateId": "state-run",
+            "stateName": "Run",
+            "animation2D": "anim-run",
+            "loop": true,
+            "position": {"x": 300, "y": 100}
+          },
+          {
+            "stateId": "state-jump",
+            "stateName": "Jump",
+            "animation2D": "anim-jump",
+            "loop": false,
+            "position": {"x": 200, "y": 250}
+          },
+          {
+            "stateId": "state-fall",
+            "stateName": "Fall",
+            "animation2D": "anim-fall",
+            "loop": true,
+            "position": {"x": 400, "y": 250}
+          },
+          {
+            "stateId": "state-attack",
+            "stateName": "Attack",
+            "animation2D": "anim-attack",
+            "loop": false,
+            "position": {"x": 200, "y": 0}
+          }
+        ],
+        "transitions": [
+          {
+            "from": "state-idle",
+            "to": "state-run",
+            "condition": "speed > 10",
+            "blendTime": 0.05
+          },
+          {
+            "from": "state-run",
+            "to": "state-idle",
+            "condition": "speed < 10",
+            "blendTime": 0.05
+          },
+          {
+            "from": "*",
+            "to": "state-jump",
+            "condition": "isJumping == true && isGrounded == false",
+            "blendTime": 0.0,
+            "priority": 10
+          },
+          {
+            "from": "state-jump",
+            "to": "state-fall",
+            "condition": "velocityY < 0",
+            "blendTime": 0.0
+          },
+          {
+            "from": "*",
+            "to": "state-idle",
+            "condition": "isGrounded == true && isJumping == false",
+            "blendTime": 0.1,
+            "priority": 5
+          },
+          {
+            "from": "*",
+            "to": "state-attack",
+            "condition": "isAttacking == true",
+            "blendTime": 0.0,
+            "priority": 15
+          }
+        ],
+        "entryState": "state-idle"
+      }
+    ]
+  }
+}
+2D Animation Instance (Reuses Architecture):
+javascriptclass AnimationInstance2D {
+  constructor(animationBlueprint, spriteRenderer) {
+    this.blueprint = animationBlueprint;
+    this.spriteRenderer = spriteRenderer;
+    this.spriteSheet = null;
+
+    this.variables = {};
+    this.currentState = null;
+    this.currentFrame = 0;
+    this.frameTimer = 0;
+    this.currentAnimation = null;
+
+    this.stateMachine = null;
+
+    this.initialize();
+  }
+
+  initialize() {
+    // Load sprite sheet
+    this.spriteSheet = this.loadSpriteSheet(
+      this.blueprint.spriteSheet
+    );
+
+    // Initialize variables (SAME AS 3D!)
+    this.blueprint.variables.forEach(v => {
+      this.variables[v.name] = v.default;
+    });
+
+    // Setup state machine (SAME ARCHITECTURE AS 3D!)
+    this.stateMachine = this.blueprint.animationGraph.stateMachines[0];
+    this.currentState = this.stateMachine.entryState;
+  }
+
+  update(deltaTime, owner) {
+    // Execute Event Graph (SAME AS 3D!)
+    this.executeEventGraph(owner);
+
+    // Evaluate State Machine (SAME AS 3D!)
+    this.evaluateStateMachine();
+
+    // Update current animation frame
+    this.updateFrame(deltaTime);
+  }
+
+  executeEventGraph(owner) {
+    // Get speed from owner
+    if (owner?.rigidBody2D) {
+      const vel = owner.rigidBody2D.velocity;
+      this.variables.speed = Math.abs(vel.x);
+      this.variables.isGrounded = owner.rigidBody2D.isGrounded;
+      this.variables.isJumping = owner.rigidBody2D.velocity.y > 0 && !owner.rigidBody2D.isGrounded;
+      this.variables.isFalling = owner.rigidBody2D.velocity.y < -10 && !owner.rigidBody2D.isGrounded;
+    }
+  }
+
+  evaluateStateMachine() {
+    // EXACT SAME LOGIC AS 3D STATE MACHINE!
+    const sm = this.stateMachine;
+
+    for (const transition of sm.transitions) {
+      if (transition.from === this.currentState || transition.from === '*') {
+        if (this.evaluateCondition(transition.condition)) {
+          if (transition.to !== this.currentState) {
+            this.transitionToState(transition.to);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  evaluateCondition(condition) {
+    // SAME CONDITION EVALUATION AS 3D!
+    const vars = this.variables;
+    try {
+      return new Function(...Object.keys(vars),
+        `return ${condition}`
+      )(...Object.values(vars));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  transitionToState(newStateId) {
+    this.currentState = newStateId;
+
+    const state = this.stateMachine.states.find(
+      s => s.stateId === newStateId
+    );
+
+    if (state) {
+      // Find animation in sprite sheet
+      this.currentAnimation = this.spriteSheet.animations.find(
+        a => a.animId === state.animation2D
+      );
+      this.currentFrame = 0;
+      this.frameTimer = 0;
+    }
+  }
+
+  updateFrame(deltaTime) {
+    if (!this.currentAnimation) return;
+
+    const fps = this.currentAnimation.fps;
+    this.frameTimer += deltaTime;
+
+    if (this.frameTimer >= 1.0 / fps) {
+      this.frameTimer -= 1.0 / fps;
+
+      if (this.currentAnimation.loop) {
+        this.currentFrame = (this.currentFrame + 1) %
+          this.currentAnimation.frames.length;
+      } else {
+        this.currentFrame = Math.min(
+          this.currentFrame + 1,
+          this.currentAnimation.frames.length - 1
+        );
+      }
+
+      this.applyFrame();
+    }
+  }
+
+  applyFrame() {
+    if (!this.currentAnimation || !this.spriteSheet) return;
+
+    const frameId = this.currentAnimation.frames[this.currentFrame];
+    const sprite = this.spriteSheet.sprites.find(s => s.spriteId === frameId);
+
+    if (sprite) {
+      // Update UV coordinates on the sprite mesh
+      const texW = this.spriteSheet.textureWidth;
+      const texH = this.spriteSheet.textureHeight;
+
+      const u = sprite.x / texW;
+      const v = 1 - (sprite.y + sprite.height) / texH;
+      const uw = sprite.width / texW;
+      const uh = sprite.height / texH;
+
+      this.spriteRenderer.setUVRect(u, v, uw, uh);
+    }
+  }
+}
+
+2D Physics System
+2D Physics World:
+javascriptclass Physics2DWorld {
+  constructor(settings = {}) {
+    this.gravity = settings.gravity || { x: 0, y: -980 };
+    this.bodies = [];
+    this.colliders = [];
+    this.contacts = [];
+
+    this.pixelsPerUnit = settings.pixelsPerUnit || 100;
+  }
+
+  addBody(rigidBody2D) {
+    this.bodies.push(rigidBody2D);
+  }
+
+  addCollider(collider2D) {
+    this.colliders.push(collider2D);
+  }
+
+  step(deltaTime) {
+    // Fixed timestep for stable physics
+    const fixedDT = Math.min(deltaTime, 0.033);
+
+    // Update all dynamic bodies
+    this.bodies.forEach(body => {
+      if (body.properties.bodyType === 'Dynamic') {
+        body.update(fixedDT, this.gravity.y);
+      }
+    });
+
+    // Collision detection and resolution
+    this.detectAndResolveCollisions();
+
+    // Clear grounded flags
+    this.bodies.forEach(body => {
+      body.isGrounded = false;
+      body.isTouching.left = false;
+      body.isTouching.right = false;
+      body.isTouching.top = false;
+      body.isTouching.bottom = false;
+    });
+
+    // Update grounded from contacts
+    this.contacts.forEach(contact => {
+      this.resolveContact(contact);
+    });
+  }
+
+  detectAndResolveCollisions() {
+    this.contacts = [];
+
+    for (let i = 0; i < this.colliders.length; i++) {
+      for (let j = i + 1; j < this.colliders.length; j++) {
+        const a = this.colliders[i];
+        const b = this.colliders[j];
+
+        if (a.intersects(b)) {
+          const overlap = a.getOverlap(b);
+          this.contacts.push({ a, b, overlap });
+
+          // Fire overlap events if trigger
+          if (a.properties.isTrigger || b.properties.isTrigger) {
+            this.fireOverlapEvent(a, b);
+          } else {
+            this.resolvePhysicsCollision(a, b, overlap);
+          }
+        }
+      }
+    }
+  }
+
+  resolvePhysicsCollision(a, b, overlap) {
+    const bodyA = a.actor.getRigidBody2D();
+    const bodyB = b.actor.getRigidBody2D();
+
+    if (!bodyA && !bodyB) return;
+
+    // Find minimum overlap axis
+    if (Math.abs(overlap.x) < Math.abs(overlap.y)) {
+      // Horizontal collision
+      const dir = a.getBounds().centerX < b.getBounds().centerX ? -1 : 1;
+
+      if (bodyA && bodyA.properties.bodyType === 'Dynamic') {
+        a.actor.group.position.x += overlap.x * dir * 0.5;
+        bodyA.velocity.x = 0;
+        bodyA.isTouching.left = dir > 0;
+        bodyA.isTouching.right = dir < 0;
+      }
+      if (bodyB && bodyB.properties.bodyType === 'Dynamic') {
+        b.actor.group.position.x -= overlap.x * dir * 0.5;
+        bodyB.velocity.x = 0;
+        bodyB.isTouching.left = dir < 0;
+        bodyB.isTouching.right = dir > 0;
+      }
+
+    } else {
+      // Vertical collision
+      const dir = a.getBounds().centerY < b.getBounds().centerY ? -1 : 1;
+
+      if (bodyA && bodyA.properties.bodyType === 'Dynamic') {
+        a.actor.group.position.y += overlap.y * dir * 0.5;
+
+        if (dir > 0) {
+          // Landing on top
+          bodyA.velocity.y = Math.max(0, bodyA.velocity.y);
+          bodyA.isGrounded = true;
+          bodyA.isTouching.bottom = true;
+        } else {
+          bodyA.velocity.y = Math.min(0, bodyA.velocity.y);
+          bodyA.isTouching.top = true;
+        }
+      }
+
+      if (bodyB && bodyB.properties.bodyType === 'Dynamic') {
+        b.actor.group.position.y -= overlap.y * dir * 0.5;
+
+        if (dir < 0) {
+          bodyB.velocity.y = Math.max(0, bodyB.velocity.y);
+          bodyB.isGrounded = true;
+          bodyB.isTouching.bottom = true;
+        } else {
+          bodyB.velocity.y = Math.min(0, bodyB.velocity.y);
+          bodyB.isTouching.top = true;
+        }
+      }
+    }
+  }
+
+  fireOverlapEvent(a, b) {
+    a.actor.emit('onBeginOverlap', { other: b.actor });
+    b.actor.emit('onBeginOverlap', { other: a.actor });
+  }
+}
+
+Tilemap System
+Tilemap Asset:
+json{
+  "assetId": "tilemap-level1",
+  "assetType": "tilemap",
+  "assetName": "Level1_Tilemap",
+  "tileSize": {"x": 64, "y": 64},
+  "gridSize": {"width": 50, "height": 20},
+  "pixelsPerUnit": 100,
+  "layers": [
+    {
+      "layerId": "layer-bg",
+      "layerName": "Background",
+      "visible": true,
+      "locked": false,
+      "sortingOrder": 0,
+      "opacity": 1.0,
+      "tiles": {}
+    },
+    {
+      "layerId": "layer-collision",
+      "layerName": "Ground",
+      "visible": true,
+      "locked": false,
+      "sortingOrder": 10,
+      "hasCollision": true,
+      "tiles": {
+        "0,0": "tile-grass-top",
+        "1,0": "tile-grass-top",
+        "0,-1": "tile-dirt",
+        "1,-1": "tile-dirt"
+      }
+    }
+  ],
+  "tileSets": [
+    {
+      "tileSetId": "ts-forest",
+      "tileSetName": "Forest Tileset",
+      "texture": "forest-tileset.png",
+      "tileWidth": 64,
+      "tileHeight": 64,
+      "tiles": [
+        {
+          "tileId": "tile-grass-top",
+          "x": 0, "y": 0,
+          "collision": "top",
+          "tags": ["ground", "walkable"]
+        },
+        {
+          "tileId": "tile-dirt",
+          "x": 64, "y": 0,
+          "collision": "full",
+          "tags": ["solid"]
+        }
+      ]
+    }
+  ]
+}
+Tilemap Renderer:
+javascriptclass TilemapRenderer {
+  constructor(scene, tilemapData) {
+    this.scene = scene;
+    this.data = tilemapData;
+    this.group = new THREE.Group();
+    this.group.name = tilemapData.assetName;
+
+    this.collisionBodies = [];
+
+    this.build();
+    scene.add(this.group);
+  }
+
+  build() {
+    this.data.layers.forEach(layer => {
+      if (layer.visible) {
+        this.buildLayer(layer);
+      }
+    });
+  }
+
+  buildLayer(layer) {
+    const layerGroup = new THREE.Group();
+    layerGroup.name = layer.layerName;
+
+    const tileSize = this.data.tileSize;
+    const ppu = this.data.pixelsPerUnit;
+    const tileSizeWorld = tileSize.x / ppu;
+
+    Object.entries(layer.tiles).forEach(([coordStr, tileId]) => {
+      const [x, y] = coordStr.split(',').map(Number);
+      const tileData = this.getTileData(tileId);
+
+      if (!tileData) return;
+
+      const sprite = this.createTileSprite(tileData, tileSizeWorld);
+      sprite.position.x = x * tileSizeWorld + tileSizeWorld / 2;
+      sprite.position.y = y * tileSizeWorld + tileSizeWorld / 2;
+      sprite.position.z = layer.sortingOrder * 0.01;
+
+      layerGroup.add(sprite);
+
+      // Generate collision for solid tiles
+      if (layer.hasCollision && tileData.collision) {
+        this.generateTileCollision(x, y, tileData, tileSizeWorld);
+      }
+    });
+
+    this.group.add(layerGroup);
+  }
+
+  createTileSprite(tileData, size) {
+    const geo = new THREE.PlaneGeometry(size, size);
+    const mat = new THREE.MeshBasicMaterial({
+      map: this.getTileTexture(tileData),
+      transparent: true,
+      alphaTest: 0.01
+    });
+    return new THREE.Mesh(geo, mat);
+  }
+
+  generateTileCollision(x, y, tileData, tileSize) {
+    const bounds = {
+      left:   x * tileSize,
+      right:  x * tileSize + tileSize,
+      top:    y * tileSize + tileSize,
+      bottom: y * tileSize,
+      centerX: x * tileSize + tileSize / 2,
+      centerY: y * tileSize + tileSize / 2
+    };
+
+    this.collisionBodies.push({
+      type: 'static',
+      collisionType: tileData.collision,
+      bounds: bounds
+    });
+  }
+}
+```
+
+---
+
+## 2D Sorting Layers Panel
+
+**Layers Panel:**
+```
+Sorting Layers (2D Scene)
+┌─────────────────────────────────────────────────────────┐
+│ [+ Add Layer]                                           │
+│                                                         │
+│ ⠿ Background     (Z: 0)    👁️ 🔒                       │
+│ ⠿ BackgroundFX   (Z: 5)    👁️ 🔒                       │
+│ ⠿ Ground         (Z: 10)   👁️ 🔒                       │
+│ ⠿ Default        (Z: 20)   👁️ 🔒                       │
+│ ⠿ Characters     (Z: 30)   👁️ 🔒                       │
+│ ⠿ Projectiles    (Z: 40)   👁️ 🔒                       │
+│ ⠿ Effects        (Z: 50)   👁️ 🔒                       │
+│ ⠿ UI             (Z: 90)   👁️ 🔒                       │
+│ ⠿ Overlay        (Z: 100)  👁️ 🔒                       │
+│                                                         │
+│ (⠿ = drag to reorder)                                  │
+└─────────────────────────────────────────────────────────┘
+
+2D Scene Default Composition
+What Gets Created for 2D Scene (Instead of 3D defaults):
+json{
+  "sceneId": "2d-scene-001",
+  "sceneName": "PlatformerScene",
+  "sceneMode": "2D",
+  "defaultActors": [
+    {
+      "actorId": "2d-camera",
+      "actorName": "Camera2D",
+      "actorType": "Camera2D",
+      "category": "WorldSettings",
+      "properties": {
+        "zoom": 1.0,
+        "pixelsPerUnit": 100,
+        "followTarget": null,
+        "followSmoothing": 0.1,
+        "deadZone": {"x": 0.1, "y": 0.1},
+        "bounds": null
+      }
+    },
+    {
+      "actorId": "2d-background",
+      "actorName": "Background2D",
+      "actorType": "Background2D",
+      "category": "WorldSettings",
+      "properties": {
+        "type": "solidColor",
+        "color": "#1A1A2E",
+        "gradient": null,
+        "texture": null
+      }
+    },
+    {
+      "actorId": "2d-postprocess",
+      "actorName": "PostProcessVolume2D",
+      "actorType": "PostProcessVolume",
+      "category": "WorldSettings",
+      "properties": {
+        "bloom": {"enabled": false},
+        "pixelation": {"enabled": false, "size": 4},
+        "colorGrading": {"enabled": true}
+      }
+    },
+    {
+      "actorId": "2d-physics",
+      "actorName": "PhysicsWorld2D",
+      "actorType": "PhysicsWorld2D",
+      "category": "WorldSettings",
+      "properties": {
+        "gravity": {"x": 0, "y": -980},
+        "pixelsPerUnit": 100,
+        "debugDraw": false
+      }
+    },
+    {
+      "actorId": "2d-player-start",
+      "actorName": "PlayerStart2D",
+      "actorType": "PlayerStart",
+      "category": "WorldSettings",
+      "transform": {
+        "position": {"x": 0, "y": 200, "z": 30}
+      }
+    },
+    {
+      "actorId": "2d-grid",
+      "actorName": "Grid2D",
+      "actorType": "Grid2D",
+      "category": "WorldSettings",
+      "properties": {
+        "cellSize": 64,
+        "color": "#333333",
+        "opacity": 0.3,
+        "snap": false,
+        "snapSize": 64,
+        "visible": true
+      }
+    },
+    {
+      "actorId": "2d-ambient-light",
+      "actorName": "AmbientLight2D",
+      "actorType": "AmbientLight2D",
+      "category": "WorldSettings",
+      "properties": {
+        "color": "#FFFFFF",
+        "intensity": 1.0
+      }
+    }
+  ],
+  "sortingLayers": [
+    {"name": "Background",     "z": 0},
+    {"name": "BackgroundFX",   "z": 5},
+    {"name": "Ground",         "z": 10},
+    {"name": "Default",        "z": 20},
+    {"name": "Characters",     "z": 30},
+    {"name": "Projectiles",    "z": 40},
+    {"name": "Effects",        "z": 50},
+    {"name": "UI",             "z": 90},
+    {"name": "Overlay",        "z": 100}
+  ]
+}
+```
+
+---
+
+## Systems Reused Exactly from 3D
+```
+✅ FULLY REUSED (no changes needed):
+├── Blueprint/Node visual programming system
+│   ├── All event nodes (OnBeginPlay, OnTick, etc.)
+│   ├── All flow control (Branch, Sequence, Loop)
+│   ├── All variable nodes (Get/Set)
+│   ├── All math nodes
+│   ├── All string nodes
+│   └── All casting nodes
+│
+├── Animation Graph architecture
+│   ├── State machine (Idle→Walk→Run→Jump)
+│   ├── State transition conditions
+│   ├── Variables (speed, isGrounded, etc.)
+│   ├── Event graph (update animation variables)
+│   └── Same JSON structure (different animation data)
+│
+├── Class inheritance system
+│   ├── Parent/child classes
+│   ├── Override system
+│   └── Propagation
+│
+├── Casting and reference system
+│   ├── Cast to any 2D class
+│   ├── Store typed references
+│   └── Access custom variables/functions
+│
+├── Widget/UI system
+│   ├── All UI works the same in 2D scenes
+│   ├── Canvas, buttons, text, images
+│   └── HUD overlays
+│
+├── Content Browser
+│   ├── All asset types managed same way
+│   └── Sprite sheets added as new asset type
+│
+└── Project save/load system
+    ├── Same JSON serialization
+    └── Scene type flag differentiates 2D/3D
+
+✅ ADAPTED (minor changes):
+├── Actor system
+│   ├── 2D transform (no Z rotation/movement)
+│   └── 2D-specific components available
+│
+├── Physics system
+│   ├── 2D physics (X/Y only)
+│   └── Same event system (OnHit, OnOverlap)
+│
+├── Scene composition
+│   ├── 2D defaults (Camera2D, Background2D, etc.)
+│   └── No 3D lights needed (use 2D ambient/point)
+│
+└── Viewport navigation
+    ├── Orthographic camera
+    ├── Pan with middle mouse
+    └── Scroll to zoom (no fly mode)
+
+The Point (Complete 2D System)
+YES - Fully Possible and Integrated:
+The entire existing engine adapts naturally to 2D because:
+
+Three.js supports orthographic cameras perfectly
+Sprites are just flat PlaneGeometry meshes
+Z position = draw order (layers)
+Same blueprint system controls 2D actors
+Same animation graph drives sprite frame animation
+Same physics events (overlap, hit)
+Same class inheritance for 2D character types
+Same widget system for UI
+
+New 2D-Specific Systems:
+
+Orthographic Camera2D with pan/zoom
+SpriteRenderer component
+SpriteSheet asset + editor
+2D Animation Blueprint (reuses graph architecture)
+RigidBody2D + BoxCollider2D
+CharacterMovement2D
+Tilemap system with collision
+Sorting Layers panel
+2D scene defaults
+
+Game Types Supported:
+
+Platformers (Mario, Hollow Knight style)
+Top-Down (Zelda, Hotline Miami style)
+Puzzle (Braid style)
+Shoot-em-up (vertical/horizontal)
+RPG (top-down 2D)
+Fighting games
