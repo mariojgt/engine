@@ -210,7 +210,7 @@ export class CharacterController implements Pawn {
       config.camera.fieldOfView,
       canvas.clientWidth / canvas.clientHeight,
       config.camera.nearClip ?? 0.1,
-      config.camera.farClip ?? 1000,
+      Math.max(config.camera.farClip ?? 10000, 10000),  // Must be ≥ 10000 to render sky sphere (radius 9000)
     );
 
     // Initialize spring arm length

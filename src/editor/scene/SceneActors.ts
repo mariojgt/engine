@@ -523,7 +523,18 @@ export class SkyAtmosphereActor extends BaseSceneActor {
     this._pmremGenerator.compileEquirectangularShader();
   }
 
+  /**
+   * Called after deserialization to finalize setup when scene and renderer are ready.
+   * Re-applies sky type so HDRI textures can load with PMREM support.
+   */
+  finishInitialization(): void {
+    // Re-apply the sky type now that renderer is set up (for HDRI loading)
+    console.log('[Sky] finishInitialization - skyType:', this.properties.skyType, 'hdriDataUrl:', this.properties.hdriDataUrl ? 'SET' : 'EMPTY');
+    this._applySkyType();
+  }
+
   private _createAtmosphericSky(): void {
+    console.log('[Sky] _createAtmosphericSky - creating sky mesh');
     this._removeExisting();
     this.sky = new Sky();
     this.sky.scale.setScalar(450000);
@@ -531,6 +542,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
     this.sky.userData.__isSceneCompositionHelper = true;
     this.sky.raycast = () => {};
     this._scene?.add(this.sky);
+    console.log('[Sky] _createAtmosphericSky - sky added to scene, visible:', this.sky.visible);
     this._applyUniforms();
     this._updateSunPosition();
     // Apply background intensity to avoid a blinding sky
@@ -542,6 +554,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
   }
 
   private _createGradientSky(): void {
+    console.log('[Sky] _createGradientSky - creating gradient mesh');
     this._removeExisting();
     const geo = new THREE.SphereGeometry(450000, 32, 15);
     const mat = new THREE.ShaderMaterial({
@@ -621,7 +634,11 @@ export class SkyAtmosphereActor extends BaseSceneActor {
   }
 
   private _applySkyType(): void {
-    if (!this._scene) return;
+    if (!this._scene) {
+      console.log('[Sky] _applySkyType - no scene available!');
+      return;
+    }
+    console.log('[Sky] _applySkyType - applying:', this.properties.skyType);
     switch (this.properties.skyType) {
       case 'atmosphere':
         this._createAtmosphericSky();
@@ -674,12 +691,17 @@ export class SkyAtmosphereActor extends BaseSceneActor {
 
   /** Load a sky texture from a base64 dataUrl and use it as sky background + environment map */
   private async _loadHDRI(): Promise<void> {
+    console.log('[Sky] _loadHDRI - checking setup: scene:', !!this._scene, 'renderer:', !!this._renderer, 'pmrem:', !!this._pmremGenerator);
     this._removeExisting();
-    if (!this._scene || !this._renderer || !this._pmremGenerator) return;
+    if (!this._scene || !this._renderer || !this._pmremGenerator) {
+      console.log('[Sky] _loadHDRI - EARLY EXIT: missing dependencies');
+      return;
+    }
 
     const dataUrl = this.properties.hdriDataUrl;
     if (!dataUrl) {
       // No texture set — show placeholder color
+      console.log('[Sky] _loadHDRI - no dataUrl, showing placeholder color');
       this._scene.background = new THREE.Color(0x222233);
       return;
     }
@@ -691,6 +713,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
     loader.load(
       dataUrl,
       (texture) => {
+        console.log('[Sky] HDRI texture loaded, mapping:', this.properties.hdriMapping);
         if (!this._scene || !this._pmremGenerator) return;
         texture.colorSpace = THREE.SRGBColorSpace;
 
@@ -733,9 +756,12 @@ export class SkyAtmosphereActor extends BaseSceneActor {
           this._skySphereMesh.rotation.y = THREE.MathUtils.degToRad(this.properties.hdriRotation);
 
           this._scene.add(this._skySphereMesh);
+          console.log('[Sky] Sky sphere mesh added to scene, visible:', this._skySphereMesh.visible, 'radius: 9000, side: BackSide');
+          console.log('[Sky] Scene background BEFORE sphere add:', this._scene.background ? 'SET' : 'null');
 
           // Clear scene.background so the sphere is visible
           this._scene.background = null;
+          console.log('[Sky] Scene background AFTER setting to null:', this._scene.background);
 
           // Generate env map for PBR reflections from the sphere
           // Use a temporary equirectangular setup for the PMREM generator
@@ -791,12 +817,16 @@ export class SkyAtmosphereActor extends BaseSceneActor {
   }
 
   addToScene(scene: THREE.Scene): void {
+    console.log('[Sky] addToScene - skyType:', this.properties.skyType);
+    console.log('[Sky] addToScene - scene UUID:', scene.uuid, 'scene children before:', scene.children.length);
     this._scene = scene;
     scene.add(this.group);
+    console.log('[Sky] addToScene - scene children after:', scene.children.length);
     this._applySkyType();
   }
 
   removeFromScene(scene: THREE.Scene): void {
+    console.log('[Sky] removeFromScene called - removing sky meshes from scene');
     this._removeExisting();
     scene.remove(this.group);
     this._scene = null;
@@ -804,14 +834,25 @@ export class SkyAtmosphereActor extends BaseSceneActor {
 
   /** Sky visuals must remain active during play — nothing to hide */
   setEditorVisible(_visible: boolean): void {
+    console.log('[Sky] setEditorVisible called with:', _visible, '(should be no-op)');
     // No-op: sky meshes are added directly to the scene (not the group),
     // and they must stay visible during play mode.
   }
 
   setVisible(visible: boolean): void {
-    if (this.sky) this.sky.visible = visible;
-    if (this._gradientMesh) this._gradientMesh.visible = visible;
-    if (this._skySphereMesh) this._skySphereMesh.visible = visible;
+    console.log('[Sky] setVisible:', visible, '- sky:', !!this.sky, 'gradient:', !!this._gradientMesh, 'sphere:', !!this._skySphereMesh);
+    if (this.sky) {
+      console.log('[Sky] - setting sky.visible to:', visible, '(was:', this.sky.visible, ')');
+      this.sky.visible = visible;
+    }
+    if (this._gradientMesh) {
+      console.log('[Sky] - setting gradientMesh.visible to:', visible, '(was:', this._gradientMesh.visible, ')');
+      this._gradientMesh.visible = visible;
+    }
+    if (this._skySphereMesh) {
+      console.log('[Sky] - setting skySphereMesh.visible to:', visible, '(was:', this._skySphereMesh.visible, ')');
+      this._skySphereMesh.visible = visible;
+    }
 
     // Also toggle environment map and scene intensity when hiding/showing sky
     if (this._scene) {
@@ -830,6 +871,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
   }
 
   updateProperty(key: string, value: any): void {
+    console.log('[Sky] updateProperty:', key, '=', typeof value === 'string' ? (value.substring(0, 20) + (value.length > 20 ? '...' : '')) : value);
     this.properties[key] = value;
     switch (key) {
       case 'skyType':

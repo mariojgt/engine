@@ -604,6 +604,24 @@ export class ViewportPanel {
     // Play mode → simple render
     if (this._playCamera) {
       if (this._renderer) {
+        const sceneBackground = this._engine.scene.threeScene.background;
+        const sceneEnv = this._engine.scene.threeScene.environment;
+        
+        // Log sky object info
+        let skySphereMesh: THREE.Object3D | null = null;
+        this._engine.scene.threeScene.children.forEach(child => {
+          if ((child as any).__isSceneCompositionHelper) {
+            skySphereMesh = child;
+            console.log('[Viewport] Found sky mesh:', child.type, 'visible:', child.visible, 'renderOrder:', (child as any).renderOrder);
+          }
+        });
+        if (!skySphereMesh) {
+          console.log('[Viewport] WARNING: No sky sphere mesh found in scene!');
+        }
+        
+        const bgStr = sceneBackground ? ((sceneBackground as any).isColor ? 'Color: ' + (sceneBackground as THREE.Color).getHexString() : 'Texture') : 'null';
+        console.log('[Viewport] Play render - background:', bgStr);
+        console.log('[Viewport] Play render - environment:', sceneEnv ? 'SET' : 'null');
         this._renderer.render(this._engine.scene.threeScene, this._playCamera);
       }
       return;

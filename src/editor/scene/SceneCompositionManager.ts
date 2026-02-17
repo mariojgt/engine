@@ -456,6 +456,11 @@ export class SceneCompositionManager {
       }
     }
 
+    // Finalize sky actor initialization after scene and renderer are ready
+    if (skyEntry) {
+      (skyEntry.actor as SkyAtmosphereActor).finishInitialization();
+    }
+
     // Apply saved transforms
     for (const actorJSON of data.actors) {
       const entry = this._actors.get(actorJSON.actorId);

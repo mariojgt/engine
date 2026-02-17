@@ -33,7 +33,7 @@ export function defaultSpectatorPawnConfig(): SpectatorPawnConfig {
     mouseSensitivity: 0.15,
     fieldOfView: 90,
     nearClip: 0.1,
-    farClip: 2000,
+    farClip: 10000,  // Must be ≥ 10000 to render sky sphere (radius 9000)
   };
 }
 
