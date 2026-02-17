@@ -81,6 +81,13 @@ export abstract class BaseSceneActor {
    */
   public group: THREE.Group;
 
+  /**
+   * Invisible hit mesh for raycast selection in the viewport.
+   * Actors whose visual children disable raycast need this so
+   * they can still be clicked / box-selected.
+   */
+  protected _hitMesh: THREE.Mesh | null = null;
+
   constructor(id: string, name: string) {
     this.id = id;
     this.name = name;
@@ -88,6 +95,21 @@ export abstract class BaseSceneActor {
     this.group.userData.__sceneActorId = id;
     this.group.userData.isSceneActor = true;
     this.group.userData.selectable = true;
+  }
+
+  /**
+   * Create an invisible hit mesh so the actor can be selected via
+   * viewport raycasting.  Call once at the end of the subclass
+   * constructor (after visual children are added).
+   */
+  protected _createHitMesh(size = 1.0, offsetY = 0.5): void {
+    const geo = new THREE.SphereGeometry(size, 8, 8);
+    const mat = new THREE.MeshBasicMaterial({ visible: false });
+    this._hitMesh = new THREE.Mesh(geo, mat);
+    this._hitMesh.position.y = offsetY;
+    this._hitMesh.userData.__isSceneCompositionHelper = true;
+    // Do NOT disable raycast — this mesh exists so the actor can be clicked
+    this.group.add(this._hitMesh);
   }
 
   /** Which gizmo modes are allowed for this actor */
@@ -235,6 +257,9 @@ export class DirectionalLightActor extends BaseSceneActor {
 
     // Create dust motes
     this._createDustParticles();
+
+    // Invisible hit mesh for viewport selection
+    this._createHitMesh(1.5, 0);
 
     // Set initial rotation from pitch/yaw if provided
     if (props.pitch != null || props.yaw != null) {
@@ -1028,6 +1053,9 @@ export class SkyLightActor extends BaseSceneActor {
     );
     this.hemiLight.userData.__sceneActorId = id;
     this.group.add(this.hemiLight);
+
+    // Invisible hit mesh for viewport selection
+    this._createHitMesh(1.0, 0);
   }
 
   getGizmoCapabilities(): GizmoCapability[] {
@@ -1095,6 +1123,9 @@ export class ExponentialHeightFogActor extends BaseSceneActor {
     this._volumeHelper.userData.__isSceneCompositionHelper = true;
     this._volumeHelper.raycast = () => {};
     this.group.add(this._volumeHelper);
+
+    // Invisible hit mesh for viewport selection
+    this._createHitMesh(2.0, 1.0);
   }
 
   getGizmoCapabilities(): GizmoCapability[] {
@@ -1235,6 +1266,9 @@ export class PostProcessVolumeActor extends BaseSceneActor {
     this._boxHelper.raycast = () => {};
     this._boxHelper.visible = !this.properties.isUnbound;
     this.group.add(this._boxHelper);
+
+    // Invisible hit mesh for viewport selection
+    this._createHitMesh(2.0, 0);
   }
 
   getGizmoCapabilities(): GizmoCapability[] {
@@ -1784,6 +1818,9 @@ export class PlayerStartActor extends BaseSceneActor {
     this.group.traverse((child) => {
       child.userData.__isSceneCompositionHelper = true;
     });
+
+    // Invisible hit mesh for viewport selection
+    this._createHitMesh(0.8, 0.7);
   }
 
   setEditorVisible(visible: boolean): void {

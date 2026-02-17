@@ -324,6 +324,35 @@ export class WorldOutlinerPanel {
     label.textContent = go.name;
     item.appendChild(label);
 
+    // Controls (visibility + delete)
+    const controls = document.createElement('span');
+    controls.className = 'outliner-item-controls';
+
+    // Visibility toggle
+    const visBtn = document.createElement('button');
+    visBtn.className = `outliner-toggle-btn ${go.mesh.visible ? 'active' : 'inactive'}`;
+    visBtn.textContent = go.mesh.visible ? '👁' : '👁‍🗨';
+    visBtn.title = go.mesh.visible ? 'Hide' : 'Show';
+    visBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      go.mesh.visible = !go.mesh.visible;
+      this._renderList();
+    });
+    controls.appendChild(visBtn);
+
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'outliner-toggle-btn outliner-delete-btn';
+    deleteBtn.textContent = '🗑';
+    deleteBtn.title = 'Delete Game Object';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._deleteGameObject(go);
+    });
+    controls.appendChild(deleteBtn);
+
+    item.appendChild(controls);
+
     // Click to select the game object
     item.addEventListener('click', () => {
       this._selectedGoId = go.id;
@@ -337,6 +366,13 @@ export class WorldOutlinerPanel {
     // Double-click opens blueprint/node editor
     item.addEventListener('dblclick', () => {
       this._onOpenNodeEditor(go);
+    });
+
+    // Right-click context menu for game objects
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._showGameObjectContextMenu(e.clientX, e.clientY, go);
     });
 
     return item;
@@ -433,6 +469,72 @@ export class WorldOutlinerPanel {
       { label: 'Delete', icon: '🗑', action: () => this._composition.deleteActor(actorId) },
       { label: 'Toggle Visibility', icon: '👁', action: () => this._composition.toggleActorVisibility(actorId) },
       { label: 'Toggle Lock', icon: '🔒', action: () => this._composition.toggleActorLock(actorId) },
+    ];
+
+    for (const entry of items) {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:5px 12px;color:#ddd;cursor:pointer;display:flex;align-items:center;gap:6px;';
+      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a4a'; });
+      item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
+      item.innerHTML = `<span>${entry.icon}</span><span>${entry.label}</span>`;
+      item.addEventListener('click', () => {
+        entry.action();
+        this._dismissContextMenu();
+      });
+      menu.appendChild(item);
+    }
+
+    document.body.appendChild(menu);
+    this._contextMenuEl = menu;
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        this._dismissContextMenu();
+        document.removeEventListener('mousedown', onClickOutside);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', onClickOutside), 0);
+  }
+
+  /** Delete a game object from the scene (with outliner + viewport sync) */
+  private _deleteGameObject(go: GameObject): void {
+    this._engine.scene.removeGameObject(go);
+
+    // Clear selection if the deleted object was selected
+    if (this._selectedGoId === go.id) {
+      this._selectedGoId = null;
+      this._onSelectActor(null);
+    }
+
+    this._renderList();
+  }
+
+  /** Show context menu for a game object (right-click on GO item) */
+  private _showGameObjectContextMenu(x: number, y: number, go: GameObject): void {
+    this._dismissContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'outliner-context-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;
+      background:#2a2a2e;border:1px solid #555;border-radius:4px;padding:4px 0;
+      min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:12px;`;
+
+    const items: { label: string; icon: string; action: () => void }[] = [
+      {
+        label: 'Delete',
+        icon: '🗑',
+        action: () => this._deleteGameObject(go),
+      },
+      {
+        label: go.mesh.visible ? 'Hide' : 'Show',
+        icon: go.mesh.visible ? '👁' : '👁‍🗨',
+        action: () => { go.mesh.visible = !go.mesh.visible; this._renderList(); },
+      },
+      {
+        label: 'Open Blueprint',
+        icon: '📝',
+        action: () => this._onOpenNodeEditor(go),
+      },
     ];
 
     for (const entry of items) {

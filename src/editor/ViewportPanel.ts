@@ -336,11 +336,14 @@ export class ViewportPanel {
       case 'delete':
       case 'backspace':
         // If a scene actor is selected, delete it via composition manager
-        if (this._composition && this._actorGizmo?.attachedActorId) {
-          this._composition.deleteActor(this._actorGizmo.attachedActorId);
-        } else {
-          this._operations.deleteSelected();
+        if (this._composition) {
+          const actorId = this._actorGizmo?.attachedActorId ?? this._composition.selectedActorId;
+          if (actorId) {
+            this._composition.deleteActor(actorId);
+            break;
+          }
         }
+        this._operations.deleteSelected();
         break;
 
       // Escape → deselect
@@ -736,6 +739,19 @@ export class ViewportPanel {
     if (this._gizmo) {
       this._actorGizmo = new SceneActorGizmoManager(composition, this._gizmo);
     }
+
+    // When any composition actor is deleted / changed, make sure viewport
+    // selection and gizmo state are clean so nothing stales on screen.
+    composition.on('changed', () => {
+      // If the previously selected actor is gone, ensure gizmo + outline are cleared
+      if (this._actorGizmo && this._actorGizmo.attachedActorId) {
+        const still = composition.getActor(this._actorGizmo.attachedActorId);
+        if (!still) {
+          this._actorGizmo.detach();
+          this._selectionManager?.clearSelection();
+        }
+      }
+    });
 
     // Forward PostProcessVolume settings to the SelectionManager's composer
     composition.on('actorPropertyChanged', (actorId: string, key: string) => {

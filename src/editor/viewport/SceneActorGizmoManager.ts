@@ -99,6 +99,9 @@ export class SceneActorGizmoManager {
 
     this._attachedActorId = null;
     this._allowedModes = [];
+
+    // Actually detach the TransformControls from the Three.js scene
+    this._gizmo.detach();
   }
 
   /** Whether this manager currently has an actor attached */

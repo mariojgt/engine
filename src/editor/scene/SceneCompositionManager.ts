@@ -284,14 +284,16 @@ export class SceneCompositionManager {
     const entry = this._actors.get(id);
     if (!entry) return;
 
+    // Clear selection FIRST so listeners can access actor data before removal
+    if (this._selectedActorId === id) {
+      this._selectedActorId = null;
+      this._emit('actorSelected', null);
+    }
+
     // Remove from scene
     entry.actor.removeFromScene(this._threeScene);
     entry.actor.dispose();
     this._actors.delete(id);
-
-    // Always clear selection — this ensures PropertiesPanel is updated
-    this._selectedActorId = null;
-    this._emit('actorSelected', null);
 
     this._emit('changed');
   }
