@@ -5,6 +5,7 @@ import type { PropertyDescriptor as ScenePropertyDescriptor } from './scene/Scen
 import { MeshAssetManager } from './MeshAsset';
 import type { TextureAssetJSON } from './MeshAsset';
 import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class PropertiesPanel {
   public container: HTMLElement;
@@ -85,7 +86,7 @@ export class PropertiesPanel {
     headerTitle.className = 'prop-group-title composition-actor-title';
     const icon = document.createElement('span');
     icon.style.marginRight = '6px';
-    icon.textContent = this._getActorIcon(entry.type);
+    icon.innerHTML = this._getActorIcon(entry.type);
     headerTitle.appendChild(icon);
     headerTitle.appendChild(document.createTextNode(entry.name));
     headerGroup.appendChild(headerTitle);
@@ -211,12 +212,12 @@ export class PropertiesPanel {
     });
 
     const browseBtn = document.createElement('button');
-    browseBtn.textContent = '📁';
+    browseBtn.textContent = '…';
     browseBtn.title = 'Browse...';
-    browseBtn.style.background = 'var(--input-bg, #1e1e2e)';
-    browseBtn.style.border = '1px solid var(--border)';
-    browseBtn.style.borderRadius = '3px';
-    browseBtn.style.color = 'var(--text)';
+    browseBtn.style.background = 'var(--color-bg-inset)';
+    browseBtn.style.border = '1px solid var(--color-border)';
+    browseBtn.style.borderRadius = 'var(--radius-sm)';
+    browseBtn.style.color = 'var(--color-text-secondary)';
     browseBtn.style.cursor = 'pointer';
     browseBtn.style.padding = '3px 6px';
     browseBtn.style.fontSize = '12px';
@@ -585,12 +586,20 @@ export class PropertiesPanel {
   }
 
   private _getActorIcon(type: string): string {
-    const icons: Record<string, string> = {
-      DirectionalLight: '💡', SkyAtmosphere: '🌌', SkyLight: '🌤️',
-      ExponentialHeightFog: '🌫️', PostProcessVolume: '📷',
-      WorldGrid: '🔲', DevGroundPlane: '🟫', PlayerStart: '🚀',
+    // Returns iconHTML for the given actor type
+    const map: Record<string, { icon: any[]; color: string }> = {
+      DirectionalLight: { icon: Icons.Sun, color: ICON_COLORS.light },
+      SkyAtmosphere:    { icon: Icons.Layers, color: ICON_COLORS.secondary },
+      SkyLight:         { icon: Icons.Sun, color: ICON_COLORS.light },
+      ExponentialHeightFog: { icon: Icons.Activity, color: ICON_COLORS.muted },
+      PostProcessVolume:    { icon: Icons.Camera, color: ICON_COLORS.camera },
+      WorldGrid:        { icon: Icons.Grid, color: ICON_COLORS.muted },
+      DevGroundPlane:   { icon: Icons.RectangleHorizontal, color: ICON_COLORS.muted },
+      PlayerStart:      { icon: Icons.MapPin, color: ICON_COLORS.actor },
     };
-    return icons[type] || '📦';
+    const entry = map[type];
+    if (entry) return iconHTML(entry.icon, 14, entry.color);
+    return iconHTML(Icons.Box, 14, ICON_COLORS.actor);
   }
 
   private _showProperties(go: GameObject | null): void {

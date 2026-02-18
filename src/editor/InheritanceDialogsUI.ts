@@ -12,6 +12,7 @@ import type {
   ReparentResult,
   PropagationChange,
 } from './ClassInheritanceSystem';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 // ============================================================
 //  Dialog Styles (injected once)
@@ -304,7 +305,7 @@ export class InheritanceDialogsUI implements InheritanceDialogs {
       const dialog = createDialog(overlay);
 
       dialog.innerHTML = `
-        <h3><span class="inh-icon">⚠️</span> Warning — Parent Class</h3>
+        <h3><span class="inh-icon">${iconHTML(Icons.AlertTriangle, 14, ICON_COLORS.warning)}</span> Warning — Parent Class</h3>
         <div class="inh-body">
           You are editing: <strong>${parentName}</strong><br>
           This class has <strong>${childNames.length}</strong> child class${childNames.length !== 1 ? 'es' : ''}:
@@ -353,7 +354,7 @@ export class InheritanceDialogsUI implements InheritanceDialogs {
       `).join('');
 
       dialog.innerHTML = `
-        <h3><span class="inh-icon">💾</span> Saving ${preview.parentName} — Propagation Preview</h3>
+        <h3><span class="inh-icon">${iconHTML(Icons.Save, 14, ICON_COLORS.blue)}</span> Saving ${preview.parentName} — Propagation Preview</h3>
         <div class="inh-body">
           <strong>Detected changes:</strong>
           <div class="inh-changes">${changesHTML || '<em>No structural changes detected</em>'}</div>
@@ -396,7 +397,7 @@ export class InheritanceDialogsUI implements InheritanceDialogs {
       ).join('');
 
       dialog.innerHTML = `
-        <h3><span class="inh-icon">⚠️</span> Out of Sync — ${childName}</h3>
+        <h3><span class="inh-icon">${iconHTML(Icons.AlertTriangle, 14, ICON_COLORS.warning)}</span> Out of Sync — ${childName}</h3>
         <div class="inh-body">
           Parent (<strong>${parentName}</strong>) was updated while this class was closed.
           <div class="inh-changes">${changesHTML || '<em>Unknown changes</em>'}</div>
@@ -421,7 +422,7 @@ export class InheritanceDialogsUI implements InheritanceDialogs {
       const dialog = createDialog(overlay);
 
       dialog.innerHTML = `
-        <h3><span class="inh-icon">⚠️</span> Change Parent Class — ${className}</h3>
+        <h3><span class="inh-icon">${iconHTML(Icons.AlertTriangle, 14, ICON_COLORS.warning)}</span> Change Parent Class — ${className}</h3>
         <div class="inh-body">
           Current parent: <strong>${oldParentName}</strong><br>
           New parent: <strong>${newParentName}</strong><br><br>
@@ -479,7 +480,7 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
   // Parent
   if (options.parentId && options.parentName) {
     const parentLabel = document.createElement('span');
-    parentLabel.innerHTML = `Parent: <span class="cib-parent">🔗 ${options.parentName}</span>`;
+    parentLabel.innerHTML = `Parent: <span class="cib-parent">${options.parentName}</span>`;
     parentLabel.querySelector('.cib-parent')?.addEventListener('click', () => {
       options.onOpenParent?.();
     });
@@ -505,7 +506,7 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
 
     const warningEl = document.createElement('span');
     warningEl.className = 'cib-warning';
-    warningEl.textContent = '⚠️ Changes affect all children';
+    warningEl.textContent = 'Changes affect all children';
     bar.appendChild(warningEl);
   } else {
     const childEl = document.createElement('span');
@@ -519,7 +520,7 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
     bar.appendChild(Object.assign(document.createElement('span'), { textContent: '|', style: 'color:#555' }));
     const syncEl = document.createElement('span');
     syncEl.style.color = '#f87171';
-    syncEl.textContent = '⚠️ Out of sync with parent';
+    syncEl.textContent = 'Out of sync with parent';
     bar.appendChild(syncEl);
   }
 
@@ -527,7 +528,7 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
   if (options.parentId && options.onOpenParent) {
     const btn = document.createElement('button');
     btn.className = 'cib-btn';
-    btn.textContent = '📂 Open Parent';
+    btn.textContent = 'Open Parent';
     btn.addEventListener('click', () => options.onOpenParent?.());
     bar.appendChild(btn);
   }
@@ -536,7 +537,7 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
   if (options.onShowInHierarchy) {
     const btn = document.createElement('button');
     btn.className = 'cib-btn';
-    btn.textContent = '🌳 Hierarchy';
+    btn.textContent = 'Hierarchy';
     btn.addEventListener('click', () => options.onShowInHierarchy?.());
     bar.appendChild(btn);
   }
@@ -551,13 +552,13 @@ export function createClassInfoBar(container: HTMLElement, options: ClassInfoBar
 
 export function inheritanceBadgeHTML(isInherited: boolean, isOverridden: boolean, isAddedInChild: boolean): string {
   if (isAddedInChild) {
-    return '<span class="inh-badge inh-badge-child-added">➕ Added in child</span>';
+    return '<span class="inh-badge inh-badge-child-added">Added in child</span>';
   }
   if (isInherited && isOverridden) {
-    return '<span class="inh-badge inh-badge-overridden">🔗✏️ Overridden</span>';
+    return '<span class="inh-badge inh-badge-overridden">Overridden</span>';
   }
   if (isInherited) {
-    return '<span class="inh-badge inh-badge-inherited">🔗 Inherited</span>';
+    return '<span class="inh-badge inh-badge-inherited">Inherited</span>';
   }
   return '';
 }

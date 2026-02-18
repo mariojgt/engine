@@ -6,6 +6,7 @@
 
 import { EnumAsset, StructureAssetManager } from './StructureAsset';
 import type { EnumValueDef } from './StructureAsset';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class EnumEditorPanel {
   public container: HTMLElement;
@@ -39,7 +40,7 @@ export class EnumEditorPanel {
     const header = document.createElement('div');
     header.className = 'panel-header enum-editor-header';
     header.innerHTML = `
-      <span class="enum-editor-icon">📋</span>
+      <span class="enum-editor-icon">${iconHTML(Icons.List, 16, ICON_COLORS.muted)}</span>
       <span class="enum-editor-title">${this._asset.name}</span>
       <span class="enum-editor-badge">Enumeration</span>
     `;

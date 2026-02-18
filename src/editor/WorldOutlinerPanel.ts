@@ -7,6 +7,7 @@ import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import type { SceneActorType } from './scene/SceneActors';
+import { createIcon, iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class WorldOutlinerPanel {
   public container: HTMLElement;
@@ -112,12 +113,12 @@ export class WorldOutlinerPanel {
 
       const collapseIcon = document.createElement('span');
       collapseIcon.className = 'outliner-collapse-icon';
-      collapseIcon.textContent = isCollapsed ? '▸' : '▾';
+      collapseIcon.appendChild(createIcon(isCollapsed ? Icons.ChevronRight : Icons.ChevronDown, 10, ICON_COLORS.muted));
       catHeader.appendChild(collapseIcon);
 
       const catIcon = document.createElement('span');
       catIcon.className = 'outliner-category-icon';
-      catIcon.textContent = '🌍';
+      catIcon.appendChild(createIcon(Icons.Layers, 12, ICON_COLORS.secondary));
       catHeader.appendChild(catIcon);
 
       const catName = document.createElement('span');
@@ -172,12 +173,12 @@ export class WorldOutlinerPanel {
 
       const goCollapseIcon = document.createElement('span');
       goCollapseIcon.className = 'outliner-collapse-icon';
-      goCollapseIcon.textContent = goCollapsed ? '▸' : '▾';
+      goCollapseIcon.appendChild(createIcon(goCollapsed ? Icons.ChevronRight : Icons.ChevronDown, 10, ICON_COLORS.muted));
       goCatHeader.appendChild(goCollapseIcon);
 
       const goCatIcon = document.createElement('span');
       goCatIcon.className = 'outliner-category-icon';
-      goCatIcon.textContent = '📦';
+      goCatIcon.appendChild(createIcon(Icons.Box, 12, ICON_COLORS.actor));
       goCatHeader.appendChild(goCatIcon);
 
       const goCatName = document.createElement('span');
@@ -247,7 +248,7 @@ export class WorldOutlinerPanel {
     // Visibility button
     const visBtn = document.createElement('button');
     visBtn.className = `outliner-toggle-btn ${actor.visible ? 'active' : 'inactive'}`;
-    visBtn.textContent = actor.visible ? '👁' : '👁‍🗨';
+    visBtn.appendChild(createIcon(actor.visible ? Icons.Eye : Icons.EyeOff, 12, actor.visible ? ICON_COLORS.secondary : ICON_COLORS.muted));
     visBtn.title = actor.visible ? 'Hide' : 'Show';
     visBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -258,7 +259,7 @@ export class WorldOutlinerPanel {
     // Lock button
     const lockBtn = document.createElement('button');
     lockBtn.className = `outliner-toggle-btn ${actor.locked ? 'locked' : ''}`;
-    lockBtn.textContent = actor.locked ? '🔒' : '🔓';
+    lockBtn.appendChild(createIcon(actor.locked ? Icons.Lock : Icons.Unlock, 12, actor.locked ? ICON_COLORS.warning : ICON_COLORS.muted));
     lockBtn.title = actor.locked ? 'Unlock' : 'Lock';
     lockBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -269,7 +270,7 @@ export class WorldOutlinerPanel {
     // Delete button
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'outliner-toggle-btn outliner-delete-btn';
-    deleteBtn.textContent = '🗑';
+    deleteBtn.appendChild(createIcon(Icons.Trash2, 12, ICON_COLORS.muted));
     deleteBtn.title = 'Delete Actor';
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -315,7 +316,7 @@ export class WorldOutlinerPanel {
     // Icon
     const icon = document.createElement('span');
     icon.className = 'outliner-item-icon';
-    icon.textContent = '📦';
+    icon.appendChild(createIcon(Icons.Box, 12, ICON_COLORS.actor));
     item.appendChild(icon);
 
     // Name
@@ -331,7 +332,7 @@ export class WorldOutlinerPanel {
     // Visibility toggle
     const visBtn = document.createElement('button');
     visBtn.className = `outliner-toggle-btn ${go.mesh.visible ? 'active' : 'inactive'}`;
-    visBtn.textContent = go.mesh.visible ? '👁' : '👁‍🗨';
+    visBtn.appendChild(createIcon(go.mesh.visible ? Icons.Eye : Icons.EyeOff, 12, go.mesh.visible ? ICON_COLORS.secondary : ICON_COLORS.muted));
     visBtn.title = go.mesh.visible ? 'Hide' : 'Show';
     visBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -343,7 +344,7 @@ export class WorldOutlinerPanel {
     // Delete button
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'outliner-toggle-btn outliner-delete-btn';
-    deleteBtn.textContent = '🗑';
+    deleteBtn.appendChild(createIcon(Icons.Trash2, 12, ICON_COLORS.muted));
     deleteBtn.title = 'Delete Game Object';
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -416,14 +417,13 @@ export class WorldOutlinerPanel {
     this._dismissContextMenu();
 
     const menu = document.createElement('div');
-    menu.className = 'outliner-context-menu';
-    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;
-      background:#2a2a2e;border:1px solid #555;border-radius:4px;padding:4px 0;
-      min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:12px;`;
+    menu.className = 'outliner-context-menu context-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;`;
 
     // Header
     const header = document.createElement('div');
-    header.style.cssText = 'padding:4px 12px;color:#888;font-size:11px;border-bottom:1px solid #444;margin-bottom:2px;';
+    header.className = 'context-menu-header';
+    header.style.cssText = 'padding:4px 12px;color:var(--color-text-muted);font-size:11px;border-bottom:1px solid var(--color-border);margin-bottom:2px;';
     header.textContent = 'Add Actor';
     menu.appendChild(header);
 
@@ -431,9 +431,7 @@ export class WorldOutlinerPanel {
     const types = this._composition.getAddableActorTypes();
     for (const t of types) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:5px 12px;color:#ddd;cursor:pointer;display:flex;align-items:center;gap:6px;';
-      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a4a'; });
-      item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
+      item.className = 'context-menu-item';
       item.innerHTML = `<span>${t.icon}</span><span>${t.label}</span>`;
       item.addEventListener('click', () => {
         this._composition.addNewActor(t.type as SceneActorType);
@@ -460,23 +458,19 @@ export class WorldOutlinerPanel {
     this._dismissContextMenu();
 
     const menu = document.createElement('div');
-    menu.className = 'outliner-context-menu';
-    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;
-      background:#2a2a2e;border:1px solid #555;border-radius:4px;padding:4px 0;
-      min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:12px;`;
+    menu.className = 'outliner-context-menu context-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;`;
 
-    const items: { label: string; icon: string; action: () => void }[] = [
-      { label: 'Delete', icon: '🗑', action: () => this._composition.deleteActor(actorId) },
-      { label: 'Toggle Visibility', icon: '👁', action: () => this._composition.toggleActorVisibility(actorId) },
-      { label: 'Toggle Lock', icon: '🔒', action: () => this._composition.toggleActorLock(actorId) },
+    const items: { label: string; iconEl: string; action: () => void }[] = [
+      { label: 'Delete', iconEl: iconHTML(Icons.Trash2, 12, ICON_COLORS.error), action: () => this._composition.deleteActor(actorId) },
+      { label: 'Toggle Visibility', iconEl: iconHTML(Icons.Eye, 12, ICON_COLORS.secondary), action: () => this._composition.toggleActorVisibility(actorId) },
+      { label: 'Toggle Lock', iconEl: iconHTML(Icons.Lock, 12, ICON_COLORS.warning), action: () => this._composition.toggleActorLock(actorId) },
     ];
 
     for (const entry of items) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:5px 12px;color:#ddd;cursor:pointer;display:flex;align-items:center;gap:6px;';
-      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a4a'; });
-      item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
-      item.innerHTML = `<span>${entry.icon}</span><span>${entry.label}</span>`;
+      item.className = 'context-menu-item';
+      item.innerHTML = `${entry.iconEl}<span>${entry.label}</span>`;
       item.addEventListener('click', () => {
         entry.action();
         this._dismissContextMenu();
@@ -514,35 +508,31 @@ export class WorldOutlinerPanel {
     this._dismissContextMenu();
 
     const menu = document.createElement('div');
-    menu.className = 'outliner-context-menu';
-    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;
-      background:#2a2a2e;border:1px solid #555;border-radius:4px;padding:4px 0;
-      min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:12px;`;
+    menu.className = 'outliner-context-menu context-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;`;
 
-    const items: { label: string; icon: string; action: () => void }[] = [
+    const items: { label: string; iconEl: string; action: () => void }[] = [
       {
         label: 'Delete',
-        icon: '🗑',
+        iconEl: iconHTML(Icons.Trash2, 12, ICON_COLORS.error),
         action: () => this._deleteGameObject(go),
       },
       {
         label: go.mesh.visible ? 'Hide' : 'Show',
-        icon: go.mesh.visible ? '👁' : '👁‍🗨',
+        iconEl: iconHTML(go.mesh.visible ? Icons.Eye : Icons.EyeOff, 12, ICON_COLORS.secondary),
         action: () => { go.mesh.visible = !go.mesh.visible; this._renderList(); },
       },
       {
         label: 'Open Blueprint',
-        icon: '📝',
+        iconEl: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint),
         action: () => this._onOpenNodeEditor(go),
       },
     ];
 
     for (const entry of items) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:5px 12px;color:#ddd;cursor:pointer;display:flex;align-items:center;gap:6px;';
-      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a4a'; });
-      item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
-      item.innerHTML = `<span>${entry.icon}</span><span>${entry.label}</span>`;
+      item.className = 'context-menu-item';
+      item.innerHTML = `${entry.iconEl}<span>${entry.label}</span>`;
       item.addEventListener('click', () => {
         entry.action();
         this._dismissContextMenu();

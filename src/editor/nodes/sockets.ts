@@ -87,26 +87,26 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
 
 export function getCategoryIcon(cat: string): string {
   switch (cat) {
-    case 'Events':        return '⚡';
+    case 'Events':        return '◇';
     case 'Flow Control':  return '⑂';
     case 'Math':          return '∑';
     case 'Values':        return '◆';
     case 'Variables':     return '◉';
-    case 'Physics':       return '☄';
+    case 'Physics':       return '○';
     case 'Transform':     return '↕';
     case 'Utility':       return '⚙';
     case 'Conversions':   return '⇄';
-    case 'Components':    return '⬡';
+    case 'Components':    return '○';
     case 'Functions':     return 'ƒ';
-    case 'Macros':        return '⚡';
-    case 'Custom Events': return '🎯';
-    case 'Input':         return '🎮';
-    case 'Structs':       return '🔷';
-    case 'Enums':         return '📋';
-    case 'Collision':     return '💥';
-    case 'Character':     return '🏃';
-    case 'Casting':       return '🎯';
-    case 'Animation':     return '🎬';
+    case 'Macros':        return '◇';
+    case 'Custom Events': return '◆';
+    case 'Input':         return '▹';
+    case 'Structs':       return '◈';
+    case 'Enums':         return '▣';
+    case 'Collision':     return '○';
+    case 'Character':     return '▸';
+    case 'Casting':       return '◆';
+    case 'Animation':     return '▷';
     default:              return '●';
   }
 }

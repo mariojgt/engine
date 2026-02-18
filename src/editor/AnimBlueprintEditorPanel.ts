@@ -6,6 +6,7 @@
 //  Blend Spaces: inline 1D editor with axis + samples
 // ============================================================
 
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 import type {
   AnimBlueprintAsset,
   AnimStateData,
@@ -158,9 +159,9 @@ export class AnimBlueprintEditorPanel {
     this._tabBar.innerHTML = '';
 
     const tabs: Array<{ key: EditorTab; label: string; icon: string }> = [
-      { key: 'animGraph', label: 'Animation Graph', icon: '🎬' },
-      { key: 'eventGraph', label: 'Event Variables', icon: '📊' },
-      { key: 'blendSpaces', label: 'Blend Spaces', icon: '📈' },
+      { key: 'animGraph', label: 'Animation Graph', icon: '▸' },
+      { key: 'eventGraph', label: 'Event Variables', icon: '▪' },
+      { key: 'blendSpaces', label: 'Blend Spaces', icon: '▴' },
     ];
 
     for (const tab of tabs) {
@@ -182,7 +183,7 @@ export class AnimBlueprintEditorPanel {
     if (this._onSave) {
       const saveBtn = document.createElement('button');
       saveBtn.className = 'toolbar-btn';
-      saveBtn.textContent = '💾 Save';
+      saveBtn.innerHTML = iconHTML(Icons.Save, 12, ICON_COLORS.blue) + ' Save';
       saveBtn.addEventListener('click', () => {
         this._asset.touch();
         this._onSave?.();
@@ -640,9 +641,9 @@ export class AnimBlueprintEditorPanel {
       ctx.fillStyle = '#888';
       ctx.font = '10px sans-serif';
       const subtitle = state.outputType === 'blendSpace1D'
-        ? '📈 Blend Space 1D'
+        ? 'Blend Space 1D'
         : state.outputType === 'blendSpace2D'
-          ? '🧭 Blend Space 2D'
+          ? 'Blend Space 2D'
         : state.animationName || 'No animation';
       ctx.fillText(subtitle, x + w / 2, y + h / 2 + 10, w - 10);
     }
@@ -819,13 +820,13 @@ export class AnimBlueprintEditorPanel {
     const hitState = this._hitTestState(worldX, worldY);
 
     if (hitState) {
-      this._addCtxItem(menu, '🔄 Set as Entry State', () => {
+      this._addCtxItem(menu, iconHTML(Icons.RefreshCw, 12, ICON_COLORS.muted) + ' Set as Entry State', () => {
         this._asset.stateMachine.entryStateId = hitState.id;
         this._asset.touch();
         this._renderGraph();
       });
 
-      this._addCtxItem(menu, '➡ Add Transition From Here', () => {
+      this._addCtxItem(menu, iconHTML(Icons.ArrowRight, 12, ICON_COLORS.muted) + ' Add Transition From Here', () => {
         this._linkingFrom = hitState;
       });
 
@@ -833,7 +834,7 @@ export class AnimBlueprintEditorPanel {
       sep.className = 'context-menu-separator';
       menu.appendChild(sep);
 
-      const del = this._addCtxItem(menu, '🗑 Delete State', () => {
+      const del = this._addCtxItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete State', () => {
         const sm = this._asset.stateMachine;
         sm.states = sm.states.filter(s => s.id !== hitState.id);
         sm.transitions = sm.transitions.filter(t => t.fromStateId !== hitState.id && t.toStateId !== hitState.id);
@@ -847,7 +848,7 @@ export class AnimBlueprintEditorPanel {
       });
       del.style.color = 'var(--danger, #ff5555)';
     } else {
-      this._addCtxItem(menu, '➕ Add State', () => {
+      this._addCtxItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Add State', () => {
         this._showInlinePrompt('New State Name', 'NewState', (name) => {
           if (!name) return;
           const state = defaultAnimState(name, worldX, worldY);
@@ -884,7 +885,7 @@ export class AnimBlueprintEditorPanel {
       sep.className = 'context-menu-separator';
       menu.appendChild(sep);
 
-      const del = this._addCtxItem(menu, '🗑 Delete Transition', () => {
+      const del = this._addCtxItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete Transition', () => {
         this._asset.stateMachine.transitions = this._asset.stateMachine.transitions.filter(t => t.id !== hitTransition.id);
         if (this._selectedTransitionId === hitTransition.id) this._selectedTransitionId = null;
         this._asset.touch();
@@ -902,7 +903,7 @@ export class AnimBlueprintEditorPanel {
   private _addCtxItem(menu: HTMLElement, text: string, onClick: () => void): HTMLElement {
     const item = document.createElement('div');
     item.className = 'context-menu-item';
-    item.textContent = text;
+    item.innerHTML = text;
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       menu.remove();
@@ -2385,11 +2386,11 @@ export class AnimBlueprintEditorPanel {
       // Header
       const cardHeader = document.createElement('div');
       cardHeader.className = 'anim-bs-header';
-      cardHeader.innerHTML = `<span>📈 ${bs.name}</span>`;
+      cardHeader.innerHTML = `<span>${iconHTML(Icons.Activity, 12, ICON_COLORS.primary)} ${bs.name}</span>`;
 
       const delBsBtn = document.createElement('button');
       delBsBtn.className = 'prop-btn-danger';
-      delBsBtn.textContent = '🗑';
+      delBsBtn.innerHTML = iconHTML(Icons.Trash2, 12, ICON_COLORS.error);
       delBsBtn.title = 'Delete Blend Space';
       delBsBtn.addEventListener('click', () => {
         this._asset.blendSpaces1D = this._asset.blendSpaces1D.filter(b => b.id !== bs.id);

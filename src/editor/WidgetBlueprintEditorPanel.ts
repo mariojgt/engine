@@ -22,6 +22,7 @@ import { TextureLibrary } from './TextureLibrary';
 import { FontLibrary } from './FontLibrary';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 type EditorTab = 'designer' | 'eventGraph';
 
@@ -34,68 +35,68 @@ interface PaletteCategory {
 
 const PALETTE: PaletteCategory[] = [
   {
-    label: 'COMMON', icon: '⭐',
+    label: 'COMMON', icon: iconHTML(Icons.Target, 'sm', ICON_COLORS.warning),
     widgets: [
-      { type: 'Border', label: 'Border', icon: '▢' },
-      { type: 'Button', label: 'Button', icon: '▣' },
-      { type: 'CheckBox', label: 'Check Box', icon: '☑' },
-      { type: 'Image', label: 'Image', icon: '▨' },
-      { type: 'ProgressBar', label: 'Progress Bar', icon: '▬' },
-      { type: 'Slider', label: 'Slider', icon: '⊶' },
-      { type: 'Text', label: 'Text', icon: 'T' },
-      { type: 'TextBox', label: 'Text Box', icon: '⊏' },
+      { type: 'Border', label: 'Border', icon: iconHTML(Icons.BoxSelect, 'sm') },
+      { type: 'Button', label: 'Button', icon: iconHTML(Icons.MousePointerClick, 'sm') },
+      { type: 'CheckBox', label: 'Check Box', icon: iconHTML(Icons.ToggleLeft, 'sm') },
+      { type: 'Image', label: 'Image', icon: iconHTML(Icons.Image, 'sm') },
+      { type: 'ProgressBar', label: 'Progress Bar', icon: iconHTML(Icons.BarChart2, 'sm') },
+      { type: 'Slider', label: 'Slider', icon: iconHTML(Icons.SlidersHorizontal, 'sm') },
+      { type: 'Text', label: 'Text', icon: iconHTML(Icons.Type, 'sm') },
+      { type: 'TextBox', label: 'Text Box', icon: iconHTML(Icons.TextCursorInput, 'sm') },
     ],
   },
   {
-    label: 'INPUT', icon: '✎',
+    label: 'INPUT', icon: iconHTML(Icons.Pencil, 'sm', ICON_COLORS.muted),
     widgets: [
-      { type: 'CheckBox', label: 'Check Box', icon: '☑' },
-      { type: 'ComboBox', label: 'Combo Box', icon: '☰' },
-      { type: 'Slider', label: 'Slider', icon: '⊶' },
-      { type: 'TextBox', label: 'Text Box', icon: '⊏' },
+      { type: 'CheckBox', label: 'Check Box', icon: iconHTML(Icons.ToggleLeft, 'sm') },
+      { type: 'ComboBox', label: 'Combo Box', icon: iconHTML(Icons.ChevronsUpDown, 'sm') },
+      { type: 'Slider', label: 'Slider', icon: iconHTML(Icons.SlidersHorizontal, 'sm') },
+      { type: 'TextBox', label: 'Text Box', icon: iconHTML(Icons.TextCursorInput, 'sm') },
     ],
   },
   {
-    label: 'PANEL', icon: '◫',
+    label: 'PANEL', icon: iconHTML(Icons.Layout, 'sm', ICON_COLORS.muted),
     widgets: [
-      { type: 'CanvasPanel', label: 'Canvas Panel', icon: '◫' },
-      { type: 'GridPanel', label: 'Grid Panel', icon: '⊞' },
-      { type: 'HorizontalBox', label: 'Horizontal Box', icon: '⊟' },
-      { type: 'Overlay', label: 'Overlay', icon: '◰' },
-      { type: 'ScaleBox', label: 'Scale Box', icon: '⧈' },
-      { type: 'ScrollBox', label: 'Scroll Box', icon: '◱' },
-      { type: 'SizeBox', label: 'Size Box', icon: '□' },
-      { type: 'VerticalBox', label: 'Vertical Box', icon: '⊞' },
-      { type: 'WidgetSwitcher', label: 'Widget Switcher', icon: '⇆' },
-      { type: 'WrapBox', label: 'Wrap Box', icon: '⊟' },
-      { type: 'NamedSlot', label: 'Named Slot', icon: '⊡' },
+      { type: 'CanvasPanel', label: 'Canvas Panel', icon: iconHTML(Icons.Layout, 'sm') },
+      { type: 'GridPanel', label: 'Grid Panel', icon: iconHTML(Icons.Grid2x2, 'sm') },
+      { type: 'HorizontalBox', label: 'Horizontal Box', icon: iconHTML(Icons.Grid, 'sm') },
+      { type: 'Overlay', label: 'Overlay', icon: iconHTML(Icons.Layers, 'sm') },
+      { type: 'ScaleBox', label: 'Scale Box', icon: iconHTML(Icons.Maximize2, 'sm') },
+      { type: 'ScrollBox', label: 'Scroll Box', icon: iconHTML(Icons.ChevronsUpDown, 'sm') },
+      { type: 'SizeBox', label: 'Size Box', icon: iconHTML(Icons.Square, 'sm') },
+      { type: 'VerticalBox', label: 'Vertical Box', icon: iconHTML(Icons.Grid2x2, 'sm') },
+      { type: 'WidgetSwitcher', label: 'Widget Switcher', icon: iconHTML(Icons.RefreshCw, 'sm') },
+      { type: 'WrapBox', label: 'Wrap Box', icon: iconHTML(Icons.Grid, 'sm') },
+      { type: 'NamedSlot', label: 'Named Slot', icon: iconHTML(Icons.BoxSelect, 'sm') },
     ],
   },
   {
-    label: 'PRIMITIVE', icon: '◇',
+    label: 'PRIMITIVE', icon: iconHTML(Icons.Diamond, 'sm', ICON_COLORS.muted),
     widgets: [
-      { type: 'Border', label: 'Border', icon: '▢' },
-      { type: 'Image', label: 'Image', icon: '▨' },
-      { type: 'Spacer', label: 'Spacer', icon: '⊔' },
+      { type: 'Border', label: 'Border', icon: iconHTML(Icons.BoxSelect, 'sm') },
+      { type: 'Image', label: 'Image', icon: iconHTML(Icons.Image, 'sm') },
+      { type: 'Spacer', label: 'Spacer', icon: iconHTML(Icons.Minus, 'sm') },
     ],
   },
   {
-    label: 'SPECIAL EFFECTS', icon: '✦',
+    label: 'SPECIAL EFFECTS', icon: iconHTML(Icons.Zap, 'sm', ICON_COLORS.warning),
     widgets: [
-      { type: 'CircularThrobber', label: 'Throbber', icon: '◎' },
-      { type: 'ProgressBar', label: 'Progress Bar', icon: '▬' },
+      { type: 'CircularThrobber', label: 'Throbber', icon: iconHTML(Icons.Loader2, 'sm') },
+      { type: 'ProgressBar', label: 'Progress Bar', icon: iconHTML(Icons.BarChart2, 'sm') },
     ],
   },
   {
-    label: 'LISTS', icon: '≣',
+    label: 'LISTS', icon: iconHTML(Icons.List, 'sm', ICON_COLORS.muted),
     widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
   },
   {
-    label: 'UNCATEGORIZED', icon: '…',
+    label: 'UNCATEGORIZED', icon: iconHTML(Icons.Ellipsis, 'sm', ICON_COLORS.muted),
     widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
   },
   {
-    label: 'USER CREATED', icon: '★',
+    label: 'USER CREATED', icon: iconHTML(Icons.Plus, 'sm', ICON_COLORS.blue),
     widgets: [] as Array<{ type: WidgetType; label: string; icon: string }>,
   },
 ];
@@ -282,7 +283,7 @@ export class WidgetBlueprintEditorPanel {
     // Diff button (placeholder)
     const diffBtn = document.createElement('button');
     diffBtn.className = 'wbp-tb-btn wbp-tb-secondary';
-    diffBtn.innerHTML = '<span class="wbp-tb-icon">⇋</span> Diff';
+    diffBtn.innerHTML = '<span class="wbp-tb-icon">' + iconHTML(Icons.GitBranch, 'sm') + '</span> Diff';
     diffBtn.title = 'Diff against previous version';
     leftGroup.appendChild(diffBtn);
 
@@ -291,13 +292,13 @@ export class WidgetBlueprintEditorPanel {
     // Play controls
     const playBtn = document.createElement('button');
     playBtn.className = 'wbp-tb-btn wbp-tb-play';
-    playBtn.innerHTML = '▶';
+    playBtn.innerHTML = iconHTML(Icons.Play, 'sm');
     playBtn.title = 'Play in viewport';
     leftGroup.appendChild(playBtn);
 
     const playDropdown = document.createElement('button');
     playDropdown.className = 'wbp-tb-btn wbp-tb-play-dd';
-    playDropdown.innerHTML = '▾';
+    playDropdown.innerHTML = iconHTML(Icons.ChevronDown, 'sm');
     leftGroup.appendChild(playDropdown);
 
     leftGroup.appendChild(this._makeTbSep());
@@ -329,7 +330,7 @@ export class WidgetBlueprintEditorPanel {
     if (this._onSave) {
       const saveBtn = document.createElement('button');
       saveBtn.className = 'wbp-tb-btn wbp-tb-secondary';
-      saveBtn.innerHTML = '💾';
+      saveBtn.innerHTML = iconHTML(Icons.Save, 'sm');
       saveBtn.title = 'Save all (Ctrl+S)';
       saveBtn.addEventListener('click', () => this._doSave());
       rightGroup.appendChild(saveBtn);
@@ -339,7 +340,7 @@ export class WidgetBlueprintEditorPanel {
     // Designer tab
     const designerBtn = document.createElement('button');
     designerBtn.className = `wbp-tb-mode${this._activeTab === 'designer' ? ' wbp-tb-mode-active wbp-tb-mode-designer' : ''}`;
-    designerBtn.innerHTML = '✎ Designer';
+    designerBtn.innerHTML = iconHTML(Icons.Pencil, 'sm') + ' Designer';
     designerBtn.addEventListener('click', () => {
       if (this._activeTab !== 'designer') {
         this._activeTab = 'designer';
@@ -352,7 +353,7 @@ export class WidgetBlueprintEditorPanel {
     // Graph tab
     const graphBtn = document.createElement('button');
     graphBtn.className = `wbp-tb-mode${this._activeTab === 'eventGraph' ? ' wbp-tb-mode-active wbp-tb-mode-graph' : ''}`;
-    graphBtn.innerHTML = '⊞ Graph';
+    graphBtn.innerHTML = iconHTML(Icons.Grid2x2, 'sm') + ' Graph';
     graphBtn.addEventListener('click', () => {
       if (this._activeTab !== 'eventGraph') {
         this._activeTab = 'eventGraph';
@@ -383,15 +384,15 @@ export class WidgetBlueprintEditorPanel {
     const btn = this._compileBtnEl;
     switch (this._compileStatus) {
       case 'compiled':
-        btn.innerHTML = '<span class="wbp-tb-icon">✓</span> Compile';
+        btn.innerHTML = '<span class="wbp-tb-icon">' + iconHTML(Icons.Check, 'sm', ICON_COLORS.success) + '</span> Compile';
         btn.className = 'wbp-tb-btn wbp-compile-ok';
         break;
       case 'dirty':
-        btn.innerHTML = '<span class="wbp-tb-icon">⟳</span> Compile';
+        btn.innerHTML = '<span class="wbp-tb-icon">' + iconHTML(Icons.Loader2, 'sm', ICON_COLORS.warning) + '</span> Compile';
         btn.className = 'wbp-tb-btn wbp-compile-dirty';
         break;
       case 'error':
-        btn.innerHTML = '<span class="wbp-tb-icon">✗</span> Compile';
+        btn.innerHTML = '<span class="wbp-tb-icon">' + iconHTML(Icons.XCircle, 'sm', ICON_COLORS.error) + '</span> Compile';
         btn.className = 'wbp-tb-btn wbp-compile-error';
         break;
     }
@@ -504,6 +505,7 @@ export class WidgetBlueprintEditorPanel {
     const wrapper = document.createElement('div');
     wrapper.style.display = 'flex';
     wrapper.style.flex = '1';
+    wrapper.style.height = '100%';
     wrapper.style.overflow = 'hidden';
 
     const editorContainer = document.createElement('div');
@@ -597,7 +599,7 @@ export class WidgetBlueprintEditorPanel {
 
     const bindBtn = document.createElement('button');
     bindBtn.className = 'wbp-panel-tab-action';
-    bindBtn.innerHTML = '⊞ Bind Widgets';
+    bindBtn.innerHTML = iconHTML(Icons.Grid2x2, 'sm') + ' Bind Widgets';
     hierTabRow.appendChild(bindBtn);
 
     const closeHierBtn = document.createElement('button');
@@ -657,7 +659,7 @@ export class WidgetBlueprintEditorPanel {
     // DPI Scale indicator (bottom-right)
     const dpiLabel = document.createElement('div');
     dpiLabel.className = 'wbp-dpi-label';
-    dpiLabel.innerHTML = `DPI Scale ${this._dpiScale.toFixed(1)} <span class="wbp-dpi-gear">⚙</span>`;
+    dpiLabel.innerHTML = `DPI Scale ${this._dpiScale.toFixed(1)} <span class="wbp-dpi-gear">${iconHTML(Icons.Settings, 'sm')}</span>`;
     canvasWrapper.appendChild(dpiLabel);
 
     centerArea.appendChild(canvasWrapper);
@@ -671,7 +673,7 @@ export class WidgetBlueprintEditorPanel {
     detailsTabRow.className = 'wbp-panel-tabs';
     const detailsTab = document.createElement('button');
     detailsTab.className = 'wbp-panel-tab active';
-    detailsTab.innerHTML = '✎ Details';
+    detailsTab.innerHTML = iconHTML(Icons.Pencil, 'sm') + ' Details';
     detailsTabRow.appendChild(detailsTab);
     const closeDetailsBtn = document.createElement('button');
     closeDetailsBtn.className = 'wbp-panel-close';
@@ -761,7 +763,7 @@ export class WidgetBlueprintEditorPanel {
       catHeader.className = 'wbp-palette-cat-header';
       const arrow = document.createElement('span');
       arrow.className = 'wbp-palette-arrow';
-      arrow.textContent = '▶';
+      arrow.innerHTML = iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted);
       catHeader.appendChild(arrow);
       const catLabel = document.createElement('span');
       catLabel.textContent = cat.label;
@@ -772,15 +774,15 @@ export class WidgetBlueprintEditorPanel {
       catBody.className = 'wbp-palette-cat-body';
       if (collapsed) {
         catBody.style.display = 'none';
-        arrow.textContent = '▶';
+        arrow.innerHTML = iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted);
       } else {
-        arrow.textContent = '▼';
+        arrow.innerHTML = iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
       }
 
       catHeader.addEventListener('click', () => {
         collapsed = !collapsed;
         catBody.style.display = collapsed ? 'none' : '';
-        arrow.textContent = collapsed ? '▶' : '▼';
+        arrow.innerHTML = collapsed ? iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted) : iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
       });
 
       for (const w of matchingWidgets) {
@@ -788,7 +790,7 @@ export class WidgetBlueprintEditorPanel {
         item.className = 'wbp-palette-item';
         const icon = document.createElement('span');
         icon.className = 'wbp-palette-item-icon';
-        icon.textContent = w.icon;
+        icon.innerHTML = w.icon;
         const label = document.createElement('span');
         label.textContent = w.label;
         item.appendChild(icon);
@@ -819,12 +821,12 @@ export class WidgetBlueprintEditorPanel {
 
     // Alignment buttons (UE-style icons approximation)
     const alignments = [
-      { icon: '⬒', title: 'Align left edges', action: 'left' },
-      { icon: '⬓', title: 'Center horizontally', action: 'center-h' },
-      { icon: '⬔', title: 'Align right edges', action: 'right' },
-      { icon: '⬒', title: 'Align top edges', action: 'top', rotate: true },
-      { icon: '⬓', title: 'Center vertically', action: 'center-v' },
-      { icon: '⬔', title: 'Align bottom edges', action: 'bottom' },
+      { icon: iconHTML(Icons.ChevronLeft, 'sm'), title: 'Align left edges', action: 'left' },
+      { icon: iconHTML(Icons.Minus, 'sm'), title: 'Center horizontally', action: 'center-h' },
+      { icon: iconHTML(Icons.ChevronRight, 'sm'), title: 'Align right edges', action: 'right' },
+      { icon: iconHTML(Icons.ChevronLeft, 'sm'), title: 'Align top edges', action: 'top', rotate: true },
+      { icon: iconHTML(Icons.Minus, 'sm'), title: 'Center vertically', action: 'center-v' },
+      { icon: iconHTML(Icons.ChevronRight, 'sm'), title: 'Align bottom edges', action: 'bottom' },
     ];
 
     for (const a of alignments) {
@@ -842,11 +844,11 @@ export class WidgetBlueprintEditorPanel {
     // Grid/guideline toggles
     const viewGroup = document.createElement('div');
     viewGroup.className = 'wbp-dt-group';
-    const gridIcons = ['▦', '⊞', '⊟', '4'];
+    const gridIcons = [iconHTML(Icons.Grid, 'sm'), iconHTML(Icons.Grid2x2, 'sm'), iconHTML(Icons.Grid, 'sm'), '4'];
     for (const ic of gridIcons) {
       const btn = document.createElement('button');
       btn.className = 'wbp-dt-btn';
-      btn.textContent = ic;
+      btn.innerHTML = ic;
       viewGroup.appendChild(btn);
     }
     toolbar.appendChild(viewGroup);
@@ -859,12 +861,12 @@ export class WidgetBlueprintEditorPanel {
 
     const screenIcon = document.createElement('span');
     screenIcon.className = 'wbp-dt-screen-icon';
-    screenIcon.textContent = '⊟';
+    screenIcon.innerHTML = iconHTML(Icons.Grid, 'sm');
     screenGroup.appendChild(screenIcon);
 
     const screenLabel = document.createElement('span');
     screenLabel.className = 'wbp-dt-label wbp-dt-screen';
-    screenLabel.textContent = 'Screen Size ▾';
+    screenLabel.innerHTML = 'Screen Size ' + iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
 
     const screenSel = document.createElement('select');
     screenSel.className = 'wbp-dt-select';
@@ -1464,7 +1466,7 @@ export class WidgetBlueprintEditorPanel {
           ctx.font = `${Math.min(w, h) * 0.4}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('🖼', x + w / 2, y + h / 2);
+          ctx.fillText('IMG', x + w / 2, y + h / 2);
           ctx.textAlign = 'start';
         }
         break;
@@ -1839,7 +1841,7 @@ export class WidgetBlueprintEditorPanel {
     const arrow = document.createElement('span');
     arrow.className = 'wbp-hier-arrow';
     if (hasChildren) {
-      arrow.textContent = '▼';
+      arrow.innerHTML = iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
       arrow.style.cursor = 'pointer';
     } else {
       arrow.textContent = ' ';
@@ -1849,13 +1851,13 @@ export class WidgetBlueprintEditorPanel {
     // Checkbox
     const check = document.createElement('span');
     check.className = 'wbp-hier-check';
-    check.innerHTML = '☐';
+    check.innerHTML = iconHTML(Icons.Square, 'sm', ICON_COLORS.muted);
     row.appendChild(check);
 
     // Icon
     const icon = document.createElement('span');
     icon.className = 'wbp-hier-icon';
-    icon.textContent = this._getWidgetIcon(widget.type);
+    icon.innerHTML = this._getWidgetIcon(widget.type);
     row.appendChild(icon);
 
     // Name
@@ -1889,7 +1891,7 @@ export class WidgetBlueprintEditorPanel {
     // Reparent / navigation buttons (UE style)
     const navBtn = document.createElement('span');
     navBtn.className = 'wbp-hier-actions';
-    navBtn.innerHTML = '⇅ \u2699';
+    navBtn.innerHTML = iconHTML(Icons.ChevronsUpDown, 'sm') + ' ' + iconHTML(Icons.Settings, 'sm');
     row.appendChild(navBtn);
 
     // Click to select
@@ -1919,7 +1921,7 @@ export class WidgetBlueprintEditorPanel {
         e.stopPropagation();
         childrenVisible = !childrenVisible;
         childContainer.style.display = childrenVisible ? '' : 'none';
-        arrow.textContent = childrenVisible ? '▼' : '▶';
+        arrow.innerHTML = childrenVisible ? iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted) : iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted);
       });
     }
 
@@ -1936,14 +1938,14 @@ export class WidgetBlueprintEditorPanel {
 
   private _getWidgetIcon(type: WidgetType): string {
     const icons: Partial<Record<WidgetType, string>> = {
-      CanvasPanel: '◫', VerticalBox: '⊞', HorizontalBox: '⊟', Overlay: '◰',
-      GridPanel: '⊞', WrapBox: '⊟', ScrollBox: '◱', SizeBox: '□', ScaleBox: '⊡',
-      Border: '▢', Spacer: '⊔', Text: 'T', RichText: 'T', Image: '▨',
-      Button: '▣', CheckBox: '☑', Slider: '⊶', ProgressBar: '▬',
-      TextBox: '⊏', ComboBox: '☰', CircularThrobber: '◎', WidgetSwitcher: '⇆',
-      NamedSlot: '⊡',
+      CanvasPanel: iconHTML(Icons.Layout, 'sm'), VerticalBox: iconHTML(Icons.Grid2x2, 'sm'), HorizontalBox: iconHTML(Icons.Grid, 'sm'), Overlay: iconHTML(Icons.Layers, 'sm'),
+      GridPanel: iconHTML(Icons.Grid2x2, 'sm'), WrapBox: iconHTML(Icons.Grid, 'sm'), ScrollBox: iconHTML(Icons.ChevronsUpDown, 'sm'), SizeBox: iconHTML(Icons.Square, 'sm'), ScaleBox: iconHTML(Icons.Maximize2, 'sm'),
+      Border: iconHTML(Icons.BoxSelect, 'sm'), Spacer: iconHTML(Icons.Minus, 'sm'), Text: iconHTML(Icons.Type, 'sm'), RichText: iconHTML(Icons.Type, 'sm'), Image: iconHTML(Icons.Image, 'sm'),
+      Button: iconHTML(Icons.MousePointerClick, 'sm'), CheckBox: iconHTML(Icons.ToggleLeft, 'sm'), Slider: iconHTML(Icons.SlidersHorizontal, 'sm'), ProgressBar: iconHTML(Icons.BarChart2, 'sm'),
+      TextBox: iconHTML(Icons.TextCursorInput, 'sm'), ComboBox: iconHTML(Icons.ChevronsUpDown, 'sm'), CircularThrobber: iconHTML(Icons.Loader2, 'sm'), WidgetSwitcher: iconHTML(Icons.RefreshCw, 'sm'),
+      NamedSlot: iconHTML(Icons.BoxSelect, 'sm'),
     };
-    return icons[type] ?? '▪';
+    return icons[type] ?? iconHTML(Icons.Box, 'sm');
   }
 
   // ============================================================
@@ -1977,7 +1979,7 @@ export class WidgetBlueprintEditorPanel {
     const addItem = (label: string, action: () => void, disabled = false) => {
       const item = document.createElement('div');
       item.style.cssText = `padding:5px 12px;cursor:${disabled ? 'default' : 'pointer'};opacity:${disabled ? '0.4' : '1'};`;
-      item.textContent = label;
+      item.innerHTML = label;
       if (!disabled) {
         item.addEventListener('mouseenter', () => { item.style.background = '#2a5db0'; });
         item.addEventListener('mouseleave', () => { item.style.background = ''; });
@@ -1997,11 +1999,11 @@ export class WidgetBlueprintEditorPanel {
 
     // Add child (only for containers)
     if (this._asset.isContainerType(widget.type)) {
-      addItem('➕ Add Child Widget...', () => this._showAddWidgetSubmenu(mx, my, widgetId));
+      addItem(iconHTML(Icons.PlusCircle, 'sm', ICON_COLORS.blue) + ' Add Child Widget...', () => this._showAddWidgetSubmenu(mx, my, widgetId));
     }
 
     addSep();
-    addItem('✏ Rename', () => {
+    addItem(iconHTML(Icons.Pencil, 'sm') + ' Rename', () => {
       const name = prompt('New name:', widget.name);
       if (name) {
         widget.name = name.trim();
@@ -2010,11 +2012,11 @@ export class WidgetBlueprintEditorPanel {
         this._rebuildProperties();
       }
     });
-    addItem('📋 Duplicate', () => {
+    addItem(iconHTML(Icons.Copy, 'sm') + ' Duplicate', () => {
       this._asset.duplicateWidget(widgetId);
       this._rebuildHierarchy();
     }, widgetId === this._asset.rootWidgetId);
-    addItem('🗑 Delete', () => {
+    addItem(iconHTML(Icons.Trash2, 'sm', ICON_COLORS.error) + ' Delete', () => {
       this._asset.removeWidget(widgetId);
       if (this._selectedWidgetId === widgetId) this._selectedWidgetId = null;
       this._rebuildHierarchy();
@@ -2788,7 +2790,7 @@ export class WidgetBlueprintEditorPanel {
 
     const arrow = document.createElement('span');
     arrow.className = 'wbp-prop-header-arrow';
-    arrow.textContent = '▼';
+    arrow.innerHTML = iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
     el.appendChild(arrow);
 
     const txt = document.createElement('span');
@@ -2909,7 +2911,7 @@ export class WidgetBlueprintEditorPanel {
           img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
           thumb.appendChild(img);
         } else {
-          thumb.textContent = '🖼';
+          thumb.innerHTML = iconHTML(Icons.Image, 'sm', ICON_COLORS.muted);
           thumb.style.fontSize = '14px';
         }
       }

@@ -1,6 +1,7 @@
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { MeshType } from '../engine/Scene';
+import { createIcon, Icons, ICON_COLORS } from './icons';
 
 export class ContentBrowserPanel {
   public container: HTMLElement;
@@ -88,11 +89,9 @@ export class ContentBrowserPanel {
       if (go.actorAssetId) {
         const badge = document.createElement('span');
         badge.className = 'icon';
-        badge.textContent = '⬡';
+        badge.appendChild(createIcon(Icons.GitBranch, 10, ICON_COLORS.blueprint));
         badge.title = 'Actor Asset Instance';
         badge.style.marginLeft = 'auto';
-        badge.style.fontSize = '10px';
-        badge.style.color = 'var(--accent)';
         item.appendChild(badge);
       }
 
@@ -120,12 +119,7 @@ export class ContentBrowserPanel {
   }
 
   private _getIcon(go: GameObject): string {
-    const geoType = go.mesh.geometry.type;
-    if (geoType === 'BoxGeometry') return '◻';
-    if (geoType === 'SphereGeometry') return '●';
-    if (geoType === 'CylinderGeometry') return '◎';
-    if (geoType === 'PlaneGeometry') return '▬';
-    return '◇';
+    return '▢'; // Uniform box glyph for all mesh types
   }
 
   private _showAddMenu(e: MouseEvent): void {

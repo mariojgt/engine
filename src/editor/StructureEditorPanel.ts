@@ -7,6 +7,7 @@
 import { StructureAsset, StructureAssetManager, defaultForVarType } from './StructureAsset';
 import type { StructureFieldDef } from './StructureAsset';
 import type { VarType } from './BlueprintData';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class StructureEditorPanel {
   public container: HTMLElement;
@@ -61,7 +62,7 @@ export class StructureEditorPanel {
     const header = document.createElement('div');
     header.className = 'panel-header struct-editor-header';
     header.innerHTML = `
-      <span class="struct-editor-icon">🔷</span>
+      <span class="struct-editor-icon">${iconHTML(Icons.Diamond, 16, ICON_COLORS.blue)}</span>
       <span class="struct-editor-title">${this._asset.name}</span>
       <span class="struct-editor-badge">Structure</span>
     `;

@@ -336,7 +336,7 @@ export class ProjectManager {
 
       this._dirty = false;
       this._startAutoSave();
-      console.log(`[ProjectManager] ✅ Project opened successfully: ${meta.name}`);
+      console.log(`[ProjectManager] Project opened successfully: ${meta.name}`);
       return true;
     } catch (err) {
       console.error('[ProjectManager] Failed to open project:', err);
@@ -422,9 +422,9 @@ export class ProjectManager {
       console.log('[ProjectManager]   ✓ editor state');
 
       this._dirty = false;
-      console.log(`[ProjectManager] ✅ Project saved successfully: ${this._meta.name}`);
+      console.log(`[ProjectManager] Project saved successfully: ${this._meta.name}`);
     } catch (err) {
-      console.error('[ProjectManager] ❌ Failed to save project:', err);
+      console.error('[ProjectManager] Failed to save project:', err);
     }
   }
 

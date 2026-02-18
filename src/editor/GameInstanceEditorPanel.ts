@@ -7,6 +7,7 @@
 import type { GameInstanceBlueprintAsset } from './GameInstanceData';
 import type { BlueprintVariable, VarType } from './BlueprintData';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class GameInstanceEditorPanel {
   private _container: HTMLElement;
@@ -42,7 +43,7 @@ export class GameInstanceEditorPanel {
     header.style.flexShrink = '0';
 
     const icon = document.createElement('span');
-    icon.textContent = '🌐';
+    icon.innerHTML = iconHTML(Icons.Circle, 16, ICON_COLORS.primary);
     icon.style.fontSize = '18px';
     header.appendChild(icon);
 
@@ -55,7 +56,7 @@ export class GameInstanceEditorPanel {
 
     // Compile button
     const compileBtn = document.createElement('button');
-    compileBtn.textContent = '⚡ Compile';
+    compileBtn.innerHTML = iconHTML(Icons.Zap, 12, ICON_COLORS.warning) + ' Compile';
     compileBtn.style.marginLeft = 'auto';
     compileBtn.style.padding = '3px 10px';
     compileBtn.style.background = '#2a6e3f';

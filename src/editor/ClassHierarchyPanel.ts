@@ -7,6 +7,7 @@
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import type { ActorAssetManager, ActorAsset } from './ActorAsset';
 import type { WidgetBlueprintManager, WidgetBlueprintAsset } from './WidgetBlueprintData';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 // ============================================================
 //  Types
@@ -239,9 +240,14 @@ export class ClassHierarchyPanel {
     toolbar.appendChild(filterSelect);
 
     // Search input
+    const searchIcon = document.createElement('span');
+    searchIcon.innerHTML = iconHTML(Icons.Search, 12, ICON_COLORS.muted);
+    searchIcon.style.cssText = 'display:flex;align-items:center;';
+    toolbar.appendChild(searchIcon);
+
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = '🔍 Search...';
+    searchInput.placeholder = 'Search...';
     searchInput.value = this._searchQuery;
     searchInput.style.cssText = 'flex:1;background:#181825;border:1px solid #444;border-radius:3px;color:#ccc;padding:3px 8px;font-size:11px;outline:none;';
     searchInput.addEventListener('input', () => {
@@ -258,13 +264,13 @@ export class ClassHierarchyPanel {
 
     // Actors section
     if (this._filter === 'all' || this._filter === 'actors') {
-      const actorGroup = this._renderGroup('📁 Actors', '__actors__', filteredActors);
+      const actorGroup = this._renderGroup('Actors', '__actors__', filteredActors);
       treeContainer.appendChild(actorGroup);
     }
 
     // Widgets section
     if (this._filter === 'all' || this._filter === 'widgets') {
-      const widgetGroup = this._renderGroup('📁 Widgets', '__widgets__', filteredWidgets);
+      const widgetGroup = this._renderGroup('Widgets', '__widgets__', filteredWidgets);
       treeContainer.appendChild(widgetGroup);
     }
 
@@ -277,7 +283,7 @@ export class ClassHierarchyPanel {
 
     const header = document.createElement('div');
     header.style.cssText = 'padding:4px 8px;cursor:pointer;display:flex;align-items:center;gap:4px;color:#aaa;font-weight:600;user-select:none;';
-    header.innerHTML = `<span style="font-size:10px;">${isExpanded ? '▼' : '▶'}</span> ${label} <span style="color:#666;font-weight:400;">(${nodes.length})</span>`;
+    header.innerHTML = `${isExpanded ? iconHTML(Icons.ChevronDown, 10, ICON_COLORS.muted) : iconHTML(Icons.ChevronRight, 10, ICON_COLORS.muted)} ${isExpanded ? iconHTML(Icons.FolderOpen, 12, ICON_COLORS.folder) : iconHTML(Icons.Folder, 12, ICON_COLORS.folder)} ${label} <span style="color:#666;font-weight:400;">(${nodes.length})</span>`;
     header.addEventListener('click', () => {
       if (isExpanded) this._expandedNodes.delete(groupId);
       else this._expandedNodes.add(groupId);
@@ -306,8 +312,8 @@ export class ClassHierarchyPanel {
     // Expand arrow (only if has children)
     if (node.children.length > 0) {
       const arrow = document.createElement('span');
-      arrow.style.cssText = 'font-size:10px;width:12px;text-align:center;color:#888;';
-      arrow.textContent = node.isExpanded ? '▼' : '▶';
+      arrow.style.cssText = 'font-size:10px;width:12px;text-align:center;color:#888;display:flex;align-items:center;justify-content:center;';
+      arrow.innerHTML = node.isExpanded ? iconHTML(Icons.ChevronDown, 10, ICON_COLORS.muted) : iconHTML(Icons.ChevronRight, 10, ICON_COLORS.muted);
       arrow.addEventListener('click', (e) => {
         e.stopPropagation();
         if (node.isExpanded) this._expandedNodes.delete(node.id);
@@ -321,8 +327,8 @@ export class ClassHierarchyPanel {
 
     // Icon
     const icon = document.createElement('span');
-    icon.style.fontSize = '12px';
-    icon.textContent = node.kind === 'actor' ? '📦' : '🖼';
+    icon.style.cssText = 'font-size:12px;display:flex;align-items:center;';
+    icon.innerHTML = node.kind === 'actor' ? iconHTML(Icons.Box, 12, ICON_COLORS.mesh) : iconHTML(Icons.Palette, 12, ICON_COLORS.widget);
     row.appendChild(icon);
 
     // Name
@@ -342,8 +348,8 @@ export class ClassHierarchyPanel {
     // Out of sync indicator
     if (node.isOutOfSync) {
       const sync = document.createElement('span');
-      sync.style.cssText = 'font-size:10px;color:#f87171;margin-left:4px;';
-      sync.textContent = '⚠️';
+      sync.style.cssText = 'font-size:10px;color:#f87171;margin-left:4px;display:flex;align-items:center;';
+      sync.innerHTML = iconHTML(Icons.AlertTriangle, 12, ICON_COLORS.warning);
       sync.title = 'Out of sync with parent';
       row.appendChild(sync);
     }
@@ -382,16 +388,16 @@ export class ClassHierarchyPanel {
     const menu = document.createElement('div');
     menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;background:#1e1e2e;border:1px solid #555;border-radius:6px;padding:4px 0;min-width:200px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.4);`;
 
-    this._addMenuItem(menu, '📝 Open in Editor', () => {
+    this._addMenuItem(menu, `${iconHTML(Icons.FileText, 12, ICON_COLORS.muted)} Open in Editor`, () => {
       this._onAction({ type: 'open', id: node.id, kind: node.kind });
     });
 
-    this._addMenuItem(menu, '➕ Create Child Class', () => {
+    this._addMenuItem(menu, `${iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue)} Create Child Class`, () => {
       this._onAction({ type: 'create-child', id: node.id, kind: node.kind });
     });
 
     if (node.childCount > 0) {
-      this._addMenuItem(menu, `👶 Show Children (${node.childCount})`, () => {
+      this._addMenuItem(menu, `${iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted)} Show Children (${node.childCount})`, () => {
         this._onAction({ type: 'show-children', id: node.id, kind: node.kind });
       });
     }
@@ -400,7 +406,7 @@ export class ClassHierarchyPanel {
       ? this._inh.getActorParent(node.id)
       : this._inh.getWidgetParent(node.id);
     if (parentEntry) {
-      this._addMenuItem(menu, `⬆️ Show Parent (${parentEntry.name})`, () => {
+      this._addMenuItem(menu, `${iconHTML(Icons.ArrowRight, 12, ICON_COLORS.muted)} Show Parent (${parentEntry.name})`, () => {
         this._onAction({ type: 'show-parent', id: node.id, kind: node.kind });
       });
     }
@@ -410,11 +416,11 @@ export class ClassHierarchyPanel {
       style: 'height:1px;background:#444;margin:4px 8px;',
     }));
 
-    this._addMenuItem(menu, '🔄 Change Parent Class', () => {
+    this._addMenuItem(menu, `${iconHTML(Icons.RefreshCw, 12, ICON_COLORS.muted)} Change Parent Class`, () => {
       this._onAction({ type: 'change-parent', id: node.id, kind: node.kind });
     });
 
-    this._addMenuItem(menu, '🔍 Find References', () => {
+    this._addMenuItem(menu, `${iconHTML(Icons.Search, 12, ICON_COLORS.muted)} Find References`, () => {
       this._onAction({ type: 'find-references', id: node.id, kind: node.kind });
     });
 
@@ -429,8 +435,8 @@ export class ClassHierarchyPanel {
 
   private _addMenuItem(menu: HTMLElement, label: string, action: () => void): void {
     const item = document.createElement('div');
-    item.style.cssText = 'padding:5px 12px;cursor:pointer;color:#ccc;font-size:12px;transition:background 0.1s;';
-    item.textContent = label;
+    item.style.cssText = 'padding:5px 12px;cursor:pointer;color:#ccc;font-size:12px;transition:background 0.1s;display:flex;align-items:center;gap:6px;';
+    item.innerHTML = label;
     item.addEventListener('mouseenter', () => { item.style.background = '#2a2a3e'; });
     item.addEventListener('mouseleave', () => { item.style.background = ''; });
     item.addEventListener('click', (e) => {

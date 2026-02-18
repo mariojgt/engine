@@ -83,7 +83,7 @@ export function showImportDialog(
     const titleLine = document.createElement('div');
     titleLine.className = 'import-dialog-title-line';
     titleLine.innerHTML = `
-      <span class="import-dialog-title">📦 Import: ${file.name}</span>
+      <span class="import-dialog-title">Import: ${file.name}</span>
       <span class="import-dialog-subtitle">${formatLabel(format)} · ${formatSize(file.size)}</span>
     `;
     header.appendChild(titleLine);
@@ -94,12 +94,12 @@ export function showImportDialog(
       infoBar.className = 'import-detection-bar';
       infoBar.innerHTML = `
         <div class="import-detection-stats">
-          <span title="Meshes">🔷 ${detectedInfo.complexity.meshCount} mesh${detectedInfo.complexity.meshCount !== 1 ? 'es' : ''}</span>
-          <span title="Vertices">📐 ${formatNumber(detectedInfo.complexity.vertexCount)} verts</span>
-          <span title="Triangles">🔺 ${formatNumber(detectedInfo.complexity.triangleCount)} tris</span>
-          ${detectedInfo.complexity.boneCount ? `<span title="Bones">🦴 ${detectedInfo.complexity.boneCount} bones</span>` : ''}
-          ${detectedInfo.complexity.animationCount ? `<span title="Animations">🎬 ${detectedInfo.complexity.animationCount} anims</span>` : ''}
-          ${detectedInfo.complexity.materialCount ? `<span title="Materials">🎨 ${detectedInfo.complexity.materialCount} mats</span>` : ''}
+          <span title="Meshes">${detectedInfo.complexity.meshCount} mesh${detectedInfo.complexity.meshCount !== 1 ? 'es' : ''}</span>
+          <span title="Vertices">${formatNumber(detectedInfo.complexity.vertexCount)} verts</span>
+          <span title="Triangles">${formatNumber(detectedInfo.complexity.triangleCount)} tris</span>
+          ${detectedInfo.complexity.boneCount ? `<span title="Bones">${detectedInfo.complexity.boneCount} bones</span>` : ''}
+          ${detectedInfo.complexity.animationCount ? `<span title="Animations">${detectedInfo.complexity.animationCount} anims</span>` : ''}
+          ${detectedInfo.complexity.materialCount ? `<span title="Materials">${detectedInfo.complexity.materialCount} mats</span>` : ''}
         </div>
         <div class="import-detection-preset">
           Suggested: <strong>${detectedInfo.suggestedPreset}</strong>
@@ -114,7 +114,7 @@ export function showImportDialog(
         for (const w of detectedInfo.warnings) {
           const wLine = document.createElement('div');
           wLine.className = 'import-warning-line';
-          wLine.textContent = `⚠️ ${w}`;
+          wLine.textContent = `${w}`;
           warnDiv.appendChild(wLine);
         }
         header.appendChild(warnDiv);
@@ -512,7 +512,7 @@ export function showImportDialog(
 
     const savePresetBtn = document.createElement('button');
     savePresetBtn.className = 'import-dialog-btn import-dialog-btn-secondary';
-    savePresetBtn.textContent = '💾 Save Preset';
+    savePresetBtn.textContent = 'Save Preset';
     savePresetBtn.addEventListener('click', () => {
       const presetName = prompt('Preset name:', settings.suggestedPreset);
       if (presetName) {
@@ -524,7 +524,7 @@ export function showImportDialog(
 
     const loadPresetBtn = document.createElement('button');
     loadPresetBtn.className = 'import-dialog-btn import-dialog-btn-secondary';
-    loadPresetBtn.textContent = '📂 Load Preset';
+    loadPresetBtn.textContent = 'Load Preset';
     loadPresetBtn.addEventListener('click', () => {
       const keys = Object.keys(localStorage).filter(k => k.startsWith('import-preset-'));
       if (keys.length === 0) { alert('No saved presets found.'); return; }
@@ -561,7 +561,7 @@ export function showImportDialog(
 
     const importBtn = document.createElement('button');
     importBtn.className = 'import-dialog-btn import-dialog-btn-import';
-    importBtn.textContent = '📦 Import';
+    importBtn.textContent = 'Import';
     importBtn.addEventListener('click', () => {
       overlay.remove();
       document.removeEventListener('keydown', keyHandler);
@@ -614,7 +614,7 @@ export function showImportProgress(): {
   dialog.className = 'import-progress-dialog';
 
   dialog.innerHTML = `
-    <div class="import-progress-title">📦 Importing Asset...</div>
+    <div class="import-progress-title">Importing Asset...</div>
     <div class="import-progress-step" id="__imp_step"></div>
     <div class="import-progress-bar-bg">
       <div class="import-progress-bar" id="__imp_bar"></div>
@@ -646,7 +646,7 @@ export function showImportProgress(): {
     addWarning(warning: string) {
       const w = document.createElement('div');
       w.className = 'import-progress-warning-line';
-      w.textContent = `⚠️ ${warning}`;
+      w.textContent = `${warning}`;
       warns.appendChild(w);
     },
     close() {

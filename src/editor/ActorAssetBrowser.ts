@@ -18,6 +18,7 @@ import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
 export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: number) => void;
@@ -188,7 +189,7 @@ export class ActorAssetBrowser {
     header.innerHTML = `
       <span>Content Browser</span>
       <div style="display:flex;gap:4px;">
-        <div class="content-browser-add" id="ab-import-btn">📦 Import</div>
+        <div class="content-browser-add" id="ab-import-btn">${iconHTML(Icons.Upload, 12, ICON_COLORS.muted)} Import</div>
         <div class="content-browser-add" id="ab-add-btn">+ New</div>
       </div>
     `;
@@ -277,7 +278,7 @@ export class ActorAssetBrowser {
 
     const icon = document.createElement('span');
     icon.className = 'folder-icon';
-    icon.textContent = folder.children.length > 0 ? (isExpanded ? '📂' : '📁') : '📁';
+    icon.innerHTML = folder.children.length > 0 ? (isExpanded ? iconHTML(Icons.FolderOpen, 12, ICON_COLORS.folder) : iconHTML(Icons.Folder, 12, ICON_COLORS.folder)) : iconHTML(Icons.Folder, 12, ICON_COLORS.folder);
 
     const label = document.createElement('span');
     label.textContent = folder.name;
@@ -370,11 +371,11 @@ export class ActorAssetBrowser {
     const icon = document.createElement('div');
     icon.className = 'asset-card-icon';
     if (asset.actorType === 'characterPawn') {
-      icon.innerHTML = '<span style="font-size:28px;">🏃</span>';
+      icon.innerHTML = iconHTML(Icons.PersonStanding, 28, ICON_COLORS.actor);
     } else if (asset.actorType === 'playerController') {
-      icon.innerHTML = '<span style="font-size:28px;">🎮</span>';
+      icon.innerHTML = iconHTML(Icons.Gamepad2, 28, ICON_COLORS.actor);
     } else if (asset.actorType === 'aiController') {
-      icon.innerHTML = '<span style="font-size:28px;">🤖</span>';
+      icon.innerHTML = iconHTML(Icons.Camera, 28, ICON_COLORS.actor);
     } else {
       icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
     }
@@ -417,7 +418,7 @@ export class ActorAssetBrowser {
     const sa = this._structManager.getStructure(assetId);
     if (!sa) return;
     const card = this._createTypeCard(
-      sa.id, sa.name, '🔷', `${sa.fields.length} fields`,
+      sa.id, sa.name, iconHTML(Icons.Box, 14, ICON_COLORS.blue), `${sa.fields.length} fields`,
       () => this._onOpenStructure?.(sa),
       (e) => this._showStructContextMenu(e, sa),
     );
@@ -429,7 +430,7 @@ export class ActorAssetBrowser {
     const ea = this._structManager.getEnum(assetId);
     if (!ea) return;
     const card = this._createTypeCard(
-      ea.id, ea.name, '📋', `${ea.values.length} values`,
+      ea.id, ea.name, iconHTML(Icons.List, 14, ICON_COLORS.muted), `${ea.values.length} values`,
       () => this._onOpenEnum?.(ea),
       (e) => this._showEnumContextMenu(e, ea),
     );
@@ -452,7 +453,7 @@ export class ActorAssetBrowser {
       thumbEl.style.backgroundSize = 'cover';
       thumbEl.style.backgroundPosition = 'center';
     } else {
-      thumbEl.innerHTML = '<span style="font-size:28px;">📦</span>';
+      thumbEl.innerHTML = iconHTML(Icons.Box, 28, ICON_COLORS.mesh);
     }
     card.appendChild(thumbEl);
 
@@ -489,7 +490,7 @@ export class ActorAssetBrowser {
     const abp = this._animBPManager.getAsset(assetId);
     if (!abp) return;
     const card = this._createTypeCard(
-      abp.id, abp.name, '🎬', `${abp.stateMachine.states.length} states`,
+      abp.id, abp.name, iconHTML(Icons.Clapperboard, 14, ICON_COLORS.actor), `${abp.stateMachine.states.length} states`,
       () => this._onOpenAnimBP?.(abp),
       (e) => this._showAnimBPContextMenu(e, abp),
     );
@@ -502,7 +503,7 @@ export class ActorAssetBrowser {
     if (!wbp) return;
     const widgetCount = wbp.widgets.size;
     const card = this._createTypeCard(
-      wbp.id, wbp.name, '🎨', `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
+      wbp.id, wbp.name, iconHTML(Icons.Palette, 14, ICON_COLORS.widget), `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
       () => this._onOpenWidgetBP?.(wbp),
       (e) => this._showWidgetBPContextMenu(e, wbp),
     );
@@ -515,7 +516,7 @@ export class ActorAssetBrowser {
     if (!gi) return;
     const varCount = gi.blueprintData.variables.length;
     const card = this._createTypeCard(
-      gi.id, gi.name, '🌐', `${varCount} var${varCount !== 1 ? 's' : ''}`,
+      gi.id, gi.name, iconHTML(Icons.Circle, 14, ICON_COLORS.primary), `${varCount} var${varCount !== 1 ? 's' : ''}`,
       () => this._onOpenGameInstance?.(gi),
       (e) => this._showGameInstanceContextMenu(e, gi),
     );
@@ -529,14 +530,14 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenGameInstance?.(gi));
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenGameInstance?.(gi));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Game Instance', gi.name);
       if (newName && newName !== gi.name) {
         this._gameInstanceManager!.renameAsset(gi.id, newName);
       }
     });
-    this._addMenuItem(menu, '🗑 Delete', () => {
+    this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete game instance "${gi.name}"?`)) {
         this._gameInstanceManager!.removeAsset(gi.id);
         this._folderManager.removeAsset(gi.id);
@@ -615,7 +616,7 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📁 New Folder', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
       const name = await this._showNameDialog('New Folder', 'NewFolder');
       if (name) {
         this._folderManager.createFolder(name, folder.id);
@@ -624,12 +625,12 @@ export class ActorAssetBrowser {
     });
 
     if (folder.id !== this._folderManager.getRootFolderId()) {
-      this._addMenuItem(menu, '✏ Rename', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
         const name = await this._showNameDialog('Rename Folder', folder.name);
         if (name) this._folderManager.renameFolder(folder.id, name);
       });
 
-      const delItem = this._addMenuItem(menu, '🗑 Delete Folder', () => {
+      const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete Folder', () => {
         if (confirm(`Delete folder "${folder.name}"?`)) {
           this._folderManager.deleteFolder(folder.id);
           if (this._currentFolderId === folder.id) {
@@ -671,11 +672,11 @@ export class ActorAssetBrowser {
       const icon = document.createElement('div');
       icon.className = 'asset-card-icon';
       if (asset.actorType === 'characterPawn') {
-        icon.innerHTML = '<span style="font-size:28px;">🏃</span>';
+        icon.innerHTML = iconHTML(Icons.PersonStanding, 28, ICON_COLORS.actor);
       } else if (asset.actorType === 'playerController') {
-        icon.innerHTML = '<span style="font-size:28px;">🎮</span>';
+        icon.innerHTML = iconHTML(Icons.Gamepad2, 28, ICON_COLORS.actor);
       } else if (asset.actorType === 'aiController') {
-        icon.innerHTML = '<span style="font-size:28px;">🤖</span>';
+        icon.innerHTML = iconHTML(Icons.Camera, 28, ICON_COLORS.actor);
       } else {
         icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
       }
@@ -738,7 +739,7 @@ export class ActorAssetBrowser {
 
     for (const sa of structs) {
       const card = this._createTypeCard(
-        sa.id, sa.name, '🔷', `${sa.fields.length} fields`,
+        sa.id, sa.name, iconHTML(Icons.Box, 14, ICON_COLORS.blue), `${sa.fields.length} fields`,
         () => this._onOpenStructure?.(sa),
         (e) => this._showStructContextMenu(e, sa),
       );
@@ -761,7 +762,7 @@ export class ActorAssetBrowser {
 
     for (const ea of enums) {
       const card = this._createTypeCard(
-        ea.id, ea.name, '📋', `${ea.values.length} values`,
+        ea.id, ea.name, iconHTML(Icons.List, 14, ICON_COLORS.muted), `${ea.values.length} values`,
         () => this._onOpenEnum?.(ea),
         (e) => this._showEnumContextMenu(e, ea),
       );
@@ -784,7 +785,7 @@ export class ActorAssetBrowser {
     // Drop zone hint
     const dropZone = document.createElement('div');
     dropZone.className = 'mesh-drop-zone';
-    dropZone.innerHTML = '<span>📦 Drag & drop mesh files here<br>or click <b>Import</b></span>';
+    dropZone.innerHTML = '<span>Drag & drop mesh files here<br>or click <b>Import</b></span>';
 
     // File drag-and-drop support
     dropZone.addEventListener('dragover', (e) => {
@@ -838,7 +839,7 @@ export class ActorAssetBrowser {
         thumbEl.style.backgroundSize = 'cover';
         thumbEl.style.backgroundPosition = 'center';
       } else {
-        thumbEl.innerHTML = '<span style="font-size:28px;">📦</span>';
+        thumbEl.innerHTML = iconHTML(Icons.Box, 28, ICON_COLORS.mesh);
       }
       card.appendChild(thumbEl);
 
@@ -917,7 +918,7 @@ export class ActorAssetBrowser {
       const card = this._createTypeCard(
         abp.id,
         abp.name,
-        '🎬',
+        iconHTML(Icons.Clapperboard, 14, ICON_COLORS.actor),
         `${abp.stateMachine.states.length} states`,
         () => this._onOpenAnimBP?.(abp),
         (e) => this._showAnimBPContextMenu(e, abp),
@@ -933,12 +934,12 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenAnimBP?.(abp));
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenAnimBP?.(abp));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Animation Blueprint', abp.name);
       if (newName) this._animBPManager!.renameAsset(abp.id, newName);
     });
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete animation blueprint "${abp.name}"?`)) {
         this._animBPManager!.removeAsset(abp.id);
         if (this._selectedAssetId === abp.id) this._selectedAssetId = null;
@@ -978,7 +979,7 @@ export class ActorAssetBrowser {
       const card = this._createTypeCard(
         wbp.id,
         wbp.name,
-        '🎨',
+        iconHTML(Icons.Palette, 14, ICON_COLORS.widget),
         `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
         () => this._onOpenWidgetBP?.(wbp),
         (e) => this._showWidgetBPContextMenu(e, wbp),
@@ -994,10 +995,10 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenWidgetBP?.(wbp));
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenWidgetBP?.(wbp));
 
     // ── Inheritance: Create Child Widget Class ──
-    this._addMenuItem(menu, '➕ Create Child Class', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Create Child Class', async () => {
       const inh = ClassInheritanceSystem.instance;
       const name = await this._showNameDialog(`Create Child of ${wbp.name}`, `${wbp.name}_Child`);
       if (name) {
@@ -1011,7 +1012,7 @@ export class ActorAssetBrowser {
     });
 
     // ── Inheritance: Show in Hierarchy ──
-    this._addMenuItem(menu, '🌳 Show in Hierarchy', () => {
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Show in Hierarchy', () => {
       (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
     });
 
@@ -1019,7 +1020,7 @@ export class ActorAssetBrowser {
     const inh = ClassInheritanceSystem.instance;
     const childCount = inh.getWidgetChildren(wbp.id).length;
     if (childCount > 0) {
-      this._addMenuItem(menu, `👶 Show Children (${childCount})`, () => {
+      this._addMenuItem(menu, iconHTML(Icons.ChevronsDownUp, 12, ICON_COLORS.muted) + ` Show Children (${childCount})`, () => {
         (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
       });
     }
@@ -1028,11 +1029,11 @@ export class ActorAssetBrowser {
     sep2.className = 'context-menu-separator';
     menu.appendChild(sep2);
 
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Widget Blueprint', wbp.name);
       if (newName) this._widgetBPManager!.renameAsset(wbp.id, newName);
     });
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       const inh2 = ClassInheritanceSystem.instance;
       const children = inh2.getWidgetChildren(wbp.id);
       const msg = children.length > 0
@@ -1172,7 +1173,7 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Mesh Asset', meshAsset.name);
       if (newName) this._meshManager!.renameAsset(meshAsset.id, newName);
     });
@@ -1190,7 +1191,7 @@ export class ActorAssetBrowser {
     sep.className = 'context-menu-separator';
     menu.appendChild(sep);
 
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete mesh asset "${meshAsset.name}"?`)) {
         this._meshManager!.removeAsset(meshAsset.id);
         if (this._selectedAssetId === meshAsset.id) this._selectedAssetId = null;
@@ -1209,11 +1210,11 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => {
       this._onOpenMaterial?.(mat);
     });
 
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Material', mat.assetName);
       if (newName) {
         mat.assetName = newName;
@@ -1234,7 +1235,7 @@ export class ActorAssetBrowser {
     sep.className = 'context-menu-separator';
     menu.appendChild(sep);
 
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete material "${mat.assetName}"?`)) {
         const idx = this._meshManager!.allMaterials.findIndex(m => m.assetId === mat.assetId);
         if (idx >= 0) this._meshManager!.allMaterials.splice(idx, 1);
@@ -1302,12 +1303,12 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenStructure?.(sa));
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenStructure?.(sa));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Structure', sa.name);
       if (newName) this._structManager!.renameStructure(sa.id, newName);
     });
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete structure "${sa.name}"?`)) {
         this._structManager!.removeStructure(sa.id);
         if (this._selectedAssetId === sa.id) this._selectedAssetId = null;
@@ -1326,12 +1327,12 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenEnum?.(ea));
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenEnum?.(ea));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Enum', ea.name);
       if (newName) this._structManager!.renameEnum(ea.id, newName);
     });
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete enum "${ea.name}"?`)) {
         this._structManager!.removeEnum(ea.id);
         if (this._selectedAssetId === ea.id) this._selectedAssetId = null;
@@ -1345,11 +1346,11 @@ export class ActorAssetBrowser {
 
   private _getMeshIcon(meshType: string): string {
     switch (meshType) {
-      case 'cube': return '<span class="asset-icon-glyph">⬡</span>';
+      case 'cube': return iconHTML(Icons.Box, 14, ICON_COLORS.blueprint);
       case 'sphere': return '<span class="asset-icon-glyph">●</span>';
       case 'cylinder': return '<span class="asset-icon-glyph">◎</span>';
       case 'plane': return '<span class="asset-icon-glyph">▬</span>';
-      default: return '<span class="asset-icon-glyph">⬡</span>';
+      default: return iconHTML(Icons.Box, 14, ICON_COLORS.blueprint);
     }
   }
 
@@ -1502,7 +1503,7 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📁 New Folder', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
       const name = await this._showNameDialog('New Folder', 'NewFolder');
       if (name) {
         this._folderManager.createFolder(name, this._currentFolderId);
@@ -1514,17 +1515,17 @@ export class ActorAssetBrowser {
     sep0.className = 'context-menu-separator';
     menu.appendChild(sep0);
 
-    this._addMenuItem(menu, '⬡ New Actor Blueprint', () => this._createNewAsset());
-    this._addMenuItem(menu, '🏃 New Character Pawn', () => this._createNewAsset('characterPawn'));
-    this._addMenuItem(menu, '🎮 New Player Controller', () => this._createNewAsset('playerController'));
-    this._addMenuItem(menu, '🤖 New AI Controller', () => this._createNewAsset('aiController'));
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint) + ' New Actor Blueprint', () => this._createNewAsset());
+    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor) + ' New Character Pawn', () => this._createNewAsset('characterPawn'));
+    this._addMenuItem(menu, iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor) + ' New Player Controller', () => this._createNewAsset('playerController'));
+    this._addMenuItem(menu, iconHTML(Icons.Camera, 12, ICON_COLORS.actor) + ' New AI Controller', () => this._createNewAsset('aiController'));
 
     if (this._structManager) {
       const sep = document.createElement('div');
       sep.className = 'context-menu-separator';
       menu.appendChild(sep);
 
-      this._addMenuItem(menu, '🔷 New Structure', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.blue) + ' New Structure', async () => {
         const name = await this._showNameDialog('New Structure', 'F_NewStruct');
         if (name) {
           const sa = this._structManager!.createStructure(name);
@@ -1534,7 +1535,7 @@ export class ActorAssetBrowser {
         }
       });
 
-      this._addMenuItem(menu, '📋 New Enumeration', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.List, 12, ICON_COLORS.muted) + ' New Enumeration', async () => {
         const name = await this._showNameDialog('New Enum', 'E_NewEnum');
         if (name) {
           const ea = this._structManager!.createEnum(name);
@@ -1550,7 +1551,7 @@ export class ActorAssetBrowser {
       sepAnimBP.className = 'context-menu-separator';
       menu.appendChild(sepAnimBP);
 
-      this._addMenuItem(menu, '🎬 New Animation Blueprint', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.actor) + ' New Animation Blueprint', async () => {
         const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
         if (name) {
           const abp = this._animBPManager!.createAsset(name);
@@ -1562,7 +1563,7 @@ export class ActorAssetBrowser {
     }
 
     if (this._widgetBPManager) {
-      this._addMenuItem(menu, '🎨 New Widget Blueprint', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.widget) + ' New Widget Blueprint', async () => {
         const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
         if (name) {
           const wbp = this._widgetBPManager!.createAsset(name);
@@ -1578,7 +1579,7 @@ export class ActorAssetBrowser {
       sepGI.className = 'context-menu-separator';
       menu.appendChild(sepGI);
 
-      this._addMenuItem(menu, '🌐 New Game Instance', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Circle, 12, ICON_COLORS.primary) + ' New Game Instance', async () => {
         const name = await this._showNameDialog('New Game Instance', 'GI_Default');
         if (name) {
           const gi = this._gameInstanceManager!.createAsset(name);
@@ -1594,7 +1595,7 @@ export class ActorAssetBrowser {
       sepMesh.className = 'context-menu-separator';
       menu.appendChild(sepMesh);
 
-      this._addMenuItem(menu, '🎨 New Material', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.material) + ' New Material', async () => {
         const name = await this._showNameDialog('New Material', 'M_NewMaterial');
         if (name) {
           const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1627,7 +1628,7 @@ export class ActorAssetBrowser {
         }
       });
 
-      this._addMenuItem(menu, '📦 Import Mesh…', () => this._triggerMeshFileImport());
+      this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
     }
 
     document.body.appendChild(menu);
@@ -1642,12 +1643,12 @@ export class ActorAssetBrowser {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, '📝 Open Editor', () => {
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => {
       this._onOpenAsset(asset);
     });
 
     // ── Inheritance: Create Child Class ──
-    this._addMenuItem(menu, '➕ Create Child Class', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Create Child Class', async () => {
       const inh = ClassInheritanceSystem.instance;
       const name = await this._showNameDialog(`Create Child of ${asset.name}`, `${asset.name}_Child`);
       if (name) {
@@ -1661,7 +1662,7 @@ export class ActorAssetBrowser {
     });
 
     // ── Inheritance: Show in Hierarchy ──
-    this._addMenuItem(menu, '🌳 Show in Hierarchy', () => {
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Show in Hierarchy', () => {
       (this as any)._onShowInHierarchy?.(asset.id, 'actor');
     });
 
@@ -1669,7 +1670,7 @@ export class ActorAssetBrowser {
     const inh = ClassInheritanceSystem.instance;
     const childCount = inh.getActorChildren(asset.id).length;
     if (childCount > 0) {
-      this._addMenuItem(menu, `👶 Show Children (${childCount})`, () => {
+      this._addMenuItem(menu, iconHTML(Icons.ChevronsDownUp, 12, ICON_COLORS.muted) + ` Show Children (${childCount})`, () => {
         (this as any)._onShowInHierarchy?.(asset.id, 'actor');
       });
     }
@@ -1677,7 +1678,7 @@ export class ActorAssetBrowser {
     // ── Inheritance: Change Parent Class ──
     const entry = inh.getActorEntry(asset.id);
     if (entry) {
-      this._addMenuItem(menu, '🔄 Change Parent Class', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.RefreshCw, 12, ICON_COLORS.muted) + ' Change Parent Class', async () => {
         const allActors = this._manager.assets.filter(a => a.id !== asset.id);
         const parentOptions = allActors.map(a => ({ id: a.id, name: a.name }));
         // Simple prompt-based reparent
@@ -1696,14 +1697,14 @@ export class ActorAssetBrowser {
     sep2.className = 'context-menu-separator';
     menu.appendChild(sep2);
 
-    this._addMenuItem(menu, '✏ Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
       const newName = await this._showNameDialog('Rename Actor', asset.name);
       if (newName) {
         this._manager.renameAsset(asset.id, newName);
       }
     });
 
-    this._addMenuItem(menu, '📋 Duplicate', () => {
+    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate', () => {
       const json = asset.toJSON();
       const dup = this._manager.createAsset(asset.name + '_Copy', asset.actorType);
       // Copy blueprint data
@@ -1724,7 +1725,7 @@ export class ActorAssetBrowser {
       this._manager.notifyAssetChanged(dup.id);
     });
 
-    const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       const inh2 = ClassInheritanceSystem.instance;
       const children = inh2.getActorChildren(asset.id);
       const msg = children.length > 0
@@ -1747,7 +1748,7 @@ export class ActorAssetBrowser {
   private _addMenuItem(menu: HTMLElement, text: string, onClick: () => void): HTMLElement {
     const item = document.createElement('div');
     item.className = 'context-menu-item';
-    item.textContent = text;
+    item.innerHTML = text;
     item.addEventListener('click', (ev) => {
       ev.stopPropagation();
       this._closeContextMenu();

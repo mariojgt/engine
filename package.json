@@ -26,6 +26,7 @@
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "dockview-core": "^4.13.1",
+    "lucide": "^0.574.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "rete": "^2.0.6",

@@ -73,11 +73,10 @@ export class ViewportPanel {
       this._initSubSystems();
     } catch (err) {
       console.warn('WebGL not available:', err);
-      container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#888;font-size:14px;text-align:center;padding:20px;">
+      container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--color-text-muted);font-size:14px;text-align:center;padding:20px;">
         <div>
-          <div style="font-size:40px;margin-bottom:12px;">🎮</div>
-          <div>3D Viewport requires WebGL</div>
-          <div style="font-size:12px;margin-top:8px;color:#666;">Run in Tauri or a WebGL-capable browser</div>
+          <div style="font-size:14px;margin-bottom:8px;color:var(--color-text-secondary);">3D Viewport requires WebGL</div>
+          <div style="font-size:12px;color:var(--color-text-muted);">Run in Tauri or a WebGL-capable browser</div>
         </div>
       </div>`;
     }

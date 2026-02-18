@@ -296,7 +296,7 @@ export class ViewportToolbar {
     recent.forEach((n) => {
       const div = document.createElement('div');
       div.className = `vp-notification vp-notif-${n.type}`;
-      const icon = n.type === 'info' ? '✅' : n.type === 'warning' ? '⚠️' : '❌';
+      const icon = n.type === 'info' ? '●' : n.type === 'warning' ? '▲' : '✕';
       div.textContent = `${icon} ${n.message}`;
       this._notificationEl.appendChild(div);
     });

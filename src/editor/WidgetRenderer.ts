@@ -260,7 +260,7 @@ export class WidgetRenderer {
         ctx.font = `${Math.min(rect.width, rect.height) * 0.4}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('🖼', rect.x + rect.width / 2, rect.y + rect.height / 2);
+        ctx.fillText('IMG', rect.x + rect.width / 2, rect.y + rect.height / 2);
         ctx.textAlign = 'start';
       }
     }

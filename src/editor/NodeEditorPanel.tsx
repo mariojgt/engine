@@ -15,6 +15,7 @@ import {
   type BlueprintStruct,
   type VarType,
 } from './BlueprintData';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 // Import all nodes
 import {
@@ -2554,7 +2555,7 @@ function buildMyBlueprintPanel(
   for (const tab of callbacks.graphTabs) {
     const item = document.createElement('div');
     item.className = 'mybp-item' + (tab.id === callbacks.activeGraphId ? ' active' : '');
-    const icon = tab.type === 'event' ? '📋' : tab.type === 'function' ? 'ƒ' : '⚡';
+    const icon = tab.type === 'event' ? '◆' : tab.type === 'function' ? 'ƒ' : '◇';
     item.innerHTML = `<span class="mybp-item-icon">${icon}</span><span>${tab.label}</span>`;
     item.addEventListener('click', () => callbacks.onSwitchGraph(tab));
     graphBody.appendChild(item);
@@ -2582,7 +2583,7 @@ function buildMyBlueprintPanel(
   // --- Macros ---
   const macroBody = addSection(container, 'Macros', callbacks.onAddMacro);
   for (const m of bp.macros) {
-    macroBody.appendChild(makeDeletableItem(m.name, '⚡', 'mybp-macro',
+    macroBody.appendChild(makeDeletableItem(m.name, '◇', 'mybp-macro',
       () => callbacks.onSwitchGraph({ id: m.id, label: m.name, type: 'macro', refId: m.id }),
       () => callbacks.onDeleteMacro(m.id),
       { dragType: 'macro', macroId: m.id, macroName: m.name },
@@ -2676,7 +2677,7 @@ function buildMyBlueprintPanel(
   // --- Custom Events ---
   const evtBody = addSection(container, 'Custom Events', callbacks.onAddCustomEvent);
   for (const evt of bp.customEvents) {
-    const evtItem = makeDeletableItem(evt.name, '🎯', 'mybp-evt',
+    const evtItem = makeDeletableItem(evt.name, '○', 'mybp-evt',
       () => callbacks.onSwitchGraph(callbacks.graphTabs[0]),
       () => callbacks.onDeleteCustomEvent(evt.id),
       { dragType: 'customEvent', eventId: evt.id, eventName: evt.name, params: JSON.stringify(evt.params) },
@@ -2700,7 +2701,7 @@ function buildMyBlueprintPanel(
 
     const sIcon = document.createElement('span');
     sIcon.className = 'mybp-item-icon';
-    sIcon.textContent = '🔷';
+    sIcon.innerHTML = iconHTML(Icons.Diamond, 12, ICON_COLORS.blue);
     item.appendChild(sIcon);
 
     const sName = document.createElement('span');
@@ -2803,7 +2804,7 @@ function buildGraphTabBar(
   for (const tab of tabs) {
     const btn = document.createElement('div');
     btn.className = 'graph-tab' + (tab.id === activeId ? ' active' : '');
-    const icon = tab.type === 'event' ? '📋' : tab.type === 'function' ? 'ƒ' : '⚡';
+    const icon = tab.type === 'event' ? '◆' : tab.type === 'function' ? 'ƒ' : '◇';
     btn.textContent = `${icon} ${tab.label}`;
     btn.addEventListener('click', () => onSwitch(tab));
     container.appendChild(btn);
@@ -2894,7 +2895,7 @@ function showDragPinContextMenu(
           }});
         }
       }
-      if (items.length) categories.set(`📋 ${targetActorName} Variables`, items);
+      if (items.length) categories.set(`${targetActorName} Variables`, items);
     }
 
     // --- Target actor functions (Call) ---
@@ -2929,7 +2930,7 @@ function showDragPinContextMenu(
           }});
         }
       }
-      if (items.length) categories.set(`⚡ ${targetActorName} Events`, items);
+      if (items.length) categories.set(`${targetActorName} Events`, items);
     }
 
     // --- Target actor component nodes (light, trigger, mesh, etc.) ---
@@ -2946,7 +2947,7 @@ function showDragPinContextMenu(
             }});
           }
         }
-        if (items.length) categories.set(`⬡ ${targetActorName || ''} Components`, items);
+        if (items.length) categories.set(`${targetActorName || ''} Components`, items);
       }
     }
 
@@ -2972,8 +2973,7 @@ function showDragPinContextMenu(
           }});
         }
         if (items.length) {
-          const icon = cat === 'Character' ? '🏃' : cat === 'Physics' ? '☄' : cat === 'Transform' ? '↕' : '💥';
-          categories.set(`${icon} ${cat}`, items);
+          categories.set(cat, items);
         }
       }
     }
@@ -3019,7 +3019,7 @@ function showDragPinContextMenu(
         }
       }
 
-      if (objItems.length) categories.set('🎯 Object Actions', objItems);
+      if (objItems.length) categories.set('Object Actions', objItems);
     }
 
     // --- Standard palette nodes filtered by socket compatibility ---
@@ -5358,7 +5358,7 @@ async function createGraphEditor(
                 // Search input
                 React.createElement('input', {
                   type: 'text',
-                  placeholder: '🔍 Search widgets...',
+                  placeholder: 'Search widgets...',
                   value: search,
                   autoFocus: true,
                   onChange: (e: any) => setSearch(e.target.value),
@@ -5474,7 +5474,7 @@ async function createGraphEditor(
                     onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
                     onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
                   },
-                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, '🎨'),
+                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, ''),
                     w.name,
                   ),
                 ),
@@ -6052,7 +6052,7 @@ async function createGraphEditor(
         const isDisabled = clickedNode ? (clickedNode as any).__disabled : false;
         const disableItem = document.createElement('div');
         disableItem.className = 'bp-context-item';
-        disableItem.textContent = isDisabled ? '✅ Enable Node' : '🚫 Disable Node';
+        disableItem.innerHTML = isDisabled ? iconHTML(Icons.Check, 12, ICON_COLORS.success) + ' Enable Node' : iconHTML(Icons.XCircle, 12, ICON_COLORS.warning) + ' Disable Node';
         disableItem.addEventListener('click', () => {
           const targets = selectedNodeIds.size > 0 ? editor.getNodes().filter(n => selectedNodeIds.has(n.id)) : (clickedNode ? [clickedNode] : []);
           for (const n of targets) {
@@ -6071,7 +6071,7 @@ async function createGraphEditor(
         // Delete
         const deleteItem = document.createElement('div');
         deleteItem.className = 'bp-context-item';
-        deleteItem.textContent = '🗑️ Delete';
+        deleteItem.innerHTML = iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete';
         deleteItem.addEventListener('click', () => {
           const targets = selectedNodeIds.size > 0 ? [...selectedNodeIds] : (clickedNode ? [clickedNode.id] : []);
           pushUndo('Delete nodes');
@@ -6090,7 +6090,7 @@ async function createGraphEditor(
         // Duplicate
         const dupItem = document.createElement('div');
         dupItem.className = 'bp-context-item';
-        dupItem.textContent = '📋 Duplicate';
+        dupItem.innerHTML = iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate';
         dupItem.addEventListener('click', () => {
           const targets = selectedNodeIds.size > 0 ? editor.getNodes().filter(n => selectedNodeIds.has(n.id)) : (clickedNode ? [clickedNode] : []);
           (async () => {

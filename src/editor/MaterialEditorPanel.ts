@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import { MeshAssetManager, type MaterialAssetJSON, type TextureAssetJSON } from './MeshAsset';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 // ── Tiny ID generator ──
 let _matEdIdCounter = 0;
@@ -160,8 +161,8 @@ export class MaterialEditorPanel {
 
     // Material icon + name
     const titleIcon = document.createElement('span');
-    titleIcon.textContent = '\uD83C\uDFA8';
-    titleIcon.style.fontSize = '16px';
+    titleIcon.innerHTML = iconHTML(Icons.Palette, 16, ICON_COLORS.material);
+    titleIcon.style.cssText = 'display:inline-flex;align-items:center;';
     bar.appendChild(titleIcon);
 
     const titleInput = document.createElement('input');
@@ -194,13 +195,13 @@ export class MaterialEditorPanel {
     bar.appendChild(spacer);
 
     // Save button
-    const saveBtn = this._createToolbarBtn('\uD83D\uDCBE', 'Save Material', () => {
+    const saveBtn = this._createToolbarBtn(iconHTML(Icons.Save, 13, ICON_COLORS.blue), 'Save Material', () => {
       this._emit();
     });
     bar.appendChild(saveBtn);
 
     // Apply button
-    const applyBtn = this._createToolbarBtn('\u2705', 'Apply to Instances', () => {
+    const applyBtn = this._createToolbarBtn(iconHTML(Icons.Check, 13, ICON_COLORS.success), 'Apply to Instances', () => {
       this._emit();
     });
     bar.appendChild(applyBtn);
@@ -210,7 +211,7 @@ export class MaterialEditorPanel {
 
   private _createToolbarBtn(icon: string, tooltip: string, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement('button');
-    btn.textContent = icon;
+    btn.innerHTML = icon;
     btn.title = tooltip;
     Object.assign(btn.style, {
       background: 'var(--bg-input)',
@@ -220,6 +221,9 @@ export class MaterialEditorPanel {
       borderRadius: '3px',
       cursor: 'pointer',
       fontSize: '13px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
     });
     btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--bg-hover)'; });
     btn.addEventListener('mouseleave', () => { btn.style.background = 'var(--bg-input)'; });
@@ -565,8 +569,8 @@ export class MaterialEditorPanel {
     });
 
     const arrow = document.createElement('span');
-    arrow.textContent = expanded ? '\u25BC' : '\u25B6';
-    arrow.style.cssText = 'font-size:9px;color:var(--text-dim);width:10px;';
+    arrow.innerHTML = expanded ? iconHTML(Icons.ChevronDown, 9, ICON_COLORS.muted) : iconHTML(Icons.ChevronRight, 9, ICON_COLORS.muted);
+    arrow.style.cssText = 'display:inline-flex;align-items:center;width:10px;';
 
     const label = document.createElement('span');
     label.textContent = title;
@@ -585,7 +589,7 @@ export class MaterialEditorPanel {
     header.addEventListener('click', () => {
       const visible = body.style.display !== 'none';
       body.style.display = visible ? 'none' : 'block';
-      arrow.textContent = visible ? '\u25B6' : '\u25BC';
+      arrow.innerHTML = visible ? iconHTML(Icons.ChevronRight, 9, ICON_COLORS.muted) : iconHTML(Icons.ChevronDown, 9, ICON_COLORS.muted);
     });
 
     group.appendChild(header);
@@ -848,7 +852,7 @@ export class MaterialEditorPanel {
     btnRow.style.cssText = 'display:flex;gap:4px;';
 
     // Browse button
-    const browseBtn = this._slotBtn('\uD83D\uDCC2 Browse', 'var(--bg-hover)');
+    const browseBtn = this._slotBtn(iconHTML(Icons.FolderOpen, 10, ICON_COLORS.muted) + ' Browse', 'var(--bg-hover)');
     browseBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this._pickTextureFile((newId) => {
@@ -860,7 +864,7 @@ export class MaterialEditorPanel {
     // Select from existing
     const existingTextures = this._getAllAvailableTextures();
     if (existingTextures.length > 0) {
-      const selBtn = this._slotBtn('\uD83D\uDCCB Select', 'var(--bg-hover)');
+      const selBtn = this._slotBtn(iconHTML(Icons.List, 10, ICON_COLORS.muted) + ' Select', 'var(--bg-hover)');
       selBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this._showTexturePicker(selBtn, (pickedId) => {
@@ -872,7 +876,7 @@ export class MaterialEditorPanel {
 
     // Clear button
     if (textureId) {
-      const clearBtn = this._slotBtn('\u2715 Clear', 'var(--bg-hover)');
+      const clearBtn = this._slotBtn(iconHTML(Icons.X, 10, ICON_COLORS.error) + ' Clear', 'var(--bg-hover)');
       clearBtn.style.color = '#f55';
       clearBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -953,7 +957,7 @@ export class MaterialEditorPanel {
 
   private _slotBtn(text: string, bg: string): HTMLButtonElement {
     const btn = document.createElement('button');
-    btn.textContent = text;
+    btn.innerHTML = text;
     Object.assign(btn.style, {
       background: bg,
       border: '1px solid var(--border)',
@@ -963,6 +967,9 @@ export class MaterialEditorPanel {
       cursor: 'pointer',
       fontSize: '10px',
       whiteSpace: 'nowrap',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '3px',
     });
     btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--accent-dim)'; });
     btn.addEventListener('mouseleave', () => { btn.style.background = bg; });
@@ -1165,7 +1172,7 @@ export class MaterialEditorPanel {
     } else {
       thumbEl.style.background = '#333';
       Object.assign(thumbEl.style, { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)', fontSize: '14px' });
-      thumbEl.textContent = '\u2205';
+      thumbEl.innerHTML = iconHTML(Icons.Image, 14, ICON_COLORS.muted);
     }
 
     const textEl = document.createElement('div');
@@ -1210,15 +1217,15 @@ export class MaterialEditorPanel {
 
     // Shape selector buttons
     const shapes: { label: string; value: PreviewShape; title: string }[] = [
-      { label: '\u25CF', value: 'sphere', title: 'Sphere' },
-      { label: '\u25A0', value: 'cube', title: 'Cube' },
-      { label: '\u2B21', value: 'cylinder', title: 'Cylinder' },
-      { label: '\u25AC', value: 'plane', title: 'Plane' },
+      { label: iconHTML(Icons.Circle, 12, ICON_COLORS.muted), value: 'sphere', title: 'Sphere' },
+      { label: iconHTML(Icons.Box, 12, ICON_COLORS.muted), value: 'cube', title: 'Cube' },
+      { label: iconHTML(Icons.Box, 12, ICON_COLORS.mesh), value: 'cylinder', title: 'Cylinder' },
+      { label: iconHTML(Icons.RectangleHorizontal, 12, ICON_COLORS.muted), value: 'plane', title: 'Plane' },
     ];
     const shapeBtns: HTMLButtonElement[] = [];
     for (const s of shapes) {
       const btn = document.createElement('button');
-      btn.textContent = s.label;
+      btn.innerHTML = s.label;
       btn.title = s.title;
       Object.assign(btn.style, {
         background: this._previewShape === s.value ? 'var(--accent-dim)' : 'var(--bg-input)',
@@ -1229,6 +1236,8 @@ export class MaterialEditorPanel {
         cursor: 'pointer',
         fontSize: '12px',
         lineHeight: '1',
+        display: 'inline-flex',
+        alignItems: 'center',
       });
       btn.addEventListener('click', () => {
         this._previewShape = s.value;
@@ -1242,7 +1251,7 @@ export class MaterialEditorPanel {
 
     // Background toggle
     const bgBtn = document.createElement('button');
-    bgBtn.textContent = '\uD83C\uDF11';
+    bgBtn.innerHTML = iconHTML(Icons.Circle, 12, ICON_COLORS.muted);
     bgBtn.title = 'Toggle background';
     Object.assign(bgBtn.style, {
       background: 'var(--bg-input)',
@@ -1253,6 +1262,8 @@ export class MaterialEditorPanel {
       cursor: 'pointer',
       fontSize: '12px',
       marginLeft: '4px',
+      display: 'inline-flex',
+      alignItems: 'center',
     });
     bgBtn.addEventListener('click', () => {
       const bgs: PreviewBg[] = ['dark', 'checkerboard', 'gradient'];
