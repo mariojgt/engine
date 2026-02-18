@@ -300,7 +300,7 @@ export const Icons = {
   Workflow,
   Layout,
   CircleDot,
-  
+
   // Actors
   Box,
   PersonStanding,
@@ -313,7 +313,7 @@ export const Icons = {
   BoxSelect,
   MapPin,
   Image,
-  
+
   // Actions
   Play,
   Square,
@@ -335,7 +335,7 @@ export const Icons = {
   RotateCcw,
   Upload,
   Download,
-  
+
   // Gizmo/Viewport
   Move,
   Rotate3d,
@@ -344,7 +344,7 @@ export const Icons = {
   Grid,
   Triangle,
   Activity,
-  
+
   // Navigation
   ChevronRight,
   ChevronDown,
@@ -357,7 +357,7 @@ export const Icons = {
   ChevronLeft,
   Filter,
   MoreHorizontal,
-  
+
   // Status
   AlertTriangle,
   AlertCircle,
@@ -367,13 +367,13 @@ export const Icons = {
   Check,
   Loader2,
   XCircle,
-  
+
   // Folders
   Folder,
   FolderOpen,
   FolderPlus,
   FilePlus,
-  
+
   // Widget palette
   MousePointerClick,
   Type,

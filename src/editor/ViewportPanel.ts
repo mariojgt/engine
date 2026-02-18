@@ -603,27 +603,11 @@ export class ViewportPanel {
     const deltaTime = (now - this._lastFrameTime) / 1000;
     this._lastFrameTime = now;
 
-    // Play mode → simple render
+    // Play mode → render through EffectComposer so PostProcess effects apply
     if (this._playCamera) {
-      if (this._renderer) {
-        const sceneBackground = this._engine.scene.threeScene.background;
-        const sceneEnv = this._engine.scene.threeScene.environment;
-        
-        // Log sky object info
-        let skySphereMesh: THREE.Object3D | null = null;
-        this._engine.scene.threeScene.children.forEach(child => {
-          if ((child as any).__isSceneCompositionHelper) {
-            skySphereMesh = child;
-            console.log('[Viewport] Found sky mesh:', child.type, 'visible:', child.visible, 'renderOrder:', (child as any).renderOrder);
-          }
-        });
-        if (!skySphereMesh) {
-          console.log('[Viewport] WARNING: No sky sphere mesh found in scene!');
-        }
-        
-        const bgStr = sceneBackground ? ((sceneBackground as any).isColor ? 'Color: ' + (sceneBackground as THREE.Color).getHexString() : 'Texture') : 'null';
-        console.log('[Viewport] Play render - background:', bgStr);
-        console.log('[Viewport] Play render - environment:', sceneEnv ? 'SET' : 'null');
+      if (this._selectionManager) {
+        this._selectionManager.render();
+      } else if (this._renderer) {
         this._renderer.render(this._engine.scene.threeScene, this._playCamera);
       }
       return;
@@ -708,13 +692,22 @@ export class ViewportPanel {
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      // Play mode renders directly (no EffectComposer) → need sRGB output
-      if (this._renderer) this._renderer.outputColorSpace = THREE.SRGBColorSpace;
+      // Swap camera on EffectComposer so PostProcess effects apply to play camera
+      if (this._selectionManager) {
+        this._selectionManager.setCamera(cam);
+        // Disable selection outlines during play
+        this._selectionManager.clearSelection();
+      }
+      // EffectComposer handles gamma via GammaCorrectionShader → keep LinearSRGB
+      if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       // Disable camera controls + gizmo during play
       this._cameraController.setEnabled(false);
       this._gizmo.detach();
     } else {
-      // Back to editor → EffectComposer handles gamma via GammaCorrectionShader
+      // Back to editor → restore editor camera on composer
+      if (this._selectionManager) {
+        this._selectionManager.setCamera(this._camera);
+      }
       if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       this._cameraController.setEnabled(true);
     }

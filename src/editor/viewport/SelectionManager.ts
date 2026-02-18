@@ -481,6 +481,14 @@ export class SelectionManager {
     return this._selected.has(obj);
   }
 
+  /** Swap the active camera used by the composer (for play mode) */
+  setCamera(camera: THREE.PerspectiveCamera): void {
+    this._camera = camera;
+    this._renderPass.camera = camera;
+    this._outlineSelected.renderCamera = camera;
+    this._outlineHover.renderCamera = camera;
+  }
+
   /** Resize composer buffers */
   resize(width: number, height: number): void {
     this.composer.setSize(width, height);
