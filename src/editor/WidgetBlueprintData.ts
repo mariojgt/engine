@@ -42,7 +42,8 @@ export type WidgetType =
   | 'TextBox'
   | 'ComboBox'
   | 'CircularThrobber'
-  | 'WidgetSwitcher';
+  | 'WidgetSwitcher'
+  | 'NamedSlot';
 
 /** Anchoring presets (like UE anchor presets) */
 export interface WidgetAnchor {
@@ -690,6 +691,10 @@ export function defaultWidgetProps(type: WidgetType): Partial<WidgetNodeJSON> {
       return {
         slot: { ...defaultSlot(), sizeX: 40, sizeY: 40 },
       };
+    case 'NamedSlot':
+      return {
+        slot: { ...defaultSlot(), sizeX: 200, sizeY: 100 },
+      };
     // Containers: CanvasPanel, VerticalBox, HorizontalBox, Overlay, GridPanel, WrapBox, WidgetSwitcher, ScaleBox
     default:
       return {};
@@ -974,7 +979,7 @@ export class WidgetBlueprintAsset {
     return [
       'CanvasPanel', 'VerticalBox', 'HorizontalBox', 'Overlay',
       'GridPanel', 'WrapBox', 'ScrollBox', 'SizeBox', 'ScaleBox',
-      'Border', 'Button', 'WidgetSwitcher',
+      'Border', 'Button', 'WidgetSwitcher', 'NamedSlot',
     ].includes(type);
   }
 
@@ -1006,7 +1011,7 @@ export class WidgetBlueprintAsset {
       widgetMap[id] = structuredClone(w);
     }
     const bp = this.blueprintData;
-    return {
+    const result: WidgetBlueprintJSON = {
       widgetBlueprintId: this.id,
       widgetBlueprintName: this.name,
       rootWidgetId: this.rootWidgetId,
@@ -1035,6 +1040,14 @@ export class WidgetBlueprintAsset {
         bp.functions.map(f => [f.id, f.graph.nodeData ?? null]),
       ),
     };
+
+    // Include inheritance metadata if present
+    const inhData = (this as any)._inheritance;
+    if (inhData) {
+      (result as any)._inheritance = structuredClone(inhData);
+    }
+
+    return result;
   }
 
   static fromJSON(json: WidgetBlueprintJSON): WidgetBlueprintAsset {
@@ -1085,6 +1098,11 @@ export class WidgetBlueprintAsset {
       params: e.params || [],
     }));
     bp.structs = json.structs || [];
+
+    // Restore inheritance metadata if present
+    if ((json as any)._inheritance) {
+      (asset as any)._inheritance = structuredClone((json as any)._inheritance);
+    }
 
     return asset;
   }

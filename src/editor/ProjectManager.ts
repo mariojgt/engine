@@ -17,6 +17,7 @@ import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintDat
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
 import type { ContentFolderManager } from './ContentFolderManager';
+import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
 import { TextureLibrary } from './TextureLibrary';
 import { FontLibrary } from './FontLibrary';
@@ -317,6 +318,10 @@ export class ProjectManager {
       // Load actors first (scenes reference them)
       await this._loadActors();
 
+      // Register all actors & widgets in the inheritance system
+      // and load saved inheritance relationships
+      await this._loadInheritanceData();
+
       // Load composition (environment actors)
       await this._loadComposition();
 
@@ -407,6 +412,10 @@ export class ProjectManager {
 
       // Save active scene
       await this._saveScene(this._meta.activeScene);
+
+      // Save inheritance data
+      await this._saveInheritanceData();
+      console.log('[ProjectManager]   ✓ inheritance data');
 
       // Save editor state
       await this._saveEditorState();
@@ -1250,6 +1259,56 @@ export class ProjectManager {
       console.warn('Failed to load folder structure:', e);
       // Fallback to default folders
       this._folderManager.createDefaultFolders();
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Inheritance Data
+  // ============================================================
+
+  private async _saveInheritanceData(): Promise<void> {
+    if (!this._projectPath) return;
+
+    const inh = ClassInheritanceSystem.instance;
+    const data: Record<string, any> = {
+      actors: inh.exportActorInheritance(),
+      widgets: inh.exportWidgetInheritance(),
+    };
+
+    const filePath = `${this._projectPath}/${CONFIG_DIR}/inheritance.json`;
+    await fsWrite(filePath, JSON.stringify(data, null, 2));
+  }
+
+  private async _loadInheritanceData(): Promise<void> {
+    if (!this._projectPath) return;
+
+    const inh = ClassInheritanceSystem.instance;
+
+    // First, register all existing actors and widgets in the system
+    inh.registerAllActors(this._assetManager);
+    if (this._widgetBPManager) {
+      inh.registerAllWidgets(this._widgetBPManager);
+    }
+
+    // Then load saved inheritance relationships
+    const filePath = `${this._projectPath}/${CONFIG_DIR}/inheritance.json`;
+    const fileFound = await fsExists(filePath);
+    if (!fileFound) return;
+
+    try {
+      const raw = await fsRead(filePath);
+      const data = JSON.parse(raw);
+
+      if (data.actors) {
+        inh.importActorInheritance(data.actors);
+      }
+      if (data.widgets) {
+        inh.importWidgetInheritance(data.widgets);
+      }
+
+      console.log('[ProjectManager]   ✓ inheritance data loaded');
+    } catch (e) {
+      console.warn('Failed to load inheritance data:', e);
     }
   }
 

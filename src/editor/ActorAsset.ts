@@ -279,7 +279,7 @@ export class ActorAsset {
 
   toJSON(): ActorAssetJSON {
     const bp = this.blueprintData;
-    return {
+    const json: ActorAssetJSON = {
       actorId: this.id,
       actorName: this.name,
       actorType: this.actorType,
@@ -312,6 +312,14 @@ export class ActorAsset {
       createdAt: this.createdAt,
       modifiedAt: this.modifiedAt,
     };
+
+    // Include inheritance metadata if present
+    const inhData = (this as any)._inheritance;
+    if (inhData) {
+      (json as any)._inheritance = structuredClone(inhData);
+    }
+
+    return json;
   }
 
   static fromJSON(json: ActorAssetJSON): ActorAsset {
@@ -365,6 +373,11 @@ export class ActorAsset {
     }));
     bp.structs = json.structs || [];
     bp.eventGraph = { nodeData: json.eventGraphData ?? null };
+
+    // Restore inheritance metadata if present
+    if ((json as any)._inheritance) {
+      (asset as any)._inheritance = structuredClone((json as any)._inheritance);
+    }
 
     return asset;
   }

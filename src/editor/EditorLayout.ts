@@ -29,6 +29,9 @@ import { MaterialEditorPanel } from './MaterialEditorPanel';
 import type { CameraStateJSON } from './SceneSerializer';
 import { SceneCompositionManager } from './scene/SceneCompositionManager';
 import { WorldOutlinerPanel } from './WorldOutlinerPanel';
+import { ClassInheritanceSystem } from './ClassInheritanceSystem';
+import { ClassHierarchyPanel } from './ClassHierarchyPanel';
+import { InheritanceDialogsUI } from './InheritanceDialogsUI';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -88,6 +91,12 @@ export class EditorLayout {
   /** World Outliner panel reference */
   private _outliner: WorldOutlinerPanel | null = null;
 
+  /** Class Hierarchy panel reference */
+  private _hierarchyPanel: ClassHierarchyPanel | null = null;
+
+  /** Inheritance system instance */
+  public inheritance: ClassInheritanceSystem;
+
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
 
@@ -98,6 +107,34 @@ export class EditorLayout {
     this._engine = engine;
     this.assetManager = new ActorAssetManager();
     this.composition = new SceneCompositionManager(engine.scene.threeScene);
+
+    // Initialize class inheritance system
+    this.inheritance = ClassInheritanceSystem.instance;
+    this.inheritance.setActorManager(this.assetManager);
+    this.inheritance.setDialogs(new InheritanceDialogsUI());
+
+    // Listen for cross-panel navigation events (fired by editor info bars)
+    document.addEventListener('open-actor-editor', ((e: CustomEvent) => {
+      const assetId = e.detail?.assetId;
+      if (assetId) {
+        const asset = this.assetManager.getAsset(assetId);
+        if (asset) this._openActorEditor(asset);
+      }
+    }) as EventListener);
+
+    document.addEventListener('open-widget-editor', ((e: CustomEvent) => {
+      const assetId = e.detail?.assetId;
+      if (assetId && this._widgetBPManager) {
+        const asset = this._widgetBPManager.getAsset(assetId);
+        if (asset) this._openWidgetBlueprintEditor(asset);
+      }
+    }) as EventListener);
+
+    document.addEventListener('show-in-hierarchy', ((e: CustomEvent) => {
+      const { id, kind } = e.detail ?? {};
+      if (id) this.showClassHierarchy(id);
+    }) as EventListener);
+
     this._init(container);
   }
 
@@ -145,6 +182,16 @@ export class EditorLayout {
       },
     });
 
+    // 3b. Class Hierarchy (tab in the same group as World Outliner)
+    this._api.addPanel({
+      id: 'class-hierarchy',
+      title: 'Class Hierarchy',
+      component: 'default',
+      position: {
+        referencePanel: 'world-outliner',
+      },
+    });
+
     // 4. Properties (right)
     const propertiesPanel = this._api.addPanel({
       id: 'properties',
@@ -167,6 +214,7 @@ export class EditorLayout {
     // Initialize panel contents using renderer map
     this._initViewport('viewport');
     this._initWorldOutliner('world-outliner');
+    this._initClassHierarchy('class-hierarchy');
     this._initAssetBrowser('asset-browser');
     this._initProperties('properties');
   }
@@ -215,6 +263,64 @@ export class EditorLayout {
     );
   }
 
+  private _initClassHierarchy(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+
+    this._hierarchyPanel = new ClassHierarchyPanel(el, (action) => {
+      switch (action.type) {
+        case 'open':
+          if (action.kind === 'actor') {
+            const asset = this.assetManager.getAsset(action.id);
+            if (asset) this._openActorEditor(asset);
+          } else if (action.kind === 'widget' && this._widgetBPManager) {
+            const asset = this._widgetBPManager.getAsset(action.id);
+            if (asset) this._openWidgetBlueprintEditor(asset);
+          }
+          break;
+        case 'create-child':
+          if (action.kind === 'actor') {
+            const parentActor = this.assetManager.getAsset(action.id);
+            const childName = parentActor ? `${parentActor.name}_Child` : 'ChildActor';
+            const child = this.inheritance.createChildActor(action.id, childName);
+            if (child) this._openActorEditor(child);
+          } else if (action.kind === 'widget') {
+            const parentWidget = this._widgetBPManager?.getAsset(action.id);
+            const childName = parentWidget ? `${parentWidget.name}_Child` : 'ChildWidget';
+            const child = this.inheritance.createChildWidget(action.id, childName);
+            if (child) this._openWidgetBlueprintEditor(child);
+          }
+          break;
+        case 'show-parent': {
+          const chain = this.inheritance.getAncestryChain(action.id);
+          if (chain.length > 1) this._hierarchyPanel?.highlightClass(chain[1]);
+          break;
+        }
+        case 'show-children':
+          // highlightClass already expands children
+          this._hierarchyPanel?.highlightClass(action.id);
+          break;
+        case 'change-parent': {
+          const newParentName = prompt('Enter new parent class name:');
+          if (!newParentName) break;
+          const allActors = this.assetManager.assets;
+          const found = allActors.find(a => a.name === newParentName);
+          if (found) {
+            this.inheritance.reparentActor(action.id, found.id);
+          } else {
+            alert(`No actor class found with name "${newParentName}"`);
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    this._hierarchyPanel.setActorManager(this.assetManager);
+  }
+
   private _initAssetBrowser(panelId: string): void {
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
@@ -250,6 +356,12 @@ export class EditorLayout {
         );
       },
     );
+
+    // Wire "Show in Hierarchy" callback from content browser to hierarchy panel
+    this._assetBrowser.setShowInHierarchyCallback((id, kind) => {
+      this._showClassHierarchyPanel();
+      this._hierarchyPanel?.highlightClass(id);
+    });
   }
 
   private _initProperties(panelId: string): void {
@@ -349,6 +461,9 @@ export class EditorLayout {
         asset.controllerBlueprintId,
         asset.rootMaterialOverrides,
       );
+
+      // Propagate changes to all children if this is a parent class (silently, no dialog)
+      this.inheritance.propagateActorChanges(asset.id, false);
     };
 
     // When the asset's blueprint is compiled, save code then sync
@@ -419,6 +534,11 @@ export class EditorLayout {
     this._widgetBPManager = mgr;
     if (this._assetBrowser) {
       this._assetBrowser.setWidgetBPManager(mgr, (asset: WidgetBlueprintAsset) => this._openWidgetBlueprintEditor(asset));
+    }
+    // Wire widget manager into inheritance system & hierarchy panel
+    this.inheritance.setWidgetManager(mgr);
+    if (this._hierarchyPanel) {
+      this._hierarchyPanel.setWidgetManager(mgr);
     }
   }
 
@@ -529,6 +649,8 @@ export class EditorLayout {
       (code: string) => {
         asset.compiledCode = code;
         asset.touch();
+        // Propagate changes to all children if this is a parent widget (silently)
+        this.inheritance.propagateWidgetChanges(asset.id, false);
       },
       this._onSave ?? undefined,
     );
@@ -767,5 +889,24 @@ export class EditorLayout {
   /** Set or clear the play-mode camera (character pawn) */
   setPlayCamera(cam: THREE.PerspectiveCamera | null): void {
     if (this._viewport) this._viewport.setPlayCamera(cam);
+  }
+
+  /** Switch to the Class Hierarchy tab */
+  private _showClassHierarchyPanel(): void {
+    try {
+      const panel = this._api.getPanel('class-hierarchy');
+      if (panel) panel.api.setActive();
+    } catch (_e) { /* ignore */ }
+  }
+
+  /** Public: show and highlight a class in the hierarchy panel */
+  showClassHierarchy(id?: string): void {
+    this._showClassHierarchyPanel();
+    if (id) this._hierarchyPanel?.highlightClass(id);
+  }
+
+  /** Get the hierarchy panel (for project manager or external wiring) */
+  getHierarchyPanel(): ClassHierarchyPanel | null {
+    return this._hierarchyPanel;
   }
 }

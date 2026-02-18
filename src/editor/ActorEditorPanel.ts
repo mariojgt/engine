@@ -17,6 +17,8 @@ import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType, RootMeshType } from '../engine/Scene';
 import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig } from '../engine/CharacterPawnData';
 import type { CameraMode, SpringArmConfig, CameraComponentConfig } from '../engine/CharacterPawnData';
+import { ClassInheritanceSystem } from './ClassInheritanceSystem';
+import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -96,6 +98,40 @@ export class ActorEditorPanel {
   private _build(): void {
     this.container.innerHTML = '';
     this.container.className = 'actor-editor-root';
+
+    // Class Inheritance Info Bar (if this asset has inheritance metadata)
+    const inh = ClassInheritanceSystem.instance;
+    const entry = inh.getActorEntry(this._asset.id);
+    if (entry) {
+      const inhData = (this._asset as any)._inheritance;
+      const parentId = inhData?.parentClassId ?? null;
+      const parentName = parentId
+        ? (inh.getActorEntry(parentId)?.name ?? this._assetManager?.getAsset(parentId)?.name ?? 'Unknown')
+        : null;
+      const childCount = inhData?.childClassIds?.length ?? 0;
+
+      const infoBarContainer = document.createElement('div');
+      this.container.appendChild(infoBarContainer);
+
+      createClassInfoBar(infoBarContainer, {
+        className: this._asset.name,
+        classId: this._asset.id,
+        kind: 'actor',
+        parentName,
+        parentId,
+        childCount,
+        isOutOfSync: inh.isOutOfSync(this._asset.id),
+        onOpenParent: parentId ? () => {
+          const asset = this._assetManager?.getAsset(parentId);
+          if (asset) {
+            document.dispatchEvent(new CustomEvent('open-actor-editor', { detail: { assetId: parentId } }));
+          }
+        } : undefined,
+        onShowInHierarchy: () => {
+          document.dispatchEvent(new CustomEvent('show-in-hierarchy', { detail: { id: this._asset.id, kind: 'actor' } }));
+        },
+      });
+    }
 
     // Tab bar
     this._tabBar = document.createElement('div');
@@ -467,6 +503,23 @@ export class ActorEditorPanel {
     nameSpan.className = 'actor-comp-item-name';
     nameSpan.textContent = label;
     item.appendChild(nameSpan);
+
+    // Inheritance badge — show if this component is inherited or overridden
+    const inhData = (this._asset as any)._inheritance;
+    if (inhData && id !== '__root__') {
+      const compOverrides: any[] = inhData.componentOverrides ?? [];
+      const override = compOverrides.find((o: any) => o.componentId === id);
+      if (override) {
+        const badgeSpan = document.createElement('span');
+        badgeSpan.style.cssText = 'margin-left:4px;';
+        badgeSpan.innerHTML = inheritanceBadgeHTML(
+          !!override.isInherited,
+          !!override.overridden,
+          !!override.addedInChild,
+        );
+        if (badgeSpan.innerHTML) item.appendChild(badgeSpan);
+      }
+    }
 
     // Select
     item.addEventListener('click', (e) => {

@@ -16,6 +16,8 @@ import { GameInstanceBlueprintManager, type GameInstanceBlueprintAsset } from '.
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
 import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress } from './ImportDialog';
+import { ClassInheritanceSystem } from './ClassInheritanceSystem';
+import { createParentSelector } from './InheritanceDialogsUI';
 
 /** Callback fired when the user releases the mouse after dragging an asset card */
 export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: number) => void;
@@ -49,6 +51,9 @@ export class ActorAssetBrowser {
   private _selectedAssetId: string | null = null;
   private _currentFolderId: string = 'root';
   private _expandedFolders: Set<string> = new Set(['root']);
+
+  /** Callback to highlight a class in the ClassHierarchyPanel */
+  private _onShowInHierarchy: ((id: string, kind: 'actor' | 'widget') => void) | null = null;
 
   // Custom mouse-drag state (no HTML5 DnD)
   private _dragAsset: ActorAsset | null = null;
@@ -84,6 +89,11 @@ export class ActorAssetBrowser {
   /** Get the folder manager (for project save/load) */
   public getFolderManager(): ContentFolderManager {
     return this._folderManager;
+  }
+
+  /** Set callback to show an asset in the Class Hierarchy panel */
+  public setShowInHierarchyCallback(cb: (id: string, kind: 'actor' | 'widget') => void): void {
+    this._onShowInHierarchy = cb;
   }
 
   /** Wire up StructureAssetManager + callbacks for opening struct/enum editors */
@@ -985,12 +995,51 @@ export class ActorAssetBrowser {
     menu.style.top = e.clientY + 'px';
 
     this._addMenuItem(menu, '📝 Open Editor', () => this._onOpenWidgetBP?.(wbp));
+
+    // ── Inheritance: Create Child Widget Class ──
+    this._addMenuItem(menu, '➕ Create Child Class', async () => {
+      const inh = ClassInheritanceSystem.instance;
+      const name = await this._showNameDialog(`Create Child of ${wbp.name}`, `${wbp.name}_Child`);
+      if (name) {
+        const child = inh.createChildWidget(wbp.id, name);
+        if (child) {
+          this._folderManager.setAssetLocation(child.id, 'widget', this._currentFolderId);
+          this._selectedAssetId = child.id;
+          this._refreshGrid();
+        }
+      }
+    });
+
+    // ── Inheritance: Show in Hierarchy ──
+    this._addMenuItem(menu, '🌳 Show in Hierarchy', () => {
+      (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
+    });
+
+    // ── Inheritance: Show Children ──
+    const inh = ClassInheritanceSystem.instance;
+    const childCount = inh.getWidgetChildren(wbp.id).length;
+    if (childCount > 0) {
+      this._addMenuItem(menu, `👶 Show Children (${childCount})`, () => {
+        (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
+      });
+    }
+
+    const sep2 = document.createElement('div');
+    sep2.className = 'context-menu-separator';
+    menu.appendChild(sep2);
+
     this._addMenuItem(menu, '✏ Rename', async () => {
       const newName = await this._showNameDialog('Rename Widget Blueprint', wbp.name);
       if (newName) this._widgetBPManager!.renameAsset(wbp.id, newName);
     });
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
-      if (confirm(`Delete widget blueprint "${wbp.name}"?`)) {
+      const inh2 = ClassInheritanceSystem.instance;
+      const children = inh2.getWidgetChildren(wbp.id);
+      const msg = children.length > 0
+        ? `Delete widget "${wbp.name}"? This is a parent class with ${children.length} child(ren). Children will be orphaned.`
+        : `Delete widget blueprint "${wbp.name}"?`;
+      if (confirm(msg)) {
+        inh2.unregisterWidget(wbp.id);
         this._widgetBPManager!.removeAsset(wbp.id);
         if (this._selectedAssetId === wbp.id) this._selectedAssetId = null;
       }
@@ -1597,6 +1646,56 @@ export class ActorAssetBrowser {
       this._onOpenAsset(asset);
     });
 
+    // ── Inheritance: Create Child Class ──
+    this._addMenuItem(menu, '➕ Create Child Class', async () => {
+      const inh = ClassInheritanceSystem.instance;
+      const name = await this._showNameDialog(`Create Child of ${asset.name}`, `${asset.name}_Child`);
+      if (name) {
+        const child = inh.createChildActor(asset.id, name);
+        if (child) {
+          this._folderManager.setAssetLocation(child.id, 'actor', this._currentFolderId);
+          this._selectedAssetId = child.id;
+          this._refreshGrid();
+        }
+      }
+    });
+
+    // ── Inheritance: Show in Hierarchy ──
+    this._addMenuItem(menu, '🌳 Show in Hierarchy', () => {
+      (this as any)._onShowInHierarchy?.(asset.id, 'actor');
+    });
+
+    // ── Inheritance: Show Children ──
+    const inh = ClassInheritanceSystem.instance;
+    const childCount = inh.getActorChildren(asset.id).length;
+    if (childCount > 0) {
+      this._addMenuItem(menu, `👶 Show Children (${childCount})`, () => {
+        (this as any)._onShowInHierarchy?.(asset.id, 'actor');
+      });
+    }
+
+    // ── Inheritance: Change Parent Class ──
+    const entry = inh.getActorEntry(asset.id);
+    if (entry) {
+      this._addMenuItem(menu, '🔄 Change Parent Class', async () => {
+        const allActors = this._manager.assets.filter(a => a.id !== asset.id);
+        const parentOptions = allActors.map(a => ({ id: a.id, name: a.name }));
+        // Simple prompt-based reparent
+        const parentNames = ['None', ...parentOptions.map(p => p.name)];
+        const choice = prompt(`Reparent "${asset.name}" to:\n${parentNames.map((n,i) => `${i}. ${n}`).join('\n')}\n\nEnter number:`);
+        if (choice !== null) {
+          const idx = parseInt(choice);
+          const newParentId = idx === 0 ? null : parentOptions[idx - 1]?.id ?? null;
+          await inh.reparentActor(asset.id, newParentId);
+          this._refreshGrid();
+        }
+      });
+    }
+
+    const sep2 = document.createElement('div');
+    sep2.className = 'context-menu-separator';
+    menu.appendChild(sep2);
+
     this._addMenuItem(menu, '✏ Rename', async () => {
       const newName = await this._showNameDialog('Rename Actor', asset.name);
       if (newName) {
@@ -1626,7 +1725,13 @@ export class ActorAssetBrowser {
     });
 
     const delItem = this._addMenuItem(menu, '🗑 Delete', () => {
-      if (confirm(`Delete actor "${asset.name}"?`)) {
+      const inh2 = ClassInheritanceSystem.instance;
+      const children = inh2.getActorChildren(asset.id);
+      const msg = children.length > 0
+        ? `Delete actor "${asset.name}"? This is a parent class with ${children.length} child(ren). Children will be orphaned.`
+        : `Delete actor "${asset.name}"?`;
+      if (confirm(msg)) {
+        inh2.unregisterActor(asset.id);
         this._manager.removeAsset(asset.id);
         if (this._selectedAssetId === asset.id) {
           this._selectedAssetId = null;

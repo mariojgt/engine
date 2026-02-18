@@ -302,6 +302,15 @@ export {
   GameInstanceVarNameControl,
 } from './casting/GameInstanceNodes';
 
+// ── Inheritance / Class Hierarchy Nodes ─────────────────────
+export {
+  GetParentClassNode,
+  GetChildClassesNode,
+  IsChildOfNode,
+  GetClassNameNode,
+  GetAncestryChainNode,
+} from './casting/InheritanceNodes';
+
 // ── Animation BP Nodes ──────────────────────────────────────
 export {
   AnimUpdateEventNode,

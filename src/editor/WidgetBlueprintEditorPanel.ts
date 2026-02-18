@@ -20,6 +20,8 @@ import {
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import { TextureLibrary } from './TextureLibrary';
 import { FontLibrary } from './FontLibrary';
+import { ClassInheritanceSystem } from './ClassInheritanceSystem';
+import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
 
 type EditorTab = 'designer' | 'eventGraph';
 
@@ -66,6 +68,7 @@ const PALETTE: PaletteCategory[] = [
       { type: 'VerticalBox', label: 'Vertical Box', icon: '⊞' },
       { type: 'WidgetSwitcher', label: 'Widget Switcher', icon: '⇆' },
       { type: 'WrapBox', label: 'Wrap Box', icon: '⊟' },
+      { type: 'NamedSlot', label: 'Named Slot', icon: '⊡' },
     ],
   },
   {
@@ -206,6 +209,35 @@ export class WidgetBlueprintEditorPanel {
     this._container.style.height = '100%';
     this._container.style.overflow = 'hidden';
     this._container.classList.add('wbp-root');
+
+    // Class Inheritance Info Bar (if this widget has inheritance metadata)
+    const inh = ClassInheritanceSystem.instance;
+    const entry = inh.getWidgetEntry(this._asset.id);
+    if (entry) {
+      const inhData = (this._asset as any)._inheritance;
+      const parentId = inhData?.parentWidgetId ?? null;
+      const parentName = parentId ? (inh.getWidgetEntry(parentId)?.name ?? 'Unknown') : null;
+      const childCount = inhData?.childWidgetIds?.length ?? 0;
+
+      const infoBarContainer = document.createElement('div');
+      this._container.appendChild(infoBarContainer);
+
+      createClassInfoBar(infoBarContainer, {
+        className: this._asset.name,
+        classId: this._asset.id,
+        kind: 'widget',
+        parentName,
+        parentId,
+        childCount,
+        isOutOfSync: inh.isOutOfSync(this._asset.id),
+        onOpenParent: parentId ? () => {
+          document.dispatchEvent(new CustomEvent('open-widget-editor', { detail: { assetId: parentId } }));
+        } : undefined,
+        onShowInHierarchy: () => {
+          document.dispatchEvent(new CustomEvent('show-in-hierarchy', { detail: { id: this._asset.id, kind: 'widget' } }));
+        },
+      });
+    }
 
     // Top toolbar (UE style)
     this._tabBar = document.createElement('div');
@@ -1832,6 +1864,23 @@ export class WidgetBlueprintEditorPanel {
     name.textContent = widget.name;
     row.appendChild(name);
 
+    // Inheritance badge — show if this widget element is inherited/overridden
+    const inhData = (this._asset as any)._inheritance;
+    if (inhData) {
+      const elemOverrides: any[] = inhData.elementOverrides ?? [];
+      const override = elemOverrides.find((o: any) => o.elementId === widgetId);
+      if (override) {
+        const badgeSpan = document.createElement('span');
+        badgeSpan.style.cssText = 'margin-left:4px;';
+        badgeSpan.innerHTML = inheritanceBadgeHTML(
+          !!override.isInherited,
+          !!override.overridden,
+          !!override.addedInChild,
+        );
+        if (badgeSpan.innerHTML) row.appendChild(badgeSpan);
+      }
+    }
+
     // Spacer
     const spacer = document.createElement('span');
     spacer.style.flex = '1';
@@ -1892,6 +1941,7 @@ export class WidgetBlueprintEditorPanel {
       Border: '▢', Spacer: '⊔', Text: 'T', RichText: 'T', Image: '▨',
       Button: '▣', CheckBox: '☑', Slider: '⊶', ProgressBar: '▬',
       TextBox: '⊏', ComboBox: '☰', CircularThrobber: '◎', WidgetSwitcher: '⇆',
+      NamedSlot: '⊡',
     };
     return icons[type] ?? '▪';
   }
