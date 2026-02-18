@@ -1,10 +1,15 @@
 // ============================================================
-//  ActorAssetBrowser — UE-style Content Browser for Actor Assets
-//  Shows all actor assets in a grid view. Supports:
-//    - Right-click → Create New Actor
-//    - Double-click → Open Actor Editor
-//    - Drag → Drop into scene to create instance
-//    - Right-click asset → Rename / Duplicate / Delete
+//  ActorAssetBrowser — UE5-style Content Browser
+//  Complete overhaul with:
+//    - Toolbar with navigation, breadcrumbs, import/new, view toggles
+//    - Search, filter, sort
+//    - Resizable folder tree with chevrons and badges
+//    - Unified asset grid with type-color borders
+//    - List view with sortable columns
+//    - Multi-selection (Ctrl/Shift/Ctrl+A)
+//    - Hover preview
+//    - Keyboard shortcuts
+//    - Status bar with thumbnail slider
 // ============================================================
 
 import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
@@ -19,18 +24,53 @@ import { showImportDialog, showImportProgress, showTextureImportDialog } from '.
 import { TextureLibrary } from './TextureLibrary';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
-import { iconHTML, Icons, ICON_COLORS } from './icons';
+import { iconHTML, Icons, ICON_COLORS, createIcon } from './icons';
 
-/** Callback fired when the user releases the mouse after dragging an asset card */
+// ── Type exports (preserved) ──
+
 export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: number) => void;
-
-/** Callback fired when a mesh asset is dropped onto the viewport */
 export type MeshDropCallback = (meshAsset: MeshAsset, mouseX: number, mouseY: number) => void;
-
 export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP' | 'Widgets' | 'Materials' | 'Textures';
+
+// ── Asset metadata constants ──
+
+const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: string }> = {
+  actor:        { color: '#60a5fa', icon: Icons.Box,          label: 'Blueprint' },
+  structure:    { color: '#a78bfa', icon: Icons.FileText,     label: 'Structure' },
+  enum:         { color: '#a1a1aa', icon: Icons.List,         label: 'Enum' },
+  mesh:         { color: '#60a5fa', icon: Icons.Box,          label: 'Static Mesh' },
+  material:     { color: '#c084fc', icon: Icons.CircleDot,    label: 'Material' },
+  animBP:       { color: '#fbbf24', icon: Icons.Clapperboard, label: 'Anim Blueprint' },
+  widget:       { color: '#67e8f9', icon: Icons.Palette,      label: 'Widget' },
+  gameInstance: { color: '#c084fc', icon: Icons.Circle,       label: 'Game Instance' },
+  texture:      { color: '#4ade80', icon: Icons.Image,        label: 'Texture' },
+  animation:    { color: '#fbbf24', icon: Icons.Play,         label: 'Animation' },
+};
+
+interface AssetCardInfo {
+  id: string;
+  name: string;
+  type: AssetType;
+  typeColor: string;
+  typeLabel: string;
+  icon: any[];
+  iconColor: string;
+  thumbnail: string | null;
+  subtitle: string;
+  onOpen: () => void;
+  onContextMenu: (e: MouseEvent) => void;
+  dragKind: 'actor' | 'mesh' | null;
+  dragPayload: any;
+  /** Extra thumbnail element (e.g. material swatch) */
+  customThumb?: HTMLElement;
+}
+
+// ============================================================
 
 export class ActorAssetBrowser {
   public container: HTMLElement;
+
+  // ── Managers (preserved) ──
   private _manager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
@@ -38,9 +78,8 @@ export class ActorAssetBrowser {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _folderManager: ContentFolderManager;
-  private _treeEl!: HTMLElement;
-  private _gridEl!: HTMLElement;
-  private _contextMenu: HTMLElement | null = null;
+
+  // ── Callbacks (preserved) ──
   private _onOpenAsset: (asset: ActorAsset) => void;
   private _onOpenStructure: ((asset: StructureAsset) => void) | null = null;
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
@@ -50,20 +89,61 @@ export class ActorAssetBrowser {
   private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
-  private _selectedAssetId: string | null = null;
-  private _currentFolderId: string = 'root';
-  private _expandedFolders: Set<string> = new Set(['root']);
-
-  /** Callback to highlight a class in the ClassHierarchyPanel */
   private _onShowInHierarchy: ((id: string, kind: 'actor' | 'widget') => void) | null = null;
 
-  // Custom mouse-drag state (no HTML5 DnD)
+  // ── Drag system (preserved — no HTML5 DnD) ──
   private _dragAsset: ActorAsset | null = null;
   private _dragMeshAsset: MeshAsset | null = null;
   private _dragGhost: HTMLElement | null = null;
   private _dragStarted = false;
   private _startX = 0;
   private _startY = 0;
+
+  // ── Selection ──
+  private _selectedIds: Set<string> = new Set();
+  private _lastClickedId: string | null = null;
+
+  // ── View state ──
+  private _viewMode: 'grid' | 'list' = 'grid';
+  private _thumbnailSize: number = 80;
+  private _searchQuery: string = '';
+  private _activeFilters: Set<AssetType> = new Set();
+  private _sortBy: 'name' | 'type' | 'date' = 'name';
+  private _sortAsc: boolean = true;
+
+  // ── Navigation history ──
+  private _navHistory: string[] = ['root'];
+  private _navIndex: number = 0;
+  private _isNavigating = false;
+
+  // ── Folder state ──
+  private _currentFolderId: string = 'root';
+  private _expandedFolders: Set<string> = new Set(['root']);
+  private _treeWidth: number = 200;
+
+  // ── DOM refs ──
+  private _treeEl!: HTMLElement;
+  private _gridEl!: HTMLElement;
+  private _breadcrumbEl!: HTMLElement;
+  private _searchInput!: HTMLInputElement;
+  private _filterBar!: HTMLElement;
+  private _statusBar!: HTMLElement;
+  private _toolbarEl!: HTMLElement;
+  private _backBtn!: HTMLElement;
+  private _fwdBtn!: HTMLElement;
+  private _contextMenu: HTMLElement | null = null;
+
+  // ── Hover preview ──
+  private _previewTimer: ReturnType<typeof setTimeout> | null = null;
+  private _previewEl: HTMLElement | null = null;
+  private _previewPinned = false;
+
+  // ── Filtered/sorted asset cache (refreshed each render) ──
+  private _visibleAssets: { assetId: string; assetType: AssetType }[] = [];
+
+  // ============================================================
+  //  Constructor (preserved signature)
+  // ============================================================
 
   constructor(
     container: HTMLElement,
@@ -88,17 +168,18 @@ export class ActorAssetBrowser {
     window.addEventListener('mouseup', this._onMouseUp);
   }
 
-  /** Get the folder manager (for project save/load) */
+  // ============================================================
+  //  Public API (preserved)
+  // ============================================================
+
   public getFolderManager(): ContentFolderManager {
     return this._folderManager;
   }
 
-  /** Set callback to show an asset in the Class Hierarchy panel */
   public setShowInHierarchyCallback(cb: (id: string, kind: 'actor' | 'widget') => void): void {
     this._onShowInHierarchy = cb;
   }
 
-  /** Wire up StructureAssetManager + callbacks for opening struct/enum editors */
   public setStructureManager(
     mgr: StructureAssetManager,
     onOpenStructure: (asset: StructureAsset) => void,
@@ -111,7 +192,6 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
-  /** Wire up MeshAssetManager + drop callback + material open callback */
   public setMeshManager(mgr: MeshAssetManager, onMeshDrop?: MeshDropCallback, onOpenMaterial?: (material: MaterialAssetJSON) => void): void {
     this._meshManager = mgr;
     this._onMeshDrop = onMeshDrop ?? null;
@@ -120,7 +200,6 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
-  /** Wire up AnimBlueprintManager + open callback */
   public setAnimBPManager(mgr: AnimBlueprintManager, onOpenAnimBP: (asset: AnimBlueprintAsset) => void): void {
     this._animBPManager = mgr;
     this._onOpenAnimBP = onOpenAnimBP;
@@ -128,7 +207,6 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
-  /** Wire up WidgetBlueprintManager + open callback */
   public setWidgetBPManager(mgr: WidgetBlueprintManager, onOpenWidgetBP: (asset: WidgetBlueprintAsset) => void): void {
     this._widgetBPManager = mgr;
     this._onOpenWidgetBP = onOpenWidgetBP;
@@ -136,7 +214,6 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
-  /** Wire up GameInstanceBlueprintManager + open callback */
   public setGameInstanceManager(mgr: GameInstanceBlueprintManager, onOpenGameInstance: (asset: GameInstanceBlueprintAsset) => void): void {
     this._gameInstanceManager = mgr;
     this._onOpenGameInstance = onOpenGameInstance;
@@ -144,14 +221,16 @@ export class ActorAssetBrowser {
     this._refreshGrid();
   }
 
+  // ============================================================
+  //  Drag System (preserved — custom, no HTML5 DnD)
+  // ============================================================
+
   private _onMouseMove = (e: MouseEvent) => {
     if (!this._dragAsset && !this._dragMeshAsset) return;
-    // Only start showing ghost after 5px movement (avoids accidental drags)
     const dx = e.clientX - this._startX;
     const dy = e.clientY - this._startY;
     if (!this._dragStarted && Math.abs(dx) + Math.abs(dy) < 5) return;
     this._dragStarted = true;
-
     if (!this._dragGhost) {
       this._dragGhost = document.createElement('div');
       this._dragGhost.className = 'asset-drag-ghost';
@@ -170,85 +249,77 @@ export class ActorAssetBrowser {
     this._dragAsset = null;
     this._dragMeshAsset = null;
     this._dragStarted = false;
-    if (this._dragGhost) {
-      this._dragGhost.remove();
-      this._dragGhost = null;
-    }
+    if (this._dragGhost) { this._dragGhost.remove(); this._dragGhost = null; }
     if (started) {
       if (asset) this._onDrop(asset, e.clientX, e.clientY);
       if (meshAsset && this._onMeshDrop) this._onMeshDrop(meshAsset, e.clientX, e.clientY);
     }
   };
 
+  // ============================================================
+  //  Build Layout
+  // ============================================================
+
   private _build(): void {
     this.container.innerHTML = '';
-    this.container.className = 'panel';
+    this.container.className = 'cb-root';
+    this.container.setAttribute('tabindex', '0');
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'panel-header';
-    header.innerHTML = `
-      <span>Content Browser</span>
-      <div style="display:flex;gap:4px;">
-        <div class="content-browser-add" id="ab-import-btn">${iconHTML(Icons.Upload, 12, ICON_COLORS.muted)} Import</div>
-        <div class="content-browser-add" id="ab-add-btn">+ New</div>
-      </div>
-    `;
-    this.container.appendChild(header);
+    // Toolbar row
+    this._toolbarEl = this._buildToolbar();
+    this.container.appendChild(this._toolbarEl);
 
-    // Import button — show a small submenu for Mesh vs Texture
-    header.querySelector('#ab-import-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._showImportMenu(e as MouseEvent);
-    });
+    // Filter bar row
+    this._filterBar = this._buildFilterBar();
+    this.container.appendChild(this._filterBar);
 
-    // New button
-    header.querySelector('#ab-add-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._showEmptyContextMenu(e as MouseEvent);
-    });
-
-    // Body with split layout: tree (left) + grid (right)
+    // Body: tree + resizer + asset area
     const body = document.createElement('div');
-    body.className = 'panel-body content-browser-body';
+    body.className = 'cb-body';
 
-    // Folder tree (left sidebar)
     this._treeEl = document.createElement('div');
-    this._treeEl.className = 'content-browser-tree';
+    this._treeEl.className = 'cb-tree';
+    this._treeEl.style.width = this._treeWidth + 'px';
     body.appendChild(this._treeEl);
 
-    // Asset grid (right)
+    const resizer = document.createElement('div');
+    resizer.className = 'cb-tree-resizer';
+    this._setupTreeResize(resizer);
+    body.appendChild(resizer);
+
     this._gridEl = document.createElement('div');
-    this._gridEl.className = 'asset-grid';
+    this._gridEl.className = 'cb-assets';
+    this._gridEl.style.setProperty('--cb-thumb-size', this._thumbnailSize + 'px');
     body.appendChild(this._gridEl);
 
     this.container.appendChild(body);
 
-    // Drag-and-drop mesh & image files onto the grid
-    this._gridEl.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._gridEl.classList.add('drag-over');
-    });
-    this._gridEl.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      this._gridEl.classList.remove('drag-over');
-    });
-    this._gridEl.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._gridEl.classList.remove('drag-over');
-      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        this._handleFileDrop(e.dataTransfer.files);
-      }
-    });
+    // Status bar
+    this._statusBar = this._buildStatusBar();
+    this.container.appendChild(this._statusBar);
 
-    // Right-click on empty space in grid → create new
+    // Wire file drop on asset area
+    this._setupFileDrop();
+
+    // Right-click on empty space
     this._gridEl.addEventListener('contextmenu', (e) => {
+      // Only fire if clicking on the grid background, not a card
+      if ((e.target as HTMLElement).closest('.cb-card, .cb-list-row')) return;
       e.preventDefault();
       e.stopPropagation();
       this._showEmptyContextMenu(e);
     });
+
+    // Click empty space to deselect
+    this._gridEl.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.cb-card, .cb-list-row')) return;
+      this._selectedIds.clear();
+      this._lastClickedId = null;
+      this._refreshGrid();
+    });
+
+    // Keyboard shortcuts
+    this.container.addEventListener('keydown', this._onKeyDown);
 
     // Close context menu on any click
     document.addEventListener('click', () => this._closeContextMenu());
@@ -258,51 +329,474 @@ export class ActorAssetBrowser {
   }
 
   // ============================================================
-  //  Folder Tree Rendering
+  //  Toolbar
+  // ============================================================
+
+  private _buildToolbar(): HTMLElement {
+    const bar = document.createElement('div');
+    bar.className = 'cb-toolbar';
+
+    // Navigation buttons
+    const navGroup = document.createElement('div');
+    navGroup.className = 'cb-toolbar-group';
+
+    this._backBtn = this._makeToolbarBtn(Icons.ArrowLeft, 'Back (Alt+←)', () => this._goBack());
+    this._fwdBtn = this._makeToolbarBtn(Icons.ArrowRight, 'Forward (Alt+→)', () => this._goForward());
+    const upBtn = this._makeToolbarBtn(Icons.ArrowUp, 'Up (Backspace)', () => this._goUp());
+    navGroup.append(this._backBtn, this._fwdBtn, upBtn);
+    bar.appendChild(navGroup);
+
+    // Separator
+    bar.appendChild(this._makeSep());
+
+    // Breadcrumbs
+    this._breadcrumbEl = document.createElement('div');
+    this._breadcrumbEl.className = 'cb-breadcrumbs';
+    bar.appendChild(this._breadcrumbEl);
+
+    // Spacer
+    const spacer = document.createElement('div');
+    spacer.style.flex = '1';
+    bar.appendChild(spacer);
+
+    // Import button
+    const importBtn = document.createElement('div');
+    importBtn.className = 'cb-toolbar-action';
+    importBtn.innerHTML = `${iconHTML(Icons.Upload, 12, ICON_COLORS.muted)} Import`;
+    importBtn.title = 'Import assets';
+    importBtn.addEventListener('click', (e) => { e.stopPropagation(); this._showImportMenu(e); });
+    bar.appendChild(importBtn);
+
+    // + New button
+    const newBtn = document.createElement('div');
+    newBtn.className = 'cb-toolbar-action cb-toolbar-action-primary';
+    newBtn.innerHTML = `${iconHTML(Icons.Plus, 12)} New`;
+    newBtn.title = 'Create new asset (Ctrl+N)';
+    newBtn.addEventListener('click', (e) => { e.stopPropagation(); this._showEmptyContextMenu(e); });
+    bar.appendChild(newBtn);
+
+    bar.appendChild(this._makeSep());
+
+    // View toggles
+    const viewGroup = document.createElement('div');
+    viewGroup.className = 'cb-toolbar-group';
+
+    const gridBtn = this._makeToolbarBtn(Icons.Grid2x2, 'Grid view', () => { this._viewMode = 'grid'; this._refreshGrid(); });
+    const listBtn = this._makeToolbarBtn(Icons.List, 'List view', () => { this._viewMode = 'list'; this._refreshGrid(); });
+    viewGroup.append(gridBtn, listBtn);
+    bar.appendChild(viewGroup);
+
+    return bar;
+  }
+
+  private _makeToolbarBtn(icon: any[], tooltip: string, onClick: () => void): HTMLElement {
+    const btn = document.createElement('div');
+    btn.className = 'cb-nav-btn';
+    btn.title = tooltip;
+    btn.appendChild(createIcon(icon, 14, 'var(--color-text-secondary)'));
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return btn;
+  }
+
+  private _makeSep(): HTMLElement {
+    const sep = document.createElement('div');
+    sep.className = 'cb-toolbar-sep';
+    return sep;
+  }
+
+  // ============================================================
+  //  Filter Bar
+  // ============================================================
+
+  private _buildFilterBar(): HTMLElement {
+    const bar = document.createElement('div');
+    bar.className = 'cb-filter-bar';
+
+    // Search input
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'cb-search-wrap';
+    searchWrap.innerHTML = iconHTML(Icons.Search, 12, 'var(--color-text-muted)');
+    this._searchInput = document.createElement('input');
+    this._searchInput.type = 'text';
+    this._searchInput.className = 'cb-search-input';
+    this._searchInput.placeholder = 'Search assets… (Ctrl+F)';
+    this._searchInput.addEventListener('input', () => {
+      this._searchQuery = this._searchInput.value;
+      this._refreshGrid();
+    });
+    searchWrap.appendChild(this._searchInput);
+
+    // Clear button for search
+    const clearBtn = document.createElement('div');
+    clearBtn.className = 'cb-search-clear';
+    clearBtn.innerHTML = iconHTML(Icons.X, 10, 'var(--color-text-muted)');
+    clearBtn.addEventListener('click', () => {
+      this._searchInput.value = '';
+      this._searchQuery = '';
+      this._refreshGrid();
+    });
+    searchWrap.appendChild(clearBtn);
+    bar.appendChild(searchWrap);
+
+    // Type filter dropdown
+    const filterBtn = document.createElement('div');
+    filterBtn.className = 'cb-filter-btn';
+    filterBtn.innerHTML = `${iconHTML(Icons.Filter, 12, 'var(--color-text-muted)')} Filters`;
+    filterBtn.addEventListener('click', (e) => { e.stopPropagation(); this._showFilterDropdown(e); });
+    bar.appendChild(filterBtn);
+
+    // Sort dropdown
+    const sortBtn = document.createElement('div');
+    sortBtn.className = 'cb-filter-btn';
+    sortBtn.innerHTML = `${iconHTML(Icons.ChevronsUpDown, 12, 'var(--color-text-muted)')} Sort`;
+    sortBtn.addEventListener('click', (e) => { e.stopPropagation(); this._showSortDropdown(e); });
+    bar.appendChild(sortBtn);
+
+    // Filter pills container
+    const pills = document.createElement('div');
+    pills.className = 'cb-filter-pills';
+    pills.id = 'cb-filter-pills';
+    bar.appendChild(pills);
+
+    return bar;
+  }
+
+  private _showFilterDropdown(e: MouseEvent | Event): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu cb-filter-dropdown';
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    menu.style.left = rect.left + 'px';
+    menu.style.top = rect.bottom + 2 + 'px';
+
+    const allTypes: AssetType[] = ['actor', 'structure', 'enum', 'mesh', 'material', 'animBP', 'widget', 'gameInstance', 'texture'];
+    for (const t of allTypes) {
+      const meta = ASSET_TYPE_META[t];
+      const item = document.createElement('div');
+      item.className = 'context-menu-item cb-filter-check-item';
+      const checked = this._activeFilters.has(t);
+      item.innerHTML = `<span class="cb-filter-check">${checked ? '✓' : ''}</span>
+        <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${meta.color};margin-right:6px;"></span>
+        ${meta.label}`;
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (this._activeFilters.has(t)) this._activeFilters.delete(t);
+        else this._activeFilters.add(t);
+        this._updateFilterPills();
+        this._refreshGrid();
+        // Refresh the dropdown in-place
+        this._showFilterDropdown(e);
+      });
+      menu.appendChild(item);
+    }
+
+    // Clear all
+    if (this._activeFilters.size > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-separator';
+      menu.appendChild(sep);
+      this._addMenuItem(menu, 'Clear All Filters', () => {
+        this._activeFilters.clear();
+        this._updateFilterPills();
+        this._refreshGrid();
+      });
+    }
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  private _showSortDropdown(e: MouseEvent | Event): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    menu.style.left = rect.left + 'px';
+    menu.style.top = rect.bottom + 2 + 'px';
+
+    const options: { key: 'name' | 'type' | 'date'; label: string }[] = [
+      { key: 'name', label: 'Name' },
+      { key: 'type', label: 'Type' },
+    ];
+    for (const opt of options) {
+      const active = this._sortBy === opt.key;
+      const arrow = active ? (this._sortAsc ? ' ↑' : ' ↓') : '';
+      this._addMenuItem(menu, (active ? '● ' : '○ ') + opt.label + arrow, () => {
+        if (this._sortBy === opt.key) this._sortAsc = !this._sortAsc;
+        else { this._sortBy = opt.key; this._sortAsc = true; }
+        this._refreshGrid();
+      });
+    }
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  private _updateFilterPills(): void {
+    const container = this._filterBar.querySelector('#cb-filter-pills');
+    if (!container) return;
+    container.innerHTML = '';
+    for (const t of this._activeFilters) {
+      const meta = ASSET_TYPE_META[t];
+      const pill = document.createElement('span');
+      pill.className = 'cb-filter-pill';
+      pill.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${meta.color};"></span> ${meta.label} <span class="cb-pill-x">×</span>`;
+      pill.querySelector('.cb-pill-x')!.addEventListener('click', () => {
+        this._activeFilters.delete(t);
+        this._updateFilterPills();
+        this._refreshGrid();
+      });
+      container.appendChild(pill);
+    }
+  }
+
+  // ============================================================
+  //  Status Bar
+  // ============================================================
+
+  private _buildStatusBar(): HTMLElement {
+    const bar = document.createElement('div');
+    bar.className = 'cb-status-bar';
+
+    const left = document.createElement('div');
+    left.className = 'cb-status-left';
+    left.id = 'cb-status-text';
+    bar.appendChild(left);
+
+    const right = document.createElement('div');
+    right.className = 'cb-status-right';
+
+    // Thumbnail slider
+    const sliderLabel = document.createElement('span');
+    sliderLabel.className = 'cb-status-label';
+    sliderLabel.textContent = 'Size';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'cb-thumb-slider';
+    slider.min = '48';
+    slider.max = '160';
+    slider.value = String(this._thumbnailSize);
+    slider.addEventListener('input', () => {
+      this._thumbnailSize = parseInt(slider.value);
+      this._gridEl.style.setProperty('--cb-thumb-size', this._thumbnailSize + 'px');
+      this._refreshGrid();
+    });
+
+    right.append(sliderLabel, slider);
+    bar.appendChild(right);
+    return bar;
+  }
+
+  private _updateStatusBar(): void {
+    const el = this._statusBar.querySelector('#cb-status-text');
+    if (!el) return;
+    const total = this._visibleAssets.length;
+    const sel = this._selectedIds.size;
+    const path = this._folderManager.getFolderPath(this._currentFolderId);
+    let text = `${total} item${total !== 1 ? 's' : ''}`;
+    if (sel > 0) text += ` · ${sel} selected`;
+    text += `  ·  ${path}`;
+    el.textContent = text;
+  }
+
+  // ============================================================
+  //  Tree Resize
+  // ============================================================
+
+  private _setupTreeResize(resizer: HTMLElement): void {
+    let startX: number;
+    let startW: number;
+    const onMove = (e: MouseEvent) => {
+      const w = Math.max(140, Math.min(360, startW + (e.clientX - startX)));
+      this._treeWidth = w;
+      this._treeEl.style.width = w + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    resizer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = this._treeWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // ============================================================
+  //  File Drop (preserved logic)
+  // ============================================================
+
+  private _setupFileDrop(): void {
+    this._gridEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._gridEl.classList.add('cb-drag-over');
+    });
+    this._gridEl.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      this._gridEl.classList.remove('cb-drag-over');
+    });
+    this._gridEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._gridEl.classList.remove('cb-drag-over');
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        this._handleFileDrop(e.dataTransfer.files);
+      }
+    });
+  }
+
+  // ============================================================
+  //  Navigation
+  // ============================================================
+
+  private _navigateTo(folderId: string, pushHistory = true): void {
+    this._currentFolderId = folderId;
+    if (pushHistory && !this._isNavigating) {
+      // Truncate forward history
+      this._navHistory.splice(this._navIndex + 1);
+      this._navHistory.push(folderId);
+      this._navIndex = this._navHistory.length - 1;
+    }
+    this._updateNavButtons();
+    this._updateBreadcrumbs();
+    this._refreshTree();
+    this._refreshGrid();
+  }
+
+  private _goBack(): void {
+    if (this._navIndex <= 0) return;
+    this._isNavigating = true;
+    this._navIndex--;
+    this._navigateTo(this._navHistory[this._navIndex], false);
+    this._isNavigating = false;
+  }
+
+  private _goForward(): void {
+    if (this._navIndex >= this._navHistory.length - 1) return;
+    this._isNavigating = true;
+    this._navIndex++;
+    this._navigateTo(this._navHistory[this._navIndex], false);
+    this._isNavigating = false;
+  }
+
+  private _goUp(): void {
+    const folder = this._folderManager.getFolder(this._currentFolderId);
+    if (folder && folder.parentId) {
+      this._navigateTo(folder.parentId);
+    }
+  }
+
+  private _updateNavButtons(): void {
+    if (this._backBtn) {
+      this._backBtn.classList.toggle('cb-nav-disabled', this._navIndex <= 0);
+    }
+    if (this._fwdBtn) {
+      this._fwdBtn.classList.toggle('cb-nav-disabled', this._navIndex >= this._navHistory.length - 1);
+    }
+  }
+
+  private _updateBreadcrumbs(): void {
+    if (!this._breadcrumbEl) return;
+    this._breadcrumbEl.innerHTML = '';
+    // Build path segments from root to current
+    const segments: { id: string; name: string }[] = [];
+    let folderId: string | null = this._currentFolderId;
+    while (folderId) {
+      const folder = this._folderManager.getFolder(folderId);
+      if (!folder) break;
+      segments.unshift({ id: folder.id, name: folder.name });
+      folderId = folder.parentId;
+    }
+    segments.forEach((seg, i) => {
+      if (i > 0) {
+        const sep = document.createElement('span');
+        sep.className = 'cb-breadcrumb-sep';
+        sep.textContent = '/';
+        this._breadcrumbEl.appendChild(sep);
+      }
+      const span = document.createElement('span');
+      span.className = 'cb-breadcrumb-item';
+      if (i === segments.length - 1) span.classList.add('cb-breadcrumb-current');
+      span.textContent = seg.name;
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._navigateTo(seg.id);
+      });
+      this._breadcrumbEl.appendChild(span);
+    });
+  }
+
+  // ============================================================
+  //  Folder Tree
   // ============================================================
 
   private _refreshTree(): void {
     this._treeEl.innerHTML = '';
-    const rootFolder = this._folderManager.getFolder(this._folderManager.getRootFolderId());
-    if (rootFolder) {
-      this._renderFolderNode(rootFolder, 0);
-    }
+    const root = this._folderManager.getFolder(this._folderManager.getRootFolderId());
+    if (root) this._renderFolderNode(root, 0);
   }
 
   private _renderFolderNode(folder: FolderNode, depth: number): void {
     const isExpanded = this._expandedFolders.has(folder.id);
     const isSelected = this._currentFolderId === folder.id;
+    const children = this._folderManager.getChildFolders(folder.id);
+    const hasChildren = children.length > 0;
+    const assetCount = this._folderManager.getAssetsInFolder(folder.id).length;
 
     const item = document.createElement('div');
-    item.className = 'folder-tree-item' + (isSelected ? ' selected' : '');
+    item.className = 'cb-tree-item' + (isSelected ? ' selected' : '');
     item.style.paddingLeft = `${depth * 16 + 4}px`;
 
-    const icon = document.createElement('span');
-    icon.className = 'folder-icon';
-    icon.innerHTML = folder.children.length > 0 ? (isExpanded ? iconHTML(Icons.FolderOpen, 12, ICON_COLORS.folder) : iconHTML(Icons.Folder, 12, ICON_COLORS.folder)) : iconHTML(Icons.Folder, 12, ICON_COLORS.folder);
+    // Chevron
+    const chevron = document.createElement('span');
+    chevron.className = 'cb-tree-chevron';
+    if (hasChildren) {
+      chevron.innerHTML = iconHTML(Icons.ChevronRight, 10, 'var(--color-text-muted)');
+      if (isExpanded) chevron.classList.add('cb-tree-chevron-open');
+    }
+    item.appendChild(chevron);
 
+    // Folder icon
+    const fIcon = document.createElement('span');
+    fIcon.className = 'cb-tree-icon';
+    fIcon.innerHTML = isExpanded && hasChildren
+      ? iconHTML(Icons.FolderOpen, 14, ICON_COLORS.folder)
+      : iconHTML(Icons.Folder, 14, ICON_COLORS.folder);
+    item.appendChild(fIcon);
+
+    // Label
     const label = document.createElement('span');
+    label.className = 'cb-tree-label';
     label.textContent = folder.name;
-
-    item.appendChild(icon);
     item.appendChild(label);
 
-    // Click = select folder
+    // Badge (asset count)
+    if (assetCount > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'cb-tree-badge';
+      badge.textContent = String(assetCount);
+      item.appendChild(badge);
+    }
+
+    // Click: select folder + toggle expand
     item.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (folder.children.length > 0) {
-        if (isExpanded) {
-          this._expandedFolders.delete(folder.id);
-        } else {
-          this._expandedFolders.add(folder.id);
-        }
+      if (hasChildren) {
+        if (isExpanded) this._expandedFolders.delete(folder.id);
+        else this._expandedFolders.add(folder.id);
       }
-      this._currentFolderId = folder.id;
-      this._refreshTree();
-      this._refreshGrid();
+      this._navigateTo(folder.id);
     });
 
-    // Right-click = folder context menu
+    // Right-click: folder context menu
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -311,9 +805,8 @@ export class ActorAssetBrowser {
 
     this._treeEl.appendChild(item);
 
-    // Render children if expanded
+    // Children
     if (isExpanded) {
-      const children = this._folderManager.getChildFolders(folder.id);
       for (const child of children) {
         this._renderFolderNode(child, depth + 1);
       }
@@ -321,1346 +814,850 @@ export class ActorAssetBrowser {
   }
 
   // ============================================================
-  //  Asset Grid Rendering (Unified, filtered by folder)
+  //  Asset Grid / List Refresh
   // ============================================================
 
   private _refreshGrid(): void {
     this._gridEl.innerHTML = '';
 
-    const assetsInFolder = this._folderManager.getAssetsInFolder(this._currentFolderId);
+    // Get filtered + sorted assets
+    this._visibleAssets = this._getFilteredSortedAssets();
 
-    // Show breadcrumb path
-    const breadcrumb = document.createElement('div');
-    breadcrumb.className = 'content-browser-breadcrumb';
-    breadcrumb.textContent = this._folderManager.getFolderPath(this._currentFolderId);
-    this._gridEl.appendChild(breadcrumb);
-
-    // Render all asset types in this folder
-    for (const location of assetsInFolder) {
-      this._renderAssetCard(location.assetId, location.assetType);
-    }
-
-    // Empty state
-    if (assetsInFolder.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'Empty folder. Right-click to create assets.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-    }
-  }
-
-  private _renderAssetCard(assetId: string, assetType: AssetType): void {
-    if (assetType === 'actor') this._renderActorCard(assetId);
-    else if (assetType === 'structure') this._renderStructureCard(assetId);
-    else if (assetType === 'enum') this._renderEnumCard(assetId);
-    else if (assetType === 'mesh') this._renderMeshCard(assetId);
-    else if (assetType === 'material') this._renderMaterialCard(assetId);
-    else if (assetType === 'animBP') this._renderAnimBPCard(assetId);
-    else if (assetType === 'widget') this._renderWidgetCard(assetId);
-    else if (assetType === 'gameInstance') this._renderGameInstanceCard(assetId);
-    else if (assetType === 'texture') this._renderTextureCard(assetId);
-  }
-
-  private _renderActorCard(assetId: string): void {
-    const asset = this._manager.getAsset(assetId);
-    if (!asset) return;
-
-    const card = document.createElement('div');
-    card.className = 'asset-card';
-    if (this._selectedAssetId === asset.id) card.classList.add('selected');
-
-    const icon = document.createElement('div');
-    icon.className = 'asset-card-icon';
-    if (asset.actorType === 'characterPawn') {
-      icon.innerHTML = iconHTML(Icons.PersonStanding, 28, ICON_COLORS.actor);
-    } else if (asset.actorType === 'playerController') {
-      icon.innerHTML = iconHTML(Icons.Gamepad2, 28, ICON_COLORS.actor);
-    } else if (asset.actorType === 'aiController') {
-      icon.innerHTML = iconHTML(Icons.Camera, 28, ICON_COLORS.actor);
+    if (this._viewMode === 'grid') {
+      this._renderGridView();
     } else {
-      icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
-    }
-    card.appendChild(icon);
-
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = asset.name;
-    card.appendChild(label);
-
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = asset.id;
-      this._refreshGrid();
-    });
-    card.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      this._onOpenAsset(asset);
-    });
-    card.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      this._dragAsset = asset;
-      this._dragStarted = false;
-      this._startX = e.clientX;
-      this._startY = e.clientY;
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = asset.id;
-      this._refreshGrid();
-      this._showAssetContextMenu(e, asset);
-    });
-
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderStructureCard(assetId: string): void {
-    if (!this._structManager) return;
-    const sa = this._structManager.getStructure(assetId);
-    if (!sa) return;
-    const card = this._createTypeCard(
-      sa.id, sa.name, iconHTML(Icons.Box, 14, ICON_COLORS.blue), `${sa.fields.length} fields`,
-      () => this._onOpenStructure?.(sa),
-      (e) => this._showStructContextMenu(e, sa),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderEnumCard(assetId: string): void {
-    if (!this._structManager) return;
-    const ea = this._structManager.getEnum(assetId);
-    if (!ea) return;
-    const card = this._createTypeCard(
-      ea.id, ea.name, iconHTML(Icons.List, 14, ICON_COLORS.muted), `${ea.values.length} values`,
-      () => this._onOpenEnum?.(ea),
-      (e) => this._showEnumContextMenu(e, ea),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderMeshCard(assetId: string): void {
-    if (!this._meshManager) return;
-    const meshAsset = this._meshManager.getAsset(assetId);
-    if (!meshAsset) return;
-
-    const card = document.createElement('div');
-    card.className = 'asset-card mesh-asset-card';
-    if (this._selectedAssetId === meshAsset.id) card.classList.add('selected');
-
-    const thumbEl = document.createElement('div');
-    thumbEl.className = 'asset-card-icon mesh-thumbnail';
-    if (meshAsset.thumbnail) {
-      thumbEl.style.backgroundImage = `url(${meshAsset.thumbnail})`;
-      thumbEl.style.backgroundSize = 'cover';
-      thumbEl.style.backgroundPosition = 'center';
-    } else {
-      thumbEl.innerHTML = iconHTML(Icons.Box, 28, ICON_COLORS.mesh);
-    }
-    card.appendChild(thumbEl);
-
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = meshAsset.name;
-    card.appendChild(label);
-
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = meshAsset.id;
-      this._refreshGrid();
-    });
-    card.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      this._dragMeshAsset = meshAsset;
-      this._dragStarted = false;
-      this._startX = e.clientX;
-      this._startY = e.clientY;
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = meshAsset.id;
-      this._refreshGrid();
-      this._showMeshContextMenu(e, meshAsset);
-    });
-
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderAnimBPCard(assetId: string): void {
-    if (!this._animBPManager) return;
-    const abp = this._animBPManager.getAsset(assetId);
-    if (!abp) return;
-    const card = this._createTypeCard(
-      abp.id, abp.name, iconHTML(Icons.Clapperboard, 14, ICON_COLORS.actor), `${abp.stateMachine.states.length} states`,
-      () => this._onOpenAnimBP?.(abp),
-      (e) => this._showAnimBPContextMenu(e, abp),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderWidgetCard(assetId: string): void {
-    if (!this._widgetBPManager) return;
-    const wbp = this._widgetBPManager.getAsset(assetId);
-    if (!wbp) return;
-    const widgetCount = wbp.widgets.size;
-    const card = this._createTypeCard(
-      wbp.id, wbp.name, iconHTML(Icons.Palette, 14, ICON_COLORS.widget), `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
-      () => this._onOpenWidgetBP?.(wbp),
-      (e) => this._showWidgetBPContextMenu(e, wbp),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _renderGameInstanceCard(assetId: string): void {
-    if (!this._gameInstanceManager) return;
-    const gi = this._gameInstanceManager.getAsset(assetId);
-    if (!gi) return;
-    const varCount = gi.blueprintData.variables.length;
-    const card = this._createTypeCard(
-      gi.id, gi.name, iconHTML(Icons.Circle, 14, ICON_COLORS.primary), `${varCount} var${varCount !== 1 ? 's' : ''}`,
-      () => this._onOpenGameInstance?.(gi),
-      (e) => this._showGameInstanceContextMenu(e, gi),
-    );
-    this._gridEl.appendChild(card);
-  }
-
-  private _showGameInstanceContextMenu(e: MouseEvent, gi: GameInstanceBlueprintAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenGameInstance?.(gi));
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Game Instance', gi.name);
-      if (newName && newName !== gi.name) {
-        this._gameInstanceManager!.renameAsset(gi.id, newName);
-      }
-    });
-    this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete game instance "${gi.name}"?`)) {
-        this._gameInstanceManager!.removeAsset(gi.id);
-        this._folderManager.removeAssetLocation(gi.id, 'gameInstance');
-      }
-    });
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-    const close = (ev: MouseEvent) => {
-      if (!menu.contains(ev.target as Node)) {
-        this._closeContextMenu();
-        document.removeEventListener('mousedown', close);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', close), 0);
-  }
-
-  private _renderMaterialCard(assetId: string): void {
-    if (!this._meshManager) return;
-    const mat = this._meshManager.getMaterial(assetId);
-    if (!mat) return;
-
-    const card = document.createElement('div');
-    card.className = 'asset-card material-asset-card';
-    if (this._selectedAssetId === mat.assetId) card.classList.add('selected');
-
-    const iconEl = document.createElement('div');
-    iconEl.className = 'asset-card-icon';
-    // Show a color preview swatch
-    const swatch = document.createElement('div');
-    swatch.style.cssText = `width:36px;height:36px;border-radius:50%;border:2px solid var(--border);background:${mat.materialData.baseColor};`;
-    if (mat.materialData.metalness > 0.5) {
-      swatch.style.background = `linear-gradient(135deg, ${mat.materialData.baseColor}, #888)`;
-    }
-    iconEl.appendChild(swatch);
-    card.appendChild(iconEl);
-
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = mat.assetName;
-    card.appendChild(label);
-
-    const sub = document.createElement('div');
-    sub.className = 'asset-card-subtitle';
-    sub.textContent = mat.materialData.type;
-    card.appendChild(sub);
-
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = mat.assetId;
-      this._refreshGrid();
-    });
-    card.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      this._onOpenMaterial?.(mat);
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = mat.assetId;
-      this._refreshGrid();
-      this._showMaterialContextMenu(e, mat);
-    });
-
-    this._gridEl.appendChild(card);
-  }
-
-  // ============================================================
-  //  Folder Context Menu
-  // ============================================================
-
-  private _showFolderContextMenu(e: MouseEvent, folder: FolderNode): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
-      const name = await this._showNameDialog('New Folder', 'NewFolder');
-      if (name) {
-        this._folderManager.createFolder(name, folder.id);
-        this._expandedFolders.add(folder.id);
-      }
-    });
-
-    if (folder.id !== this._folderManager.getRootFolderId()) {
-      this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-        const name = await this._showNameDialog('Rename Folder', folder.name);
-        if (name) this._folderManager.renameFolder(folder.id, name);
-      });
-
-      const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete Folder', () => {
-        if (confirm(`Delete folder "${folder.name}"?`)) {
-          this._folderManager.deleteFolder(folder.id);
-          if (this._currentFolderId === folder.id) {
-            this._currentFolderId = folder.parentId || this._folderManager.getRootFolderId();
-          }
-        }
-      });
-      delItem.style.color = 'var(--danger)';
+      this._renderListView();
     }
 
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  // ============================================================
-  //  Legacy Grid Methods (kept for reference, can be removed)
-  // ============================================================
-
-  private _renderActorGrid(): void {
-    const assets = this._manager.assets;
-
-    if (assets.length === 0) {
+    // Drop zone hint when empty
+    if (this._visibleAssets.length === 0 && !this._searchQuery && this._activeFilters.size === 0) {
       const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'No actor assets. Click + New';
-      empty.style.height = '60px';
+      empty.className = 'cb-empty-state';
+      empty.innerHTML = `
+        <div class="cb-empty-icon">${iconHTML(Icons.FolderOpen, 32, 'var(--color-text-muted)')}</div>
+        <div class="cb-empty-text">Empty folder</div>
+        <div class="cb-empty-hint">Right-click to create assets, or drag files here to import</div>
+      `;
       this._gridEl.appendChild(empty);
-      return;
+    } else if (this._visibleAssets.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'cb-empty-state';
+      empty.innerHTML = `
+        <div class="cb-empty-icon">${iconHTML(Icons.Search, 32, 'var(--color-text-muted)')}</div>
+        <div class="cb-empty-text">No matching assets</div>
+        <div class="cb-empty-hint">Try adjusting your search or filters</div>
+      `;
+      this._gridEl.appendChild(empty);
     }
 
-    for (const asset of assets) {
-      const card = document.createElement('div');
-      card.className = 'asset-card';
-      if (this._selectedAssetId === asset.id) {
-        card.classList.add('selected');
-      }
+    this._updateStatusBar();
+  }
 
-      // Icon area
-      const icon = document.createElement('div');
-      icon.className = 'asset-card-icon';
-      if (asset.actorType === 'characterPawn') {
-        icon.innerHTML = iconHTML(Icons.PersonStanding, 28, ICON_COLORS.actor);
-      } else if (asset.actorType === 'playerController') {
-        icon.innerHTML = iconHTML(Icons.Gamepad2, 28, ICON_COLORS.actor);
-      } else if (asset.actorType === 'aiController') {
-        icon.innerHTML = iconHTML(Icons.Camera, 28, ICON_COLORS.actor);
-      } else {
-        icon.innerHTML = this._getMeshIcon(asset.rootMeshType);
-      }
-      card.appendChild(icon);
-
-      // Name label
-      const label = document.createElement('div');
-      label.className = 'asset-card-name';
-      label.textContent = asset.name;
-      label.title = asset.name;
-      card.appendChild(label);
-
-      // Single click → select
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._selectedAssetId = asset.id;
-        this._refreshGrid();
-      });
-
-      // Double click → open editor
-      card.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        this._onOpenAsset(asset);
-      });
-
-      // Custom mouse-drag (no HTML5 DnD — avoids dockview interference)
-      card.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return; // left button only
-        this._dragAsset = asset;
-        this._dragStarted = false;
-        this._startX = e.clientX;
-        this._startY = e.clientY;
-      });
-
-      // Right-click → context menu
-      card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._selectedAssetId = asset.id;
-        this._refreshGrid();
-        this._showAssetContextMenu(e, asset);
-      });
-
-      this._gridEl.appendChild(card);
+  private _renderGridView(): void {
+    this._gridEl.classList.add('cb-grid-view');
+    this._gridEl.classList.remove('cb-list-view');
+    for (const loc of this._visibleAssets) {
+      const info = this._resolveAssetInfo(loc.assetId, loc.assetType);
+      if (info) this._renderGridCard(info);
     }
   }
 
-  private _renderStructureGrid(): void {
-    if (!this._structManager) return;
-    const structs = this._structManager.structures;
+  private _renderListView(): void {
+    this._gridEl.classList.add('cb-list-view');
+    this._gridEl.classList.remove('cb-grid-view');
 
-    if (structs.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'No structures. Click + New to create one.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    for (const sa of structs) {
-      const card = this._createTypeCard(
-        sa.id, sa.name, iconHTML(Icons.Box, 14, ICON_COLORS.blue), `${sa.fields.length} fields`,
-        () => this._onOpenStructure?.(sa),
-        (e) => this._showStructContextMenu(e, sa),
-      );
-      this._gridEl.appendChild(card);
-    }
-  }
-
-  private _renderEnumGrid(): void {
-    if (!this._structManager) return;
-    const enums = this._structManager.enums;
-
-    if (enums.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'No enums. Click + New to create one.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    for (const ea of enums) {
-      const card = this._createTypeCard(
-        ea.id, ea.name, iconHTML(Icons.List, 14, ICON_COLORS.muted), `${ea.values.length} values`,
-        () => this._onOpenEnum?.(ea),
-        (e) => this._showEnumContextMenu(e, ea),
-      );
-      this._gridEl.appendChild(card);
-    }
-  }
-
-  // ---- Mesh Grid ----
-
-  private _renderMeshGrid(): void {
-    if (!this._meshManager) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'Mesh manager not initialized.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    // Drop zone hint
-    const dropZone = document.createElement('div');
-    dropZone.className = 'mesh-drop-zone';
-    dropZone.innerHTML = '<span>Drag & drop mesh files here<br>or click <b>Import</b></span>';
-
-    // File drag-and-drop support
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropZone.classList.add('drag-over');
-    });
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropZone.classList.remove('drag-over');
-      if (e.dataTransfer?.files) {
-        this._handleMeshFileDrop(e.dataTransfer.files);
-      }
-    });
-
-    // Also allow drop on the entire grid
-    this._gridEl.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    this._gridEl.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer?.files) {
-        this._handleMeshFileDrop(e.dataTransfer.files);
-      }
-    });
-
-    const assets = this._meshManager.assets;
-
-    if (assets.length === 0) {
-      this._gridEl.appendChild(dropZone);
-      return;
-    }
-
-    // Show mesh asset cards
-    for (const meshAsset of assets) {
-      const card = document.createElement('div');
-      card.className = 'asset-card mesh-asset-card';
-      if (this._selectedAssetId === meshAsset.id) card.classList.add('selected');
-
-      // Thumbnail
-      const thumbEl = document.createElement('div');
-      thumbEl.className = 'asset-card-icon mesh-thumbnail';
-      if (meshAsset.thumbnail) {
-        thumbEl.style.backgroundImage = `url(${meshAsset.thumbnail})`;
-        thumbEl.style.backgroundSize = 'cover';
-        thumbEl.style.backgroundPosition = 'center';
-      } else {
-        thumbEl.innerHTML = iconHTML(Icons.Box, 28, ICON_COLORS.mesh);
-      }
-      card.appendChild(thumbEl);
-
-      // Name
-      const label = document.createElement('div');
-      label.className = 'asset-card-name';
-      label.textContent = meshAsset.name;
-      label.title = meshAsset.name;
-      card.appendChild(label);
-
-      // Subtitle (vertex/tri count)
-      const sub = document.createElement('div');
-      sub.className = 'asset-card-subtitle';
-      const verts = meshAsset.meshData.vertexCount.toLocaleString();
-      const tris = meshAsset.meshData.triangleCount.toLocaleString();
-      sub.textContent = `${verts} verts · ${tris} tris`;
-      card.appendChild(sub);
-
-      // Click → select
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._selectedAssetId = meshAsset.id;
-        this._refreshGrid();
-      });
-
-      // Mouse drag → drop into scene
-      card.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        this._dragMeshAsset = meshAsset;
-        this._dragStarted = false;
-        this._startX = e.clientX;
-        this._startY = e.clientY;
-      });
-
-      // Right-click → context menu
-      card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._selectedAssetId = meshAsset.id;
-        this._refreshGrid();
-        this._showMeshContextMenu(e, meshAsset);
-      });
-
-      this._gridEl.appendChild(card);
-    }
-
-    // Append drop zone at end (smaller when assets exist)
-    dropZone.classList.add('compact');
-    this._gridEl.appendChild(dropZone);
-  }
-
-  // ---- Animation Blueprint Grid ----
-
-  private _renderAnimBPGrid(): void {
-    if (!this._animBPManager) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'Animation Blueprint manager not initialized.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    const assets = this._animBPManager.assets;
-
-    if (assets.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'No animation blueprints. Click + New to create one.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    for (const abp of assets) {
-      const card = this._createTypeCard(
-        abp.id,
-        abp.name,
-        iconHTML(Icons.Clapperboard, 14, ICON_COLORS.actor),
-        `${abp.stateMachine.states.length} states`,
-        () => this._onOpenAnimBP?.(abp),
-        (e) => this._showAnimBPContextMenu(e, abp),
-      );
-      this._gridEl.appendChild(card);
-    }
-  }
-
-  private _showAnimBPContextMenu(e: MouseEvent, abp: AnimBlueprintAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenAnimBP?.(abp));
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Animation Blueprint', abp.name);
-      if (newName) this._animBPManager!.renameAsset(abp.id, newName);
-    });
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete animation blueprint "${abp.name}"?`)) {
-        this._animBPManager!.removeAsset(abp.id);
-        if (this._selectedAssetId === abp.id) this._selectedAssetId = null;
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  // ---- Widget Blueprints Grid ----
-
-  private _renderWidgetBPGrid(): void {
-    if (!this._widgetBPManager) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'Widget Blueprint manager not initialized.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    const assets = this._widgetBPManager.assets;
-
-    if (assets.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'prop-empty';
-      empty.textContent = 'No widget blueprints. Click + New to create one.';
-      empty.style.height = '60px';
-      this._gridEl.appendChild(empty);
-      return;
-    }
-
-    for (const wbp of assets) {
-      const widgetCount = wbp.widgets.size;
-      const card = this._createTypeCard(
-        wbp.id,
-        wbp.name,
-        iconHTML(Icons.Palette, 14, ICON_COLORS.widget),
-        `${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
-        () => this._onOpenWidgetBP?.(wbp),
-        (e) => this._showWidgetBPContextMenu(e, wbp),
-      );
-      this._gridEl.appendChild(card);
-    }
-  }
-
-  private _showWidgetBPContextMenu(e: MouseEvent, wbp: WidgetBlueprintAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenWidgetBP?.(wbp));
-
-    // ── Inheritance: Create Child Widget Class ──
-    this._addMenuItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Create Child Class', async () => {
-      const inh = ClassInheritanceSystem.instance;
-      const name = await this._showNameDialog(`Create Child of ${wbp.name}`, `${wbp.name}_Child`);
-      if (name) {
-        const child = inh.createChildWidget(wbp.id, name);
-        if (child) {
-          this._folderManager.setAssetLocation(child.id, 'widget', this._currentFolderId);
-          this._selectedAssetId = child.id;
+    // List header
+    const header = document.createElement('div');
+    header.className = 'cb-list-header';
+    const cols = [
+      { key: '', label: '', width: '26px' },
+      { key: 'name', label: 'Name', width: '1fr' },
+      { key: 'type', label: 'Type', width: '120px' },
+      { key: '', label: 'Details', width: '140px' },
+    ];
+    for (const col of cols) {
+      const cell = document.createElement('div');
+      cell.className = 'cb-list-header-cell';
+      cell.textContent = col.label;
+      if (col.key === 'name' || col.key === 'type') {
+        cell.style.cursor = 'pointer';
+        cell.addEventListener('click', () => {
+          const k = col.key as 'name' | 'type';
+          if (this._sortBy === k) this._sortAsc = !this._sortAsc;
+          else { this._sortBy = k; this._sortAsc = true; }
           this._refreshGrid();
+        });
+        if (this._sortBy === col.key) {
+          cell.textContent += this._sortAsc ? ' ↑' : ' ↓';
         }
       }
-    });
-
-    // ── Inheritance: Show in Hierarchy ──
-    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Show in Hierarchy', () => {
-      (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
-    });
-
-    // ── Inheritance: Show Children ──
-    const inh = ClassInheritanceSystem.instance;
-    const childCount = inh.getWidgetChildren(wbp.id).length;
-    if (childCount > 0) {
-      this._addMenuItem(menu, iconHTML(Icons.ChevronsDownUp, 12, ICON_COLORS.muted) + ` Show Children (${childCount})`, () => {
-        (this as any)._onShowInHierarchy?.(wbp.id, 'widget');
-      });
+      header.appendChild(cell);
     }
+    this._gridEl.appendChild(header);
 
-    const sep2 = document.createElement('div');
-    sep2.className = 'context-menu-separator';
-    menu.appendChild(sep2);
-
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Widget Blueprint', wbp.name);
-      if (newName) this._widgetBPManager!.renameAsset(wbp.id, newName);
-    });
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      const inh2 = ClassInheritanceSystem.instance;
-      const children = inh2.getWidgetChildren(wbp.id);
-      const msg = children.length > 0
-        ? `Delete widget "${wbp.name}"? This is a parent class with ${children.length} child(ren). Children will be orphaned.`
-        : `Delete widget blueprint "${wbp.name}"?`;
-      if (confirm(msg)) {
-        inh2.unregisterWidget(wbp.id);
-        this._widgetBPManager!.removeAsset(wbp.id);
-        if (this._selectedAssetId === wbp.id) this._selectedAssetId = null;
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
+    // Rows
+    for (let i = 0; i < this._visibleAssets.length; i++) {
+      const loc = this._visibleAssets[i];
+      const info = this._resolveAssetInfo(loc.assetId, loc.assetType);
+      if (info) this._renderListRow(info, i);
+    }
   }
 
-  // ---- Texture Card Rendering ----
+  // ============================================================
+  //  Grid Card Renderer
+  // ============================================================
 
-  private _renderTextureCard(assetId: string): void {
-    const texLib = TextureLibrary.instance;
-    if (!texLib) return;
-    const texAsset = texLib.getAsset(assetId);
-    if (!texAsset) return;
-
+  private _renderGridCard(info: AssetCardInfo): void {
     const card = document.createElement('div');
-    card.className = 'asset-card mesh-asset-card';
-    if (this._selectedAssetId === texAsset.assetId) card.classList.add('selected');
+    card.className = 'cb-card';
+    card.dataset.assetId = info.id;
+    if (this._selectedIds.has(info.id)) card.classList.add('selected');
+    card.style.setProperty('--card-type-color', info.typeColor);
 
-    const thumbEl = document.createElement('div');
-    thumbEl.className = 'asset-card-icon mesh-thumbnail';
-    if (texAsset.thumbnail) {
-      thumbEl.style.backgroundImage = `url(${texAsset.thumbnail})`;
-      thumbEl.style.backgroundSize = 'cover';
-      thumbEl.style.backgroundPosition = 'center';
+    // Thumbnail area
+    const thumb = document.createElement('div');
+    thumb.className = 'cb-card-thumb';
+    if (info.customThumb) {
+      thumb.appendChild(info.customThumb);
+    } else if (info.thumbnail) {
+      thumb.style.backgroundImage = `url(${info.thumbnail})`;
+      thumb.style.backgroundSize = 'cover';
+      thumb.style.backgroundPosition = 'center';
     } else {
-      thumbEl.innerHTML = iconHTML(Icons.Image, 28, ICON_COLORS.primary);
+      thumb.appendChild(createIcon(info.icon, 28, info.iconColor));
     }
-    card.appendChild(thumbEl);
+    card.appendChild(thumb);
 
-    const label = document.createElement('div');
-    label.className = 'asset-card-name';
-    label.textContent = texAsset.assetName;
-    card.appendChild(label);
+    // Name (with search highlight)
+    const nameEl = document.createElement('div');
+    nameEl.className = 'cb-card-name';
+    if (this._searchQuery) {
+      nameEl.innerHTML = this._highlightMatch(info.name, this._searchQuery);
+    } else {
+      nameEl.textContent = info.name;
+    }
+    nameEl.title = `${info.name} — ${info.typeLabel}`;
+    card.appendChild(nameEl);
 
-    // Subtitle with dimensions
-    if (texAsset.metadata) {
+    // Subtitle
+    if (info.subtitle) {
       const sub = document.createElement('div');
-      sub.style.cssText = 'font-size:9px;color:#666;text-align:center;margin-top:1px;';
-      sub.textContent = `${texAsset.metadata.width}×${texAsset.metadata.height}`;
+      sub.className = 'cb-card-subtitle';
+      sub.textContent = info.subtitle;
       card.appendChild(sub);
     }
 
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._selectedAssetId = texAsset.assetId;
-      this._refreshGrid();
-    });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this._selectedAssetId = texAsset.assetId;
-      this._refreshGrid();
-      this._showTextureContextMenu(e, texAsset);
-    });
+    // Events
+    this._wireCardEvents(card, info);
+
+    // Hover preview
+    card.addEventListener('mouseenter', (e) => this._startHoverPreview(info, e));
+    card.addEventListener('mouseleave', () => this._cancelHoverPreview());
 
     this._gridEl.appendChild(card);
   }
 
-  private _showTextureContextMenu(e: MouseEvent, tex: import('./TextureLibrary').TextureAssetData): void {
-    this._closeContextMenu();
+  // ============================================================
+  //  List Row Renderer
+  // ============================================================
 
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
+  private _renderListRow(info: AssetCardInfo, index: number): void {
+    const row = document.createElement('div');
+    row.className = 'cb-list-row';
+    row.dataset.assetId = info.id;
+    if (this._selectedIds.has(info.id)) row.classList.add('selected');
+    if (index % 2 === 1) row.classList.add('cb-list-alt');
 
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Texture', tex.assetName);
-      if (newName) {
-        tex.assetName = newName;
-        this._refreshGrid();
-      }
-    });
+    // Type icon cell
+    const iconCell = document.createElement('div');
+    iconCell.className = 'cb-list-cell cb-list-icon-cell';
+    iconCell.style.borderLeft = `3px solid ${info.typeColor}`;
+    iconCell.appendChild(createIcon(info.icon, 14, info.iconColor));
+    row.appendChild(iconCell);
 
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete texture "${tex.assetName}"?`)) {
-        TextureLibrary.instance?.removeTexture(tex.assetId);
-        this._folderManager.removeAssetLocation(tex.assetId, 'texture');
-        if (this._selectedAssetId === tex.assetId) this._selectedAssetId = null;
-        this._refreshGrid();
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  // ---- Import Menus ----
-
-  /** Show import submenu (Mesh / Texture) when clicking header Import button */
-  private _showImportMenu(e: MouseEvent): void {
-    this._closeContextMenu();
-
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.mesh) + ' Import Mesh…', () => this._triggerMeshFileImport());
-    this._addMenuItem(menu, iconHTML(Icons.Image, 12, ICON_COLORS.primary) + ' Import Texture…', () => this._triggerTextureImport());
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  // ---- Texture Import ----
-
-  private async _triggerTextureImport(): Promise<void> {
-    const result = await showTextureImportDialog();
-    if (result.cancelled || result.textureIds.length === 0) return;
-    // Register each imported texture in the content folder
-    for (const texId of result.textureIds) {
-      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
+    // Name cell
+    const nameCell = document.createElement('div');
+    nameCell.className = 'cb-list-cell cb-list-name-cell';
+    if (this._searchQuery) {
+      nameCell.innerHTML = this._highlightMatch(info.name, this._searchQuery);
+    } else {
+      nameCell.textContent = info.name;
     }
-    this._selectedAssetId = result.textureIds[0];
-    this._refreshGrid();
+    row.appendChild(nameCell);
+
+    // Type cell
+    const typeCell = document.createElement('div');
+    typeCell.className = 'cb-list-cell cb-list-type-cell';
+    typeCell.textContent = info.typeLabel;
+    row.appendChild(typeCell);
+
+    // Details cell
+    const detailCell = document.createElement('div');
+    detailCell.className = 'cb-list-cell cb-list-detail-cell';
+    detailCell.textContent = info.subtitle;
+    row.appendChild(detailCell);
+
+    this._wireCardEvents(row, info);
+    row.addEventListener('mouseenter', (e) => this._startHoverPreview(info, e));
+    row.addEventListener('mouseleave', () => this._cancelHoverPreview());
+
+    this._gridEl.appendChild(row);
   }
 
-  // ---- File Drop Handler (Mesh + Image) ----
+  // ============================================================
+  //  Card Event Wiring (shared between grid & list)
+  // ============================================================
 
-  private _handleFileDrop(fileList: FileList): void {
-    const meshFiles: File[] = [];
-    const imageFiles: File[] = [];
-
-    for (let i = 0; i < fileList.length; i++) {
-      const f = fileList[i];
-      if (this._isImageFile(f.name)) {
-        imageFiles.push(f);
-      } else {
-        meshFiles.push(f);
-      }
-    }
-
-    // Handle mesh files through existing pipeline
-    if (meshFiles.length > 0) {
-      const dt = new DataTransfer();
-      for (const f of meshFiles) dt.items.add(f);
-      this._handleMeshFileDrop(dt.files);
-    }
-
-    // Handle image files through the texture import dialog
-    if (imageFiles.length > 0) {
-      this._handleTextureFileDrop(imageFiles);
-    }
-  }
-
-  private _isImageFile(filename: string): boolean {
-    const ext = filename.split('.').pop()?.toLowerCase() || '';
-    return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tga', 'tiff', 'tif', 'ico'].includes(ext);
-  }
-
-  private async _handleTextureFileDrop(files: File[]): Promise<void> {
-    const result = await showTextureImportDialog(files);
-    if (result.cancelled || result.textureIds.length === 0) return;
-    for (const texId of result.textureIds) {
-      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
-    }
-    this._selectedAssetId = result.textureIds[0];
-    this._refreshGrid();
-  }
-
-  // ---- Mesh Import ----
-
-  private _triggerMeshFileImport(): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.gltf,.glb,.fbx,.obj,.dae,.stl,.ply';
-    input.multiple = true;
-    // Must be in the DOM for Tauri WebView to reliably fire the change event
-    input.style.position = 'absolute';
-    input.style.left = '-9999px';
-    input.style.opacity = '0';
-    document.body.appendChild(input);
-    input.addEventListener('change', () => {
-      if (input.files && input.files.length > 0) {
-        this._handleMeshFileDrop(input.files);
-      }
-      // Clean up — remove from DOM after the event fires
-      input.remove();
-    });
-    // Also clean up if user cancels the picker (no change event fires)
-    // Use a focus-back heuristic: when the window regains focus after the picker
-    // closes, if the input is still in the DOM with no files, remove it.
-    const cleanup = () => {
-      setTimeout(() => {
-        if (input.parentNode && (!input.files || input.files.length === 0)) {
-          input.remove();
-        }
-      }, 300);
-      window.removeEventListener('focus', cleanup);
-    };
-    window.addEventListener('focus', cleanup);
-    input.click();
-  }
-
-  private async _handleMeshFileDrop(fileList: FileList): Promise<void> {
-    if (!this._meshManager) return;
-
-    // Collect importable files and extra files (like .mtl)
-    const importables: File[] = [];
-    const extras = new Map<string, File>();
-
-    for (let i = 0; i < fileList.length; i++) {
-      const file = fileList[i];
-      if (isImportableFile(file.name)) {
-        importables.push(file);
-      } else {
-        extras.set(file.name, file);
-      }
-    }
-
-    if (importables.length === 0) return;
-
-    for (const file of importables) {
-      // Pre-scan file to detect content and get recommendations
-      let detectedInfo;
-      try {
-        detectedInfo = await detectFileContent(file, extras.size > 0 ? extras : undefined);
-      } catch (err) {
-        console.warn('[Import] File detection failed for', file.name, err);
-        // Proceed without detection info — dialog will still show
-      }
-
-      // Show import dialog with detection info
-      const dialogResult = await showImportDialog(file, detectedInfo);
-      if (dialogResult.cancelled) continue;
-
-      // Show progress with step tracking
-      const progress = showImportProgress();
-
-      try {
-        const result = await importMeshFile(
-          file,
-          dialogResult.settings,
-          extras.size > 0 ? extras : undefined,
-          (msg) => progress.update(msg),
-          (step, totalSteps, msg) => {
-            const pct = Math.round((step / totalSteps) * 100);
-            progress.update(msg, pct);
-          },
-        );
-
-        // Show warnings from import report
-        if (result.report.warnings.length > 0) {
-          console.warn('[MeshImport] Warnings:', result.report.warnings);
-        }
-
-        // Add to mesh manager
-        this._meshManager.addImportedAsset(
-          result.meshAsset,
-          result.materials,
-          result.textures,
-          result.animations,
-        );
-
-        // Register in folder manager
-        this._folderManager.setAssetLocation(result.meshAsset.assetId, 'mesh', this._currentFolderId);
-
-        // Auto-register imported materials in folder (UE-style: materials are first-class assets)
-        for (const mat of result.materials) {
-          this._folderManager.setAssetLocation(mat.assetId, 'material', this._currentFolderId);
-        }
-
-        const duration = (result.report.duration / 1000).toFixed(1);
-        progress.update(`Import complete in ${duration}s!`, 100);
-        setTimeout(() => progress.close(), 1200);
-      } catch (err: any) {
-        progress.close();
-        console.error('[MeshImport] Failed:', err);
-        alert(`Failed to import ${file.name}:\n${err.message || err}`);
-      }
-    }
-
-    this._refreshGrid();
-  }
-
-  private _showMeshContextMenu(e: MouseEvent, meshAsset: MeshAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Mesh Asset', meshAsset.name);
-      if (newName) this._meshManager!.renameAsset(meshAsset.id, newName);
-    });
-
-    // Info row
-    const infoItem = document.createElement('div');
-    infoItem.className = 'context-menu-item';
-    infoItem.style.opacity = '0.6';
-    infoItem.style.fontSize = '11px';
-    infoItem.style.cursor = 'default';
-    infoItem.textContent = `${meshAsset.assetType} · ${meshAsset.sourceFile}`;
-    menu.appendChild(infoItem);
-
-    const sep = document.createElement('div');
-    sep.className = 'context-menu-separator';
-    menu.appendChild(sep);
-
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete mesh asset "${meshAsset.name}"?`)) {
-        this._meshManager!.removeAsset(meshAsset.id);
-        if (this._selectedAssetId === meshAsset.id) this._selectedAssetId = null;
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  private _showMaterialContextMenu(e: MouseEvent, mat: MaterialAssetJSON): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => {
-      this._onOpenMaterial?.(mat);
-    });
-
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Material', mat.assetName);
-      if (newName) {
-        mat.assetName = newName;
-        this._refreshGrid();
-      }
-    });
-
-    // Info row
-    const infoItem = document.createElement('div');
-    infoItem.className = 'context-menu-item';
-    infoItem.style.opacity = '0.6';
-    infoItem.style.fontSize = '11px';
-    infoItem.style.cursor = 'default';
-    infoItem.textContent = `${mat.materialData.type} · ${mat.materialData.baseColor}`;
-    menu.appendChild(infoItem);
-
-    const sep = document.createElement('div');
-    sep.className = 'context-menu-separator';
-    menu.appendChild(sep);
-
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete material "${mat.assetName}"?`)) {
-        const idx = this._meshManager!.allMaterials.findIndex(m => m.assetId === mat.assetId);
-        if (idx >= 0) this._meshManager!.allMaterials.splice(idx, 1);
-        this._folderManager.removeAssetLocation(mat.assetId, 'material');
-        if (this._selectedAssetId === mat.assetId) this._selectedAssetId = null;
-        this._refreshGrid();
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  private _createTypeCard(
-    id: string, name: string, icon: string, subtitle: string,
-    onOpen: () => void, onContextMenu: (e: MouseEvent) => void,
-  ): HTMLElement {
-    const card = document.createElement('div');
-    card.className = 'asset-card';
-    if (this._selectedAssetId === id) card.classList.add('selected');
-
-    const iconEl = document.createElement('div');
-    iconEl.className = 'asset-card-icon';
-    iconEl.innerHTML = `<span class="asset-icon-glyph">${icon}</span>`;
-    card.appendChild(iconEl);
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'asset-card-name';
-    labelEl.textContent = name;
-    labelEl.title = `${name} — ${subtitle}`;
-    card.appendChild(labelEl);
-
-    const subEl = document.createElement('div');
-    subEl.className = 'asset-card-subtitle';
-    subEl.textContent = subtitle;
-    card.appendChild(subEl);
-
-    card.addEventListener('click', (e) => {
+  private _wireCardEvents(el: HTMLElement, info: AssetCardInfo): void {
+    // Click — selection with Ctrl/Shift support
+    el.addEventListener('click', (e) => {
       e.stopPropagation();
-      this._selectedAssetId = id;
-      this._refreshGrid();
+      this._handleAssetClick(info.id, e);
     });
-    card.addEventListener('dblclick', (e) => {
+
+    // Double-click — open
+    el.addEventListener('dblclick', (e) => {
       e.stopPropagation();
-      onOpen();
+      info.onOpen();
     });
-    card.addEventListener('contextmenu', (e) => {
+
+    // Context menu
+    el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this._selectedAssetId = id;
-      this._refreshGrid();
-      onContextMenu(e);
-    });
-
-    return card;
-  }
-
-  // ---- Structure/Enum Context Menus ----
-
-  private _showStructContextMenu(e: MouseEvent, sa: StructureAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenStructure?.(sa));
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Structure', sa.name);
-      if (newName) this._structManager!.renameStructure(sa.id, newName);
-    });
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete structure "${sa.name}"?`)) {
-        this._structManager!.removeStructure(sa.id);
-        if (this._selectedAssetId === sa.id) this._selectedAssetId = null;
+      // Ensure right-clicked asset is selected
+      if (!this._selectedIds.has(info.id)) {
+        this._selectedIds.clear();
+        this._selectedIds.add(info.id);
+        this._lastClickedId = info.id;
+        this._refreshGrid();
       }
+      info.onContextMenu(e);
     });
-    delItem.style.color = 'var(--danger)';
 
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  private _showEnumContextMenu(e: MouseEvent, ea: EnumAsset): void {
-    this._closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
-
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenEnum?.(ea));
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
-      const newName = await this._showNameDialog('Rename Enum', ea.name);
-      if (newName) this._structManager!.renameEnum(ea.id, newName);
-    });
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
-      if (confirm(`Delete enum "${ea.name}"?`)) {
-        this._structManager!.removeEnum(ea.id);
-        if (this._selectedAssetId === ea.id) this._selectedAssetId = null;
-      }
-    });
-    delItem.style.color = 'var(--danger)';
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-  }
-
-  private _getMeshIcon(meshType: string): string {
-    switch (meshType) {
-      case 'cube': return iconHTML(Icons.Box, 14, ICON_COLORS.blueprint);
-      case 'sphere': return '<span class="asset-icon-glyph">●</span>';
-      case 'cylinder': return '<span class="asset-icon-glyph">◎</span>';
-      case 'plane': return '<span class="asset-icon-glyph">▬</span>';
-      default: return iconHTML(Icons.Box, 14, ICON_COLORS.blueprint);
+    // Drag (actor/mesh only)
+    if (info.dragKind) {
+      el.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (info.dragKind === 'actor') this._dragAsset = info.dragPayload;
+        else if (info.dragKind === 'mesh') this._dragMeshAsset = info.dragPayload;
+        this._dragStarted = false;
+        this._startX = e.clientX;
+        this._startY = e.clientY;
+      });
     }
   }
 
-  private async _createNewAsset(actorType: ActorType = 'actor'): Promise<void> {
-    const defaultNames: Record<string, string> = {
-      actor: 'BP_NewActor',
-      characterPawn: 'BP_CharacterPawn',
-      playerController: 'BP_PlayerController',
-      aiController: 'BP_AIController',
-    };
-    const titles: Record<string, string> = {
-      actor: 'New Actor Asset',
-      characterPawn: 'New Character Pawn',
-      playerController: 'New Player Controller',
-      aiController: 'New AI Controller',
-    };
-    const defaultName = defaultNames[actorType] || 'BP_NewActor';
-    const title = titles[actorType] || 'New Actor Asset';
-    const name = await this._promptName(title, defaultName);
-    if (!name) return;
-    const asset = this._manager.createAsset(name, actorType);
-    this._folderManager.setAssetLocation(asset.id, 'actor', this._currentFolderId);
-    this._selectedAssetId = asset.id;
+  // ============================================================
+  //  Selection
+  // ============================================================
+
+  private _handleAssetClick(id: string, e: MouseEvent): void {
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle single
+      if (this._selectedIds.has(id)) this._selectedIds.delete(id);
+      else this._selectedIds.add(id);
+      this._lastClickedId = id;
+    } else if (e.shiftKey && this._lastClickedId) {
+      // Range select
+      const ids = this._visibleAssets.map(a => a.assetId);
+      const from = ids.indexOf(this._lastClickedId);
+      const to = ids.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        const [lo, hi] = from < to ? [from, to] : [to, from];
+        for (let i = lo; i <= hi; i++) this._selectedIds.add(ids[i]);
+      }
+    } else {
+      // Single select
+      this._selectedIds.clear();
+      this._selectedIds.add(id);
+      this._lastClickedId = id;
+    }
+    this._refreshGrid();
   }
 
-  private async _promptName(title: string, defaultValue: string): Promise<string | null> {
-    // Use a simple overlay dialog
-    return await this._showNameDialog(title, defaultValue);
+  private _selectAll(): void {
+    this._selectedIds.clear();
+    for (const a of this._visibleAssets) this._selectedIds.add(a.assetId);
+    this._refreshGrid();
   }
 
-  private _showNameDialog(title: string, defaultValue: string): Promise<string | null> {
-    return new Promise((resolve) => {
-      // Create custom dialog overlay (works reliably on macOS in Tauri)
-      const overlay = document.createElement('div');
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-      `;
+  // ============================================================
+  //  Asset Info Resolver — single point of truth for all types
+  // ============================================================
 
-      const dialog = document.createElement('div');
-      dialog.style.cssText = `
-        background: var(--bg-secondary, #1e1e1e);
-        border: 1px solid var(--border, #444);
-        border-radius: 6px;
-        padding: 20px;
-        min-width: 400px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      `;
+  private _resolveAssetInfo(assetId: string, assetType: AssetType): AssetCardInfo | null {
+    const meta = ASSET_TYPE_META[assetType];
 
-      const titleEl = document.createElement('div');
-      titleEl.textContent = title;
-      titleEl.style.cssText = `
-        font-size: 14px;
-        margin-bottom: 12px;
-        color: var(--text, #fff);
-      `;
+    switch (assetType) {
+      case 'actor': {
+        const a = this._manager.getAsset(assetId);
+        if (!a) return null;
+        let icon = meta.icon;
+        let iconColor = meta.color;
+        if (a.actorType === 'characterPawn') { icon = Icons.PersonStanding; iconColor = ICON_COLORS.actor; }
+        else if (a.actorType === 'playerController') { icon = Icons.Gamepad2; iconColor = ICON_COLORS.actor; }
+        else if (a.actorType === 'aiController') { icon = Icons.Camera; iconColor = ICON_COLORS.actor; }
+        return {
+          id: a.id, name: a.name, type: assetType,
+          typeColor: meta.color, typeLabel: this._getActorTypeLabel(a.actorType),
+          icon, iconColor, thumbnail: null,
+          subtitle: this._getActorTypeLabel(a.actorType),
+          onOpen: () => this._onOpenAsset(a),
+          onContextMenu: (e) => this._showAssetContextMenu(e, a),
+          dragKind: 'actor', dragPayload: a,
+        };
+      }
+      case 'structure': {
+        if (!this._structManager) return null;
+        const s = this._structManager.getStructure(assetId);
+        if (!s) return null;
+        return {
+          id: s.id, name: s.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Structure',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${s.fields.length} fields`,
+          onOpen: () => this._onOpenStructure?.(s),
+          onContextMenu: (e) => this._showStructContextMenu(e, s),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'enum': {
+        if (!this._structManager) return null;
+        const en = this._structManager.getEnum(assetId);
+        if (!en) return null;
+        return {
+          id: en.id, name: en.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Enum',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${en.values.length} values`,
+          onOpen: () => this._onOpenEnum?.(en),
+          onContextMenu: (e) => this._showEnumContextMenu(e, en),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'mesh': {
+        if (!this._meshManager) return null;
+        const m = this._meshManager.getAsset(assetId);
+        if (!m) return null;
+        const verts = m.meshData.vertexCount.toLocaleString();
+        const tris = m.meshData.triangleCount.toLocaleString();
+        return {
+          id: m.id, name: m.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Static Mesh',
+          icon: meta.icon, iconColor: meta.color,
+          thumbnail: m.thumbnail || null,
+          subtitle: `${verts} verts · ${tris} tris`,
+          onOpen: () => {},
+          onContextMenu: (e) => this._showMeshContextMenu(e, m),
+          dragKind: 'mesh', dragPayload: m,
+        };
+      }
+      case 'material': {
+        if (!this._meshManager) return null;
+        const mat = this._meshManager.getMaterial(assetId);
+        if (!mat) return null;
+        // Custom swatch thumbnail
+        const swatch = document.createElement('div');
+        swatch.style.cssText = `width:36px;height:36px;border-radius:50%;border:2px solid var(--border);background:${mat.materialData.baseColor};`;
+        if (mat.materialData.metalness > 0.5) {
+          swatch.style.background = `linear-gradient(135deg, ${mat.materialData.baseColor}, #888)`;
+        }
+        return {
+          id: mat.assetId, name: mat.assetName, type: assetType,
+          typeColor: meta.color, typeLabel: 'Material',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: mat.materialData.type,
+          onOpen: () => this._onOpenMaterial?.(mat),
+          onContextMenu: (e) => this._showMaterialContextMenu(e, mat),
+          dragKind: null, dragPayload: null,
+          customThumb: swatch,
+        };
+      }
+      case 'animBP': {
+        if (!this._animBPManager) return null;
+        const abp = this._animBPManager.getAsset(assetId);
+        if (!abp) return null;
+        return {
+          id: abp.id, name: abp.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Anim Blueprint',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${abp.stateMachine.states.length} states`,
+          onOpen: () => this._onOpenAnimBP?.(abp),
+          onContextMenu: (e) => this._showAnimBPContextMenu(e, abp),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'widget': {
+        if (!this._widgetBPManager) return null;
+        const w = this._widgetBPManager.getAsset(assetId);
+        if (!w) return null;
+        const wc = w.widgets.size;
+        return {
+          id: w.id, name: w.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Widget',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${wc} widget${wc !== 1 ? 's' : ''}`,
+          onOpen: () => this._onOpenWidgetBP?.(w),
+          onContextMenu: (e) => this._showWidgetBPContextMenu(e, w),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'gameInstance': {
+        if (!this._gameInstanceManager) return null;
+        const gi = this._gameInstanceManager.getAsset(assetId);
+        if (!gi) return null;
+        const vc = gi.blueprintData.variables.length;
+        return {
+          id: gi.id, name: gi.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Game Instance',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${vc} var${vc !== 1 ? 's' : ''}`,
+          onOpen: () => this._onOpenGameInstance?.(gi),
+          onContextMenu: (e) => this._showGameInstanceContextMenu(e, gi),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'texture': {
+        const texLib = TextureLibrary.instance;
+        if (!texLib) return null;
+        const tex = texLib.getAsset(assetId);
+        if (!tex) return null;
+        const dims = tex.metadata ? `${tex.metadata.width}×${tex.metadata.height}` : '';
+        return {
+          id: tex.assetId, name: tex.assetName, type: assetType,
+          typeColor: meta.color, typeLabel: 'Texture',
+          icon: meta.icon, iconColor: meta.color,
+          thumbnail: tex.thumbnail || null,
+          subtitle: dims,
+          onOpen: () => {},
+          onContextMenu: (e) => this._showTextureContextMenu(e, tex),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      default:
+        return null;
+    }
+  }
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = defaultValue;
-      input.style.cssText = `
-        width: 100%;
-        padding: 8px;
-        font-size: 13px;
-        background: var(--bg-primary, #252525);
-        border: 1px solid var(--border, #444);
-        border-radius: 4px;
-        color: var(--text, #fff);
-        outline: none;
-        box-sizing: border-box;
-      `;
+  private _getActorTypeLabel(t: ActorType | string): string {
+    switch (t) {
+      case 'characterPawn': return 'Character Pawn';
+      case 'playerController': return 'Player Controller';
+      case 'aiController': return 'AI Controller';
+      default: return 'Actor Blueprint';
+    }
+  }
 
-      const buttons = document.createElement('div');
-      buttons.style.cssText = `
-        display: flex;
-        gap: 8px;
-        justify-content: flex-end;
-        margin-top: 16px;
-      `;
+  // ============================================================
+  //  Filter / Sort Logic
+  // ============================================================
 
-      const btnCancel = document.createElement('button');
-      btnCancel.textContent = 'Cancel';
-      btnCancel.style.cssText = `
-        padding: 6px 16px;
-        background: transparent;
-        border: 1px solid var(--border, #444);
-        border-radius: 4px;
-        color: var(--text, #fff);
-        cursor: pointer;
-        font-size: 13px;
-      `;
+  private _getFilteredSortedAssets(): { assetId: string; assetType: AssetType }[] {
+    let assets = this._folderManager.getAssetsInFolder(this._currentFolderId);
 
-      const btnOk = document.createElement('button');
-      btnOk.textContent = 'OK';
-      btnOk.style.cssText = `
-        padding: 6px 16px;
-        background: var(--accent, #007acc);
-        border: none;
-        border-radius: 4px;
-        color: #fff;
-        cursor: pointer;
-        font-size: 13px;
-      `;
+    // Type filter
+    if (this._activeFilters.size > 0) {
+      assets = assets.filter(a => this._activeFilters.has(a.assetType));
+    }
 
-      buttons.appendChild(btnCancel);
-      buttons.appendChild(btnOk);
-
-      dialog.appendChild(titleEl);
-      dialog.appendChild(input);
-      dialog.appendChild(buttons);
-      overlay.appendChild(dialog);
-
-      const finish = (value: string | null) => {
-        overlay.remove();
-        const result = value && value.trim() ? value.trim() : null;
-        resolve(result);
-      };
-
-      btnOk.addEventListener('click', () => finish(input.value));
-      btnCancel.addEventListener('click', () => finish(null));
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) finish(null);
+    // Search filter
+    if (this._searchQuery.trim()) {
+      const q = this._searchQuery.trim().toLowerCase();
+      assets = assets.filter(a => {
+        const info = this._resolveAssetInfo(a.assetId, a.assetType);
+        return info ? info.name.toLowerCase().includes(q) : false;
       });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') finish(input.value);
-        if (e.key === 'Escape') finish(null);
-      });
+    }
 
-      document.body.appendChild(overlay);
-      input.focus();
-      input.select();
+    // Sort
+    assets.sort((a, b) => {
+      const infoA = this._resolveAssetInfo(a.assetId, a.assetType);
+      const infoB = this._resolveAssetInfo(b.assetId, b.assetType);
+      if (!infoA || !infoB) return 0;
+      let cmp = 0;
+      if (this._sortBy === 'name') {
+        cmp = infoA.name.localeCompare(infoB.name);
+      } else if (this._sortBy === 'type') {
+        cmp = infoA.typeLabel.localeCompare(infoB.typeLabel) || infoA.name.localeCompare(infoB.name);
+      }
+      return this._sortAsc ? cmp : -cmp;
     });
+
+    return assets;
   }
 
-  // ---- Context Menus ----
+  // ============================================================
+  //  Search Highlight
+  // ============================================================
 
-  private _showEmptyContextMenu(e: MouseEvent): void {
+  private _highlightMatch(text: string, query: string): string {
+    if (!query) return this._escapeHtml(text);
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    if (idx < 0) return this._escapeHtml(text);
+    const before = text.slice(0, idx);
+    const match = text.slice(idx, idx + query.length);
+    const after = text.slice(idx + query.length);
+    return `${this._escapeHtml(before)}<mark class="cb-highlight">${this._escapeHtml(match)}</mark>${this._escapeHtml(after)}`;
+  }
+
+  private _escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ============================================================
+  //  Hover Preview
+  // ============================================================
+
+  private _startHoverPreview(info: AssetCardInfo, e: MouseEvent): void {
+    if (this._previewPinned) return;
+    this._cancelHoverPreview();
+    this._previewTimer = setTimeout(() => {
+      this._showPreview(info, e.clientX, e.clientY);
+    }, 600);
+  }
+
+  private _cancelHoverPreview(): void {
+    if (this._previewTimer) { clearTimeout(this._previewTimer); this._previewTimer = null; }
+    if (!this._previewPinned && this._previewEl) { this._previewEl.remove(); this._previewEl = null; }
+  }
+
+  private _showPreview(info: AssetCardInfo, x: number, y: number): void {
+    if (this._previewEl) this._previewEl.remove();
+    const el = document.createElement('div');
+    el.className = 'cb-preview-tooltip';
+    // Position near mouse
+    el.style.left = (x + 20) + 'px';
+    el.style.top = (y - 80) + 'px';
+
+    // Preview content
+    if (info.thumbnail) {
+      const img = document.createElement('div');
+      img.className = 'cb-preview-image';
+      img.style.backgroundImage = `url(${info.thumbnail})`;
+      el.appendChild(img);
+    } else if (info.customThumb) {
+      const clone = info.customThumb.cloneNode(true) as HTMLElement;
+      clone.style.width = '80px';
+      clone.style.height = '80px';
+      el.appendChild(clone);
+    } else {
+      const iconWrap = document.createElement('div');
+      iconWrap.className = 'cb-preview-icon';
+      iconWrap.appendChild(createIcon(info.icon, 48, info.iconColor));
+      el.appendChild(iconWrap);
+    }
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'cb-preview-name';
+    nameEl.textContent = info.name;
+    el.appendChild(nameEl);
+
+    const typeEl = document.createElement('div');
+    typeEl.className = 'cb-preview-type';
+    typeEl.textContent = info.typeLabel;
+    typeEl.style.color = info.typeColor;
+    el.appendChild(typeEl);
+
+    if (info.subtitle) {
+      const detEl = document.createElement('div');
+      detEl.className = 'cb-preview-detail';
+      detEl.textContent = info.subtitle;
+      el.appendChild(detEl);
+    }
+
+    document.body.appendChild(el);
+    this._previewEl = el;
+
+    // Keep within viewport
+    const rect = el.getBoundingClientRect();
+    if (rect.right > window.innerWidth) el.style.left = (x - rect.width - 10) + 'px';
+    if (rect.bottom > window.innerHeight) el.style.top = (window.innerHeight - rect.height - 10) + 'px';
+    if (rect.top < 0) el.style.top = '10px';
+  }
+
+  // ============================================================
+  //  Keyboard Shortcuts
+  // ============================================================
+
+  private _onKeyDown = (e: KeyboardEvent): void => {
+    // Ctrl+F — focus search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      this._searchInput.focus();
+      this._searchInput.select();
+      return;
+    }
+
+    // Ctrl+A — select all
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      this._selectAll();
+      return;
+    }
+
+    // Ctrl+N — new asset
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      this._createNewAsset();
+      return;
+    }
+
+    // Ctrl+D — duplicate selected
+    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+      e.preventDefault();
+      this._duplicateSelected();
+      return;
+    }
+
+    // Delete — delete selected
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      this._deleteSelected();
+      return;
+    }
+
+    // F2 — rename selected
+    if (e.key === 'F2') {
+      e.preventDefault();
+      this._renameSelected();
+      return;
+    }
+
+    // Enter — open selected
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      this._openSelected();
+      return;
+    }
+
+    // Backspace — go up
+    if (e.key === 'Backspace' && document.activeElement !== this._searchInput) {
+      e.preventDefault();
+      this._goUp();
+      return;
+    }
+
+    // Alt+← — back
+    if (e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      this._goBack();
+      return;
+    }
+
+    // Alt+→ — forward
+    if (e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      this._goForward();
+      return;
+    }
+
+    // F5 — refresh
+    if (e.key === 'F5') {
+      e.preventDefault();
+      this._refreshTree();
+      this._refreshGrid();
+      return;
+    }
+
+    // Escape — clear selection or search
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (this._previewPinned) {
+        this._previewPinned = false;
+        this._cancelHoverPreview();
+      } else if (this._searchQuery) {
+        this._searchInput.value = '';
+        this._searchQuery = '';
+        this._refreshGrid();
+      } else {
+        this._selectedIds.clear();
+        this._refreshGrid();
+      }
+      return;
+    }
+
+    // Space — pin hover preview
+    if (e.key === ' ' && document.activeElement !== this._searchInput) {
+      if (this._previewEl) {
+        e.preventDefault();
+        this._previewPinned = !this._previewPinned;
+      }
+      return;
+    }
+
+    // + / - — adjust thumbnail size
+    if (e.key === '+' || e.key === '=') {
+      this._thumbnailSize = Math.min(160, this._thumbnailSize + 16);
+      this._gridEl.style.setProperty('--cb-thumb-size', this._thumbnailSize + 'px');
+      this._refreshGrid();
+      return;
+    }
+    if (e.key === '-') {
+      this._thumbnailSize = Math.max(48, this._thumbnailSize - 16);
+      this._gridEl.style.setProperty('--cb-thumb-size', this._thumbnailSize + 'px');
+      this._refreshGrid();
+      return;
+    }
+  };
+
+  // Bulk operations triggered by keyboard
+  private _duplicateSelected(): void {
+    if (this._selectedIds.size !== 1) return;
+    const id = [...this._selectedIds][0];
+    // Only actors support duplicate currently
+    const asset = this._manager.getAsset(id);
+    if (!asset) return;
+    const dup = this._manager.createAsset(asset.name + '_Copy', asset.actorType);
+    const src = asset.blueprintData;
+    const dst = dup.blueprintData;
+    dst.variables = structuredClone(src.variables);
+    dst.functions = structuredClone(src.functions);
+    dst.macros = structuredClone(src.macros);
+    dst.customEvents = structuredClone(src.customEvents);
+    dst.structs = structuredClone(src.structs);
+    dup.rootMeshType = asset.rootMeshType;
+    dup.components = structuredClone(asset.components);
+    dup.controllerClass = asset.controllerClass;
+    dup.controllerBlueprintId = asset.controllerBlueprintId;
+    if (asset.characterPawnConfig) dup.characterPawnConfig = structuredClone(asset.characterPawnConfig);
+    this._folderManager.setAssetLocation(dup.id, 'actor', this._currentFolderId);
+    this._manager.notifyAssetChanged(dup.id);
+    this._selectedIds.clear();
+    this._selectedIds.add(dup.id);
+    this._refreshGrid();
+  }
+
+  private _deleteSelected(): void {
+    if (this._selectedIds.size === 0) return;
+    const count = this._selectedIds.size;
+    if (!confirm(`Delete ${count} selected asset${count > 1 ? 's' : ''}?`)) return;
+
+    for (const id of [...this._selectedIds]) {
+      // Try each manager
+      const asset = this._manager.getAsset(id);
+      if (asset) {
+        const inh = ClassInheritanceSystem.instance;
+        inh.unregisterActor(asset.id);
+        this._manager.removeAsset(asset.id);
+        continue;
+      }
+      if (this._structManager) {
+        const s = this._structManager.getStructure(id);
+        if (s) { this._structManager.removeStructure(id); continue; }
+        const en = this._structManager.getEnum(id);
+        if (en) { this._structManager.removeEnum(id); continue; }
+      }
+      if (this._meshManager) {
+        const m = this._meshManager.getAsset(id);
+        if (m) { this._meshManager.removeAsset(id); continue; }
+        const matIdx = this._meshManager.allMaterials.findIndex(mat => mat.assetId === id);
+        if (matIdx >= 0) {
+          this._meshManager.allMaterials.splice(matIdx, 1);
+          this._folderManager.removeAssetLocation(id, 'material');
+          continue;
+        }
+      }
+      if (this._animBPManager) {
+        const abp = this._animBPManager.getAsset(id);
+        if (abp) { this._animBPManager.removeAsset(id); continue; }
+      }
+      if (this._widgetBPManager) {
+        const w = this._widgetBPManager.getAsset(id);
+        if (w) {
+          ClassInheritanceSystem.instance.unregisterWidget(w.id);
+          this._widgetBPManager.removeAsset(id);
+          continue;
+        }
+      }
+      if (this._gameInstanceManager) {
+        const gi = this._gameInstanceManager.getAsset(id);
+        if (gi) {
+          this._gameInstanceManager.removeAsset(id);
+          this._folderManager.removeAssetLocation(id, 'gameInstance');
+          continue;
+        }
+      }
+      const texLib = TextureLibrary.instance;
+      if (texLib) {
+        texLib.removeTexture(id);
+        this._folderManager.removeAssetLocation(id, 'texture');
+      }
+    }
+    this._selectedIds.clear();
+    this._lastClickedId = null;
+    this._refreshGrid();
+  }
+
+  private _renameSelected(): void {
+    if (this._selectedIds.size !== 1) return;
+    const id = [...this._selectedIds][0];
+    // Find which type and show rename dialog
+    const asset = this._manager.getAsset(id);
+    if (asset) {
+      this._showNameDialog('Rename Actor', asset.name).then(n => { if (n) this._manager.renameAsset(id, n); });
+      return;
+    }
+    if (this._structManager) {
+      const s = this._structManager.getStructure(id);
+      if (s) { this._showNameDialog('Rename Structure', s.name).then(n => { if (n) this._structManager!.renameStructure(id, n); }); return; }
+      const en = this._structManager.getEnum(id);
+      if (en) { this._showNameDialog('Rename Enum', en.name).then(n => { if (n) this._structManager!.renameEnum(id, n); }); return; }
+    }
+    if (this._meshManager) {
+      const m = this._meshManager.getAsset(id);
+      if (m) { this._showNameDialog('Rename Mesh', m.name).then(n => { if (n) this._meshManager!.renameAsset(id, n); }); return; }
+      const mat = this._meshManager.getMaterial(id);
+      if (mat) { this._showNameDialog('Rename Material', mat.assetName).then(n => { if (n) { mat.assetName = n; this._refreshGrid(); } }); return; }
+    }
+    if (this._animBPManager) {
+      const abp = this._animBPManager.getAsset(id);
+      if (abp) { this._showNameDialog('Rename Anim BP', abp.name).then(n => { if (n) this._animBPManager!.renameAsset(id, n); }); return; }
+    }
+    if (this._widgetBPManager) {
+      const w = this._widgetBPManager.getAsset(id);
+      if (w) { this._showNameDialog('Rename Widget', w.name).then(n => { if (n) this._widgetBPManager!.renameAsset(id, n); }); return; }
+    }
+    if (this._gameInstanceManager) {
+      const gi = this._gameInstanceManager.getAsset(id);
+      if (gi) { this._showNameDialog('Rename Game Instance', gi.name).then(n => { if (n) this._gameInstanceManager!.renameAsset(id, n); }); return; }
+    }
+    const texLib = TextureLibrary.instance;
+    if (texLib) {
+      const tex = texLib.getAsset(id);
+      if (tex) { this._showNameDialog('Rename Texture', tex.assetName).then(n => { if (n) { tex.assetName = n; this._refreshGrid(); } }); return; }
+    }
+  }
+
+  private _openSelected(): void {
+    if (this._selectedIds.size !== 1) return;
+    const id = [...this._selectedIds][0];
+    // Find the asset and open it
+    const loc = this._visibleAssets.find(a => a.assetId === id);
+    if (!loc) return;
+    const info = this._resolveAssetInfo(loc.assetId, loc.assetType);
+    if (info) info.onOpen();
+  }
+
+  // ============================================================
+  //  Context Menus
+  // ============================================================
+
+  // ── Empty space menu (Create New + Import) ──
+  private _showEmptyContextMenu(e: MouseEvent | Event): void {
     this._closeContextMenu();
-
     const menu = document.createElement('div');
     menu.className = 'context-menu';
-    menu.style.left = e.clientX + 'px';
-    menu.style.top = e.clientY + 'px';
+    if (e instanceof MouseEvent) {
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+    } else {
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      menu.style.top = rect.bottom + 2 + 'px';
+    }
 
+    // ── Folder ──
     this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
       const name = await this._showNameDialog('New Folder', 'NewFolder');
       if (name) {
@@ -1669,91 +1666,98 @@ export class ActorAssetBrowser {
       }
     });
 
-    const sep0 = document.createElement('div');
-    sep0.className = 'context-menu-separator';
-    menu.appendChild(sep0);
+    this._addMenuSeparator(menu);
 
-    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint) + ' New Actor Blueprint', () => this._createNewAsset());
-    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor) + ' New Character Pawn', () => this._createNewAsset('characterPawn'));
-    this._addMenuItem(menu, iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor) + ' New Player Controller', () => this._createNewAsset('playerController'));
-    this._addMenuItem(menu, iconHTML(Icons.Camera, 12, ICON_COLORS.actor) + ' New AI Controller', () => this._createNewAsset('aiController'));
+    // ── Blueprints ──
+    const bpHeader = document.createElement('div');
+    bpHeader.className = 'context-menu-header';
+    bpHeader.textContent = 'BLUEPRINTS';
+    menu.appendChild(bpHeader);
 
-    if (this._structManager) {
-      const sep = document.createElement('div');
-      sep.className = 'context-menu-separator';
-      menu.appendChild(sep);
-
-      this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.blue) + ' New Structure', async () => {
-        const name = await this._showNameDialog('New Structure', 'F_NewStruct');
-        if (name) {
-          const sa = this._structManager!.createStructure(name);
-          this._folderManager.setAssetLocation(sa.id, 'structure', this._currentFolderId);
-          this._selectedAssetId = sa.id;
-          if (this._onOpenStructure) this._onOpenStructure(sa);
-        }
-      });
-
-      this._addMenuItem(menu, iconHTML(Icons.List, 12, ICON_COLORS.muted) + ' New Enumeration', async () => {
-        const name = await this._showNameDialog('New Enum', 'E_NewEnum');
-        if (name) {
-          const ea = this._structManager!.createEnum(name);
-          this._folderManager.setAssetLocation(ea.id, 'enum', this._currentFolderId);
-          this._selectedAssetId = ea.id;
-          if (this._onOpenEnum) this._onOpenEnum(ea);
-        }
-      });
-    }
-
-    if (this._animBPManager) {
-      const sepAnimBP = document.createElement('div');
-      sepAnimBP.className = 'context-menu-separator';
-      menu.appendChild(sepAnimBP);
-
-      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.actor) + ' New Animation Blueprint', async () => {
-        const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
-        if (name) {
-          const abp = this._animBPManager!.createAsset(name);
-          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
-          this._selectedAssetId = abp.id;
-          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
-        }
-      });
-    }
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint) + ' Actor Blueprint', () => this._createNewAsset());
+    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor) + ' Character Pawn', () => this._createNewAsset('characterPawn'));
+    this._addMenuItem(menu, iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor) + ' Player Controller', () => this._createNewAsset('playerController'));
+    this._addMenuItem(menu, iconHTML(Icons.Camera, 12, ICON_COLORS.actor) + ' AI Controller', () => this._createNewAsset('aiController'));
 
     if (this._widgetBPManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.widget) + ' New Widget Blueprint', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.widget) + ' Widget Blueprint', async () => {
         const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
         if (name) {
           const wbp = this._widgetBPManager!.createAsset(name);
           this._folderManager.setAssetLocation(wbp.id, 'widget', this._currentFolderId);
-          this._selectedAssetId = wbp.id;
+          this._selectedIds.clear();
+          this._selectedIds.add(wbp.id);
           if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
         }
       });
     }
 
-    if (this._gameInstanceManager) {
-      const sepGI = document.createElement('div');
-      sepGI.className = 'context-menu-separator';
-      menu.appendChild(sepGI);
+    if (this._animBPManager) {
+      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.light) + ' Animation Blueprint', async () => {
+        const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+        if (name) {
+          const abp = this._animBPManager!.createAsset(name);
+          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(abp.id);
+          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+        }
+      });
+    }
 
-      this._addMenuItem(menu, iconHTML(Icons.Circle, 12, ICON_COLORS.primary) + ' New Game Instance', async () => {
+    if (this._gameInstanceManager) {
+      this._addMenuItem(menu, iconHTML(Icons.Circle, 12, ICON_COLORS.blueprint) + ' Game Instance', async () => {
         const name = await this._showNameDialog('New Game Instance', 'GI_Default');
         if (name) {
           const gi = this._gameInstanceManager!.createAsset(name);
           this._folderManager.setAssetLocation(gi.id, 'gameInstance', this._currentFolderId);
-          this._selectedAssetId = gi.id;
+          this._selectedIds.clear();
+          this._selectedIds.add(gi.id);
           if (this._onOpenGameInstance) this._onOpenGameInstance(gi);
         }
       });
     }
 
-    if (this._meshManager) {
-      const sepMesh = document.createElement('div');
-      sepMesh.className = 'context-menu-separator';
-      menu.appendChild(sepMesh);
+    // ── Data ──
+    if (this._structManager) {
+      this._addMenuSeparator(menu);
+      const dataHeader = document.createElement('div');
+      dataHeader.className = 'context-menu-header';
+      dataHeader.textContent = 'DATA';
+      menu.appendChild(dataHeader);
 
-      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.material) + ' New Material', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.FileText, 12, '#a78bfa') + ' Structure', async () => {
+        const name = await this._showNameDialog('New Structure', 'F_NewStruct');
+        if (name) {
+          const sa = this._structManager!.createStructure(name);
+          this._folderManager.setAssetLocation(sa.id, 'structure', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(sa.id);
+          if (this._onOpenStructure) this._onOpenStructure(sa);
+        }
+      });
+
+      this._addMenuItem(menu, iconHTML(Icons.List, 12, ICON_COLORS.muted) + ' Enumeration', async () => {
+        const name = await this._showNameDialog('New Enum', 'E_NewEnum');
+        if (name) {
+          const ea = this._structManager!.createEnum(name);
+          this._folderManager.setAssetLocation(ea.id, 'enum', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(ea.id);
+          if (this._onOpenEnum) this._onOpenEnum(ea);
+        }
+      });
+    }
+
+    // ── Materials ──
+    if (this._meshManager) {
+      this._addMenuSeparator(menu);
+      const matHeader = document.createElement('div');
+      matHeader.className = 'context-menu-header';
+      matHeader.textContent = 'MATERIALS';
+      menu.appendChild(matHeader);
+
+      this._addMenuItem(menu, iconHTML(Icons.CircleDot, 12, ICON_COLORS.material) + ' Material', async () => {
         const name = await this._showNameDialog('New Material', 'M_NewMaterial');
         if (name) {
           const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1780,39 +1784,43 @@ export class ActorAssetBrowser {
           };
           this._meshManager!.allMaterials.push(newMat);
           this._folderManager.setAssetLocation(matId, 'material', this._currentFolderId);
-          this._selectedAssetId = matId;
+          this._selectedIds.clear();
+          this._selectedIds.add(matId);
           this._refreshGrid();
           this._onOpenMaterial?.(newMat);
         }
       });
-
-      this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
     }
 
-    // Texture import — always available
-    const sepTex = document.createElement('div');
-    sepTex.className = 'context-menu-separator';
-    menu.appendChild(sepTex);
+    // ── Import ──
+    this._addMenuSeparator(menu);
+    const impHeader = document.createElement('div');
+    impHeader.className = 'context-menu-header';
+    impHeader.textContent = 'IMPORT';
+    menu.appendChild(impHeader);
 
-    this._addMenuItem(menu, iconHTML(Icons.Image, 12, ICON_COLORS.primary) + ' Import Texture…', () => this._triggerTextureImport());
+    if (this._meshManager) {
+      this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
+    }
+    this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4ade80') + ' Import Texture…', () => this._triggerTextureImport());
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
   }
 
+  // ── Actor context menu ──
   private _showAssetContextMenu(e: MouseEvent, asset: ActorAsset): void {
     this._closeContextMenu();
-
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => {
-      this._onOpenAsset(asset);
-    });
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenAsset(asset));
 
-    // ── Inheritance: Create Child Class ──
+    this._addMenuSeparator(menu);
+
+    // Inheritance
     this._addMenuItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Create Child Class', async () => {
       const inh = ClassInheritanceSystem.instance;
       const name = await this._showNameDialog(`Create Child of ${asset.name}`, `${asset.name}_Child`);
@@ -1820,33 +1828,30 @@ export class ActorAssetBrowser {
         const child = inh.createChildActor(asset.id, name);
         if (child) {
           this._folderManager.setAssetLocation(child.id, 'actor', this._currentFolderId);
-          this._selectedAssetId = child.id;
+          this._selectedIds.clear();
+          this._selectedIds.add(child.id);
           this._refreshGrid();
         }
       }
     });
 
-    // ── Inheritance: Show in Hierarchy ──
     this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Show in Hierarchy', () => {
-      (this as any)._onShowInHierarchy?.(asset.id, 'actor');
+      this._onShowInHierarchy?.(asset.id, 'actor');
     });
 
-    // ── Inheritance: Show Children ──
     const inh = ClassInheritanceSystem.instance;
     const childCount = inh.getActorChildren(asset.id).length;
     if (childCount > 0) {
       this._addMenuItem(menu, iconHTML(Icons.ChevronsDownUp, 12, ICON_COLORS.muted) + ` Show Children (${childCount})`, () => {
-        (this as any)._onShowInHierarchy?.(asset.id, 'actor');
+        this._onShowInHierarchy?.(asset.id, 'actor');
       });
     }
 
-    // ── Inheritance: Change Parent Class ──
     const entry = inh.getActorEntry(asset.id);
     if (entry) {
       this._addMenuItem(menu, iconHTML(Icons.RefreshCw, 12, ICON_COLORS.muted) + ' Change Parent Class', async () => {
         const allActors = this._manager.assets.filter(a => a.id !== asset.id);
         const parentOptions = allActors.map(a => ({ id: a.id, name: a.name }));
-        // Simple prompt-based reparent
         const parentNames = ['None', ...parentOptions.map(p => p.name)];
         const choice = prompt(`Reparent "${asset.name}" to:\n${parentNames.map((n,i) => `${i}. ${n}`).join('\n')}\n\nEnter number:`);
         if (choice !== null) {
@@ -1858,39 +1863,22 @@ export class ActorAssetBrowser {
       });
     }
 
-    const sep2 = document.createElement('div');
-    sep2.className = 'context-menu-separator';
-    menu.appendChild(sep2);
+    this._addMenuSeparator(menu);
 
-    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename    <span class="cb-shortcut">F2</span>', async () => {
       const newName = await this._showNameDialog('Rename Actor', asset.name);
-      if (newName) {
-        this._manager.renameAsset(asset.id, newName);
-      }
+      if (newName) this._manager.renameAsset(asset.id, newName);
     });
 
-    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate', () => {
-      const json = asset.toJSON();
-      const dup = this._manager.createAsset(asset.name + '_Copy', asset.actorType);
-      // Copy blueprint data
-      const src = asset.blueprintData;
-      const dst = dup.blueprintData;
-      dst.variables = structuredClone(src.variables);
-      dst.functions = structuredClone(src.functions);
-      dst.macros = structuredClone(src.macros);
-      dst.customEvents = structuredClone(src.customEvents);
-      dst.structs = structuredClone(src.structs);
-      dup.rootMeshType = asset.rootMeshType;
-      dup.components = structuredClone(asset.components);
-      dup.controllerClass = asset.controllerClass;
-      dup.controllerBlueprintId = asset.controllerBlueprintId;
-      if (asset.characterPawnConfig) {
-        dup.characterPawnConfig = structuredClone(asset.characterPawnConfig);
-      }
-      this._manager.notifyAssetChanged(dup.id);
+    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate    <span class="cb-shortcut">Ctrl+D</span>', () => {
+      this._selectedIds.clear();
+      this._selectedIds.add(asset.id);
+      this._duplicateSelected();
     });
 
-    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+    this._addMenuSeparator(menu);
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete    <span class="cb-shortcut">Del</span>', () => {
       const inh2 = ClassInheritanceSystem.instance;
       const children = inh2.getActorChildren(asset.id);
       const msg = children.length > 0
@@ -1899,16 +1887,546 @@ export class ActorAssetBrowser {
       if (confirm(msg)) {
         inh2.unregisterActor(asset.id);
         this._manager.removeAsset(asset.id);
-        if (this._selectedAssetId === asset.id) {
-          this._selectedAssetId = null;
-        }
+        this._selectedIds.delete(asset.id);
       }
     });
-    delItem.style.color = 'var(--danger)';
+    delItem.style.color = 'var(--danger, #f87171)';
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
   }
+
+  // ── Widget BP context menu ──
+  private _showWidgetBPContextMenu(e: MouseEvent, wbp: WidgetBlueprintAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenWidgetBP?.(wbp));
+
+    this._addMenuSeparator(menu);
+
+    this._addMenuItem(menu, iconHTML(Icons.PlusCircle, 12, ICON_COLORS.blue) + ' Create Child Class', async () => {
+      const inh = ClassInheritanceSystem.instance;
+      const name = await this._showNameDialog(`Create Child of ${wbp.name}`, `${wbp.name}_Child`);
+      if (name) {
+        const child = inh.createChildWidget(wbp.id, name);
+        if (child) {
+          this._folderManager.setAssetLocation(child.id, 'widget', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(child.id);
+          this._refreshGrid();
+        }
+      }
+    });
+
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Show in Hierarchy', () => {
+      this._onShowInHierarchy?.(wbp.id, 'widget');
+    });
+
+    const inh = ClassInheritanceSystem.instance;
+    const childCount = inh.getWidgetChildren(wbp.id).length;
+    if (childCount > 0) {
+      this._addMenuItem(menu, iconHTML(Icons.ChevronsDownUp, 12, ICON_COLORS.muted) + ` Show Children (${childCount})`, () => {
+        this._onShowInHierarchy?.(wbp.id, 'widget');
+      });
+    }
+
+    this._addMenuSeparator(menu);
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Widget Blueprint', wbp.name);
+      if (newName) this._widgetBPManager!.renameAsset(wbp.id, newName);
+    });
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      const inh2 = ClassInheritanceSystem.instance;
+      const children = inh2.getWidgetChildren(wbp.id);
+      const msg = children.length > 0
+        ? `Delete widget "${wbp.name}"? This is a parent class with ${children.length} child(ren). Children will be orphaned.`
+        : `Delete widget blueprint "${wbp.name}"?`;
+      if (confirm(msg)) {
+        inh2.unregisterWidget(wbp.id);
+        this._widgetBPManager!.removeAsset(wbp.id);
+        this._selectedIds.delete(wbp.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Structure context menu ──
+  private _showStructContextMenu(e: MouseEvent, sa: StructureAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenStructure?.(sa));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Structure', sa.name);
+      if (newName) this._structManager!.renameStructure(sa.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete structure "${sa.name}"?`)) {
+        this._structManager!.removeStructure(sa.id);
+        this._selectedIds.delete(sa.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Enum context menu ──
+  private _showEnumContextMenu(e: MouseEvent, ea: EnumAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenEnum?.(ea));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Enum', ea.name);
+      if (newName) this._structManager!.renameEnum(ea.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete enum "${ea.name}"?`)) {
+        this._structManager!.removeEnum(ea.id);
+        this._selectedIds.delete(ea.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Mesh context menu ──
+  private _showMeshContextMenu(e: MouseEvent, meshAsset: MeshAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Mesh Asset', meshAsset.name);
+      if (newName) this._meshManager!.renameAsset(meshAsset.id, newName);
+    });
+
+    // Info
+    const infoItem = document.createElement('div');
+    infoItem.className = 'context-menu-item cb-info-row';
+    infoItem.textContent = `${meshAsset.assetType} · ${meshAsset.sourceFile}`;
+    menu.appendChild(infoItem);
+
+    this._addMenuSeparator(menu);
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete mesh asset "${meshAsset.name}"?`)) {
+        this._meshManager!.removeAsset(meshAsset.id);
+        this._selectedIds.delete(meshAsset.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Material context menu ──
+  private _showMaterialContextMenu(e: MouseEvent, mat: MaterialAssetJSON): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenMaterial?.(mat));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Material', mat.assetName);
+      if (newName) { mat.assetName = newName; this._refreshGrid(); }
+    });
+
+    // Info
+    const infoItem = document.createElement('div');
+    infoItem.className = 'context-menu-item cb-info-row';
+    infoItem.textContent = `${mat.materialData.type} · ${mat.materialData.baseColor}`;
+    menu.appendChild(infoItem);
+
+    this._addMenuSeparator(menu);
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete material "${mat.assetName}"?`)) {
+        const idx = this._meshManager!.allMaterials.findIndex(m => m.assetId === mat.assetId);
+        if (idx >= 0) this._meshManager!.allMaterials.splice(idx, 1);
+        this._folderManager.removeAssetLocation(mat.assetId, 'material');
+        this._selectedIds.delete(mat.assetId);
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Anim BP context menu ──
+  private _showAnimBPContextMenu(e: MouseEvent, abp: AnimBlueprintAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenAnimBP?.(abp));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Animation Blueprint', abp.name);
+      if (newName) this._animBPManager!.renameAsset(abp.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete animation blueprint "${abp.name}"?`)) {
+        this._animBPManager!.removeAsset(abp.id);
+        this._selectedIds.delete(abp.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Game Instance context menu ──
+  private _showGameInstanceContextMenu(e: MouseEvent, gi: GameInstanceBlueprintAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenGameInstance?.(gi));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Game Instance', gi.name);
+      if (newName && newName !== gi.name) this._gameInstanceManager!.renameAsset(gi.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete game instance "${gi.name}"?`)) {
+        this._gameInstanceManager!.removeAsset(gi.id);
+        this._folderManager.removeAssetLocation(gi.id, 'gameInstance');
+        this._selectedIds.delete(gi.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Texture context menu ──
+  private _showTextureContextMenu(e: MouseEvent, tex: import('./TextureLibrary').TextureAssetData): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Texture', tex.assetName);
+      if (newName) { tex.assetName = newName; this._refreshGrid(); }
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete texture "${tex.assetName}"?`)) {
+        TextureLibrary.instance?.removeTexture(tex.assetId);
+        this._folderManager.removeAssetLocation(tex.assetId, 'texture');
+        this._selectedIds.delete(tex.assetId);
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Folder context menu ──
+  private _showFolderContextMenu(e: MouseEvent, folder: FolderNode): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
+      const name = await this._showNameDialog('New Folder', 'NewFolder');
+      if (name) {
+        this._folderManager.createFolder(name, folder.id);
+        this._expandedFolders.add(folder.id);
+      }
+    });
+
+    if (folder.id !== this._folderManager.getRootFolderId()) {
+      this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+        const name = await this._showNameDialog('Rename Folder', folder.name);
+        if (name) this._folderManager.renameFolder(folder.id, name);
+      });
+
+      const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete Folder', () => {
+        if (confirm(`Delete folder "${folder.name}"?`)) {
+          this._folderManager.deleteFolder(folder.id);
+          if (this._currentFolderId === folder.id) {
+            this._currentFolderId = folder.parentId || this._folderManager.getRootFolderId();
+            this._navigateTo(this._currentFolderId);
+          }
+        }
+      });
+      delItem.style.color = 'var(--danger, #f87171)';
+    }
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Import submenu ──
+  private _showImportMenu(e: MouseEvent | Event): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    if (e instanceof MouseEvent) {
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+    } else {
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      menu.style.top = rect.bottom + 2 + 'px';
+    }
+
+    const header = document.createElement('div');
+    header.className = 'context-menu-header';
+    header.textContent = 'IMPORT';
+    menu.appendChild(header);
+
+    this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.mesh) + ' Import Mesh…', () => this._triggerMeshFileImport());
+    this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4ade80') + ' Import Texture…', () => this._triggerTextureImport());
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ============================================================
+  //  Import Pipeline (preserved logic)
+  // ============================================================
+
+  private async _triggerTextureImport(): Promise<void> {
+    const result = await showTextureImportDialog();
+    if (result.cancelled || result.textureIds.length === 0) return;
+    for (const texId of result.textureIds) {
+      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
+    }
+    this._selectedIds.clear();
+    this._selectedIds.add(result.textureIds[0]);
+    this._refreshGrid();
+  }
+
+  private _handleFileDrop(fileList: FileList): void {
+    const meshFiles: File[] = [];
+    const imageFiles: File[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      if (this._isImageFile(f.name)) imageFiles.push(f);
+      else meshFiles.push(f);
+    }
+    if (meshFiles.length > 0) {
+      const dt = new DataTransfer();
+      for (const f of meshFiles) dt.items.add(f);
+      this._handleMeshFileDrop(dt.files);
+    }
+    if (imageFiles.length > 0) this._handleTextureFileDrop(imageFiles);
+  }
+
+  private _isImageFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tga', 'tiff', 'tif', 'ico'].includes(ext);
+  }
+
+  private async _handleTextureFileDrop(files: File[]): Promise<void> {
+    const result = await showTextureImportDialog(files);
+    if (result.cancelled || result.textureIds.length === 0) return;
+    for (const texId of result.textureIds) {
+      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
+    }
+    this._selectedIds.clear();
+    this._selectedIds.add(result.textureIds[0]);
+    this._refreshGrid();
+  }
+
+  private _triggerMeshFileImport(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gltf,.glb,.fbx,.obj,.dae,.stl,.ply';
+    input.multiple = true;
+    input.style.position = 'absolute';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    input.addEventListener('change', () => {
+      if (input.files && input.files.length > 0) this._handleMeshFileDrop(input.files);
+      input.remove();
+    });
+    const cleanup = () => {
+      setTimeout(() => {
+        if (input.parentNode && (!input.files || input.files.length === 0)) input.remove();
+      }, 300);
+      window.removeEventListener('focus', cleanup);
+    };
+    window.addEventListener('focus', cleanup);
+    input.click();
+  }
+
+  private async _handleMeshFileDrop(fileList: FileList): Promise<void> {
+    if (!this._meshManager) return;
+    const importables: File[] = [];
+    const extras = new Map<string, File>();
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      if (isImportableFile(file.name)) importables.push(file);
+      else extras.set(file.name, file);
+    }
+    if (importables.length === 0) return;
+
+    for (const file of importables) {
+      let detectedInfo;
+      try {
+        detectedInfo = await detectFileContent(file, extras.size > 0 ? extras : undefined);
+      } catch (err) {
+        console.warn('[Import] File detection failed for', file.name, err);
+      }
+
+      const dialogResult = await showImportDialog(file, detectedInfo);
+      if (dialogResult.cancelled) continue;
+
+      const progress = showImportProgress();
+      try {
+        const result = await importMeshFile(
+          file, dialogResult.settings,
+          extras.size > 0 ? extras : undefined,
+          (msg) => progress.update(msg),
+          (step, totalSteps, msg) => {
+            const pct = Math.round((step / totalSteps) * 100);
+            progress.update(msg, pct);
+          },
+        );
+        if (result.report.warnings.length > 0) console.warn('[MeshImport] Warnings:', result.report.warnings);
+        this._meshManager.addImportedAsset(result.meshAsset, result.materials, result.textures, result.animations);
+        this._folderManager.setAssetLocation(result.meshAsset.assetId, 'mesh', this._currentFolderId);
+        for (const mat of result.materials) {
+          this._folderManager.setAssetLocation(mat.assetId, 'material', this._currentFolderId);
+        }
+        const duration = (result.report.duration / 1000).toFixed(1);
+        progress.update(`Import complete in ${duration}s!`, 100);
+        setTimeout(() => progress.close(), 1200);
+      } catch (err: any) {
+        progress.close();
+        console.error('[MeshImport] Failed:', err);
+        alert(`Failed to import ${file.name}:\n${err.message || err}`);
+      }
+    }
+    this._refreshGrid();
+  }
+
+  // ============================================================
+  //  Asset Creation (preserved logic)
+  // ============================================================
+
+  private async _createNewAsset(actorType: ActorType = 'actor'): Promise<void> {
+    const defaultNames: Record<string, string> = {
+      actor: 'BP_NewActor',
+      characterPawn: 'BP_CharacterPawn',
+      playerController: 'BP_PlayerController',
+      aiController: 'BP_AIController',
+    };
+    const titles: Record<string, string> = {
+      actor: 'New Actor Asset',
+      characterPawn: 'New Character Pawn',
+      playerController: 'New Player Controller',
+      aiController: 'New AI Controller',
+    };
+    const defaultName = defaultNames[actorType] || 'BP_NewActor';
+    const title = titles[actorType] || 'New Actor Asset';
+    const name = await this._showNameDialog(title, defaultName);
+    if (!name) return;
+    const asset = this._manager.createAsset(name, actorType);
+    this._folderManager.setAssetLocation(asset.id, 'actor', this._currentFolderId);
+    this._selectedIds.clear();
+    this._selectedIds.add(asset.id);
+  }
+
+  // ============================================================
+  //  Name Dialog (preserved)
+  // ============================================================
+
+  private _showNameDialog(title: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'cb-dialog-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'cb-dialog';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'cb-dialog-title';
+      titleEl.textContent = title;
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = defaultValue;
+      input.className = 'cb-dialog-input';
+
+      const buttons = document.createElement('div');
+      buttons.className = 'cb-dialog-buttons';
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancel';
+      btnCancel.className = 'cb-dialog-btn';
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = 'OK';
+      btnOk.className = 'cb-dialog-btn cb-dialog-btn-primary';
+
+      buttons.appendChild(btnCancel);
+      buttons.appendChild(btnOk);
+      dialog.append(titleEl, input, buttons);
+      overlay.appendChild(dialog);
+
+      const finish = (value: string | null) => {
+        overlay.remove();
+        resolve(value && value.trim() ? value.trim() : null);
+      };
+
+      btnOk.addEventListener('click', () => finish(input.value));
+      btnCancel.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') finish(input.value);
+        if (e.key === 'Escape') finish(null);
+      });
+
+      document.body.appendChild(overlay);
+      input.focus();
+      input.select();
+    });
+  }
+
+  // ============================================================
+  //  Menu Utilities
+  // ============================================================
 
   private _addMenuItem(menu: HTMLElement, text: string, onClick: () => void): HTMLElement {
     const item = document.createElement('div');
@@ -1921,6 +2439,12 @@ export class ActorAssetBrowser {
     });
     menu.appendChild(item);
     return item;
+  }
+
+  private _addMenuSeparator(menu: HTMLElement): void {
+    const sep = document.createElement('div');
+    sep.className = 'context-menu-separator';
+    menu.appendChild(sep);
   }
 
   private _closeContextMenu(): void {
