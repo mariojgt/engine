@@ -392,4 +392,76 @@ export {
   // Style
   SetWidgetGradientNode,
   SetWidgetNineSliceNode,
+  // Texture references
+  TextureSelectControl,
+  GetTextureIDNode,
+  FindTextureByNameNode,
+  GetTextureInfoNode,
+  LoadTextureNode,
 } from './ui/WidgetEnhancedNodes';
+
+// ── UI / Widget Blueprint Nodes (Lifecycle, Hierarchy, Slot, Utility, Scroll, Anim) ──
+export {
+  // Lifecycle
+  EventPreConstructNode,
+  EventConstructNode,
+  EventDestructNode,
+  EventWidgetTickNode,
+  EventOnInitializedNode,
+  // Hierarchy
+  AddChildToVerticalBoxNode,
+  AddChildToHorizontalBoxNode,
+  AddChildToCanvasPanelNode,
+  AddChildToOverlayNode,
+  AddChildToGridPanelNode,
+  RemoveChildNode,
+  RemoveFromParentNode,
+  ClearChildrenNode,
+  GetChildAtNode,
+  GetChildCountNode,
+  GetWidgetFromNameNode,
+  GetParentWidgetNode,
+  // Canvas Slot
+  SetCanvasSlotPositionNode,
+  GetCanvasSlotPositionNode,
+  SetCanvasSlotSizeNode,
+  GetCanvasSlotSizeNode,
+  SetCanvasSlotAnchorsNode,
+  GetCanvasSlotAnchorsNode,
+  SetCanvasSlotAlignmentNode,
+  SetSlotPaddingNode,
+  // Utility
+  IsInViewportNode,
+  SetIsEnabledNode,
+  GetIsEnabledNode,
+  SetKeyboardFocusNode,
+  SetRenderTranslationNode,
+  SetRenderAngleNode,
+  SetRenderScaleNode,
+  SetRenderOpacityNode,
+  SetWidgetTooltipNode,
+  SetCursorTypeNode,
+  ForceLayoutPrepassNode,
+  InvalidateLayoutNode,
+  // ScrollBox
+  ScrollToStartNode,
+  ScrollToEndNode,
+  SetScrollOffsetNode,
+  GetScrollOffsetNode,
+  GetScrollOffsetOfEndNode,
+  ScrollWidgetIntoViewNode,
+  // Named Animation Control
+  StopWidgetAnimByNameNode,
+  PauseWidgetAnimByNameNode,
+  ReverseWidgetAnimationNode,
+  IsWidgetAnimPlayingNode,
+  GetWidgetAnimTimeNode,
+  SetWidgetAnimTimeNode,
+  SetAnimPlayRateNode,
+  OnAnimFinishedNode,
+  // Widget Switcher
+  SetActiveWidgetIndexNode,
+  GetActiveWidgetIndexNode,
+  SetActiveWidgetNode,
+  GetActiveWidgetNode,
+} from './ui/WidgetBlueprintNodes';

@@ -466,3 +466,103 @@ export class SetWidgetNineSliceNode extends ClassicPreset.Node {
   getWidgetName(): string { return this.widgetSelector.value; }
 }
 registerNode('Set Widget Nine Slice', 'UI - Style', () => new SetWidgetNineSliceNode());
+
+
+// ============================================================
+//  TEXTURE REFERENCE NODES
+// ============================================================
+
+/**
+ * Custom Rete control that stores a texture asset ID + display name.
+ * Rendered as a searchable dropdown in the node editor React preset,
+ * populated from the TextureLibrary singleton.
+ */
+export class TextureSelectControl extends ClassicPreset.Control {
+  public value: string;        // texture asset ID
+  public displayName: string;  // human-readable name
+
+  constructor(initialId: string = '', initialName: string = '(none)') {
+    super();
+    this.value = initialId;
+    this.displayName = initialName;
+  }
+
+  setValue(id: string, name: string) {
+    this.value = id;
+    this.displayName = name;
+  }
+}
+
+// ── Get Texture ID ──────────────────────────────────────────
+/**
+ * Pure node — select a texture from the library and output its ID.
+ * This is the primary way to feed a Texture ID into nodes like
+ * Set Image Texture, Set Button Texture, etc.
+ */
+export class GetTextureIDNode extends ClassicPreset.Node {
+  public textureControl: TextureSelectControl;
+
+  constructor(texId: string = '', texName: string = '(none)') {
+    super('Get Texture ID');
+    this.textureControl = new TextureSelectControl(texId, texName);
+    (this.textureControl as any)._parentNode = this;
+    this.addControl('textureSelect', this.textureControl);
+    this.addOutput('textureId', new ClassicPreset.Output(strSocket, 'Texture ID'));
+    this.addOutput('name', new ClassicPreset.Output(strSocket, 'Name'));
+    this.addOutput('width', new ClassicPreset.Output(numSocket, 'Width'));
+    this.addOutput('height', new ClassicPreset.Output(numSocket, 'Height'));
+  }
+
+  getTextureId(): string { return this.textureControl.value; }
+}
+registerNode('Get Texture ID', 'UI - Image', () => new GetTextureIDNode());
+
+// ── Find Texture by Name ────────────────────────────────────
+/**
+ * Pure node — look up a texture by its asset name (string input).
+ * Useful when the texture name comes from a variable or is built dynamically.
+ */
+export class FindTextureByNameNode extends ClassicPreset.Node {
+  constructor() {
+    super('Find Texture by Name');
+    this.addInput('name', new ClassicPreset.Input(strSocket, 'Asset Name'));
+    this.addOutput('textureId', new ClassicPreset.Output(strSocket, 'Texture ID'));
+    this.addOutput('found', new ClassicPreset.Output(boolSocket, 'Found'));
+  }
+}
+registerNode('Find Texture by Name', 'UI - Image', () => new FindTextureByNameNode());
+
+// ── Get Texture Info ────────────────────────────────────────
+/**
+ * Pure node — given a Texture ID, return its metadata (name, dimensions, format).
+ */
+export class GetTextureInfoNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Texture Info');
+    this.addInput('textureId', new ClassicPreset.Input(strSocket, 'Texture ID'));
+    this.addOutput('name', new ClassicPreset.Output(strSocket, 'Name'));
+    this.addOutput('width', new ClassicPreset.Output(numSocket, 'Width'));
+    this.addOutput('height', new ClassicPreset.Output(numSocket, 'Height'));
+    this.addOutput('hasAlpha', new ClassicPreset.Output(boolSocket, 'Has Alpha'));
+    this.addOutput('format', new ClassicPreset.Output(strSocket, 'Format'));
+  }
+}
+registerNode('Get Texture Info', 'UI - Image', () => new GetTextureInfoNode());
+
+// ── Load Texture at Runtime ─────────────────────────────────
+/**
+ * Exec node — load a texture from a URL/path at runtime into the library.
+ * Returns the assigned Texture ID once loading completes.
+ */
+export class LoadTextureNode extends ClassicPreset.Node {
+  constructor() {
+    super('Load Texture');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('url', new ClassicPreset.Input(strSocket, 'URL / Path'));
+    this.addInput('name', new ClassicPreset.Input(strSocket, 'Asset Name'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+    this.addOutput('textureId', new ClassicPreset.Output(strSocket, 'Texture ID'));
+    this.addOutput('success', new ClassicPreset.Output(boolSocket, 'Success'));
+  }
+}
+registerNode('Load Texture', 'UI - Image', () => new LoadTextureNode());

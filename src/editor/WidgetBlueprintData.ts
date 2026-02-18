@@ -123,6 +123,18 @@ export interface WidgetSlot {
   fillWeight: number;
   /** Size mode for layout containers */
   sizeMode: SizeMode;
+  /** Horizontal alignment within parent (for VBox/HBox/Overlay children) */
+  hAlign?: 'Left' | 'Center' | 'Right' | 'Fill';
+  /** Vertical alignment within parent (for VBox/HBox/Overlay children) */
+  vAlign?: 'Top' | 'Center' | 'Bottom' | 'Fill';
+  /** Grid panel: row index */
+  gridRow?: number;
+  /** Grid panel: column index */
+  gridCol?: number;
+  /** Grid panel: row span */
+  gridRowSpan?: number;
+  /** Grid panel: column span */
+  gridColSpan?: number;
 }
 
 /** Create default slot */
@@ -482,6 +494,36 @@ export interface SpacerProperties {
   spacerHeight: number;
 }
 
+export interface ScaleBoxProperties {
+  /** Stretch mode */
+  stretch: 'None' | 'Fill' | 'ScaleToFit' | 'ScaleToFitX' | 'ScaleToFitY' | 'ScaleToFill' | 'UserSpecified';
+  /** User-specified uniform scale (used when stretch = UserSpecified) */
+  userSpecifiedScale: number;
+}
+
+export interface GridPanelProperties {
+  /** Number of rows (0 = auto from children) */
+  rows: number;
+  /** Number of columns (0 = auto from children) */
+  columns: number;
+  /** Row fill weights */
+  rowFill: number[];
+  /** Column fill weights */
+  columnFill: number[];
+}
+
+export interface OverlayProperties {
+  /** (reserved for future use) */
+  _unused?: boolean;
+}
+
+export interface NamedSlotProperties {
+  /** Slot name for template filling */
+  slotName: string;
+  /** Is this slot exposed to parent widget */
+  isExposed: boolean;
+}
+
 // ============================================================
 //  Widget Node (Hierarchy Tree Node)
 // ============================================================
@@ -526,6 +568,9 @@ export interface WidgetNodeJSON {
   comboBoxProps?: ComboBoxProperties;
   scrollBoxProps?: ScrollBoxProperties;
   spacerProps?: SpacerProperties;
+  scaleBoxProps?: ScaleBoxProperties;
+  gridPanelProps?: GridPanelProperties;
+  namedSlotProps?: NamedSlotProperties;
 
   /** Children widget IDs (ordered) */
   children: string[];
@@ -695,7 +740,32 @@ export function defaultWidgetProps(type: WidgetType): Partial<WidgetNodeJSON> {
       return {
         slot: { ...defaultSlot(), sizeX: 200, sizeY: 100 },
       };
-    // Containers: CanvasPanel, VerticalBox, HorizontalBox, Overlay, GridPanel, WrapBox, WidgetSwitcher, ScaleBox
+    case 'VerticalBox':
+      return { slot: { ...defaultSlot(), sizeX: 300, sizeY: 200 } };
+    case 'HorizontalBox':
+      return { slot: { ...defaultSlot(), sizeX: 400, sizeY: 60 } };
+    case 'Overlay':
+      return { slot: { ...defaultSlot(), sizeX: 300, sizeY: 200 } };
+    case 'GridPanel':
+      return {
+        gridPanelProps: { rows: 2, columns: 2, rowFill: [1, 1], columnFill: [1, 1] },
+        slot: { ...defaultSlot(), sizeX: 300, sizeY: 200 },
+      };
+    case 'ScaleBox':
+      return {
+        scaleBoxProps: { stretch: 'ScaleToFit', userSpecifiedScale: 1 },
+        slot: { ...defaultSlot(), sizeX: 200, sizeY: 200 },
+      };
+    case 'WrapBox':
+      return { slot: { ...defaultSlot(), sizeX: 400, sizeY: 200 } };
+    case 'WidgetSwitcher':
+      return { slot: { ...defaultSlot(), sizeX: 300, sizeY: 200 } };
+    case 'NamedSlot':
+      return {
+        namedSlotProps: { slotName: 'DefaultSlot', isExposed: true },
+        slot: { ...defaultSlot(), sizeX: 200, sizeY: 100 },
+      };
+    // Containers: CanvasPanel — uses default slot
     default:
       return {};
   }
@@ -729,6 +799,9 @@ export function createWidgetNode(type: WidgetType, name?: string): WidgetNodeJSO
     comboBoxProps: defaults.comboBoxProps,
     scrollBoxProps: defaults.scrollBoxProps,
     spacerProps: defaults.spacerProps,
+    scaleBoxProps: defaults.scaleBoxProps,
+    gridPanelProps: defaults.gridPanelProps,
+    namedSlotProps: defaults.namedSlotProps,
     children: [],
   };
 }

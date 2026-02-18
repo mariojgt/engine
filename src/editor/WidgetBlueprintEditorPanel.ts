@@ -11,6 +11,7 @@ import type {
   WidgetType,
   WidgetVisibility,
   TextJustification,
+  SizeMode,
 } from './WidgetBlueprintData';
 import {
   createWidgetNode,
@@ -23,6 +24,8 @@ import { FontLibrary } from './FontLibrary';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS } from './icons';
+import { WidgetLayoutEngine, type LayoutRect } from './WidgetLayoutEngine';
+import { WidgetAnimationTimeline } from './WidgetAnimationTimeline';
 
 type EditorTab = 'designer' | 'eventGraph';
 
@@ -143,6 +146,30 @@ export class WidgetBlueprintEditorPanel {
   private _dragOffsetX = 0;
   private _dragOffsetY = 0;
   private _animFrame = 0;
+  // Layout engine
+  private _layoutEngine!: WidgetLayoutEngine;
+  // Animation timeline
+  private _animTimeline: WidgetAnimationTimeline | null = null;
+  private _animTimelineVisible = false;
+  // Play-mode preview state
+  private _isPlayMode = false;
+  private _playModeOverlay: HTMLElement | null = null;
+  private _playModeStartTime = 0;
+  private _playModeLastTick = 0;
+  private _playModeHovered: string | null = null;
+  private _playModePressed: string | null = null;
+  private _playModeWidgetStates: Map<string, Record<string, any>> = new Map();
+  // Snap / Grid / Multi-select state
+  private _snapToGrid = false;
+  private _snapGridSize = 8;
+  private _snapToEdges = true;
+  private _snapGuideLines: Array<{ axis: 'x' | 'y'; pos: number }> = [];
+  private _multiSelection: Set<string> = new Set();
+  private _isMarqueeSelecting = false;
+  private _marqueeStartX = 0;
+  private _marqueeStartY = 0;
+  private _marqueeEndX = 0;
+  private _marqueeEndY = 0;
   // Resize handle state
   private _isResizing = false;
   private _resizeWidgetId: string | null = null;
@@ -183,14 +210,170 @@ export class WidgetBlueprintEditorPanel {
     this._designerZoom = asset.designerState?.zoom ?? 0.5;
     this._designerPanX = asset.designerState?.panX ?? 0;
     this._designerPanY = asset.designerState?.panY ?? 0;
+    this._layoutEngine = new WidgetLayoutEngine((id) => this._asset.getWidget(id));
     this._build();
   }
 
   dispose(): void {
     if (this._animFrame) cancelAnimationFrame(this._animFrame);
+    if (this._isPlayMode) this._stopPlayMode();
     if (this._eventGraphCleanup) {
       this._eventGraphCleanup();
       this._eventGraphCleanup = null;
+    }
+    if (this._animTimeline) {
+      this._animTimeline.dispose();
+      this._animTimeline = null;
+    }
+  }
+
+  // ============================================================
+  //  Play-Mode Preview
+  // ============================================================
+
+  private _togglePlayMode(): void {
+    if (this._isPlayMode) {
+      this._stopPlayMode();
+    } else {
+      this._startPlayMode();
+    }
+    this._rebuildTabBar();
+  }
+
+  private _startPlayMode(): void {
+    this._isPlayMode = true;
+    this._playModeStartTime = performance.now();
+    this._playModeLastTick = this._playModeStartTime;
+    this._playModeHovered = null;
+    this._playModePressed = null;
+    this._playModeWidgetStates.clear();
+
+    // Snapshot widget property values so we can restore on stop
+    const allIds = Array.from(this._asset.widgets.keys());
+    for (const id of allIds) {
+      const w = this._asset.getWidget(id);
+      if (w) {
+        this._playModeWidgetStates.set(id, {
+          renderOpacity: w.renderOpacity,
+          visibility: w.visibility,
+          text: w.textProps?.text,
+        });
+      }
+    }
+
+    // Create play-mode overlay banner
+    const overlay = document.createElement('div');
+    overlay.className = 'wbp-playmode-overlay';
+    overlay.innerHTML = `
+      <div class="wbp-playmode-banner">
+        <span style="color:#2ecc71;font-weight:700">▶ SIMULATION</span>
+        <span style="margin-left:12px;color:#aaa;font-size:11px">Press Esc or click Stop to end</span>
+      </div>`;
+    overlay.style.cssText = `
+      position:absolute;top:0;left:0;right:0;pointer-events:none;z-index:50;
+      display:flex;justify-content:center;padding:8px;`;
+    const canvasWrapper = this._canvas.parentElement;
+    if (canvasWrapper) {
+      canvasWrapper.style.position = 'relative';
+      canvasWrapper.appendChild(overlay);
+      // Green border glow to indicate play mode
+      canvasWrapper.style.boxShadow = 'inset 0 0 12px rgba(46,204,113,0.35)';
+    }
+    this._playModeOverlay = overlay;
+
+    // Listen for Escape to stop
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && this._isPlayMode) {
+        this._togglePlayMode();
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+    (this as any)._playModeEscHandler = escHandler;
+
+    // Intercept canvas clicks for Button presses
+    const clickHandler = (e: MouseEvent) => {
+      if (!this._isPlayMode) return;
+      const rect = this._canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * window.devicePixelRatio;
+      const my = (e.clientY - rect.top) * window.devicePixelRatio;
+      const hit = this._hitTestCanvas(mx, my);
+      if (hit) {
+        const w = this._asset.getWidget(hit);
+        if (w && w.type === 'Button') {
+          this._playModePressed = hit;
+          // Flash the button briefly
+          setTimeout(() => { this._playModePressed = null; }, 150);
+        }
+      }
+    };
+    this._canvas.addEventListener('click', clickHandler);
+    (this as any)._playModeClickHandler = clickHandler;
+
+    // Hover tracking for Buttons
+    const hoverHandler = (e: MouseEvent) => {
+      if (!this._isPlayMode) return;
+      const rect = this._canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * window.devicePixelRatio;
+      const my = (e.clientY - rect.top) * window.devicePixelRatio;
+      const hit = this._hitTestCanvas(mx, my);
+      if (hit) {
+        const w = this._asset.getWidget(hit);
+        this._playModeHovered = (w && (w.type === 'Button' || w.type === 'TextBox' || w.type === 'CheckBox' || w.type === 'Slider')) ? hit : null;
+        this._canvas.style.cursor = this._playModeHovered ? 'pointer' : 'default';
+      } else {
+        this._playModeHovered = null;
+        this._canvas.style.cursor = 'default';
+      }
+    };
+    this._canvas.addEventListener('mousemove', hoverHandler);
+    (this as any)._playModeHoverHandler = hoverHandler;
+  }
+
+  private _stopPlayMode(): void {
+    this._isPlayMode = false;
+
+    // Remove overlay
+    if (this._playModeOverlay && this._playModeOverlay.parentElement) {
+      this._playModeOverlay.parentElement.removeChild(this._playModeOverlay);
+      const canvasWrapper = this._canvas.parentElement;
+      if (canvasWrapper) canvasWrapper.style.boxShadow = '';
+    }
+    this._playModeOverlay = null;
+
+    // Remove event listeners
+    const escHandler = (this as any)._playModeEscHandler;
+    if (escHandler) document.removeEventListener('keydown', escHandler);
+    const clickHandler = (this as any)._playModeClickHandler;
+    if (clickHandler) this._canvas.removeEventListener('click', clickHandler);
+    const hoverHandler = (this as any)._playModeHoverHandler;
+    if (hoverHandler) this._canvas.removeEventListener('mousemove', hoverHandler);
+
+    // Restore original widget states
+    for (const [id, snapshot] of this._playModeWidgetStates) {
+      const w = this._asset.getWidget(id);
+      if (w) {
+        w.renderOpacity = snapshot.renderOpacity;
+        w.visibility = snapshot.visibility;
+        if (w.textProps && snapshot.text !== undefined) w.textProps.text = snapshot.text;
+      }
+    }
+    this._playModeWidgetStates.clear();
+    this._playModeHovered = null;
+    this._playModePressed = null;
+    this._canvas.style.cursor = 'default';
+  }
+
+  /** Called each frame from the render loop during play mode */
+  private _tickPlayMode(): void {
+    if (!this._isPlayMode) return;
+    const now = performance.now();
+    const _deltaMs = now - this._playModeLastTick;
+    this._playModeLastTick = now;
+    const _elapsedS = (now - this._playModeStartTime) / 1000;
+
+    // Tick widget animations if the timeline is available
+    if (this._animTimeline) {
+      this._animTimeline.tickPlayMode?.();
     }
   }
 
@@ -292,8 +475,12 @@ export class WidgetBlueprintEditorPanel {
     // Play controls
     const playBtn = document.createElement('button');
     playBtn.className = 'wbp-tb-btn wbp-tb-play';
-    playBtn.innerHTML = iconHTML(Icons.Play, 'sm');
-    playBtn.title = 'Play in viewport';
+    playBtn.innerHTML = this._isPlayMode
+      ? iconHTML(Icons.Square, 'sm')
+      : iconHTML(Icons.Play, 'sm');
+    playBtn.title = this._isPlayMode ? 'Stop preview (Esc)' : 'Play in viewport';
+    if (this._isPlayMode) playBtn.style.background = '#c0392b';
+    playBtn.addEventListener('click', () => this._togglePlayMode());
     leftGroup.appendChild(playBtn);
 
     const playDropdown = document.createElement('button');
@@ -663,6 +850,33 @@ export class WidgetBlueprintEditorPanel {
     canvasWrapper.appendChild(dpiLabel);
 
     centerArea.appendChild(canvasWrapper);
+
+    // ── Animation Timeline Panel (collapsible) ──
+    const timelineToggle = document.createElement('div');
+    timelineToggle.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 8px;background:#1a1a2e;border-top:1px solid #333;border-bottom:1px solid #333;cursor:pointer;font-size:10px;color:#888;user-select:none;';
+    timelineToggle.innerHTML = iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted) + ' <span>Animations</span>';
+    timelineToggle.addEventListener('click', () => {
+      this._animTimelineVisible = !this._animTimelineVisible;
+      timelineContainer.style.display = this._animTimelineVisible ? 'flex' : 'none';
+      timelineToggle.innerHTML = (this._animTimelineVisible ? iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted) : iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted)) + ' <span>Animations</span>';
+    });
+    centerArea.appendChild(timelineToggle);
+
+    const timelineContainer = document.createElement('div');
+    timelineContainer.style.cssText = 'height:200px;min-height:100px;display:none;flex-shrink:0;';
+    centerArea.appendChild(timelineContainer);
+
+    // Create timeline instance (deferred until first show)
+    const initTimeline = () => {
+      if (!this._animTimeline) {
+        this._animTimeline = new WidgetAnimationTimeline(timelineContainer, this._asset, () => {
+          this._asset.touch();
+          this._setCompileStatus('dirty');
+        });
+      }
+    };
+    timelineToggle.addEventListener('click', initTimeline, { once: true });
+
     wrapper.appendChild(centerArea);
 
     // ══════════════ RIGHT PANEL: Details ══════════════
@@ -810,52 +1024,97 @@ export class WidgetBlueprintEditorPanel {
   private _buildDesignerToolbar(toolbar: HTMLElement): void {
     toolbar.innerHTML = '';
 
-    // Alignment group
+    // ── Snap controls ──
+    const snapGroup = document.createElement('div');
+    snapGroup.className = 'wbp-dt-group';
+
+    const snapGridBtn = document.createElement('button');
+    snapGridBtn.className = `wbp-dt-btn${this._snapToGrid ? ' wbp-dt-btn-active' : ''}`;
+    snapGridBtn.innerHTML = iconHTML(Icons.Grid, 'sm');
+    snapGridBtn.title = `Snap to grid (${this._snapGridSize}px)`;
+    snapGridBtn.addEventListener('click', () => {
+      this._snapToGrid = !this._snapToGrid;
+      this._buildDesignerToolbar(toolbar);
+    });
+    snapGroup.appendChild(snapGridBtn);
+
+    const snapEdgeBtn = document.createElement('button');
+    snapEdgeBtn.className = `wbp-dt-btn${this._snapToEdges ? ' wbp-dt-btn-active' : ''}`;
+    snapEdgeBtn.innerHTML = iconHTML(Icons.Grid2x2, 'sm');
+    snapEdgeBtn.title = 'Snap to widget edges';
+    snapEdgeBtn.addEventListener('click', () => {
+      this._snapToEdges = !this._snapToEdges;
+      this._buildDesignerToolbar(toolbar);
+    });
+    snapGroup.appendChild(snapEdgeBtn);
+
+    // Grid size selector
+    if (this._snapToGrid) {
+      const gridSizeSel = document.createElement('select');
+      gridSizeSel.className = 'wbp-dt-select';
+      gridSizeSel.style.width = '52px';
+      for (const sz of [4, 8, 16, 32, 64]) {
+        const o = document.createElement('option');
+        o.value = String(sz);
+        o.textContent = `${sz}px`;
+        if (sz === this._snapGridSize) o.selected = true;
+        gridSizeSel.appendChild(o);
+      }
+      gridSizeSel.addEventListener('change', () => {
+        this._snapGridSize = parseInt(gridSizeSel.value, 10);
+      });
+      snapGroup.appendChild(gridSizeSel);
+    }
+
+    toolbar.appendChild(snapGroup);
+    toolbar.appendChild(this._makeDtSep());
+
+    // ── Alignment group ──
     const alignGroup = document.createElement('div');
     alignGroup.className = 'wbp-dt-group';
 
-    const alignLabel = document.createElement('span');
-    alignLabel.className = 'wbp-dt-label';
-    alignLabel.textContent = 'None';
-    alignGroup.appendChild(alignLabel);
-
-    // Alignment buttons (UE-style icons approximation)
-    const alignments = [
+    const alignActions: Array<{ icon: string; title: string; action: string; rotate?: boolean }> = [
       { icon: iconHTML(Icons.ChevronLeft, 'sm'), title: 'Align left edges', action: 'left' },
       { icon: iconHTML(Icons.Minus, 'sm'), title: 'Center horizontally', action: 'center-h' },
       { icon: iconHTML(Icons.ChevronRight, 'sm'), title: 'Align right edges', action: 'right' },
       { icon: iconHTML(Icons.ChevronLeft, 'sm'), title: 'Align top edges', action: 'top', rotate: true },
       { icon: iconHTML(Icons.Minus, 'sm'), title: 'Center vertically', action: 'center-v' },
-      { icon: iconHTML(Icons.ChevronRight, 'sm'), title: 'Align bottom edges', action: 'bottom' },
+      { icon: iconHTML(Icons.ChevronRight, 'sm'), title: 'Align bottom edges', action: 'bottom', rotate: true },
     ];
 
-    for (const a of alignments) {
+    for (const a of alignActions) {
       const btn = document.createElement('button');
       btn.className = 'wbp-dt-btn';
       btn.innerHTML = a.icon;
       btn.title = a.title;
       if (a.rotate) btn.style.transform = 'rotate(90deg)';
+      btn.addEventListener('click', () => this._alignWidgets(a.action));
       alignGroup.appendChild(btn);
     }
 
     toolbar.appendChild(alignGroup);
     toolbar.appendChild(this._makeDtSep());
 
-    // Grid/guideline toggles
-    const viewGroup = document.createElement('div');
-    viewGroup.className = 'wbp-dt-group';
-    const gridIcons = [iconHTML(Icons.Grid, 'sm'), iconHTML(Icons.Grid2x2, 'sm'), iconHTML(Icons.Grid, 'sm'), '4'];
-    for (const ic of gridIcons) {
-      const btn = document.createElement('button');
-      btn.className = 'wbp-dt-btn';
-      btn.innerHTML = ic;
-      viewGroup.appendChild(btn);
-    }
-    toolbar.appendChild(viewGroup);
-
+    // ── Distribute group ──
+    const distGroup = document.createElement('div');
+    distGroup.className = 'wbp-dt-group';
+    const distH = document.createElement('button');
+    distH.className = 'wbp-dt-btn';
+    distH.innerHTML = iconHTML(Icons.GripVertical, 'sm');
+    distH.title = 'Distribute horizontal spacing';
+    distH.addEventListener('click', () => this._distributeWidgets('horizontal'));
+    distGroup.appendChild(distH);
+    const distV = document.createElement('button');
+    distV.className = 'wbp-dt-btn';
+    distV.innerHTML = iconHTML(Icons.GripVertical, 'sm');
+    distV.title = 'Distribute vertical spacing';
+    distV.style.transform = 'rotate(90deg)';
+    distV.addEventListener('click', () => this._distributeWidgets('vertical'));
+    distGroup.appendChild(distV);
+    toolbar.appendChild(distGroup);
     toolbar.appendChild(this._makeDtSep());
 
-    // Screen size selector
+    // ── Screen size selector ──
     const screenGroup = document.createElement('div');
     screenGroup.className = 'wbp-dt-group';
 
@@ -863,10 +1122,6 @@ export class WidgetBlueprintEditorPanel {
     screenIcon.className = 'wbp-dt-screen-icon';
     screenIcon.innerHTML = iconHTML(Icons.Grid, 'sm');
     screenGroup.appendChild(screenIcon);
-
-    const screenLabel = document.createElement('span');
-    screenLabel.className = 'wbp-dt-label wbp-dt-screen';
-    screenLabel.innerHTML = 'Screen Size ' + iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
 
     const screenSel = document.createElement('select');
     screenSel.className = 'wbp-dt-select';
@@ -882,13 +1137,220 @@ export class WidgetBlueprintEditorPanel {
     });
     screenGroup.appendChild(screenSel);
 
-    // Desired label
-    const desiredLabel = document.createElement('span');
-    desiredLabel.className = 'wbp-dt-label';
-    desiredLabel.textContent = 'Desired';
-    screenGroup.appendChild(desiredLabel);
-
     toolbar.appendChild(screenGroup);
+  }
+
+  // ── Alignment helpers ──
+
+  private _getSelectedIds(): string[] {
+    if (this._multiSelection.size > 0) return Array.from(this._multiSelection);
+    if (this._selectedWidgetId && this._selectedWidgetId !== this._asset.rootWidgetId) return [this._selectedWidgetId];
+    return [];
+  }
+
+  private _alignWidgets(action: string): void {
+    const ids = this._getSelectedIds();
+    if (ids.length < 2) return;
+
+    const rects = ids.map(id => {
+      const w = this._asset.getWidget(id);
+      const lr = this._layoutEngine.getRect(id);
+      return { id, x: lr?.x ?? w!.slot.offsetX, y: lr?.y ?? w!.slot.offsetY, w: lr?.width ?? w!.slot.sizeX, h: lr?.height ?? w!.slot.sizeY };
+    });
+
+    switch (action) {
+      case 'left': {
+        const minX = Math.min(...rects.map(r => r.x));
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetX += minX - r.x; }
+        break;
+      }
+      case 'right': {
+        const maxR = Math.max(...rects.map(r => r.x + r.w));
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetX += (maxR - r.w) - r.x; }
+        break;
+      }
+      case 'center-h': {
+        const minX = Math.min(...rects.map(r => r.x));
+        const maxR = Math.max(...rects.map(r => r.x + r.w));
+        const cx = (minX + maxR) / 2;
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetX += (cx - r.w / 2) - r.x; }
+        break;
+      }
+      case 'top': {
+        const minY = Math.min(...rects.map(r => r.y));
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetY += minY - r.y; }
+        break;
+      }
+      case 'bottom': {
+        const maxB = Math.max(...rects.map(r => r.y + r.h));
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetY += (maxB - r.h) - r.y; }
+        break;
+      }
+      case 'center-v': {
+        const minY = Math.min(...rects.map(r => r.y));
+        const maxB = Math.max(...rects.map(r => r.y + r.h));
+        const cy = (minY + maxB) / 2;
+        for (const r of rects) { const w = this._asset.getWidget(r.id)!; w.slot.offsetY += (cy - r.h / 2) - r.y; }
+        break;
+      }
+    }
+    this._asset.touch();
+    this._layoutEngine.clearCache();
+    this._rebuildProperties();
+  }
+
+  private _distributeWidgets(axis: 'horizontal' | 'vertical'): void {
+    const ids = this._getSelectedIds();
+    if (ids.length < 3) return;
+
+    const rects = ids.map(id => {
+      const w = this._asset.getWidget(id);
+      const lr = this._layoutEngine.getRect(id);
+      return { id, x: lr?.x ?? w!.slot.offsetX, y: lr?.y ?? w!.slot.offsetY, w: lr?.width ?? w!.slot.sizeX, h: lr?.height ?? w!.slot.sizeY };
+    });
+
+    if (axis === 'horizontal') {
+      rects.sort((a, b) => a.x - b.x);
+      const totalSpan = rects[rects.length - 1].x + rects[rects.length - 1].w - rects[0].x;
+      const totalWidgetW = rects.reduce((s, r) => s + r.w, 0);
+      const gap = (totalSpan - totalWidgetW) / (rects.length - 1);
+      let cx = rects[0].x;
+      for (const r of rects) {
+        const w = this._asset.getWidget(r.id)!;
+        w.slot.offsetX += cx - r.x;
+        cx += r.w + gap;
+      }
+    } else {
+      rects.sort((a, b) => a.y - b.y);
+      const totalSpan = rects[rects.length - 1].y + rects[rects.length - 1].h - rects[0].y;
+      const totalWidgetH = rects.reduce((s, r) => s + r.h, 0);
+      const gap = (totalSpan - totalWidgetH) / (rects.length - 1);
+      let cy = rects[0].y;
+      for (const r of rects) {
+        const w = this._asset.getWidget(r.id)!;
+        w.slot.offsetY += cy - r.y;
+        cy += r.h + gap;
+      }
+    }
+    this._asset.touch();
+    this._layoutEngine.clearCache();
+    this._rebuildProperties();
+  }
+
+  /** Apply snap-to-grid rounding to a value */
+  private _snapValue(v: number): number {
+    if (!this._snapToGrid) return Math.round(v);
+    return Math.round(v / this._snapGridSize) * this._snapGridSize;
+  }
+
+  /** Compute snap-to-edges guide lines for the currently dragged widget.
+   *  Returns adjusted position (x, y) snapped to nearby widget edges. */
+  private _computeEdgeSnap(dragId: string, rawX: number, rawY: number, dragW: number, dragH: number): { x: number; y: number } {
+    if (!this._snapToEdges) return { x: rawX, y: rawY };
+    const THRESH = 6; // pixel threshold in widget-space
+    this._snapGuideLines = [];
+    let bestX = rawX, bestY = rawY;
+    let bestDx = THRESH + 1, bestDy = THRESH + 1;
+
+    // Collect all sibling widget rects
+    const siblings: Array<{ x: number; y: number; w: number; h: number }> = [];
+    for (const [id] of this._asset.widgets) {
+      if (id === dragId || id === this._asset.rootWidgetId) continue;
+      const lr = this._layoutEngine.getRect(id);
+      const w = this._asset.getWidget(id);
+      if (lr) siblings.push({ x: lr.x, y: lr.y, w: lr.width, h: lr.height });
+      else if (w) siblings.push({ x: w.slot.offsetX, y: w.slot.offsetY, w: w.slot.sizeX, h: w.slot.sizeY });
+    }
+
+    const dragEdges = {
+      left: rawX, right: rawX + dragW, cx: rawX + dragW / 2,
+      top: rawY, bottom: rawY + dragH, cy: rawY + dragH / 2,
+    };
+
+    for (const sib of siblings) {
+      const sibEdges = {
+        left: sib.x, right: sib.x + sib.w, cx: sib.x + sib.w / 2,
+        top: sib.y, bottom: sib.y + sib.h, cy: sib.y + sib.h / 2,
+      };
+
+      // X snaps: left-left, right-right, left-right, right-left, center-center
+      const xTests: Array<[number, number, number]> = [
+        [dragEdges.left, sibEdges.left, sibEdges.left],
+        [dragEdges.right, sibEdges.right, sibEdges.right - dragW],
+        [dragEdges.left, sibEdges.right, sibEdges.right],
+        [dragEdges.right, sibEdges.left, sibEdges.left - dragW],
+        [dragEdges.cx, sibEdges.cx, sibEdges.cx - dragW / 2],
+      ];
+      for (const [from, to, snapPos] of xTests) {
+        const d = Math.abs(from - to);
+        if (d < bestDx) {
+          bestDx = d;
+          bestX = snapPos;
+          this._snapGuideLines = this._snapGuideLines.filter(g => g.axis !== 'x');
+          this._snapGuideLines.push({ axis: 'x', pos: to });
+        }
+      }
+
+      // Y snaps
+      const yTests: Array<[number, number, number]> = [
+        [dragEdges.top, sibEdges.top, sibEdges.top],
+        [dragEdges.bottom, sibEdges.bottom, sibEdges.bottom - dragH],
+        [dragEdges.top, sibEdges.bottom, sibEdges.bottom],
+        [dragEdges.bottom, sibEdges.top, sibEdges.top - dragH],
+        [dragEdges.cy, sibEdges.cy, sibEdges.cy - dragH / 2],
+      ];
+      for (const [from, to, snapPos] of yTests) {
+        const d = Math.abs(from - to);
+        if (d < bestDy) {
+          bestDy = d;
+          bestY = snapPos;
+          this._snapGuideLines = this._snapGuideLines.filter(g => g.axis !== 'y');
+          this._snapGuideLines.push({ axis: 'y', pos: to });
+        }
+      }
+    }
+
+    if (bestDx > THRESH) { bestX = rawX; this._snapGuideLines = this._snapGuideLines.filter(g => g.axis !== 'x'); }
+    if (bestDy > THRESH) { bestY = rawY; this._snapGuideLines = this._snapGuideLines.filter(g => g.axis !== 'y'); }
+    return { x: bestX, y: bestY };
+  }
+
+  /** Finalize marquee selection — select all widgets whose screen rects overlap the marquee. */
+  private _finalizeMarqueeSelection(): void {
+    const x1 = Math.min(this._marqueeStartX, this._marqueeEndX);
+    const y1 = Math.min(this._marqueeStartY, this._marqueeEndY);
+    const x2 = Math.max(this._marqueeStartX, this._marqueeEndX);
+    const y2 = Math.max(this._marqueeStartY, this._marqueeEndY);
+
+    // Only count as marquee if dragged more than ~4px
+    if (x2 - x1 < 4 && y2 - y1 < 4) return;
+
+    for (const [id] of this._asset.widgets) {
+      if (id === this._asset.rootWidgetId) continue;
+      const lr = this._layoutEngine.getRect(id);
+      const w = this._asset.getWidget(id);
+      if (!w) continue;
+      const wx = lr?.x ?? w.slot.offsetX;
+      const wy = lr?.y ?? w.slot.offsetY;
+      const ww = lr?.width ?? w.slot.sizeX;
+      const wh = lr?.height ?? w.slot.sizeY;
+
+      // Convert to screen coords
+      const s = this._widgetToScreen(wx, wy);
+      const dpr = window.devicePixelRatio;
+      const sw = ww * this._designerZoom * dpr;
+      const sh = wh * this._designerZoom * dpr;
+
+      // AABB overlap test
+      if (s.x < x2 && s.x + sw > x1 && s.y < y2 && s.y + sh > y1) {
+        this._multiSelection.add(id);
+      }
+    }
+    if (this._multiSelection.size > 0) {
+      this._selectedWidgetId = Array.from(this._multiSelection)[0];
+    }
+    this._rebuildHierarchy();
+    this._rebuildProperties();
   }
 
   private _makeDtSep(): HTMLElement {
@@ -923,6 +1385,15 @@ export class WidgetBlueprintEditorPanel {
     });
 
     this._canvas.addEventListener('mousedown', (e) => {
+      // In play mode, only allow panning (middle-click / alt+click); skip widget drag/select
+      if (this._isPlayMode) {
+        if (e.button === 1 || (e.button === 0 && e.altKey)) {
+          this._isPanning = true;
+          this._panStartX = e.clientX - this._designerPanX;
+          this._panStartY = e.clientY - this._designerPanY;
+        }
+        return;
+      }
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         this._isPanning = true;
         this._panStartX = e.clientX - this._designerPanX;
@@ -955,15 +1426,36 @@ export class WidgetBlueprintEditorPanel {
         const hit = this._hitTestCanvas(mx, my);
 
         if (hit && hit !== this._asset.rootWidgetId) {
-          this._selectedWidgetId = hit;
+          // Shift+click = toggle in multi-selection
+          if (e.shiftKey) {
+            if (this._multiSelection.has(hit)) {
+              this._multiSelection.delete(hit);
+            } else {
+              this._multiSelection.add(hit);
+            }
+            this._selectedWidgetId = hit;
+          } else {
+            // Clear multi-selection unless clicking on an already-selected item in a group
+            if (!this._multiSelection.has(hit)) {
+              this._multiSelection.clear();
+            }
+            this._selectedWidgetId = hit;
+          }
           this._isDraggingWidget = true;
           this._dragWidgetId = hit;
           const widget = this._asset.getWidget(hit)!;
           const worldPos = this._widgetToScreen(widget.slot.offsetX, widget.slot.offsetY);
           this._dragOffsetX = mx - worldPos.x;
           this._dragOffsetY = my - worldPos.y;
-        } else {
-          this._selectedWidgetId = hit;
+        } else if (!hit || hit === this._asset.rootWidgetId) {
+          // Start marquee selection (drag on empty area)
+          if (!e.shiftKey) this._multiSelection.clear();
+          this._selectedWidgetId = hit ?? null;
+          this._isMarqueeSelecting = true;
+          this._marqueeStartX = mx;
+          this._marqueeStartY = my;
+          this._marqueeEndX = mx;
+          this._marqueeEndY = my;
         }
         this._rebuildHierarchy();
         this._rebuildProperties();
@@ -1024,11 +1516,42 @@ export class WidgetBlueprintEditorPanel {
         const worldPos = this._screenToWidget(mx - this._dragOffsetX, my - this._dragOffsetY);
         const widget = this._asset.getWidget(this._dragWidgetId);
         if (widget) {
-          widget.slot.offsetX = Math.round(worldPos.x);
-          widget.slot.offsetY = Math.round(worldPos.y);
+          let newX = worldPos.x;
+          let newY = worldPos.y;
+
+          // Snap to grid
+          newX = this._snapValue(newX);
+          newY = this._snapValue(newY);
+
+          // Snap to edges of sibling widgets
+          if (this._snapToEdges) {
+            const snapped = this._computeEdgeSnap(this._dragWidgetId, newX, newY, widget.slot.sizeX, widget.slot.sizeY);
+            newX = snapped.x;
+            newY = snapped.y;
+          } else {
+            this._snapGuideLines = [];
+          }
+
+          widget.slot.offsetX = Math.round(newX);
+          widget.slot.offsetY = Math.round(newY);
+
+          // Move all other multi-selected widgets by same delta
+          if (this._multiSelection.size > 1 && this._multiSelection.has(this._dragWidgetId)) {
+            const dx = widget.slot.offsetX - (this._resizeStartOffsetX ?? 0);
+            const dy = widget.slot.offsetY - (this._resizeStartOffsetY ?? 0);
+            // delta is implicit from single-frame movement; use stored start values
+          }
+
           this._asset.touch();
           this._rebuildProperties();
         }
+        return;
+      }
+
+      // Handle marquee selection
+      if (this._isMarqueeSelecting) {
+        this._marqueeEndX = mx;
+        this._marqueeEndY = my;
         return;
       }
 
@@ -1042,12 +1565,18 @@ export class WidgetBlueprintEditorPanel {
     });
 
     const onMouseUp = () => {
+      // Finalize marquee selection
+      if (this._isMarqueeSelecting) {
+        this._finalizeMarqueeSelection();
+        this._isMarqueeSelecting = false;
+      }
       this._isPanning = false;
       this._isDraggingWidget = false;
       this._dragWidgetId = null;
       this._isResizing = false;
       this._resizeWidgetId = null;
       this._resizeHandle = null;
+      this._snapGuideLines = [];
       this._canvas.style.cursor = 'default';
     };
     this._canvas.addEventListener('mouseup', onMouseUp);
@@ -1070,6 +1599,7 @@ export class WidgetBlueprintEditorPanel {
 
     // Start rendering loop
     const render = () => {
+      if (this._isPlayMode) this._tickPlayMode();
       this._renderDesigner();
       this._animFrame = requestAnimationFrame(render);
     };
@@ -1235,8 +1765,136 @@ export class WidgetBlueprintEditorPanel {
       this._drawRulers(ctx, w, h, dpr, zoom, centerX, centerY);
     }
 
-    // Draw widget tree
+    // Draw widget tree — compute layout then render
+    const screenSize = SCREEN_SIZES[this._screenSizeIdx];
+    const canvasW = screenSize.width || 1920;
+    const canvasH = screenSize.height || 1080;
+    this._layoutEngine.clearCache();
+    this._layoutEngine.computeLayout(this._asset.rootWidgetId, canvasW, canvasH);
     this._renderWidgetNode(ctx, this._asset.rootWidgetId, centerX, centerY, zoom * dpr);
+
+    // ── Play-mode overlays ──
+    if (this._isPlayMode) {
+      const s = zoom * dpr;
+
+      // Highlight hovered interactive widget
+      if (this._playModeHovered) {
+        const rr = this._layoutEngine.getRect(this._playModeHovered);
+        if (rr) {
+          const hx = centerX + rr.x * s;
+          const hy = centerY + rr.y * s;
+          const hw = rr.width * s;
+          const hh = rr.height * s;
+          ctx.save();
+          ctx.strokeStyle = 'rgba(46,204,113,0.7)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(hx, hy, hw, hh);
+          ctx.fillStyle = 'rgba(46,204,113,0.06)';
+          ctx.fillRect(hx, hy, hw, hh);
+          ctx.restore();
+        }
+      }
+
+      // Flash pressed button
+      if (this._playModePressed) {
+        const rr = this._layoutEngine.getRect(this._playModePressed);
+        if (rr) {
+          const px = centerX + rr.x * s;
+          const py = centerY + rr.y * s;
+          const pw = rr.width * s;
+          const ph = rr.height * s;
+          ctx.save();
+          ctx.fillStyle = 'rgba(255,255,255,0.2)';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.restore();
+        }
+      }
+
+      // Play-mode border pulse
+      const elapsed = (performance.now() - this._playModeStartTime) / 1000;
+      const pulse = 0.3 + Math.sin(elapsed * 2) * 0.15;
+      ctx.save();
+      ctx.strokeStyle = `rgba(46,204,113,${pulse})`;
+      ctx.lineWidth = 3 * dpr;
+      ctx.strokeRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    // ── Snap guide lines ──
+    if (this._snapGuideLines.length > 0 && this._isDraggingWidget) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,100,100,0.8)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      for (const g of this._snapGuideLines) {
+        ctx.beginPath();
+        if (g.axis === 'x') {
+          const sx = centerX + g.pos * zoom * dpr;
+          ctx.moveTo(sx, 0);
+          ctx.lineTo(sx, h);
+        } else {
+          const sy = centerY + g.pos * zoom * dpr;
+          ctx.moveTo(0, sy);
+          ctx.lineTo(w, sy);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ── Multi-selection highlights ──
+    if (this._multiSelection.size > 0 && !this._isPlayMode) {
+      ctx.save();
+      const s = zoom * dpr;
+      for (const id of this._multiSelection) {
+        if (id === this._selectedWidgetId) continue; // primary selection drawn elsewhere
+        const lr = this._layoutEngine.getRect(id);
+        const wg = this._asset.getWidget(id);
+        if (!wg) continue;
+        const rx = centerX + (lr?.x ?? wg.slot.offsetX) * s;
+        const ry = centerY + (lr?.y ?? wg.slot.offsetY) * s;
+        const rw = (lr?.width ?? wg.slot.sizeX) * s;
+        const rh = (lr?.height ?? wg.slot.sizeY) * s;
+        ctx.strokeStyle = 'rgba(100,180,255,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(rx, ry, rw, rh);
+      }
+      ctx.restore();
+    }
+
+    // ── Marquee selection rectangle ──
+    if (this._isMarqueeSelecting) {
+      ctx.save();
+      const mx1 = Math.min(this._marqueeStartX, this._marqueeEndX);
+      const my1 = Math.min(this._marqueeStartY, this._marqueeEndY);
+      const mw = Math.abs(this._marqueeEndX - this._marqueeStartX);
+      const mh = Math.abs(this._marqueeEndY - this._marqueeStartY);
+      ctx.fillStyle = 'rgba(100,180,255,0.1)';
+      ctx.fillRect(mx1, my1, mw, mh);
+      ctx.strokeStyle = 'rgba(100,180,255,0.6)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 2]);
+      ctx.strokeRect(mx1, my1, mw, mh);
+      ctx.restore();
+    }
+
+    // ── Snap-to-grid overlay (dot grid) ──
+    if (this._snapToGrid && !this._isPlayMode) {
+      const gridPx = this._snapGridSize * zoom * dpr;
+      if (gridPx > 4) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,0,0.12)';
+        const startX = centerX % gridPx;
+        const startY = centerY % gridPx;
+        for (let gx = startX; gx < w; gx += gridPx) {
+          for (let gy = startY; gy < h; gy += gridPx) {
+            ctx.fillRect(gx, gy, 1, 1);
+          }
+        }
+        ctx.restore();
+      }
+    }
   }
 
   /** Draw UE-style rulers along top and left edges */
@@ -1346,10 +2004,21 @@ export class WidgetBlueprintEditorPanel {
     if (!widget) return;
     if (widget.visibility === 'Collapsed') return;
 
-    const x = parentX + widget.slot.offsetX * scale;
-    const y = parentY + widget.slot.offsetY * scale;
-    const w = widget.slot.sizeX * scale;
-    const h = widget.slot.sizeY * scale;
+    // Use layout engine rects for positioned layout
+    const layoutRect = this._layoutEngine.getRect(widgetId);
+    let x: number, y: number, w: number, h: number;
+    if (layoutRect) {
+      // Convert layout engine widget-space coords to screen-space
+      x = parentX + layoutRect.x * scale;
+      y = parentY + layoutRect.y * scale;
+      w = layoutRect.width * scale;
+      h = layoutRect.height * scale;
+    } else {
+      x = parentX + widget.slot.offsetX * scale;
+      y = parentY + widget.slot.offsetY * scale;
+      w = widget.slot.sizeX * scale;
+      h = widget.slot.sizeY * scale;
+    }
     const isSelected = widgetId === this._selectedWidgetId;
     const opacity = widget.renderOpacity;
 
@@ -1678,23 +2347,195 @@ export class WidgetBlueprintEditorPanel {
       }
 
       case 'VerticalBox':
-      case 'HorizontalBox':
-      case 'Overlay':
-      case 'GridPanel':
-      case 'WrapBox':
-      case 'ScrollBox':
-      case 'SizeBox':
-      case 'ScaleBox':
-      case 'WidgetSwitcher':
-        // Container outline
-        ctx.strokeStyle = '#444';
+        // Vertical box: show stacking direction indicator
+        ctx.strokeStyle = '#447a';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
-        ctx.fillStyle = '#555';
+        ctx.fillStyle = '#5a5a7a';
         ctx.font = '10px Arial';
         ctx.fillText(widget.name, x + 4, y + 12);
+        // Direction arrow (vertical)
+        ctx.strokeStyle = '#6a6a9a';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + w - 12, y + 8);
+        ctx.lineTo(x + w - 12, y + h - 8);
+        ctx.lineTo(x + w - 16, y + h - 14);
+        ctx.moveTo(x + w - 12, y + h - 8);
+        ctx.lineTo(x + w - 8, y + h - 14);
+        ctx.stroke();
+        break;
+
+      case 'HorizontalBox':
+        // Horizontal box: show stacking direction indicator
+        ctx.strokeStyle = '#4a7a44';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#5a7a5a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name, x + 4, y + 12);
+        // Direction arrow (horizontal)
+        ctx.strokeStyle = '#6a9a6a';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 8, y + h - 12);
+        ctx.lineTo(x + w - 8, y + h - 12);
+        ctx.lineTo(x + w - 14, y + h - 16);
+        ctx.moveTo(x + w - 8, y + h - 12);
+        ctx.lineTo(x + w - 14, y + h - 8);
+        ctx.stroke();
+        break;
+
+      case 'Overlay':
+        // Overlay: stacked layers indicator
+        ctx.strokeStyle = '#7a4a7a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#7a5a7a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name, x + 4, y + 12);
+        // Layer icon
+        ctx.strokeStyle = '#9a6a9a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + w - 22, y + 4, 10, 8);
+        ctx.strokeRect(x + w - 19, y + 7, 10, 8);
+        break;
+
+      case 'GridPanel':
+        // Grid: show grid lines
+        ctx.strokeStyle = '#7a7a44';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#7a7a5a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name, x + 4, y + 12);
+        // Grid lines
+        {
+          const gp = widget.gridPanelProps;
+          const rows = gp?.rows || 2;
+          const cols = gp?.columns || 2;
+          ctx.strokeStyle = '#7a7a4466';
+          ctx.lineWidth = 0.5;
+          ctx.setLineDash([2, 2]);
+          for (let r = 1; r < rows; r++) {
+            const ly = y + (h / rows) * r;
+            ctx.beginPath(); ctx.moveTo(x, ly); ctx.lineTo(x + w, ly); ctx.stroke();
+          }
+          for (let c = 1; c < cols; c++) {
+            const lx = x + (w / cols) * c;
+            ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(lx, y + h); ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
+        break;
+
+      case 'ScrollBox':
+        // Scroll box: show scrollbar indicator
+        ctx.strokeStyle = '#44447a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#5a5a7a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name, x + 4, y + 12);
+        // Scrollbar indicator
+        {
+          const sbThickness = 6;
+          const sbOrient = widget.scrollBoxProps?.orientation ?? 'Vertical';
+          ctx.fillStyle = '#ffffff18';
+          if (sbOrient === 'Horizontal' || sbOrient === 'Both') {
+            ctx.fillRect(x, y + h - sbThickness, w, sbThickness);
+            ctx.fillStyle = '#ffffff40';
+            ctx.fillRect(x + 4, y + h - sbThickness + 1, w * 0.3, sbThickness - 2);
+          }
+          if (sbOrient === 'Vertical' || sbOrient === 'Both') {
+            ctx.fillStyle = '#ffffff18';
+            ctx.fillRect(x + w - sbThickness, y, sbThickness, h);
+            ctx.fillStyle = '#ffffff40';
+            ctx.fillRect(x + w - sbThickness + 1, y + 4, sbThickness - 2, h * 0.3);
+          }
+        }
+        break;
+
+      case 'SizeBox':
+        // Size box: show constraints
+        ctx.strokeStyle = '#447a7a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#5a7a7a';
+        ctx.font = '10px Arial';
+        {
+          const sb = widget.sizeBoxProps;
+          const label = sb ? `${widget.name} [${sb.widthOverride || '?'}×${sb.heightOverride || '?'}]` : widget.name;
+          ctx.fillText(label, x + 4, y + 12);
+        }
+        break;
+
+      case 'ScaleBox':
+        // Scale box: show stretch mode
+        ctx.strokeStyle = '#7a4444';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#7a5a5a';
+        ctx.font = '10px Arial';
+        {
+          const sc = (widget as any).scaleBoxProps;
+          const label = sc ? `${widget.name} [${sc.stretch}]` : widget.name;
+          ctx.fillText(label, x + 4, y + 12);
+        }
+        break;
+
+      case 'WrapBox':
+        // Wrap box indicator
+        ctx.strokeStyle = '#4a7a4a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#5a7a5a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name + ' (Wrap)', x + 4, y + 12);
+        break;
+
+      case 'WidgetSwitcher':
+        // Widget switcher indicator
+        ctx.strokeStyle = '#7a7a44';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#7a7a5a';
+        ctx.font = '10px Arial';
+        ctx.fillText(widget.name + ' (Switcher)', x + 4, y + 12);
+        break;
+
+      case 'NamedSlot':
+        // Named slot: dashed border with slot name
+        ctx.strokeStyle = '#9a6a0a';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 3]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#9a8a5a';
+        ctx.font = '10px Arial';
+        {
+          const ns = widget.namedSlotProps;
+          const label = ns?.slotName ? `[Slot: ${ns.slotName}]` : widget.name;
+          ctx.fillText(label, x + 4, y + 12);
+        }
         break;
 
       case 'ComboBox': {
@@ -1767,12 +2608,160 @@ export class WidgetBlueprintEditorPanel {
           ctx.fillRect(ex, ey, hs, hs);
         }
       }
+
+      // ── Anchor Medallion (UE-style 4-arrow crosshair) ──
+      // Show anchor position in parent space
+      const parentWidget = this._asset.getParent(widgetId);
+      if (parentWidget && parentWidget.type === 'CanvasPanel') {
+        const parentRect = this._layoutEngine.getRect(parentWidget.id);
+        if (parentRect) {
+          const anchor = widget.slot.anchor;
+
+          // Compute anchor anchor lines in screen space
+          const anchorMinSX = parentX + (parentRect.x + anchor.minX * parentRect.width) * scale;
+          const anchorMinSY = parentY + (parentRect.y + anchor.minY * parentRect.height) * scale;
+          const anchorMaxSX = parentX + (parentRect.x + anchor.maxX * parentRect.width) * scale;
+          const anchorMaxSY = parentY + (parentRect.y + anchor.maxY * parentRect.height) * scale;
+
+          // Anchor point vs stretch
+          const isPointAnchorH = anchor.minX === anchor.maxX;
+          const isPointAnchorV = anchor.minY === anchor.maxY;
+
+          if (isPointAnchorH && isPointAnchorV) {
+            // Point anchor — draw a crosshair medallion
+            const acx = anchorMinSX;
+            const acy = anchorMinSY;
+            const armLen = 14;
+
+            // Draw diamond background
+            ctx.fillStyle = 'rgba(255, 180, 0, 0.85)';
+            ctx.beginPath();
+            ctx.moveTo(acx, acy - armLen);
+            ctx.lineTo(acx + armLen, acy);
+            ctx.lineTo(acx, acy + armLen);
+            ctx.lineTo(acx - armLen, acy);
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw crosshair lines
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            // Horizontal arrow
+            ctx.moveTo(acx - armLen + 3, acy);
+            ctx.lineTo(acx + armLen - 3, acy);
+            // Vertical arrow
+            ctx.moveTo(acx, acy - armLen + 3);
+            ctx.lineTo(acx, acy + armLen - 3);
+            ctx.stroke();
+
+            // Arrow heads
+            const arrSz = 3;
+            ctx.fillStyle = '#000';
+            // Right arrow
+            ctx.beginPath();
+            ctx.moveTo(acx + armLen - 3, acy);
+            ctx.lineTo(acx + armLen - 3 - arrSz, acy - arrSz);
+            ctx.lineTo(acx + armLen - 3 - arrSz, acy + arrSz);
+            ctx.fill();
+            // Left arrow
+            ctx.beginPath();
+            ctx.moveTo(acx - armLen + 3, acy);
+            ctx.lineTo(acx - armLen + 3 + arrSz, acy - arrSz);
+            ctx.lineTo(acx - armLen + 3 + arrSz, acy + arrSz);
+            ctx.fill();
+            // Down arrow
+            ctx.beginPath();
+            ctx.moveTo(acx, acy + armLen - 3);
+            ctx.lineTo(acx - arrSz, acy + armLen - 3 - arrSz);
+            ctx.lineTo(acx + arrSz, acy + armLen - 3 - arrSz);
+            ctx.fill();
+            // Up arrow
+            ctx.beginPath();
+            ctx.moveTo(acx, acy - armLen + 3);
+            ctx.lineTo(acx - arrSz, acy - armLen + 3 + arrSz);
+            ctx.lineTo(acx + arrSz, acy - armLen + 3 + arrSz);
+            ctx.fill();
+          } else {
+            // Stretch anchor — draw the anchor region with lines/handles
+            ctx.strokeStyle = 'rgba(255, 180, 0, 0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 3]);
+
+            if (!isPointAnchorH) {
+              // Horizontal stretch lines
+              ctx.beginPath();
+              ctx.moveTo(anchorMinSX, anchorMinSY);
+              ctx.lineTo(anchorMinSX, anchorMaxSY);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(anchorMaxSX, anchorMinSY);
+              ctx.lineTo(anchorMaxSX, anchorMaxSY);
+              ctx.stroke();
+            }
+            if (!isPointAnchorV) {
+              // Vertical stretch lines
+              ctx.beginPath();
+              ctx.moveTo(anchorMinSX, anchorMinSY);
+              ctx.lineTo(anchorMaxSX, anchorMinSY);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(anchorMinSX, anchorMaxSY);
+              ctx.lineTo(anchorMaxSX, anchorMaxSY);
+              ctx.stroke();
+            }
+
+            ctx.setLineDash([]);
+
+            // Draw anchor handles at corners of anchor region
+            const anchorHandleSize = 5;
+            ctx.fillStyle = 'rgba(255, 180, 0, 0.9)';
+            const anchorCorners = [
+              [anchorMinSX, anchorMinSY],
+              [anchorMaxSX, anchorMinSY],
+              [anchorMinSX, anchorMaxSY],
+              [anchorMaxSX, anchorMaxSY],
+            ];
+            for (const [ahx, ahy] of anchorCorners) {
+              ctx.beginPath();
+              ctx.arc(ahx, ahy, anchorHandleSize, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+
+          // Draw dashed line from anchor to widget center
+          ctx.strokeStyle = 'rgba(255, 180, 0, 0.3)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          const anchorCenterX = (anchorMinSX + anchorMaxSX) / 2;
+          const anchorCenterY = (anchorMinSY + anchorMaxSY) / 2;
+          const widgetCenterX = x + w / 2;
+          const widgetCenterY = y + h / 2;
+          ctx.beginPath();
+          ctx.moveTo(anchorCenterX, anchorCenterY);
+          ctx.lineTo(widgetCenterX, widgetCenterY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+
       ctx.restore();
     }
 
-    // Render children
+    // Render children — use the canvas origin for layout-engine positioned children
+    const isLayoutContainer = ['VerticalBox', 'HorizontalBox', 'Overlay', 'GridPanel',
+      'SizeBox', 'ScaleBox', 'ScrollBox', 'WrapBox', 'NamedSlot', 'WidgetSwitcher',
+      'Border', 'Button'].includes(widget.type);
     for (const childId of widget.children) {
-      this._renderWidgetNode(ctx, childId, x, y, scale);
+      if (isLayoutContainer && this._layoutEngine.getRect(childId)) {
+        // Layout engine computes absolute widget-space coords; pass canvas origin
+        const dpr = window.devicePixelRatio;
+        const originX = this._canvas.width / 2 + this._designerPanX * dpr;
+        const originY = this._canvas.height / 2 + this._designerPanY * dpr;
+        this._renderWidgetNode(ctx, childId, originX, originY, scale);
+      } else {
+        this._renderWidgetNode(ctx, childId, x, y, scale);
+      }
     }
   }
 
@@ -2179,25 +3168,196 @@ export class WidgetBlueprintEditorPanel {
       this._asset.touch();
     }));
 
-    // ── Anchor Presets ──
+    // ── Parent-specific slot properties ──
+    const parentWidget = this._asset.getParent(this._selectedWidgetId!);
+    if (parentWidget) {
+      const parentType = parentWidget.type;
+
+      // Padding (applicable to all container children)
+      this._addPropHeader('Padding');
+      this._addPropRow('Left', this._makeNumberInput(widget.slot.padding.left, 0, 999, 1, (v) => {
+        widget.slot.padding.left = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRow('Top', this._makeNumberInput(widget.slot.padding.top, 0, 999, 1, (v) => {
+        widget.slot.padding.top = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRow('Right', this._makeNumberInput(widget.slot.padding.right, 0, 999, 1, (v) => {
+        widget.slot.padding.right = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRow('Bottom', this._makeNumberInput(widget.slot.padding.bottom, 0, 999, 1, (v) => {
+        widget.slot.padding.bottom = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+
+      if (parentType === 'VerticalBox' || parentType === 'HorizontalBox') {
+        // Box slot properties
+        this._addPropHeader('Box Slot');
+        this._addPropRow('Size Mode', this._makeSelect(
+          ['Auto', 'Fill', 'Custom'] as SizeMode[],
+          widget.slot.sizeMode,
+          (v) => { widget.slot.sizeMode = v as SizeMode; this._asset.touch(); this._layoutEngine.clearCache(); this._rebuildProperties(); },
+        ));
+        if (widget.slot.sizeMode === 'Fill') {
+          this._addPropRow('Fill Weight', this._makeNumberInput(widget.slot.fillWeight, 0, 10, 0.1, (v) => {
+            widget.slot.fillWeight = v; this._asset.touch(); this._layoutEngine.clearCache();
+          }));
+        }
+        this._addPropRow('H Align', this._makeSelect(
+          ['Left', 'Center', 'Right', 'Fill'],
+          widget.slot.hAlign ?? 'Left',
+          (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+        ));
+        this._addPropRow('V Align', this._makeSelect(
+          ['Top', 'Center', 'Bottom', 'Fill'],
+          widget.slot.vAlign ?? 'Top',
+          (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+        ));
+      }
+
+      if (parentType === 'Overlay') {
+        // Overlay slot properties
+        this._addPropHeader('Overlay Slot');
+        this._addPropRow('H Align', this._makeSelect(
+          ['Left', 'Center', 'Right', 'Fill'],
+          widget.slot.hAlign ?? 'Fill',
+          (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+        ));
+        this._addPropRow('V Align', this._makeSelect(
+          ['Top', 'Center', 'Bottom', 'Fill'],
+          widget.slot.vAlign ?? 'Fill',
+          (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+        ));
+      }
+
+      if (parentType === 'GridPanel') {
+        // Grid panel slot properties
+        this._addPropHeader('Grid Slot');
+        this._addPropRow('Row', this._makeNumberInput((widget.slot as any).gridRow ?? 0, 0, 99, 1, (v) => {
+          (widget.slot as any).gridRow = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRow('Column', this._makeNumberInput((widget.slot as any).gridCol ?? 0, 0, 99, 1, (v) => {
+          (widget.slot as any).gridCol = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRow('Row Span', this._makeNumberInput((widget.slot as any).gridRowSpan ?? 1, 1, 20, 1, (v) => {
+          (widget.slot as any).gridRowSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRow('Col Span', this._makeNumberInput((widget.slot as any).gridColSpan ?? 1, 1, 20, 1, (v) => {
+          (widget.slot as any).gridColSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+      }
+
+      if (parentType === 'CanvasPanel') {
+        // Canvas panel slot: show anchor details
+        this._addPropHeader('Canvas Slot');
+        this._addPropRow('Alignment X', this._makeNumberInput(widget.slot.alignment.x, 0, 1, 0.1, (v) => {
+          widget.slot.alignment.x = v; this._asset.touch();
+        }));
+        this._addPropRow('Alignment Y', this._makeNumberInput(widget.slot.alignment.y, 0, 1, 0.1, (v) => {
+          widget.slot.alignment.y = v; this._asset.touch();
+        }));
+        this._addPropRow('Auto Size', this._makeCheckbox(widget.slot.autoSize, (v) => {
+          widget.slot.autoSize = v; this._asset.touch();
+        }));
+      }
+    }
+
+    // ── Anchor Presets (Visual 9-Point Grid + Stretch Presets) ──
     this._addPropHeader('Anchor');
+
+    // Build visual anchor preset grid
+    const anchorGridContainer = document.createElement('div');
+    anchorGridContainer.style.cssText = 'display:flex;gap:8px;padding:4px;flex:1;';
+
+    // 9-Point Anchor Grid
+    const pointGrid = document.createElement('div');
+    pointGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,20px);grid-template-rows:repeat(3,20px);gap:2px;background:#111;border:1px solid #333;border-radius:3px;padding:3px;';
+
+    const pointPresets = [
+      { key: 'TopLeft',     row: 0, col: 0 },
+      { key: 'TopCenter',   row: 0, col: 1 },
+      { key: 'TopRight',    row: 0, col: 2 },
+      { key: 'CenterLeft',  row: 1, col: 0 },
+      { key: 'Center',      row: 1, col: 1 },
+      { key: 'CenterRight', row: 1, col: 2 },
+      { key: 'BottomLeft',  row: 2, col: 0 },
+      { key: 'BottomCenter',row: 2, col: 1 },
+      { key: 'BottomRight', row: 2, col: 2 },
+    ];
+
     const anchorPresetNames = Object.keys(AnchorPresets) as Array<keyof typeof AnchorPresets>;
     const currentPreset = anchorPresetNames.find(name => {
       const p = AnchorPresets[name];
       return p.minX === widget.slot.anchor.minX && p.minY === widget.slot.anchor.minY &&
              p.maxX === widget.slot.anchor.maxX && p.maxY === widget.slot.anchor.maxY;
     }) ?? 'Custom';
-    this._addPropRow('Preset', this._makeSelect(
-      [...anchorPresetNames, 'Custom'],
-      currentPreset,
-      (v) => {
-        if (v !== 'Custom' && v in AnchorPresets) {
-          widget.slot.anchor = { ...AnchorPresets[v as keyof typeof AnchorPresets] };
+
+    for (const pp of pointPresets) {
+      const cell = document.createElement('div');
+      const isActive = currentPreset === pp.key;
+      cell.style.cssText = `width:20px;height:20px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;background:${isActive ? '#ffb400' : '#222'};border:1px solid ${isActive ? '#ffb400' : '#444'};transition:background 0.1s;`;
+      // Draw a small dot showing anchor position
+      const dot = document.createElement('div');
+      dot.style.cssText = `width:6px;height:6px;border-radius:50%;background:${isActive ? '#000' : '#888'};`;
+      cell.appendChild(dot);
+      cell.title = pp.key;
+      cell.addEventListener('mouseenter', () => { if (!isActive) cell.style.background = '#333'; });
+      cell.addEventListener('mouseleave', () => { if (!isActive) cell.style.background = '#222'; });
+      cell.addEventListener('click', () => {
+        if (pp.key in AnchorPresets) {
+          widget.slot.anchor = { ...AnchorPresets[pp.key as keyof typeof AnchorPresets] };
           this._asset.touch();
           this._rebuildProperties();
         }
-      },
-    ));
+      });
+      pointGrid.appendChild(cell);
+    }
+
+    // Stretch presets (vertical strip on right)
+    const stretchCol = document.createElement('div');
+    stretchCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+
+    const stretchPresets = [
+      { key: 'StretchTop',    label: '↔ Top',    icon: '─' },
+      { key: 'StretchBottom', label: '↔ Bottom', icon: '─' },
+      { key: 'StretchLeft',   label: '↕ Left',   icon: '│' },
+      { key: 'StretchRight',  label: '↕ Right',  icon: '│' },
+      { key: 'StretchFull',   label: '⬚ Full',   icon: '☐' },
+    ];
+
+    for (const sp of stretchPresets) {
+      const btn = document.createElement('div');
+      const isActive = currentPreset === sp.key;
+      btn.style.cssText = `padding:2px 6px;font-size:9px;border-radius:3px;cursor:pointer;text-align:center;background:${isActive ? '#ffb400' : '#222'};color:${isActive ? '#000' : '#aaa'};border:1px solid ${isActive ? '#ffb400' : '#444'};white-space:nowrap;`;
+      btn.textContent = sp.label;
+      btn.title = sp.key;
+      btn.addEventListener('mouseenter', () => { if (!isActive) btn.style.background = '#333'; });
+      btn.addEventListener('mouseleave', () => { if (!isActive) btn.style.background = '#222'; });
+      btn.addEventListener('click', () => {
+        if (sp.key in AnchorPresets) {
+          widget.slot.anchor = { ...AnchorPresets[sp.key as keyof typeof AnchorPresets] };
+          this._asset.touch();
+          this._rebuildProperties();
+        }
+      });
+      stretchCol.appendChild(btn);
+    }
+
+    anchorGridContainer.appendChild(pointGrid);
+    anchorGridContainer.appendChild(stretchCol);
+    this._propsEl.appendChild(anchorGridContainer);
+
+    // Manual anchor values (collapsible)
+    this._addPropRow('Min X', this._makeNumberInput(widget.slot.anchor.minX, 0, 1, 0.05, (v) => {
+      widget.slot.anchor.minX = v; this._asset.touch(); this._layoutEngine.clearCache();
+    }));
+    this._addPropRow('Min Y', this._makeNumberInput(widget.slot.anchor.minY, 0, 1, 0.05, (v) => {
+      widget.slot.anchor.minY = v; this._asset.touch(); this._layoutEngine.clearCache();
+    }));
+    this._addPropRow('Max X', this._makeNumberInput(widget.slot.anchor.maxX, 0, 1, 0.05, (v) => {
+      widget.slot.anchor.maxX = v; this._asset.touch(); this._layoutEngine.clearCache();
+    }));
+    this._addPropRow('Max Y', this._makeNumberInput(widget.slot.anchor.maxY, 0, 1, 0.05, (v) => {
+      widget.slot.anchor.maxY = v; this._asset.touch(); this._layoutEngine.clearCache();
+    }));
 
     // ── Render Transform ──
     this._addPropHeader('Transform');
@@ -2770,9 +3930,93 @@ export class WidgetBlueprintEditorPanel {
           this._addPropRow('Width Override', this._makeNumberInput(widget.sizeBoxProps.widthOverride, 0, 9999, 1, (v) => {
             widget.sizeBoxProps!.widthOverride = v;
             this._asset.touch();
+            this._layoutEngine.clearCache();
           }));
           this._addPropRow('Height Override', this._makeNumberInput(widget.sizeBoxProps.heightOverride, 0, 9999, 1, (v) => {
             widget.sizeBoxProps!.heightOverride = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+          this._addPropRow('Min Width', this._makeNumberInput(widget.sizeBoxProps.minDesiredWidth, 0, 9999, 1, (v) => {
+            widget.sizeBoxProps!.minDesiredWidth = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+          this._addPropRow('Min Height', this._makeNumberInput(widget.sizeBoxProps.minDesiredHeight, 0, 9999, 1, (v) => {
+            widget.sizeBoxProps!.minDesiredHeight = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+          this._addPropRow('Max Width', this._makeNumberInput(widget.sizeBoxProps.maxDesiredWidth, 0, 9999, 1, (v) => {
+            widget.sizeBoxProps!.maxDesiredWidth = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+          this._addPropRow('Max Height', this._makeNumberInput(widget.sizeBoxProps.maxDesiredHeight, 0, 9999, 1, (v) => {
+            widget.sizeBoxProps!.maxDesiredHeight = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+        }
+        break;
+
+      case 'ScaleBox':
+        {
+          const sp = widget.scaleBoxProps ?? { stretch: 'ScaleToFit' as const, userSpecifiedScale: 1 };
+          this._addPropHeader('Scale Box');
+          this._addPropRow('Stretch', this._makeSelect(
+            ['None', 'Fill', 'ScaleToFit', 'ScaleToFitX', 'ScaleToFitY', 'ScaleToFill', 'UserSpecified'],
+            sp.stretch,
+            (v) => {
+              if (!widget.scaleBoxProps) widget.scaleBoxProps = { stretch: 'ScaleToFit', userSpecifiedScale: 1 };
+              widget.scaleBoxProps.stretch = v as any;
+              this._asset.touch();
+              this._layoutEngine.clearCache();
+              this._rebuildProperties();
+            },
+          ));
+          if (sp.stretch === 'UserSpecified') {
+            this._addPropRow('Scale', this._makeNumberInput(sp.userSpecifiedScale, 0.1, 10, 0.1, (v) => {
+              if (!widget.scaleBoxProps) widget.scaleBoxProps = { stretch: 'UserSpecified', userSpecifiedScale: 1 };
+              widget.scaleBoxProps.userSpecifiedScale = v;
+              this._asset.touch();
+              this._layoutEngine.clearCache();
+            }));
+          }
+        }
+        break;
+
+      case 'GridPanel':
+        {
+          const gp = widget.gridPanelProps ?? { rows: 2, columns: 2, rowFill: [1, 1], columnFill: [1, 1] };
+          this._addPropHeader('Grid Panel');
+          this._addPropRow('Rows', this._makeNumberInput(gp.rows, 1, 20, 1, (v) => {
+            if (!widget.gridPanelProps) widget.gridPanelProps = { rows: 2, columns: 2, rowFill: [1, 1], columnFill: [1, 1] };
+            widget.gridPanelProps.rows = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+          this._addPropRow('Columns', this._makeNumberInput(gp.columns, 1, 20, 1, (v) => {
+            if (!widget.gridPanelProps) widget.gridPanelProps = { rows: 2, columns: 2, rowFill: [1, 1], columnFill: [1, 1] };
+            widget.gridPanelProps.columns = v;
+            this._asset.touch();
+            this._layoutEngine.clearCache();
+          }));
+        }
+        break;
+
+      case 'NamedSlot':
+        {
+          const ns = widget.namedSlotProps ?? { slotName: 'DefaultSlot', isExposed: true };
+          this._addPropHeader('Named Slot');
+          this._addPropRow('Slot Name', this._makeTextInput(ns.slotName, (v) => {
+            if (!widget.namedSlotProps) widget.namedSlotProps = { slotName: 'DefaultSlot', isExposed: true };
+            widget.namedSlotProps.slotName = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Exposed', this._makeCheckbox(ns.isExposed, (v) => {
+            if (!widget.namedSlotProps) widget.namedSlotProps = { slotName: 'DefaultSlot', isExposed: true };
+            widget.namedSlotProps.isExposed = v;
             this._asset.touch();
           }));
         }

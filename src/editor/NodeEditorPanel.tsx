@@ -314,7 +314,13 @@ import {
   GetGameInstanceVariableNode,
   SetGameInstanceVariableNode,
   GameInstanceVarNameControl,
+  TextureSelectControl,
+  GetTextureIDNode,
+  FindTextureByNameNode,
+  GetTextureInfoNode,
+  LoadTextureNode,
 } from './nodes';
+import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
@@ -4216,6 +4222,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as KeySelectControl).value;
     } else if (ctrl instanceof ColorPickerControl) {
       controls[key] = (ctrl as ColorPickerControl).value;
+    } else if (ctrl instanceof TextureSelectControl) {
+      controls[key] = { id: (ctrl as TextureSelectControl).value, name: (ctrl as TextureSelectControl).displayName };
     } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
@@ -5003,6 +5011,18 @@ function createNodeFromData(
       return n;
     }
 
+    // Texture reference nodes
+    case 'GetTextureIDNode': {
+      const n = new GetTextureIDNode(
+        d.controls?.textureSelect?.id || '',
+        d.controls?.textureSelect?.name || '(none)'
+      );
+      return n;
+    }
+    case 'FindTextureByNameNode':            return new FindTextureByNameNode();
+    case 'GetTextureInfoNode':               return new GetTextureInfoNode();
+    case 'LoadTextureNode':                  return new LoadTextureNode();
+
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -5482,6 +5502,205 @@ async function createGraphEditor(
                   React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching widgets'),
                 widgets.length === 0 &&
                   React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No widget blueprints yet'),
+              ),
+            );
+          };
+        }
+
+        // ── Texture Select Control (searchable dropdown) ──────────
+        if (data.payload instanceof TextureSelectControl) {
+          const ctrl = data.payload as TextureSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            // Gather textures from the TextureLibrary singleton
+            const textures: { id: string; name: string; thumbnail: string; width: number; height: number }[] = [];
+            const lib = TextureLibrary.instance;
+            for (const t of lib.allTextures) {
+              textures.push({
+                id: t.assetId,
+                name: t.assetName,
+                thumbnail: t.thumbnail || '',
+                width: t.metadata?.width ?? 0,
+                height: t.metadata?.height ?? 0,
+              });
+            }
+            const filtered = search
+              ? textures.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
+              : textures;
+
+            // Close on outside click
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            // Sync display if the control value changes externally (e.g. deserialization)
+            React.useEffect(() => {
+              setSelected(ctrl.displayName || '(none)');
+            }, [ctrl.displayName]);
+
+            const dropdownStyle: any = {
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              maxHeight: 200,
+              overflowY: 'auto',
+              background: '#1a1a2e',
+              border: '1px solid #4a9eff',
+              borderRadius: '0 0 4px 4px',
+              zIndex: 9999,
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 160 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              // Button showing current selection
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#e0e0e0',
+                  border: open ? '1px solid #4a9eff' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+              ),
+              // Dropdown panel
+              open && React.createElement('div', { style: dropdownStyle },
+                // Search input
+                React.createElement('input', {
+                  type: 'text',
+                  placeholder: 'Search textures...',
+                  value: search,
+                  autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%',
+                    padding: '5px 8px',
+                    background: '#141422',
+                    color: '#e0e0e0',
+                    border: 'none',
+                    borderBottom: '1px solid #333',
+                    fontSize: 11,
+                    outline: 'none',
+                    boxSizing: 'border-box' as const,
+                  },
+                }),
+                // Option: (none)
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '(none)');
+                    setSelected('(none)');
+                    setOpen(false);
+                    setSearch('');
+                  },
+                  style: {
+                    padding: '5px 8px',
+                    fontSize: 11,
+                    color: '#888',
+                    fontStyle: 'italic' as const,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid #222',
+                  },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                // Texture options with thumbnails
+                ...filtered.map(tex =>
+                  React.createElement('div', {
+                    key: tex.id,
+                    onClick: () => {
+                      ctrl.setValue(tex.id, tex.name);
+                      setSelected(tex.name);
+                      setOpen(false);
+                      setSearch('');
+                    },
+                    style: {
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      color: tex.id === ctrl.value ? '#4a9eff' : '#e0e0e0',
+                      fontWeight: tex.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    // Thumbnail
+                    tex.thumbnail
+                      ? React.createElement('img', {
+                          src: tex.thumbnail,
+                          style: {
+                            width: 24,
+                            height: 24,
+                            objectFit: 'cover' as const,
+                            borderRadius: 2,
+                            border: '1px solid #333',
+                            flexShrink: 0,
+                          },
+                        })
+                      : React.createElement('div', {
+                          style: {
+                            width: 24,
+                            height: 24,
+                            background: '#333',
+                            borderRadius: 2,
+                            border: '1px solid #444',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 10,
+                            color: '#666',
+                            flexShrink: 0,
+                          },
+                        }, '🖼'),
+                    // Name + dimensions
+                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } },
+                      React.createElement('span', {
+                        style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+                      }, tex.name),
+                      tex.width > 0 && React.createElement('span', {
+                        style: { fontSize: 9, color: '#666' },
+                      }, `${tex.width}×${tex.height}`),
+                    ),
+                  ),
+                ),
+                filtered.length === 0 && textures.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching textures'),
+                textures.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No textures imported yet'),
               ),
             );
           };
