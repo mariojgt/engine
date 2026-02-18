@@ -15,7 +15,8 @@ import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBluep
 import { GameInstanceBlueprintManager, type GameInstanceBlueprintAsset } from './GameInstanceData';
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
 import { importMeshFile, detectFileContent } from './MeshImporter';
-import { showImportDialog, showImportProgress } from './ImportDialog';
+import { showImportDialog, showImportProgress, showTextureImportDialog } from './ImportDialog';
+import { TextureLibrary } from './TextureLibrary';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS } from './icons';
@@ -26,7 +27,7 @@ export type AssetDropCallback = (asset: ActorAsset, mouseX: number, mouseY: numb
 /** Callback fired when a mesh asset is dropped onto the viewport */
 export type MeshDropCallback = (meshAsset: MeshAsset, mouseX: number, mouseY: number) => void;
 
-export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP' | 'Widgets' | 'Materials';
+export type ContentBrowserTab = 'Actors' | 'Structures' | 'Enums' | 'Meshes' | 'AnimBP' | 'Widgets' | 'Materials' | 'Textures';
 
 export class ActorAssetBrowser {
   public container: HTMLElement;
@@ -195,10 +196,10 @@ export class ActorAssetBrowser {
     `;
     this.container.appendChild(header);
 
-    // Import button
+    // Import button — show a small submenu for Mesh vs Texture
     header.querySelector('#ab-import-btn')!.addEventListener('click', (e) => {
       e.stopPropagation();
-      this._triggerMeshFileImport();
+      this._showImportMenu(e as MouseEvent);
     });
 
     // New button
@@ -223,7 +224,7 @@ export class ActorAssetBrowser {
 
     this.container.appendChild(body);
 
-    // Drag-and-drop mesh files onto the grid
+    // Drag-and-drop mesh & image files onto the grid
     this._gridEl.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -238,7 +239,7 @@ export class ActorAssetBrowser {
       e.stopPropagation();
       this._gridEl.classList.remove('drag-over');
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        this._handleMeshFileDrop(e.dataTransfer.files);
+        this._handleFileDrop(e.dataTransfer.files);
       }
     });
 
@@ -358,6 +359,7 @@ export class ActorAssetBrowser {
     else if (assetType === 'animBP') this._renderAnimBPCard(assetId);
     else if (assetType === 'widget') this._renderWidgetCard(assetId);
     else if (assetType === 'gameInstance') this._renderGameInstanceCard(assetId);
+    else if (assetType === 'texture') this._renderTextureCard(assetId);
   }
 
   private _renderActorCard(assetId: string): void {
@@ -540,7 +542,7 @@ export class ActorAssetBrowser {
     this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
       if (confirm(`Delete game instance "${gi.name}"?`)) {
         this._gameInstanceManager!.removeAsset(gi.id);
-        this._folderManager.removeAsset(gi.id);
+        this._folderManager.removeAssetLocation(gi.id, 'gameInstance');
       }
     });
 
@@ -1049,6 +1051,162 @@ export class ActorAssetBrowser {
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
+  }
+
+  // ---- Texture Card Rendering ----
+
+  private _renderTextureCard(assetId: string): void {
+    const texLib = TextureLibrary.instance;
+    if (!texLib) return;
+    const texAsset = texLib.getAsset(assetId);
+    if (!texAsset) return;
+
+    const card = document.createElement('div');
+    card.className = 'asset-card mesh-asset-card';
+    if (this._selectedAssetId === texAsset.assetId) card.classList.add('selected');
+
+    const thumbEl = document.createElement('div');
+    thumbEl.className = 'asset-card-icon mesh-thumbnail';
+    if (texAsset.thumbnail) {
+      thumbEl.style.backgroundImage = `url(${texAsset.thumbnail})`;
+      thumbEl.style.backgroundSize = 'cover';
+      thumbEl.style.backgroundPosition = 'center';
+    } else {
+      thumbEl.innerHTML = iconHTML(Icons.Image, 28, ICON_COLORS.primary);
+    }
+    card.appendChild(thumbEl);
+
+    const label = document.createElement('div');
+    label.className = 'asset-card-name';
+    label.textContent = texAsset.assetName;
+    card.appendChild(label);
+
+    // Subtitle with dimensions
+    if (texAsset.metadata) {
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:9px;color:#666;text-align:center;margin-top:1px;';
+      sub.textContent = `${texAsset.metadata.width}×${texAsset.metadata.height}`;
+      card.appendChild(sub);
+    }
+
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._selectedAssetId = texAsset.assetId;
+      this._refreshGrid();
+    });
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._selectedAssetId = texAsset.assetId;
+      this._refreshGrid();
+      this._showTextureContextMenu(e, texAsset);
+    });
+
+    this._gridEl.appendChild(card);
+  }
+
+  private _showTextureContextMenu(e: MouseEvent, tex: import('./TextureLibrary').TextureAssetData): void {
+    this._closeContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Texture', tex.assetName);
+      if (newName) {
+        tex.assetName = newName;
+        this._refreshGrid();
+      }
+    });
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete texture "${tex.assetName}"?`)) {
+        TextureLibrary.instance?.removeTexture(tex.assetId);
+        this._folderManager.removeAssetLocation(tex.assetId, 'texture');
+        if (this._selectedAssetId === tex.assetId) this._selectedAssetId = null;
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ---- Import Menus ----
+
+  /** Show import submenu (Mesh / Texture) when clicking header Import button */
+  private _showImportMenu(e: MouseEvent): void {
+    this._closeContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.mesh) + ' Import Mesh…', () => this._triggerMeshFileImport());
+    this._addMenuItem(menu, iconHTML(Icons.Image, 12, ICON_COLORS.primary) + ' Import Texture…', () => this._triggerTextureImport());
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ---- Texture Import ----
+
+  private async _triggerTextureImport(): Promise<void> {
+    const result = await showTextureImportDialog();
+    if (result.cancelled || result.textureIds.length === 0) return;
+    // Register each imported texture in the content folder
+    for (const texId of result.textureIds) {
+      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
+    }
+    this._selectedAssetId = result.textureIds[0];
+    this._refreshGrid();
+  }
+
+  // ---- File Drop Handler (Mesh + Image) ----
+
+  private _handleFileDrop(fileList: FileList): void {
+    const meshFiles: File[] = [];
+    const imageFiles: File[] = [];
+
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      if (this._isImageFile(f.name)) {
+        imageFiles.push(f);
+      } else {
+        meshFiles.push(f);
+      }
+    }
+
+    // Handle mesh files through existing pipeline
+    if (meshFiles.length > 0) {
+      const dt = new DataTransfer();
+      for (const f of meshFiles) dt.items.add(f);
+      this._handleMeshFileDrop(dt.files);
+    }
+
+    // Handle image files through the texture import dialog
+    if (imageFiles.length > 0) {
+      this._handleTextureFileDrop(imageFiles);
+    }
+  }
+
+  private _isImageFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tga', 'tiff', 'tif', 'ico'].includes(ext);
+  }
+
+  private async _handleTextureFileDrop(files: File[]): Promise<void> {
+    const result = await showTextureImportDialog(files);
+    if (result.cancelled || result.textureIds.length === 0) return;
+    for (const texId of result.textureIds) {
+      this._folderManager.setAssetLocation(texId, 'texture', this._currentFolderId);
+    }
+    this._selectedAssetId = result.textureIds[0];
+    this._refreshGrid();
   }
 
   // ---- Mesh Import ----
@@ -1630,6 +1788,13 @@ export class ActorAssetBrowser {
 
       this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
     }
+
+    // Texture import — always available
+    const sepTex = document.createElement('div');
+    sepTex.className = 'context-menu-separator';
+    menu.appendChild(sepTex);
+
+    this._addMenuItem(menu, iconHTML(Icons.Image, 12, ICON_COLORS.primary) + ' Import Texture…', () => this._triggerTextureImport());
 
     document.body.appendChild(menu);
     this._contextMenu = menu;

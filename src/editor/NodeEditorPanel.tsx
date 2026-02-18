@@ -319,6 +319,8 @@ import {
   FindTextureByNameNode,
   GetTextureInfoNode,
   LoadTextureNode,
+  SetImageTextureNode,
+  SetButtonTextureNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -5023,6 +5025,28 @@ function createNodeFromData(
     case 'GetTextureInfoNode':               return new GetTextureInfoNode();
     case 'LoadTextureNode':                  return new LoadTextureNode();
 
+    // Widget enhanced nodes with texture pickers
+    case 'SetImageTextureNode': {
+      const n = new SetImageTextureNode(
+        d.controls?.textureSelect?.id || '',
+        d.controls?.textureSelect?.name || '(none)'
+      );
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        n.widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+    case 'SetButtonTextureNode': {
+      const n = new SetButtonTextureNode(
+        d.controls?.textureSelect?.id || '',
+        d.controls?.textureSelect?.name || '(none)'
+      );
+      if (d.controls?.widgetSelector !== undefined && n.widgetSelector) {
+        n.widgetSelector.setValue(d.controls.widgetSelector);
+      }
+      return n;
+    }
+
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -5519,14 +5543,16 @@ async function createGraphEditor(
             // Gather textures from the TextureLibrary singleton
             const textures: { id: string; name: string; thumbnail: string; width: number; height: number }[] = [];
             const lib = TextureLibrary.instance;
-            for (const t of lib.allTextures) {
-              textures.push({
-                id: t.assetId,
-                name: t.assetName,
-                thumbnail: t.thumbnail || '',
-                width: t.metadata?.width ?? 0,
-                height: t.metadata?.height ?? 0,
-              });
+            if (lib) {
+              for (const t of lib.allTextures) {
+                textures.push({
+                  id: t.assetId,
+                  name: t.assetName,
+                  thumbnail: t.thumbnail || '',
+                  width: t.metadata?.width ?? 0,
+                  height: t.metadata?.height ?? 0,
+                });
+              }
             }
             const filtered = search
               ? textures.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))

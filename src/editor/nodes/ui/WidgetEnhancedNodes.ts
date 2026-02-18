@@ -18,24 +18,53 @@ import {
 import { WidgetSelectorControl } from './WidgetNodes';
 
 // ============================================================
+//  TEXTURE SELECT CONTROL (used by multiple node types below)
+// ============================================================
+
+/**
+ * Custom Rete control that stores a texture asset ID + display name.
+ * Rendered as a searchable dropdown in the node editor React preset,
+ * populated from the TextureLibrary singleton.
+ */
+export class TextureSelectControl extends ClassicPreset.Control {
+  public value: string;        // texture asset ID
+  public displayName: string;  // human-readable name
+
+  constructor(initialId: string = '', initialName: string = '(none)') {
+    super();
+    this.value = initialId;
+    this.displayName = initialName;
+  }
+
+  setValue(id: string, name: string) {
+    this.value = id;
+    this.displayName = name;
+  }
+}
+
+// ============================================================
 //  IMAGE NODES
 // ============================================================
 
 // ── Set Image Texture ───────────────────────────────────────
 export class SetImageTextureNode extends ClassicPreset.Node {
   public widgetSelector: WidgetSelectorControl;
+  public textureControl: TextureSelectControl;
 
-  constructor() {
+  constructor(texId: string = '', texName: string = '(none)') {
     super('Set Image Texture');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.widgetSelector = new WidgetSelectorControl('', 'Image');
     this.addControl('widgetSelector', this.widgetSelector);
-    this.addInput('texture', new ClassicPreset.Input(strSocket, 'Texture ID'));
+    this.textureControl = new TextureSelectControl(texId, texName);
+    (this.textureControl as any)._parentNode = this;
+    this.addControl('textureSelect', this.textureControl);
     this.addInput('blendTime', new ClassicPreset.Input(numSocket, 'Blend Time'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 
   getWidgetName(): string { return this.widgetSelector.value; }
+  getTextureId(): string { return this.textureControl.value; }
 }
 registerNode('Set Image Texture', 'UI - Image', () => new SetImageTextureNode());
 
@@ -185,18 +214,22 @@ registerNode('Set Text Shadow', 'UI - Text', () => new SetTextShadowNode());
 // ── Set Button Texture ──────────────────────────────────────
 export class SetButtonTextureNode extends ClassicPreset.Node {
   public widgetSelector: WidgetSelectorControl;
+  public textureControl: TextureSelectControl;
 
-  constructor() {
+  constructor(texId: string = '', texName: string = '(none)') {
     super('Set Button Texture');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.widgetSelector = new WidgetSelectorControl('', 'Button');
     this.addControl('widgetSelector', this.widgetSelector);
+    this.textureControl = new TextureSelectControl(texId, texName);
+    (this.textureControl as any)._parentNode = this;
+    this.addControl('textureSelect', this.textureControl);
     this.addInput('state', new ClassicPreset.Input(strSocket, 'State'));
-    this.addInput('texture', new ClassicPreset.Input(strSocket, 'Texture ID'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 
   getWidgetName(): string { return this.widgetSelector.value; }
+  getTextureId(): string { return this.textureControl.value; }
 }
 registerNode('Set Button Texture', 'UI - Button', () => new SetButtonTextureNode());
 
@@ -471,27 +504,6 @@ registerNode('Set Widget Nine Slice', 'UI - Style', () => new SetWidgetNineSlice
 // ============================================================
 //  TEXTURE REFERENCE NODES
 // ============================================================
-
-/**
- * Custom Rete control that stores a texture asset ID + display name.
- * Rendered as a searchable dropdown in the node editor React preset,
- * populated from the TextureLibrary singleton.
- */
-export class TextureSelectControl extends ClassicPreset.Control {
-  public value: string;        // texture asset ID
-  public displayName: string;  // human-readable name
-
-  constructor(initialId: string = '', initialName: string = '(none)') {
-    super();
-    this.value = initialId;
-    this.displayName = initialName;
-  }
-
-  setValue(id: string, name: string) {
-    this.value = id;
-    this.displayName = name;
-  }
-}
 
 // ── Get Texture ID ──────────────────────────────────────────
 /**
