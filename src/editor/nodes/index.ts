@@ -326,6 +326,7 @@ export {
   WidgetVariableSelectorControl,
   WidgetFunctionSelectorControl,
   WidgetEventSelectorControl,
+  WidgetRefreshNodesControl,
   CreateWidgetNode,
   AddToViewportNode,
   RemoveFromViewportNode,
@@ -465,3 +466,81 @@ export {
   SetActiveWidgetNode,
   GetActiveWidgetNode,
 } from './ui/WidgetBlueprintNodes';
+
+// ── Flow Control (extended) ─────────────────────────────────
+export { DoOnceNode } from './flow-control/DoOnceNode';
+export { DoNNode } from './flow-control/DoNNode';
+export { FlipFlopNode } from './flow-control/FlipFlopNode';
+export { GateNode } from './flow-control/GateNode';
+export { MultiGateNode } from './flow-control/MultiGateNode';
+export { ForLoopWithBreakNode } from './flow-control/ForLoopWithBreakNode';
+export { WhileLoopNode } from './flow-control/WhileLoopNode';
+export { SwitchOnIntNode } from './flow-control/SwitchOnIntNode';
+export { SwitchOnStringNode } from './flow-control/SwitchOnStringNode';
+
+// ── Math (extended) ─────────────────────────────────────────
+export {
+  ModuloNode, PowerNode, MinNode, MaxNode,
+  RoundNode, FloorNode, CeilNode, SqrtNode, LogNode, TanNode,
+  NormalizeVec3Node, DotProductNode, CrossProductNode,
+  VectorLengthNode, DistanceNode,
+  RandomFloatNode, RandomFloatInRangeNode, RandomIntInRangeNode, RandomBoolNode,
+  EqualNode, NotEqualNode, LessThanNode, GreaterOrEqualNode, LessOrEqualNode,
+  BooleanAndNode, BooleanOrNode, BooleanNotNode, BooleanXorNode,
+} from './math/ExtendedMathNodes';
+
+// ── String Nodes ────────────────────────────────────────────
+export {
+  StringAppendNode, FormatTextNode,
+  BoolToStringNode2, IntToStringNode, FloatToStringNode, Vec3ToStringNode,
+  StringLengthNode, SubstringNode, StringContainsNode,
+  StringReplaceNode, StringSplitNode,
+  TrimNode, ToUpperNode, ToLowerNode,
+  ParseIntNode, ParseFloatNode,
+  PrintWarningNode, PrintErrorNode,
+} from './utility/StringNodes';
+
+// ── Spawning ────────────────────────────────────────────────
+export {
+  SpawnActorFromClassNode, DestroyActorNode,
+  SpawnEmitterAtLocationNode, SpawnSoundAtLocationNode,
+  ActorClassSelectControl,
+  RefreshNodesControl,
+} from './spawning/SpawningNodes';
+
+// ── Actor Nodes (extended transform) ────────────────────────
+export {
+  GetActorForwardVectorNode, GetActorRightVectorNode, GetActorUpVectorNode,
+  GetActorVelocityNode,
+  AddActorWorldOffsetNode, AddActorWorldRotationNode, AddActorLocalOffsetNode,
+  TeleportActorNode,
+  ActorHasTagNode, AddTagToActorNode, RemoveTagFromActorNode,
+  SetActorHiddenNode, SetActorEnableCollisionNode, SetActorTickEnabledNode,
+  GetComponentByClassNode, DestroyComponentNode,
+} from './transform/ActorNodes';
+
+// ── Timer Nodes ─────────────────────────────────────────────
+export {
+  SetTimerByFunctionNode, SetTimerByEventNode,
+  ClearTimerNode, ClearAllTimersNode,
+  PauseTimerNode, UnpauseTimerNode,
+  IsTimerActiveNode, IsTimerPausedNode,
+  GetTimerRemainingTimeNode, GetTimerElapsedTimeNode,
+  RetriggerableDelayNode,
+} from './utility/TimerNodes';
+
+// ── World & Player Nodes ────────────────────────────────────
+export {
+  GetPlayerCharacterNode, GetPlayerCameraManagerNode,
+  GetWorldNode, GetGameModeNode, GetGameStateNode,
+  GetAllActorsWithTagNode,
+  GetWorldDeltaSecondsNode, GetRealTimeSecondsNode, GetGameTimeInSecondsNode,
+  OpenLevelNode, QuitGameNode, SetGamePausedNode, IsGamePausedNode,
+  GetMousePositionNode, GetMouseDeltaNode,
+} from './player/WorldNodes';
+
+// ── Collision Trace Nodes ───────────────────────────────────
+export {
+  LineTraceByChannelNode, SphereTraceByChannelNode, BoxTraceNode,
+  BreakHitResultNode,
+} from './collision/TraceNodes';

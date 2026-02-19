@@ -11,6 +11,10 @@ export interface BlueprintVariable {
   defaultValue: any;
   /** Unique id for referencing */
   id: string;
+  /** When true, this variable appears as an input pin on Spawn Actor from Class nodes */
+  exposeOnSpawn?: boolean;
+  /** When true, this variable can be edited per-instance in the scene outliner */
+  instanceEditable?: boolean;
 }
 
 export interface BlueprintStructField {

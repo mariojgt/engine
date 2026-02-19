@@ -12,7 +12,6 @@ import type { AnimationInstance } from './AnimationInstance';
 import { UIManager } from './UIManager';
 import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
 import { loadMeshFromAsset } from '../editor/MeshImporter';
-import { GameInstance } from './GameInstance';
 
 export class Engine {
   public scene: Scene;
@@ -50,15 +49,6 @@ export class Engine {
   /** PlayerStart spawn transform — set by the editor before play starts */
   public playerStartTransform: { position: { x: number; y: number; z: number }; rotationY: number } | null = null;
 
-  /** ProjectManager reference so blueprint nodes can switch scenes at runtime */
-  public projectManager: any = null;
-
-  /** Persistent Game Instance — survives scene loads, destroyed only on play stop */
-  public gameInstance: GameInstance | null = null;
-
-  /** Game Instance blueprint manager — set by editor for creating runtime instances */
-  public gameInstanceManager: any = null;
-
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
@@ -77,8 +67,6 @@ export class Engine {
       meshAssetManager: MeshAssetManager.getInstance(),
       loadMeshFromAsset,
       buildThreeMaterialFromAsset,
-      projectManager: this.projectManager,
-      gameInstance: this.gameInstance,
     };
   }
 
@@ -93,7 +81,12 @@ export class Engine {
     this._playStarted = true;
     const print = (v: any) => this.onPrint(v);
 
-    // ── 0. Initialize UI overlay ──
+    // ── 0. Wire runtime references into Scene for spawnActorFromClass ──
+    this.scene._runtimePhysics = this.physics;
+    this.scene._runtimeUiManager = this.uiManager;
+    this.scene._runtimePrint = print;
+
+    // ── 0a. Initialize UI overlay ──
     if (canvas) {
       this.uiManager.init(canvas);
     }
@@ -224,23 +217,6 @@ export class Engine {
       const ctx = this._buildCtx(go, 0, 0, print);
       script.beginPlay(ctx);
     }
-
-    // ── 4. Initialize Game Instance (persistent across scene loads) ──
-    if (!this.gameInstance && this.gameInstanceManager) {
-      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
-      if (assets.length > 0) {
-        // Use the first Game Instance blueprint (like UE — one GameInstance per project)
-        this.gameInstance = new GameInstance(assets[0]);
-        console.log(`[Engine] Created Game Instance from "${assets[0].name}"`);
-      }
-    }
-    // Fire BeginPlay on Game Instance (only once, even across scene reloads)
-    if (this.gameInstance) {
-      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-      const giCtx = this._buildCtx(dummyGO, 0, 0, print);
-      this.gameInstance.beginPlay(giCtx);
-    }
-
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
   }
 
@@ -279,14 +255,10 @@ export class Engine {
     // Destroy UI overlay
     this.uiManager.destroy();
 
-    // Destroy Game Instance (only when play fully stops, not on scene transitions)
-    if (this.gameInstance) {
-      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-      const giCtx = this._buildCtx(dummyGO, 0, this._elapsedTime, print);
-      this.gameInstance.onDestroy(giCtx);
-      this.gameInstance = null;
-      console.log('[Engine] Game Instance destroyed');
-    }
+    // Clear runtime references on Scene
+    this.scene._runtimePhysics = null;
+    this.scene._runtimeUiManager = null;
+    this.scene._runtimePrint = null;
 
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
@@ -310,13 +282,6 @@ export class Engine {
       for (const { go, script } of this._controllerScripts) {
         const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
         script.tick(ctx);
-      }
-
-      // Tick Game Instance (persistent across scene loads)
-      if (this.gameInstance) {
-        const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-        const giCtx = this._buildCtx(dummyGO, dt, this._elapsedTime, print);
-        this.gameInstance.tick(giCtx);
       }
 
       // Update character controllers

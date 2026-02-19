@@ -5,8 +5,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket as numberSocket, boolSocket, strSocket as stringSocket, objectSocket } from '../sockets';
-import { registerNode } from '../index';
+import { execSocket, numSocket as numberSocket, boolSocket, strSocket as stringSocket, objectSocket, registerNode } from '../sockets';
 
 // ============================================================
 //  Anim Update Event — fires every frame during animation update.

@@ -1,18 +1,7 @@
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, getStructSocket, objectSocket } from '../sockets';
+import { execSocket, objectSocket } from '../sockets';
+import { socketForType } from '../variables/VariableNodes';
 import type { VarType } from '../../BlueprintData';
-
-function socketForType(type: VarType): ClassicPreset.Socket {
-  switch (type) {
-    case 'Float':   return numSocket;
-    case 'Boolean': return boolSocket;
-    case 'Vector3': return vec3Socket;
-    case 'String':  return strSocket;
-    default:
-      if (type.startsWith('Struct:')) return getStructSocket(type);
-      return numSocket;
-  }
-}
 
 // ============================================================
 //  Custom Event Node — defines a user-created event entry point.

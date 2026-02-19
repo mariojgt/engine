@@ -321,6 +321,34 @@ import {
   LoadTextureNode,
   SetImageTextureNode,
   SetButtonTextureNode,
+  ActorClassSelectControl,
+  SpawnActorFromClassNode,
+  // Flow control nodes
+  DoNNode,
+  FlipFlopNode,
+  ForLoopWithBreakNode,
+  WhileLoopNode,
+  SwitchOnStringNode,
+  GateNode,
+  MultiGateNode,
+  DoOnceNode,
+  // Trace / collision nodes
+  LineTraceByChannelNode,
+  SphereTraceByChannelNode,
+  BoxTraceNode,
+  BreakHitResultNode,
+  // Timer nodes
+  SetTimerByFunctionNode,
+  SetTimerByEventNode,
+  RetriggerableDelayNode,
+  // World / player nodes
+  GetPlayerCharacterNode,
+  GetPlayerCameraManagerNode,
+  GetWorldNode,
+  GetComponentByClassNode,
+  // Refresh controls
+  RefreshNodesControl,
+  WidgetRefreshNodesControl,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -655,6 +683,12 @@ function resolveValue(
     return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
   }
 
+  // SpawnActorFromClassNode — return the spawned game object reference
+  if (node instanceof SpawnActorFromClassNode) {
+    const spawnVarName = `__spawned_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return spawnVarName;
+  }
+
   // Collision / Trigger event output data (variables set inside the callback closure)
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode) {
     if (outputKey === 'otherActor') return '__otherActor';
@@ -889,6 +923,110 @@ function resolveValue(
   if (node instanceof IsAIControlledNode) {
     return `(gameObject.controller ? gameObject.controller.controllerType === 'AIController' : false)`;
   }
+
+  // ── Trace node data outputs ──
+  if (node instanceof LineTraceByChannelNode) {
+    const trVar = `__trace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
+    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
+    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
+    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
+    if (outputKey === 'normalX') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalX : 0)`;
+    if (outputKey === 'normalY') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalY : 0)`;
+    if (outputKey === 'normalZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalZ : 0)`;
+    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
+    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
+    return '0';
+  }
+  if (node instanceof SphereTraceByChannelNode) {
+    const trVar = `__strace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
+    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
+    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
+    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
+    if (outputKey === 'normalX') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalX : 0)`;
+    if (outputKey === 'normalY') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalY : 0)`;
+    if (outputKey === 'normalZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalZ : 0)`;
+    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
+    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
+    return '0';
+  }
+  if (node instanceof BoxTraceNode) {
+    const trVar = `__btrace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
+    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
+    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
+    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
+    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
+    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
+    return '0';
+  }
+  if (node instanceof BreakHitResultNode) {
+    const hS = inputSrc.get(`${nodeId}.hitResult`);
+    const hitVal = hS ? rv(hS.nid, hS.ok) : 'null';
+    if (outputKey === 'hit') return `(${hitVal} ? ${hitVal}.hit : false)`;
+    if (outputKey === 'hitX') return `(${hitVal} ? ${hitVal}.hitX : 0)`;
+    if (outputKey === 'hitY') return `(${hitVal} ? ${hitVal}.hitY : 0)`;
+    if (outputKey === 'hitZ') return `(${hitVal} ? ${hitVal}.hitZ : 0)`;
+    if (outputKey === 'normalX') return `(${hitVal} ? ${hitVal}.normalX : 0)`;
+    if (outputKey === 'normalY') return `(${hitVal} ? ${hitVal}.normalY : 0)`;
+    if (outputKey === 'normalZ') return `(${hitVal} ? ${hitVal}.normalZ : 0)`;
+    if (outputKey === 'distance') return `(${hitVal} ? ${hitVal}.distance : 0)`;
+    if (outputKey === 'hitActor') return `(${hitVal} ? ${hitVal}.hitActor : null)`;
+    return '0';
+  }
+
+  // ── Flow control data outputs ──
+  if (node instanceof FlipFlopNode) {
+    const ffVar = `__flipFlop_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'isA') return ffVar;
+    return '0';
+  }
+  if (node instanceof DoNNode) {
+    const dnVar = `__doN_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'counter') return dnVar;
+    return '0';
+  }
+  if (node instanceof ForLoopWithBreakNode) {
+    const idxVar = `__idx_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'index') return idxVar;
+    return '0';
+  }
+
+  // ── Timer data outputs ──
+  if (node instanceof SetTimerByFunctionNode) {
+    const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'handle') return handleVar;
+    return '0';
+  }
+  if (node instanceof SetTimerByEventNode) {
+    const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'handle') return handleVar;
+    return '0';
+  }
+
+  // ── World / Player pure nodes ──
+  if (node instanceof GetPlayerCharacterNode) {
+    if (outputKey === 'character') return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
+    if (outputKey === 'valid') return `(!!(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) : null))`;
+    return 'null';
+  }
+  if (node instanceof GetPlayerCameraManagerNode) {
+    return `(__scene && __scene.engine ? __scene.engine.camera : null)`;
+  }
+  if (node instanceof GetWorldNode) {
+    return `__scene`;
+  }
+  if (node instanceof GetComponentByClassNode) {
+    const cn = node as GetComponentByClassNode;
+    const compType = (cn.controls['componentType'] as any)?.value ?? 'mesh';
+    if (compType === 'mesh') return `(gameObject.mesh || null)`;
+    if (compType === 'light') return `((gameObject._lightComponents || [])[0] || null)`;
+    if (compType === 'trigger') return `((gameObject._triggerComponents || [])[0] || null)`;
+    if (compType === 'audio') return `((gameObject._audioComponents || [])[0] || null)`;
+    return 'null';
+  }
+
   if (node instanceof CameraModeLiteralNode) {
     const ctrl = node.controls['mode'] as ClassicPreset.InputControl<'text'>;
     return `'${ctrl?.value ?? 'thirdPerson'}'`;
@@ -1158,6 +1296,320 @@ function resolveValue(
       const widgetHandle = wS ? resolveValue(wS.nid, wS.ok, nodeMap, inputSrc, bp) : '""';
       const varName = JSON.stringify(n.getVariableName());
       return `(__uiManager ? __uiManager.getWidgetVariable(${widgetHandle}, ${varName}) : undefined)`;
+    }
+
+    // ── Extended Math Nodes ─────────────────────────────────
+    case 'Modulo': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const b = bS ? rv(bS.nid, bS.ok) : '1';
+      return `(${b} !== 0 ? (${aS ? rv(aS.nid, aS.ok) : '0'} % ${b}) : 0)`;
+    }
+    case 'Power': {
+      const bS = inputSrc.get(`${nodeId}.base`);
+      const eS = inputSrc.get(`${nodeId}.exponent`);
+      return `Math.pow(${bS ? rv(bS.nid, bS.ok) : '0'}, ${eS ? rv(eS.nid, eS.ok) : '1'})`;
+    }
+    case 'Min': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `Math.min(${aS ? rv(aS.nid, aS.ok) : '0'}, ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Max': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `Math.max(${aS ? rv(aS.nid, aS.ok) : '0'}, ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Round': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.round(${vS ? rv(vS.nid, vS.ok) : '0'})`;
+    }
+    case 'Floor': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.floor(${vS ? rv(vS.nid, vS.ok) : '0'})`;
+    }
+    case 'Ceil': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.ceil(${vS ? rv(vS.nid, vS.ok) : '0'})`;
+    }
+    case 'Sqrt': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.sqrt(Math.abs(${vS ? rv(vS.nid, vS.ok) : '0'}))`;
+    }
+    case 'Log': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.log(Math.max(${vS ? rv(vS.nid, vS.ok) : '1'}, 0.0001))`;
+    }
+    case 'Tangent': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `Math.tan(${vS ? rv(vS.nid, vS.ok) : '0'})`;
+    }
+    case 'Normalize': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      const len = `Math.sqrt(${x}*${x}+${y}*${y}+${z}*${z})||1`;
+      if (outputKey === 'nx') return `(${x}/(${len}))`;
+      if (outputKey === 'ny') return `(${y}/(${len}))`;
+      if (outputKey === 'nz') return `(${z}/(${len}))`;
+      return '0';
+    }
+    case 'Dot Product': {
+      const ax = inputSrc.get(`${nodeId}.ax`);
+      const ay = inputSrc.get(`${nodeId}.ay`);
+      const az = inputSrc.get(`${nodeId}.az`);
+      const bx = inputSrc.get(`${nodeId}.bx`);
+      const by = inputSrc.get(`${nodeId}.by`);
+      const bz = inputSrc.get(`${nodeId}.bz`);
+      return `(${ax?rv(ax.nid,ax.ok):'0'}*${bx?rv(bx.nid,bx.ok):'0'}+${ay?rv(ay.nid,ay.ok):'0'}*${by?rv(by.nid,by.ok):'0'}+${az?rv(az.nid,az.ok):'0'}*${bz?rv(bz.nid,bz.ok):'0'})`;
+    }
+    case 'Cross Product': {
+      const ax = inputSrc.get(`${nodeId}.ax`);
+      const ay = inputSrc.get(`${nodeId}.ay`);
+      const az = inputSrc.get(`${nodeId}.az`);
+      const bx = inputSrc.get(`${nodeId}.bx`);
+      const by = inputSrc.get(`${nodeId}.by`);
+      const bz = inputSrc.get(`${nodeId}.bz`);
+      const _ax = ax?rv(ax.nid,ax.ok):'0', _ay = ay?rv(ay.nid,ay.ok):'0', _az = az?rv(az.nid,az.ok):'0';
+      const _bx = bx?rv(bx.nid,bx.ok):'0', _by = by?rv(by.nid,by.ok):'0', _bz = bz?rv(bz.nid,bz.ok):'0';
+      if (outputKey === 'rx') return `(${_ay}*${_bz}-${_az}*${_by})`;
+      if (outputKey === 'ry') return `(${_az}*${_bx}-${_ax}*${_bz})`;
+      if (outputKey === 'rz') return `(${_ax}*${_by}-${_ay}*${_bx})`;
+      return '0';
+    }
+    case 'Vector Length': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      return `Math.sqrt(${x}*${x}+${y}*${y}+${z}*${z})`;
+    }
+    case 'Distance': {
+      const ax = inputSrc.get(`${nodeId}.ax`);
+      const ay = inputSrc.get(`${nodeId}.ay`);
+      const az = inputSrc.get(`${nodeId}.az`);
+      const bx = inputSrc.get(`${nodeId}.bx`);
+      const by = inputSrc.get(`${nodeId}.by`);
+      const bz = inputSrc.get(`${nodeId}.bz`);
+      const dx = `(${ax?rv(ax.nid,ax.ok):'0'}-${bx?rv(bx.nid,bx.ok):'0'})`;
+      const dy = `(${ay?rv(ay.nid,ay.ok):'0'}-${by?rv(by.nid,by.ok):'0'})`;
+      const dz = `(${az?rv(az.nid,az.ok):'0'}-${bz?rv(bz.nid,bz.ok):'0'})`;
+      return `Math.sqrt(${dx}*${dx}+${dy}*${dy}+${dz}*${dz})`;
+    }
+    case 'Random Float': return 'Math.random()';
+    case 'Random Float in Range': {
+      const mn = inputSrc.get(`${nodeId}.min`);
+      const mx = inputSrc.get(`${nodeId}.max`);
+      const a = mn ? rv(mn.nid, mn.ok) : '0';
+      const b = mx ? rv(mx.nid, mx.ok) : '1';
+      return `(${a} + Math.random() * (${b} - ${a}))`;
+    }
+    case 'Random Int in Range': {
+      const mn = inputSrc.get(`${nodeId}.min`);
+      const mx = inputSrc.get(`${nodeId}.max`);
+      const a = mn ? rv(mn.nid, mn.ok) : '0';
+      const b = mx ? rv(mx.nid, mx.ok) : '10';
+      return `(Math.floor(${a} + Math.random() * (${b} - ${a} + 1)))`;
+    }
+    case 'Random Bool': return '(Math.random() < 0.5)';
+    case 'Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} === ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Not Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} !== ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Less Than': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} < ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Greater or Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} >= ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'Less or Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(${aS ? rv(aS.nid, aS.ok) : '0'} <= ${bS ? rv(bS.nid, bS.ok) : '0'})`;
+    }
+    case 'AND': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) && !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
+    }
+    case 'OR': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) || !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
+    }
+    case 'NOT': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `(!(${vS ? rv(vS.nid, vS.ok) : 'false'}))`;
+    }
+    case 'XOR': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) !== !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
+    }
+
+    // ── String Nodes ────────────────────────────────────────
+    case 'Append': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      return `(String(${aS ? rv(aS.nid, aS.ok) : '""'}) + String(${bS ? rv(bS.nid, bS.ok) : '""'}))`;
+    }
+    case 'Format Text': {
+      const fS = inputSrc.get(`${nodeId}.format`);
+      const a0 = inputSrc.get(`${nodeId}.arg0`);
+      const a1 = inputSrc.get(`${nodeId}.arg1`);
+      const a2 = inputSrc.get(`${nodeId}.arg2`);
+      const fmt = fS ? rv(fS.nid, fS.ok) : '""';
+      return `(${fmt}).replace("{0}", String(${a0 ? rv(a0.nid, a0.ok) : '""'})).replace("{1}", String(${a1 ? rv(a1.nid, a1.ok) : '""'})).replace("{2}", String(${a2 ? rv(a2.nid, a2.ok) : '""'}))`;
+    }
+    case 'Bool to String': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `(${vS ? rv(vS.nid, vS.ok) : 'false'} ? "true" : "false")`;
+    }
+    case 'Int to String':
+    case 'Float to String': {
+      const vS = inputSrc.get(`${nodeId}.value`);
+      return `String(${vS ? rv(vS.nid, vS.ok) : '0'})`;
+    }
+    case 'Vec3 to String': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      return `("(" + ${xS ? rv(xS.nid, xS.ok) : '0'} + ", " + ${yS ? rv(yS.nid, yS.ok) : '0'} + ", " + ${zS ? rv(zS.nid, zS.ok) : '0'} + ")")`;
+    }
+    case 'String Length': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).length`;
+    }
+    case 'Substring': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const st = inputSrc.get(`${nodeId}.start`);
+      const ln = inputSrc.get(`${nodeId}.length`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).substr(${st ? rv(st.nid, st.ok) : '0'}, ${ln ? rv(ln.nid, ln.ok) : '0'})`;
+    }
+    case 'String Contains': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const sub = inputSrc.get(`${nodeId}.substring`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).includes(${sub ? rv(sub.nid, sub.ok) : '""'})`;
+    }
+    case 'String Replace': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const from = inputSrc.get(`${nodeId}.from`);
+      const to = inputSrc.get(`${nodeId}.to`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).replaceAll(${from ? rv(from.nid, from.ok) : '""'}, ${to ? rv(to.nid, to.ok) : '""'})`;
+    }
+    case 'String Split': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const dS = inputSrc.get(`${nodeId}.delimiter`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).split(${dS ? rv(dS.nid, dS.ok) : '","'}).length`;
+    }
+    case 'Trim': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).trim()`;
+    }
+    case 'To Upper': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).toUpperCase()`;
+    }
+    case 'To Lower': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).toLowerCase()`;
+    }
+    case 'Parse Int': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const val = sS ? rv(sS.nid, sS.ok) : '""';
+      if (outputKey === 'value') return `(parseInt(${val}, 10) || 0)`;
+      if (outputKey === 'success') return `(!isNaN(parseInt(${val}, 10)))`;
+      return '0';
+    }
+    case 'Parse Float': {
+      const sS = inputSrc.get(`${nodeId}.string`);
+      const val = sS ? rv(sS.nid, sS.ok) : '""';
+      if (outputKey === 'value') return `(parseFloat(${val}) || 0)`;
+      if (outputKey === 'success') return `(!isNaN(parseFloat(${val})))`;
+      return '0';
+    }
+
+    // ── Actor direction/velocity getters ────────────────────
+    case 'Get Actor Forward Vector': {
+      if (outputKey === 'x') return '(gameObject.mesh ? Math.sin(gameObject.mesh.rotation.y) : 0)';
+      if (outputKey === 'y') return '0';
+      if (outputKey === 'z') return '(gameObject.mesh ? Math.cos(gameObject.mesh.rotation.y) : 0)';
+      return '0';
+    }
+    case 'Get Actor Right Vector': {
+      if (outputKey === 'x') return '(gameObject.mesh ? Math.cos(gameObject.mesh.rotation.y) : 0)';
+      if (outputKey === 'y') return '0';
+      if (outputKey === 'z') return '(gameObject.mesh ? -Math.sin(gameObject.mesh.rotation.y) : 0)';
+      return '0';
+    }
+    case 'Get Actor Up Vector': {
+      if (outputKey === 'x') return '0';
+      if (outputKey === 'y') return '1';
+      if (outputKey === 'z') return '0';
+      return '0';
+    }
+    case 'Get Actor Velocity': {
+      if (outputKey === 'x') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().x : 0)';
+      if (outputKey === 'y') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().y : 0)';
+      if (outputKey === 'z') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().z : 0)';
+      return '0';
+    }
+
+    // ── Tag queries ─────────────────────────────────────────
+    case 'Actor Has Tag': {
+      const tS = inputSrc.get(`${nodeId}.tag`);
+      return `(!!(gameObject.tags && gameObject.tags.includes(${tS ? rv(tS.nid, tS.ok) : '""'})))`;
+    }
+
+    // ── Timer queries ───────────────────────────────────────
+    case 'Is Timer Active': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].active)`;
+    }
+    case 'Is Timer Paused': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].paused)`;
+    }
+    case 'Get Timer Remaining Time': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] ? __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].remaining : 0)`;
+    }
+    case 'Get Timer Elapsed Time': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] ? __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].elapsed : 0)`;
+    }
+
+    // ── World / Time getters ────────────────────────────────
+    case 'Get World Delta Seconds': return '__dt';
+    case 'Get Real Time Seconds': return '(performance.now() / 1000)';
+    case 'Get Game Time in Seconds': return '(typeof __gameTime !== "undefined" ? __gameTime : 0)';
+    case 'Is Game Paused': return '(typeof __gamePaused !== "undefined" ? __gamePaused : false)';
+
+    // ── Mouse getters ───────────────────────────────────────
+    case 'Get Mouse Position': {
+      if (outputKey === 'x') return '(typeof __mouseX !== "undefined" ? __mouseX : 0)';
+      if (outputKey === 'y') return '(typeof __mouseY !== "undefined" ? __mouseY : 0)';
+      return '0';
+    }
+    case 'Get Mouse Delta': {
+      if (outputKey === 'dx') return '(typeof __mouseDX !== "undefined" ? __mouseDX : 0)';
+      if (outputKey === 'dy') return '(typeof __mouseDY !== "undefined" ? __mouseDY : 0)';
+      return '0';
     }
 
     default: return '0';
@@ -1997,7 +2449,16 @@ function genAction(
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
       const bpId = JSON.stringify(wn.widgetBPId || '');
-      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}) : '';`);
+      // Build Expose on Spawn overrides for widget variables
+      const wOverrides: string[] = [];
+      for (const ev of (wn.exposedVars || [])) {
+        const evSrc = inputSrc.get(`${nodeId}.exposed_${ev.varId}`);
+        if (evSrc) {
+          wOverrides.push(`${JSON.stringify(ev.name)}: ${rv(evSrc.nid, evSrc.ok)}`);
+        }
+      }
+      const wOverridesObj = wOverrides.length > 0 ? `{ ${wOverrides.join(', ')} }` : 'null';
+      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}, ${wOverridesObj}) : '';`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2186,6 +2647,488 @@ function genAction(
       const val = valSrc ? rv(valSrc.nid, valSrc.ok) : 'undefined';
       lines.push(`if (__gameInstance) { __gameInstance.setVariable(${varName}, ${val}); }`);
       lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Extended Flow Control Nodes ─────────────────────────
+    case 'Do Once': {
+      const stateVar = `__doOnce_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = false; }`);
+      lines.push(`if (!${stateVar}) { ${stateVar} = true;`);
+      lines.push(...we(nodeId, 'completed'));
+      lines.push(`}`);
+      break;
+    }
+    case 'Reset Do Once': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      if (handleS) {
+        const stateVar = `__doOnce_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        lines.push(`${stateVar} = false;`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Do N': {
+      const nS = inputSrc.get(`${nodeId}.n`);
+      const n = nS ? rv(nS.nid, nS.ok) : '1';
+      const stateVar = `__doN_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = 0; }`);
+      lines.push(`if (${stateVar} < ${n}) { ${stateVar}++;`);
+      lines.push(...we(nodeId, 'exec'));
+      lines.push(`}`);
+      break;
+    }
+    case 'Flip Flop': {
+      const stateVar = `__flipFlop_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = true; }`);
+      lines.push(`if (${stateVar}) {`);
+      lines.push(...we(nodeId, 'a'));
+      lines.push(`} else {`);
+      lines.push(...we(nodeId, 'b'));
+      lines.push(`}`);
+      lines.push(`${stateVar} = !${stateVar};`);
+      break;
+    }
+    case 'Gate': {
+      const stateVar = `__gate_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const startClosedS = inputSrc.get(`${nodeId}.startClosed`);
+      const startClosed = startClosedS ? rv(startClosedS.nid, startClosedS.ok) : 'false';
+      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = !${startClosed}; }`);
+      // Check which exec input triggered
+      lines.push(`if (${stateVar}) {`);
+      lines.push(...we(nodeId, 'exit'));
+      lines.push(`}`);
+      break;
+    }
+    case 'Open Gate': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      if (handleS) {
+        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        lines.push(`${stateVar} = true;`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Close Gate': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      if (handleS) {
+        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        lines.push(`${stateVar} = false;`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Toggle Gate': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      if (handleS) {
+        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        lines.push(`${stateVar} = !${stateVar};`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Multi Gate': {
+      const isRandomS = inputSrc.get(`${nodeId}.isRandom`);
+      const loopS = inputSrc.get(`${nodeId}.loop`);
+      const startIdxS = inputSrc.get(`${nodeId}.startIndex`);
+      const isRandom = isRandomS ? rv(isRandomS.nid, isRandomS.ok) : 'false';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const startIdx = startIdxS ? rv(startIdxS.nid, startIdxS.ok) : '0';
+      const stateVar = `__multiGate_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = ${startIdx}; }`);
+      lines.push(`{ const _mg_max = 3;`);
+      lines.push(`if (${isRandom}) { ${stateVar} = Math.floor(Math.random() * _mg_max); }`);
+      lines.push(`switch (${stateVar}) {`);
+      lines.push(`case 0:`);
+      lines.push(...we(nodeId, 'out0'));
+      lines.push(`break;`);
+      lines.push(`case 1:`);
+      lines.push(...we(nodeId, 'out1'));
+      lines.push(`break;`);
+      lines.push(`case 2:`);
+      lines.push(...we(nodeId, 'out2'));
+      lines.push(`break;`);
+      lines.push(`}`);
+      lines.push(`if (!${isRandom}) { ${stateVar}++; if (${loop} && ${stateVar} >= _mg_max) { ${stateVar} = 0; } }`);
+      lines.push(`}`);
+      break;
+    }
+    case 'For Loop with Break': {
+      const firstS = inputSrc.get(`${nodeId}.firstIndex`);
+      const lastS = inputSrc.get(`${nodeId}.lastIndex`);
+      const first = firstS ? rv(firstS.nid, firstS.ok) : '0';
+      const last = lastS ? rv(lastS.nid, lastS.ok) : '0';
+      const idxVar = `__idx_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const breakVar = `__brk_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${breakVar} = false;`);
+      lines.push(`for (var ${idxVar} = ${first}; ${idxVar} <= ${last} && !${breakVar}; ${idxVar}++) {`);
+      lines.push(...we(nodeId, 'body'));
+      lines.push(`}`);
+      lines.push(`if (!${breakVar}) {`);
+      lines.push(...we(nodeId, 'completed'));
+      lines.push(`}`);
+      break;
+    }
+    case 'While Loop': {
+      const condS = inputSrc.get(`${nodeId}.condition`);
+      const cond = condS ? rv(condS.nid, condS.ok) : 'false';
+      lines.push(`{ var __whileGuard = 0; while ((${cond}) && __whileGuard++ < 10000) {`);
+      lines.push(...we(nodeId, 'body'));
+      lines.push(`}}`);
+      lines.push(...we(nodeId, 'completed'));
+      break;
+    }
+    case 'Switch on Int': {
+      const selS = inputSrc.get(`${nodeId}.selection`);
+      const sel = selS ? rv(selS.nid, selS.ok) : '0';
+      lines.push(`switch (${sel}) {`);
+      lines.push(`case 0:`);
+      lines.push(...we(nodeId, 'case0'));
+      lines.push(`break;`);
+      lines.push(`case 1:`);
+      lines.push(...we(nodeId, 'case1'));
+      lines.push(`break;`);
+      lines.push(`case 2:`);
+      lines.push(...we(nodeId, 'case2'));
+      lines.push(`break;`);
+      lines.push(`default:`);
+      lines.push(...we(nodeId, 'default'));
+      lines.push(`}`);
+      break;
+    }
+    case 'Switch on String': {
+      const selS = inputSrc.get(`${nodeId}.selection`);
+      const sel = selS ? rv(selS.nid, selS.ok) : '""';
+      const switchNode = node as SwitchOnStringNode;
+      const caseVals = switchNode.caseValues || ['Case 0', 'Case 1', 'Case 2'];
+      lines.push(`switch (${sel}) {`);
+      for (let ci = 0; ci < caseVals.length; ci++) {
+        lines.push(`case ${JSON.stringify(caseVals[ci])}:`);
+        lines.push(...we(nodeId, `case${ci}`));
+        lines.push(`break;`);
+      }
+      lines.push(`default:`);
+      lines.push(...we(nodeId, 'default'));
+      lines.push(`}`);
+      break;
+    }
+
+    // ── Spawning Nodes ──────────────────────────────────────
+    case 'Spawn Actor from Class': {
+      const spawnNode = node as SpawnActorFromClassNode;
+      const classId = JSON.stringify(spawnNode.targetClassId || '');
+      const className = JSON.stringify(spawnNode.targetClassName || '');
+      const locXS = inputSrc.get(`${nodeId}.locX`);
+      const locYS = inputSrc.get(`${nodeId}.locY`);
+      const locZS = inputSrc.get(`${nodeId}.locZ`);
+      const rotXS = inputSrc.get(`${nodeId}.rotX`);
+      const rotYS = inputSrc.get(`${nodeId}.rotY`);
+      const rotZS = inputSrc.get(`${nodeId}.rotZ`);
+      const scaleXS = inputSrc.get(`${nodeId}.scaleX`);
+      const scaleYS = inputSrc.get(`${nodeId}.scaleY`);
+      const scaleZS = inputSrc.get(`${nodeId}.scaleZ`);
+      const ownerS = inputSrc.get(`${nodeId}.owner`);
+      const lx = locXS ? rv(locXS.nid, locXS.ok) : '0';
+      const ly = locYS ? rv(locYS.nid, locYS.ok) : '0';
+      const lz = locZS ? rv(locZS.nid, locZS.ok) : '0';
+      const rx = rotXS ? rv(rotXS.nid, rotXS.ok) : '0';
+      const ry = rotYS ? rv(rotYS.nid, rotYS.ok) : '0';
+      const rz = rotZS ? rv(rotZS.nid, rotZS.ok) : '0';
+      const sx = scaleXS ? rv(scaleXS.nid, scaleXS.ok) : '1';
+      const sy = scaleYS ? rv(scaleYS.nid, scaleYS.ok) : '1';
+      const sz = scaleZS ? rv(scaleZS.nid, scaleZS.ok) : '1';
+      const ownerExpr = ownerS ? rv(ownerS.nid, ownerS.ok) : 'null';
+      const spawnVar = `__spawned_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+      // Build Expose on Spawn overrides object
+      const overrides: string[] = [];
+      for (const ev of spawnNode.exposedVars) {
+        const evSrc = inputSrc.get(`${nodeId}.exposed_${ev.varId}`);
+        if (evSrc) {
+          overrides.push(`${JSON.stringify(ev.name)}: ${rv(evSrc.nid, evSrc.ok)}`);
+        }
+      }
+      const overridesObj = overrides.length > 0 ? `{ ${overrides.join(', ')} }` : 'null';
+
+      lines.push(`var ${spawnVar} = __scene ? __scene.spawnActorFromClass(`);
+      lines.push(`  ${classId}, ${className},`);
+      lines.push(`  { x: ${lx}, y: ${ly}, z: ${lz} },`);
+      lines.push(`  { x: ${rx}, y: ${ry}, z: ${rz} },`);
+      lines.push(`  { x: ${sx}, y: ${sy}, z: ${sz} },`);
+      lines.push(`  ${ownerExpr}, ${overridesObj}`);
+      lines.push(`) : null;`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Destroy Actor': {
+      const target = inputSrc.get(`${nodeId}.target`);
+      const targetExpr = target ? rv(target.nid, target.ok) : 'gameObject';
+      lines.push(`if (${targetExpr} && typeof ${targetExpr}.destroy === 'function') { ${targetExpr}.destroy(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Spawn Emitter at Location': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`// Spawn emitter at (${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}) - needs particle system implementation`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Spawn Sound at Location': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      lines.push(`// Spawn sound at (${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}) volume ${volS ? rv(volS.nid, volS.ok) : '1'} - needs audio system implementation`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Actor Manipulation Nodes ────────────────────────────
+    case 'Add Actor World Offset':
+    case 'Add World Offset': {
+      const dxS = inputSrc.get(`${nodeId}.dx`);
+      const dyS = inputSrc.get(`${nodeId}.dy`);
+      const dzS = inputSrc.get(`${nodeId}.dz`);
+      lines.push(`gameObject.position.x += ${dxS ? rv(dxS.nid, dxS.ok) : '0'};`);
+      lines.push(`gameObject.position.y += ${dyS ? rv(dyS.nid, dyS.ok) : '0'};`);
+      lines.push(`gameObject.position.z += ${dzS ? rv(dzS.nid, dzS.ok) : '0'};`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Actor World Rotation':
+    case 'Add World Rotation': {
+      const dxS = inputSrc.get(`${nodeId}.dx`);
+      const dyS = inputSrc.get(`${nodeId}.dy`);
+      const dzS = inputSrc.get(`${nodeId}.dz`);
+      lines.push(`gameObject.rotation.x += ${dxS ? rv(dxS.nid, dxS.ok) : '0'};`);
+      lines.push(`gameObject.rotation.y += ${dyS ? rv(dyS.nid, dyS.ok) : '0'};`);
+      lines.push(`gameObject.rotation.z += ${dzS ? rv(dzS.nid, dzS.ok) : '0'};`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Actor Local Offset':
+    case 'Add Local Offset': {
+      const dxS = inputSrc.get(`${nodeId}.dx`);
+      const dyS = inputSrc.get(`${nodeId}.dy`);
+      const dzS = inputSrc.get(`${nodeId}.dz`);
+      const dx = dxS ? rv(dxS.nid, dxS.ok) : '0';
+      const dy = dyS ? rv(dyS.nid, dyS.ok) : '0';
+      const dz = dzS ? rv(dzS.nid, dzS.ok) : '0';
+      // Apply offset in local space using mesh's quaternion
+      lines.push(`{ const _q = gameObject.mesh ? gameObject.mesh.quaternion : new THREE.Quaternion();`);
+      lines.push(`const _v = new THREE.Vector3(${dx}, ${dy}, ${dz}).applyQuaternion(_q);`);
+      lines.push(`gameObject.position.x += _v.x; gameObject.position.y += _v.y; gameObject.position.z += _v.z; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Teleport Actor': {
+      const xS = inputSrc.get(`${nodeId}.locX`);
+      const yS = inputSrc.get(`${nodeId}.locY`);
+      const zS = inputSrc.get(`${nodeId}.locZ`);
+      const rxS = inputSrc.get(`${nodeId}.rotX`);
+      const ryS = inputSrc.get(`${nodeId}.rotY`);
+      const rzS = inputSrc.get(`${nodeId}.rotZ`);
+      lines.push(`gameObject.position.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.position.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.position.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.position.z'});`);
+      lines.push(`gameObject.rotation.set(${rxS ? rv(rxS.nid, rxS.ok) : 'gameObject.rotation.x'}, ${ryS ? rv(ryS.nid, ryS.ok) : 'gameObject.rotation.y'}, ${rzS ? rv(rzS.nid, rzS.ok) : 'gameObject.rotation.z'});`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setTranslation(gameObject.position, true); gameObject.rigidBody.setRotation(gameObject.mesh.quaternion, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Tag to Actor':
+    case 'Add Tag': {
+      const tagS = inputSrc.get(`${nodeId}.tag`);
+      const tag = tagS ? rv(tagS.nid, tagS.ok) : '""';
+      lines.push(`if (!gameObject.tags) { gameObject.tags = []; }`);
+      lines.push(`if (!gameObject.tags.includes(${tag})) { gameObject.tags.push(${tag}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove Tag from Actor':
+    case 'Remove Tag': {
+      const tagS = inputSrc.get(`${nodeId}.tag`);
+      const tag = tagS ? rv(tagS.nid, tagS.ok) : '""';
+      lines.push(`if (gameObject.tags) { const _i = gameObject.tags.indexOf(${tag}); if (_i >= 0) gameObject.tags.splice(_i, 1); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Hidden in Game':
+    case 'Set Actor Hidden': {
+      const hiddenS = inputSrc.get(`${nodeId}.hidden`);
+      lines.push(`if (gameObject.mesh) { gameObject.mesh.visible = !${hiddenS ? rv(hiddenS.nid, hiddenS.ok) : 'false'}; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Enable Collision': {
+      const enabledS = inputSrc.get(`${nodeId}.enabled`);
+      const enabled = enabledS ? rv(enabledS.nid, enabledS.ok) : 'true';
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabled(${enabled}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Tick Enabled': {
+      const enabledS = inputSrc.get(`${nodeId}.enabled`);
+      lines.push(`gameObject.__tickEnabled = ${enabledS ? rv(enabledS.nid, enabledS.ok) : 'true'};`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Destroy Component': {
+      // Needs component reference system
+      lines.push(`// Destroy component - needs component reference`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Timer Nodes ─────────────────────────────────────────
+    case 'Set Timer by Function Name': {
+      const fnS = inputSrc.get(`${nodeId}.functionName`);
+      const timeS = inputSrc.get(`${nodeId}.time`);
+      const loopS = inputSrc.get(`${nodeId}.looping`);
+      const fnName = fnS ? rv(fnS.nid, fnS.ok) : '""';
+      const time = timeS ? rv(timeS.nid, timeS.ok) : '1';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`if (typeof __timers === 'undefined') { var __timers = {}; var __timerIdCounter = 0; }`);
+      lines.push(`var ${handleVar} = ++__timerIdCounter; __timers[${handleVar}] = { active: true, paused: false, remaining: ${time}, elapsed: 0, fn: ${fnName}, interval: ${time}, loop: ${loop} };`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Timer by Event': {
+      const timeS = inputSrc.get(`${nodeId}.time`);
+      const loopS = inputSrc.get(`${nodeId}.looping`);
+      const time = timeS ? rv(timeS.nid, timeS.ok) : '1';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const eventCode = we(nodeId, 'event');
+      lines.push(`if (typeof __timers === 'undefined') { var __timers = {}; var __timerIdCounter = 0; }`);
+      lines.push(`var ${handleVar} = ++__timerIdCounter; __timers[${handleVar}] = { active: true, paused: false, remaining: ${time}, elapsed: 0, interval: ${time}, loop: ${loop}, callback: function() { ${eventCode.join('\n')} } };`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Timer': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
+      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].active = false; delete __timers[${handle}]; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear All Timers': {
+      lines.push(`if (typeof __timers !== 'undefined') { __timers = {}; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Pause Timer': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
+      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].paused = true; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Unpause Timer': {
+      const handleS = inputSrc.get(`${nodeId}.handle`);
+      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
+      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].paused = false; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Retriggerable Delay': {
+      const durationS = inputSrc.get(`${nodeId}.duration`);
+      const duration = durationS ? rv(durationS.nid, durationS.ok) : '1';
+      const delayVar = `__delay_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const completedCode = we(nodeId, 'completed');
+      lines.push(`if (typeof ${delayVar} === 'undefined') { var ${delayVar} = { active: false, timer: null }; }`);
+      lines.push(`if (${delayVar}.timer) { clearTimeout(${delayVar}.timer); }`);
+      lines.push(`${delayVar}.active = true; ${delayVar}.timer = setTimeout(function() { ${delayVar}.active = false; ${completedCode.join('\n')} }, (${duration}) * 1000);`);
+      break;
+    }
+
+    // ── String Exec Nodes ───────────────────────────────────
+    case 'Print Warning': {
+      const msgS = inputSrc.get(`${nodeId}.message`);
+      lines.push(`console.warn(${msgS ? rv(msgS.nid, msgS.ok) : '""'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Print Error': {
+      const msgS = inputSrc.get(`${nodeId}.message`);
+      lines.push(`console.error(${msgS ? rv(msgS.nid, msgS.ok) : '""'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── World / Game State Nodes ────────────────────────────
+    case 'Open Level': {
+      const levelS = inputSrc.get(`${nodeId}.levelName`);
+      lines.push(`if (__projectManager) { __projectManager.loadSceneRuntime(${levelS ? rv(levelS.nid, levelS.ok) : '""'}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Quit Game': {
+      lines.push(`if (typeof __quitGame === 'function') { __quitGame(); } else { console.log('Quit game requested'); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Game Paused': {
+      const pausedS = inputSrc.get(`${nodeId}.paused`);
+      lines.push(`__gamePaused = ${pausedS ? rv(pausedS.nid, pausedS.ok) : 'true'};`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Trace / Collision Nodes ─────────────────────────────
+    case 'Line Trace by Channel':
+    case 'Line Trace By Channel': {
+      const sxS = inputSrc.get(`${nodeId}.startX`);
+      const syS = inputSrc.get(`${nodeId}.startY`);
+      const szS = inputSrc.get(`${nodeId}.startZ`);
+      const exS = inputSrc.get(`${nodeId}.endX`);
+      const eyS = inputSrc.get(`${nodeId}.endY`);
+      const ezS = inputSrc.get(`${nodeId}.endZ`);
+      const resultVar = `__trace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${resultVar} = __physics ? __physics.castRay(`);
+      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
+      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Sphere Trace by Channel':
+    case 'Sphere Trace By Channel': {
+      const sxS = inputSrc.get(`${nodeId}.startX`);
+      const syS = inputSrc.get(`${nodeId}.startY`);
+      const szS = inputSrc.get(`${nodeId}.startZ`);
+      const exS = inputSrc.get(`${nodeId}.endX`);
+      const eyS = inputSrc.get(`${nodeId}.endY`);
+      const ezS = inputSrc.get(`${nodeId}.endZ`);
+      const radiusS = inputSrc.get(`${nodeId}.radius`);
+      const resultVar = `__strace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${resultVar} = __physics ? __physics.castShape(`);
+      lines.push(`  'sphere', { radius: ${radiusS ? rv(radiusS.nid, radiusS.ok) : '0.5'} },`);
+      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
+      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Box Trace': {
+      const sxS = inputSrc.get(`${nodeId}.startX`);
+      const syS = inputSrc.get(`${nodeId}.startY`);
+      const szS = inputSrc.get(`${nodeId}.startZ`);
+      const exS = inputSrc.get(`${nodeId}.endX`);
+      const eyS = inputSrc.get(`${nodeId}.endY`);
+      const ezS = inputSrc.get(`${nodeId}.endZ`);
+      const hxS = inputSrc.get(`${nodeId}.halfX`);
+      const hyS = inputSrc.get(`${nodeId}.halfY`);
+      const hzS = inputSrc.get(`${nodeId}.halfZ`);
+      const resultVar = `__btrace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${resultVar} = __physics ? __physics.castShape(`);
+      lines.push(`  'box', { halfExtents: { x: ${hxS ? rv(hxS.nid, hxS.ok) : '0.5'}, y: ${hyS ? rv(hyS.nid, hyS.ok) : '0.5'}, z: ${hzS ? rv(hzS.nid, hzS.ok) : '0.5'} } },`);
+      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
+      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Break Hit Result': {
+      // Pure node — result values accessed via resolveValue
       break;
     }
   }
@@ -2618,6 +3561,25 @@ function buildMyBlueprintPanel(
     typeSpan.className = 'mybp-var-type';
     typeSpan.textContent = typeDisplayName(v.type, bp);
     item.appendChild(typeSpan);
+
+    // Show Expose on Spawn / Instance Editable badges
+    if (v.exposeOnSpawn || v.instanceEditable) {
+      const badges = document.createElement('span');
+      badges.style.cssText = 'display:inline-flex;gap:2px;margin-left:4px;align-items:center;';
+      if (v.exposeOnSpawn) {
+        const badge = document.createElement('span');
+        badge.innerHTML = iconHTML(Icons.Zap, 10, '#ff9800');
+        badge.title = 'Expose on Spawn';
+        badges.appendChild(badge);
+      }
+      if (v.instanceEditable) {
+        const badge = document.createElement('span');
+        badge.innerHTML = iconHTML(Icons.Eye, 10, '#64b5f6');
+        badge.title = 'Instance Editable';
+        badges.appendChild(badge);
+      }
+      item.appendChild(badges);
+    }
 
     const actions = document.createElement('span');
     actions.className = 'mybp-item-actions';
@@ -3760,6 +4722,18 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       </select>
       <label class="mybp-dialog-label">Default Value</label>
       <div id="dlg-default-container">${buildDefaultValueInput(v.type, v.defaultValue)}</div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#b0b0d0;cursor:pointer;">
+          <input type="checkbox" id="dlg-instance-editable" ${v.instanceEditable ? 'checked' : ''} />
+          Instance Editable
+          <span style="color:#666;font-size:10px;" title="Allow this variable to be edited per-instance in the Details panel">(?)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#b0b0d0;cursor:pointer;">
+          <input type="checkbox" id="dlg-expose-on-spawn" ${v.exposeOnSpawn ? 'checked' : ''} />
+          Expose on Spawn
+          <span style="color:#666;font-size:10px;" title="Show this variable as an input pin on Spawn Actor from Class nodes">(?)</span>
+        </label>
+      </div>
       <div class="mybp-dialog-actions">
         <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
         <button class="mybp-dialog-btn ok" id="dlg-ok">Save</button>
@@ -3781,6 +4755,8 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
     dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
       v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
       v.type = (dialog.querySelector('#dlg-var-type') as HTMLSelectElement).value as VarType;
+      v.instanceEditable = (dialog.querySelector('#dlg-instance-editable') as HTMLInputElement).checked;
+      v.exposeOnSpawn = (dialog.querySelector('#dlg-expose-on-spawn') as HTMLInputElement).checked;
       if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
       else if (v.type === 'Color') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
       else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
@@ -4199,6 +5175,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetGameInstanceNode) return 'GetGameInstanceNode';
   if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
   if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
+  // Spawning
+  if (node instanceof SpawnActorFromClassNode) return 'SpawnActorFromClassNode';
 
   return 'Unknown';
 }
@@ -4226,6 +5204,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
       controls[key] = { id: (ctrl as TextureSelectControl).value, name: (ctrl as TextureSelectControl).displayName };
+    } else if (ctrl instanceof ActorClassSelectControl) {
+      controls[key] = { id: (ctrl as ActorClassSelectControl).value, name: (ctrl as ActorClassSelectControl).displayName };
     } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
@@ -4354,6 +5334,7 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateWidgetNode) {
     data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
     data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
+    data.exposedVars = (node as CreateWidgetNode).exposedVars;
   }
 
   // Widget instance interaction nodes
@@ -4391,6 +5372,14 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.widgetBPName = n.widgetBPName;
     data.eventName = n.getEventName();
     data.eventParams = n.eventParams;
+  }
+
+  // Spawn Actor from Class
+  if (node instanceof SpawnActorFromClassNode) {
+    const spawnNode = node as SpawnActorFromClassNode;
+    data.targetClassId = spawnNode.targetClassId;
+    data.targetClassName = spawnNode.targetClassName;
+    data.exposedVars = spawnNode.exposedVars.map(v => ({ name: v.name, type: v.type, varId: v.varId }));
   }
 
   return data;
@@ -4735,7 +5724,22 @@ function createNodeFromData(
     case 'SetAnimVarNode':                  return new SetAnimVarNode(d.varName || 'speed', d.varType || 'number');
     case 'GetAnimVarNode':                  return new GetAnimVarNode(d.varName || 'speed', d.varType || 'number');
     // Widget / UI nodes
-    case 'CreateWidgetNode':                return new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
+    case 'CreateWidgetNode': {
+      const n = new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
+      // Restore exposed vars (Expose on Spawn pins)
+      if (d.exposedVars && Array.isArray(d.exposedVars)) {
+        n.setExposedVars(d.exposedVars);
+      } else if (d.widgetBPId && _widgetBPMgr) {
+        const wAsset = _widgetBPMgr.getAsset(d.widgetBPId);
+        if (wAsset) {
+          const exposed = (wAsset.blueprintData.variables || [])
+            .filter((v: any) => v.exposeOnSpawn)
+            .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+          if (exposed.length > 0) n.setExposedVars(exposed);
+        }
+      }
+      return n;
+    }
     case 'AddToViewportNode':               return new AddToViewportNode();
     case 'RemoveFromViewportNode':          return new RemoveFromViewportNode();
     case 'SetWidgetTextNode': {
@@ -5047,6 +6051,27 @@ function createNodeFromData(
       return n;
     }
 
+    // Spawning nodes
+    case 'SpawnActorFromClassNode': {
+      const classId = d.targetClassId || d.controls?.actorClass?.id || '';
+      const className = d.targetClassName || d.controls?.actorClass?.name || '';
+      const n = new SpawnActorFromClassNode(classId, className);
+      // Restore exposed vars (Expose on Spawn pins)
+      if (d.exposedVars && Array.isArray(d.exposedVars)) {
+        n.setExposedVars(d.exposedVars);
+      } else if (classId && _actorAssetMgr) {
+        // Try to rebuild from the actor asset's current blueprint data
+        const asset = _actorAssetMgr.getAsset(classId);
+        if (asset) {
+          const exposed = asset.blueprintData.variables
+            .filter(v => v.exposeOnSpawn)
+            .map(v => ({ name: v.name, type: v.type, varId: v.id }));
+          if (exposed.length > 0) n.setExposedVars(exposed);
+        }
+      }
+      return n;
+    }
+
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -5297,6 +6322,148 @@ async function createGraphEditor(
             );
           };
         }
+        if (data.payload instanceof ActorClassSelectControl) {
+          const ctrl = data.payload as ActorClassSelectControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const [actors, setActors] = React.useState<{ id: string; name: string }[]>([]);
+
+            React.useEffect(() => {
+              if (_actorAssetMgr) {
+                const list = _actorAssetMgr.assets.map(a => ({ id: a.id, name: a.name }));
+                list.sort((a, b) => a.name.localeCompare(b.name));
+                setActors(list);
+              }
+            }, []);
+
+            const handleChange = (e: any) => {
+              const selectedId = e.target.value;
+              const actor = actors.find(a => a.id === selectedId);
+              ctrl.setValue(selectedId, actor?.name ?? '');
+              setVal(selectedId);
+
+              // ------- Expose on Spawn: rebuild pins -------
+              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
+              if (parentNode && _actorAssetMgr) {
+                const asset = _actorAssetMgr.getAsset(selectedId);
+                if (asset) {
+                  const exposed = asset.blueprintData.variables
+                    .filter(v => v.exposeOnSpawn)
+                    .map(v => ({ name: v.name, type: v.type, varId: v.id }));
+                  parentNode.setExposedVars(exposed);
+                  parentNode.targetClassId = selectedId;
+                  parentNode.targetClassName = actor?.name ?? '';
+                } else {
+                  parentNode.setExposedVars([]);
+                }
+                // Force node re-render
+                area.update('node', parentNode.id);
+              }
+            };
+
+            return React.createElement('select', {
+              value: val,
+              onChange: handleChange,
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#ff9800',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: 140,
+              },
+            },
+              React.createElement('option', { value: '', disabled: true }, '-- Select Actor Class --'),
+              ...actors.map(a =>
+                React.createElement('option', { key: a.id, value: a.id }, a.name),
+              ),
+            );
+          };
+        }
+        // ── Refresh Nodes button (Actor Spawn) ──
+        if (data.payload instanceof RefreshNodesControl) {
+          const ctrl = data.payload as RefreshNodesControl;
+          return (_props: any) => {
+            const handleClick = (e: any) => {
+              e.stopPropagation();
+              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
+              if (parentNode && _actorAssetMgr && parentNode.targetClassId) {
+                const asset = _actorAssetMgr.getAsset(parentNode.targetClassId);
+                if (asset) {
+                  const exposed = asset.blueprintData.variables
+                    .filter((v: any) => v.exposeOnSpawn)
+                    .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+                  parentNode.setExposedVars(exposed);
+                  area.update('node', parentNode.id);
+                }
+              }
+            };
+            return React.createElement('button', {
+              onClick: handleClick,
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%', padding: '4px 8px', background: '#2a4a6a',
+                color: '#7ecbff', border: '1px solid #4a9eff', borderRadius: 4,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', marginTop: 2,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              },
+            },
+              React.createElement('svg', {
+                width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none',
+                stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+              },
+                React.createElement('path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }),
+                React.createElement('path', { d: 'M21 3v5h-5' }),
+              ),
+              'Refresh Nodes',
+            );
+          };
+        }
+        // ── Refresh Nodes button (Widget Create) ──
+        if (data.payload instanceof WidgetRefreshNodesControl) {
+          const ctrl = data.payload as WidgetRefreshNodesControl;
+          return (_props: any) => {
+            const handleClick = (e: any) => {
+              e.stopPropagation();
+              const parentNode = (ctrl as any).__parentNode as CreateWidgetNode | undefined;
+              if (parentNode && _widgetBPMgr && parentNode.widgetBPId) {
+                const widgetBP = _widgetBPMgr.getAsset(parentNode.widgetBPId);
+                if (widgetBP) {
+                  const exposed = (widgetBP.blueprintData.variables || [])
+                    .filter((v: any) => v.exposeOnSpawn)
+                    .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+                  parentNode.setExposedVars(exposed);
+                  area.update('node', parentNode.id);
+                }
+              }
+            };
+            return React.createElement('button', {
+              onClick: handleClick,
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%', padding: '4px 8px', background: '#2a4a6a',
+                color: '#7ecbff', border: '1px solid #4a9eff', borderRadius: 4,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', marginTop: 2,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              },
+            },
+              React.createElement('svg', {
+                width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none',
+                stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+              },
+                React.createElement('path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }),
+                React.createElement('path', { d: 'M21 3v5h-5' }),
+              ),
+              'Refresh Nodes',
+            );
+          };
+        }
         if (data.payload instanceof GameInstanceVarNameControl) {
           const ctrl = data.payload as GameInstanceVarNameControl;
           return (_props: any) => {
@@ -5442,6 +6609,11 @@ async function createGraphEditor(
                       if (parentNode.eventControl) {
                         parentNode.eventControl.setAvailableEvents([]);
                       }
+                      // Clear Expose on Spawn pins
+                      if (typeof parentNode.setExposedVars === 'function') {
+                        parentNode.setExposedVars([]);
+                        area.update('node', parentNode.id);
+                      }
                     }
                   },
                   style: {
@@ -5503,6 +6675,15 @@ async function createGraphEditor(
                               }));
                               parentNode.eventControl.setAvailableEvents(events);
                               console.log(`[NodeEditor] Populated ${events.length} events for widget "${w.name}"`);
+                            }
+
+                            // Expose on Spawn: rebuild dynamic pins
+                            if (typeof parentNode.setExposedVars === 'function') {
+                              const exposed = (widgetBP.blueprintData.variables || [])
+                                .filter((v: any) => v.exposeOnSpawn)
+                                .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+                              parentNode.setExposedVars(exposed);
+                              area.update('node', parentNode.id);
                             }
                           }
                         }

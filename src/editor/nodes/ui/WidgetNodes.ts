@@ -75,10 +75,20 @@ export class WidgetSelectorControl extends ClassicPreset.Control {
   }
 }
 
+// ── Refresh Nodes Control (for rebuild Expose on Spawn pins) ──
+export class WidgetRefreshNodesControl extends ClassicPreset.Control {
+  public onClick: (() => void) | null = null;
+  constructor() {
+    super();
+  }
+}
+
 // ── Create Widget ───────────────────────────────────────────
 export class CreateWidgetNode extends ClassicPreset.Node {
   public widgetBPId: string;
   public widgetBPName: string;
+  /** Expose on Spawn variable pins (dynamically added) */
+  public exposedVars: { name: string; type: VarType; varId: string }[] = [];
 
   constructor(bpId: string = '', bpName: string = '(none)') {
     super('Create Widget');
@@ -89,8 +99,30 @@ export class CreateWidgetNode extends ClassicPreset.Node {
     // Keep a back-reference so the renderer can sync fields
     (selectCtrl as any)._parentNode = this;
     this.addControl('widgetBP', selectCtrl);
+
+    // Refresh Nodes button — re-checks Expose on Spawn vars
+    const refreshCtrl = new WidgetRefreshNodesControl();
+    (refreshCtrl as any).__parentNode = this;
+    this.addControl('refreshNodes', refreshCtrl);
+
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('widget', new ClassicPreset.Output(widgetSocket, 'Widget'));
+  }
+
+  /**
+   * Rebuild Expose on Spawn pins.
+   * Called when the user selects/changes the widget blueprint or clicks Refresh.
+   */
+  setExposedVars(vars: { name: string; type: VarType; varId: string }[]): void {
+    // Remove old exposed pins
+    for (const v of this.exposedVars) {
+      try { this.removeInput(`exposed_${v.varId}`); } catch { /* pin may not exist */ }
+    }
+    this.exposedVars = vars;
+    // Add new exposed pins
+    for (const v of vars) {
+      this.addInput(`exposed_${v.varId}`, new ClassicPreset.Input(socketForType(v.type), `[E] ${v.name}`));
+    }
   }
 }
 registerNode('Create Widget', 'UI', () => new CreateWidgetNode());

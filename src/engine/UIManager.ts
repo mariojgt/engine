@@ -207,7 +207,7 @@ export class UIManager {
    * Create a widget instance from a blueprint ID.
    * Returns a handle string used by all other API calls.
    */
-  createWidget(blueprintId: string): string {
+  createWidget(blueprintId: string, overrides?: Record<string, any> | null): string {
     const bp = this._blueprintResolver?.(blueprintId);
     if (!bp) {
       console.warn(`[UIManager] Widget blueprint "${blueprintId}" not found`);
@@ -235,6 +235,13 @@ export class UIManager {
       __functions: {}, // Stores widget functions
       __events: {},    // Stores widget custom events
     };
+
+    // Apply Expose on Spawn overrides — pre-seed state variables
+    if (overrides) {
+      for (const [key, val] of Object.entries(overrides)) {
+        state.__variables[key] = val;
+      }
+    }
 
     const inst: WidgetInstance = {
       handle,

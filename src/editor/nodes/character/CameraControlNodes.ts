@@ -5,7 +5,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, boolSocket, registerNode } from '../sockets';
 
 // ---- Add Controller Yaw Input ----
 
@@ -65,7 +65,7 @@ export class SetMouseLockEnabledNode extends ClassicPreset.Node {
   constructor() {
     super('Set Mouse Lock Enabled');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('enabled', new ClassicPreset.Input(numSocket, 'Enabled')); // boolean treated as number
+    this.addInput('enabled', new ClassicPreset.Input(boolSocket, 'Enabled'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -77,7 +77,7 @@ registerNode('Set Mouse Lock Enabled', 'Camera Control', () => new SetMouseLockE
 export class GetMouseLockStatusNode extends ClassicPreset.Node {
   constructor() {
     super('Is Mouse Locked');
-    this.addOutput('locked', new ClassicPreset.Output(numSocket, 'Locked'));
+    this.addOutput('locked', new ClassicPreset.Output(boolSocket, 'Locked'));
   }
 }
 

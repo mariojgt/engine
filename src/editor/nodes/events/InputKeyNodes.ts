@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete';
-import { execSocket, registerNode } from '../sockets';
+import { execSocket, boolSocket, registerNode } from '../sockets';
 
 // ============================================================
 //  Common key list — displayed in the dropdown
@@ -95,7 +95,6 @@ export class IsKeyDownNode extends ClassicPreset.Node {
     super('Is Key Down');
     this.selectedKey = key;
     this.addControl('key', new KeySelectControl(key));
-    const boolSocket = new ClassicPreset.Socket('Boolean');
     this.addOutput('value', new ClassicPreset.Output(boolSocket, 'Is Down'));
   }
 }

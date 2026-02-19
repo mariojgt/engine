@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
 import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType, SkeletalMeshConfig } from '../editor/ActorAsset';
-import { defaultLightConfig } from '../editor/ActorAsset';
+import { defaultLightConfig, ActorAssetManager } from '../editor/ActorAsset';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
@@ -42,6 +42,20 @@ export class Scene {
   public threeScene: THREE.Scene;
   public gameObjects: GameObject[] = [];
   public selectedObject: GameObject | null = null;
+
+  /**
+   * Optional reference to the ActorAssetManager.
+   * Set by the editor/engine so runtime spawning can look up actor classes.
+   */
+  public assetManager: ActorAssetManager | null = null;
+
+  /**
+   * Runtime references — set by Engine at play start, cleared at play stop.
+   * Used by spawnActorFromClass to build a proper ScriptContext for spawned actors.
+   */
+  public _runtimePhysics: any = null;
+  public _runtimeUiManager: any = null;
+  public _runtimePrint: ((v: any) => void) | null = null;
 
   /** Pending mesh load promises — awaited before physics play to avoid race conditions */
   private _pendingMeshLoads: Promise<void>[] = [];
@@ -239,6 +253,120 @@ export class Scene {
       go.scripts[0].compile();
     }
 
+    return go;
+  }
+
+  /**
+   * Runtime spawning: create a new actor instance from an ActorAsset class.
+   * Called by blueprint-generated code: `__scene.spawnActorFromClass(classId, className, pos, rot, scale, owner, overrides)`
+   */
+  spawnActorFromClass(
+    classId: string,
+    className: string,
+    position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number },
+    scale: { x: number; y: number; z: number },
+    owner: any,
+    overrides: Record<string, any> | null,
+  ): GameObject | null {
+    if (!this.assetManager) {
+      console.warn('[Scene] spawnActorFromClass: no assetManager — cannot look up class', className);
+      return null;
+    }
+
+    const asset = this.assetManager.getAsset(classId);
+    if (!asset) {
+      console.warn('[Scene] spawnActorFromClass: asset not found for id', classId, className);
+      return null;
+    }
+
+    // Clone blueprint data from the asset
+    const bpData = asset.blueprintData;
+    let origVars: typeof bpData.variables | null = null;
+
+    // Apply Expose on Spawn overrides — temporarily swap variable defaults
+    if (overrides) {
+      const varsClone = structuredClone(bpData.variables);
+      for (const v of varsClone) {
+        if (v.exposeOnSpawn && overrides.hasOwnProperty(v.name)) {
+          v.defaultValue = overrides[v.name];
+        }
+      }
+      origVars = bpData.variables;
+      bpData.variables = varsClone;
+    }
+
+    const go = this.addGameObjectFromAsset(
+      asset.id,
+      asset.name,
+      asset.rootMeshType,
+      bpData,
+      position,
+      asset.components,
+      asset.compiledCode,
+      asset.rootPhysics,
+      asset.actorType,
+      asset.characterPawnConfig,
+      asset.controllerClass,
+      asset.controllerBlueprintId,
+      asset.rootMaterialOverrides,
+    );
+
+    // Restore original variables on the asset if we swapped them
+    if (origVars) {
+      bpData.variables = origVars;
+    }
+
+    // Patch compiled code with override values and re-compile before beginPlay
+    // The compiled code has defaults baked in as literals (e.g. "let __var_Health = 100;")
+    // We need to replace those with the overridden values so the script starts with correct state.
+    if (overrides && go.scripts.length > 0) {
+      let code = go.scripts[0].code;
+      for (const [name, value] of Object.entries(overrides)) {
+        const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
+        // Match: let __var_<name> = <anything>;
+        const regex = new RegExp(`(let __var_${safeName}\\s*=\\s*)([^;]*)(;)`);
+        let serialized: string;
+        if (value === null || value === undefined) {
+          serialized = 'null';
+        } else if (typeof value === 'object') {
+          serialized = JSON.stringify(value);
+        } else if (typeof value === 'string') {
+          serialized = JSON.stringify(value);
+        } else if (typeof value === 'boolean') {
+          serialized = value ? 'true' : 'false';
+        } else {
+          serialized = String(value);
+        }
+        code = code.replace(regex, `$1${serialized}$3`);
+      }
+      go.scripts[0].code = code;
+      go.scripts[0].compile();
+    }
+
+    // Apply rotation and scale
+    go.mesh.rotation.set(rotation.x, rotation.y, rotation.z);
+    go.mesh.scale.set(scale.x, scale.y, scale.z);
+
+    // Fire BeginPlay on the spawned actor's scripts immediately
+    const printFn = this._runtimePrint ?? ((v: any) => console.log('[Print]', v));
+    for (const script of go.scripts) {
+      const ctx: import('./ScriptComponent').ScriptContext = {
+        gameObject: go,
+        deltaTime: 0,
+        elapsedTime: 0,
+        print: printFn,
+        physics: this._runtimePhysics,
+        scene: this,
+        uiManager: this._runtimeUiManager,
+        meshAssetManager: MeshAssetManager.getInstance(),
+        loadMeshFromAsset,
+        buildThreeMaterialFromAsset,
+      };
+      script.beginPlay(ctx);
+    }
+
+    console.log(`[Scene] spawnActorFromClass: spawned "${asset.name}" at (${position.x}, ${position.y}, ${position.z})`);
     return go;
   }
 

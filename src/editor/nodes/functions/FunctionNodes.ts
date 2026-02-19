@@ -1,18 +1,7 @@
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, getStructSocket } from '../sockets';
+import { execSocket } from '../sockets';
+import { socketForType } from '../variables/VariableNodes';
 import type { VarType } from '../../BlueprintData';
-
-function socketForType(type: VarType): ClassicPreset.Socket {
-  switch (type) {
-    case 'Float':   return numSocket;
-    case 'Boolean': return boolSocket;
-    case 'Vector3': return vec3Socket;
-    case 'String':  return strSocket;
-    default:
-      if (type.startsWith('Struct:')) return getStructSocket(type);
-      return numSocket;
-  }
-}
 
 // ============================================================
 //  Function Entry Node — placed inside function graphs

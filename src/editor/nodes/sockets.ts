@@ -83,6 +83,13 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Character':     '#2E7D32',
   'Casting':       '#0D47A1',
   'Animation':     '#E65100',
+  // New categories
+  'String':        '#9C27B0',
+  'Spawning':      '#FF5722',
+  'Actor':         '#3F51B5',
+  'Timer':         '#009688',
+  'World':         '#795548',
+  'Player':        '#607D8B',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -107,6 +114,13 @@ export function getCategoryIcon(cat: string): string {
     case 'Character':     return '▸';
     case 'Casting':       return '◆';
     case 'Animation':     return '▷';
+    // New categories
+    case 'String':        return '❝';
+    case 'Spawning':      return '✦';
+    case 'Actor':         return '▣';
+    case 'Timer':         return '⏱';
+    case 'World':         return '◎';
+    case 'Player':        return '▶';
     default:              return '●';
   }
 }

@@ -15,8 +15,6 @@ import { TextureLibrary } from './editor/TextureLibrary';
 import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager } from './editor/NodeEditorPanel';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
-import { createIcon, ICON_COLORS } from './editor/icons';
-import { Feather, Play, Square, Plus, FolderOpen, Clapperboard, Save } from 'lucide';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -30,14 +28,8 @@ async function main() {
   const toolbar = document.createElement('div');
   toolbar.className = 'toolbar';
 
-  // Build toolbar with Lucide icons
-  const titleSpan = document.createElement('span');
-  titleSpan.className = 'toolbar-title';
-  titleSpan.appendChild(createIcon(Feather, 14, ICON_COLORS.blue));
-  titleSpan.appendChild(document.createTextNode(' Feather Engine'));
-  toolbar.appendChild(titleSpan);
-
-  toolbar.insertAdjacentHTML('beforeend', `
+  toolbar.innerHTML = `
+    <span class="toolbar-title">🪶 Feather Engine</span>
     <div class="toolbar-separator"></div>
     <div class="toolbar-dropdown" id="file-menu">
       <button class="toolbar-btn" id="btn-file">File ▾</button>
@@ -53,48 +45,16 @@ async function main() {
       </div>
     </div>
     <div class="toolbar-separator"></div>
-  `);
-
-  // Play button with Lucide icon
-  const playBtn = document.createElement('button');
-  playBtn.className = 'toolbar-btn play';
-  playBtn.id = 'btn-play';
-  playBtn.appendChild(createIcon(Play, 13, ICON_COLORS.green));
-  playBtn.appendChild(document.createTextNode(' Play'));
-  toolbar.appendChild(playBtn);
-
-  // Stop button with Lucide icon
-  const stopBtn = document.createElement('button');
-  stopBtn.className = 'toolbar-btn stop';
-  stopBtn.id = 'btn-stop';
-  stopBtn.style.display = 'none';
-  stopBtn.appendChild(createIcon(Square, 13, ICON_COLORS.red));
-  stopBtn.appendChild(document.createTextNode(' Stop'));
-  toolbar.appendChild(stopBtn);
-
-  toolbar.insertAdjacentHTML('beforeend', '<div class="toolbar-separator"></div>');
-
-  // Add Cube/Sphere buttons with Lucide icon
-  const addCubeBtn = document.createElement('button');
-  addCubeBtn.className = 'toolbar-btn';
-  addCubeBtn.id = 'btn-add-cube';
-  addCubeBtn.appendChild(createIcon(Plus, 12, ICON_COLORS.muted));
-  addCubeBtn.appendChild(document.createTextNode(' Cube'));
-  toolbar.appendChild(addCubeBtn);
-
-  const addSphereBtn = document.createElement('button');
-  addSphereBtn.className = 'toolbar-btn';
-  addSphereBtn.id = 'btn-add-sphere';
-  addSphereBtn.appendChild(createIcon(Plus, 12, ICON_COLORS.muted));
-  addSphereBtn.appendChild(document.createTextNode(' Sphere'));
-  toolbar.appendChild(addSphereBtn);
-
-  toolbar.insertAdjacentHTML('beforeend', `
+    <button class="toolbar-btn play" id="btn-play">▶ Play</button>
+    <button class="toolbar-btn stop" id="btn-stop" style="display:none">■ Stop</button>
+    <div class="toolbar-separator"></div>
+    <button class="toolbar-btn" id="btn-add-cube">+ Cube</button>
+    <button class="toolbar-btn" id="btn-add-sphere">+ Sphere</button>
     <div class="toolbar-spacer"></div>
     <span class="toolbar-scene-name" id="toolbar-scene-name"></span>
     <div class="toolbar-separator"></div>
     <span class="toolbar-project-name" id="toolbar-project-name"></span>
-  `);
+  `;
   app.appendChild(toolbar);
 
   // Editor container
@@ -107,6 +67,8 @@ async function main() {
 
   // Wire asset manager into the engine for controller blueprint resolution
   engine.assetManager = editor.assetManager;
+  // Also wire into the scene so runtime spawnActorFromClass can look up actor assets
+  engine.scene.assetManager = editor.assetManager;
 
   // Create texture and font libraries (singletons used by widget editor)
   new TextureLibrary();
@@ -204,8 +166,8 @@ async function main() {
   const sceneNameEl = document.getElementById('toolbar-scene-name')!;
   function updateProjectName() {
     if (projectManager.isProjectOpen) {
-      projectNameEl.textContent = projectManager.projectName;
-      sceneNameEl.textContent = projectManager.activeSceneName;
+      projectNameEl.textContent = `📁 ${projectManager.projectName}`;
+      sceneNameEl.textContent = `🎬 ${projectManager.activeSceneName}`;
     } else {
       projectNameEl.textContent = '';
       sceneNameEl.textContent = '';
@@ -214,14 +176,14 @@ async function main() {
 
   // Keep scene name in sync when ProjectManager switches scenes
   projectManager.onSceneChanged = (name: string) => {
-    sceneNameEl.textContent = name;
+    sceneNameEl.textContent = `🎬 ${name}`;
   };
 
   // Wire save handler for blueprint editor Compile/Save buttons
   editor.setSaveHandler(async () => {
     if (projectManager.isProjectOpen) {
       await projectManager.saveProject();
-      projectNameEl.textContent = 'Saved!';
+      projectNameEl.textContent = `💾 Saved!`;
       setTimeout(updateProjectName, 1500);
     }
   });
@@ -269,7 +231,7 @@ async function main() {
     const ok = await projectManager.createScene(name);
     if (ok) {
       updateProjectName();
-      projectNameEl.textContent = 'Scene created!';
+      projectNameEl.textContent = `🎬 Scene created!`;
       setTimeout(updateProjectName, 1500);
     }
   });
@@ -310,16 +272,21 @@ async function main() {
       if (projectManager.isProjectOpen) {
         await projectManager.saveProject();
         // Brief visual feedback
-        projectNameEl.textContent = 'Saved!';
+        projectNameEl.textContent = `💾 Saved!`;
         setTimeout(updateProjectName, 1500);
       }
     }
   });
 
   // --- Toolbar button handlers ---
+  const playBtn = document.getElementById('btn-play')!;
+  const stopBtn = document.getElementById('btn-stop')!;
 
   // Track gameplay window
   let gameplayWindow: any = null;
+
+  // Track which GOs existed before play so we can remove runtime-spawned ones on stop
+  let prePlayGameObjectIds = new Set<number>();
 
   playBtn.addEventListener('click', async () => {
     // ── 1. Fully re-sync all actor-asset instances from their latest asset ──
@@ -371,6 +338,9 @@ async function main() {
       }
       (go as any)._savedChildren = childSnaps;
     }
+
+    // ── 2c. Record which GOs exist pre-play so we can cleanup runtime-spawned actors on Stop ──
+    prePlayGameObjectIds = new Set(engine.scene.gameObjects.map(go => go.id));
 
     // ── 3. Ensure compiled code is up-to-date ──
     for (const go of engine.scene.gameObjects) {
@@ -576,6 +546,12 @@ async function main() {
     if (sceneWasRestored) {
       console.log('[Editor] Pre-play scene restored from disk after runtime scene change');
     } else {
+      // ── Remove actors that were spawned at runtime (not in the pre-play set) ──
+      const spawnedAtRuntime = engine.scene.gameObjects.filter(go => !prePlayGameObjectIds.has(go.id));
+      for (const go of spawnedAtRuntime) {
+        engine.scene.removeGameObject(go);
+      }
+
       // ── Restore FULL saved state (in-place, no scene change happened) ──
       for (const go of engine.scene.gameObjects) {
         // Position, rotation, scale
@@ -748,7 +724,7 @@ function showScenePickerDialog(
       const isActive = s === activeScene;
       return `
         <div class="scene-picker-item ${isActive ? 'active' : ''}" data-scene="${s}">
-          <span class="scene-picker-icon">${isActive ? '▸' : '○'}</span>
+          <span class="scene-picker-icon">${isActive ? '🎬' : '📄'}</span>
           <span class="scene-picker-name">${s}</span>
           ${isActive ? '<span class="scene-picker-badge">Current</span>' : ''}
         </div>

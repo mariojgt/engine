@@ -13,7 +13,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, strSocket, objectSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, boolSocket, strSocket, objectSocket, registerNode } from '../sockets';
 
 // ============================================================
 //  On Trigger Begin Overlap
@@ -117,8 +117,7 @@ registerNode('On Collision Hit', 'Collision', () => new OnCollisionHitNode());
 export class IsOverlappingActorNode extends ClassicPreset.Node {
   constructor() {
     super('Is Overlapping Actor');
-    this.addOutput('result', new ClassicPreset.Output(
-      new ClassicPreset.Socket('Boolean'), 'Is Overlapping'));
+    this.addOutput('result', new ClassicPreset.Output(boolSocket, 'Is Overlapping'));
   }
 }
 
@@ -145,8 +144,7 @@ export class SetCollisionEnabledNode extends ClassicPreset.Node {
   constructor() {
     super('Set Collision Enabled');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('enabled', new ClassicPreset.Input(
-      new ClassicPreset.Socket('Boolean'), 'Enabled'));
+    this.addInput('enabled', new ClassicPreset.Input(boolSocket, 'Enabled'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
