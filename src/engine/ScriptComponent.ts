@@ -21,6 +21,10 @@ export interface ScriptContext {
   buildThreeMaterialFromAsset?: any;
   /** Engine reference for player controllers, camera, etc. */
   engine?: any;
+  /** GameInstance reference for cross-level persistent state */
+  gameInstance?: any;
+  /** ProjectManager reference */
+  projectManager?: any;
 }
 
 /**
@@ -104,7 +108,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __engine;
+  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __engine, __gameInstance;
 
 ${preamble}
 
@@ -125,6 +129,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
   ${beginPlay}
 };` : ''}
 
@@ -141,6 +146,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
   ${tick}
 };` : ''}
 
@@ -157,6 +163,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   __loadMeshFromAsset = ctx.loadMeshFromAsset || null;
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
   ${onDestroy}
 };` : ''}
 

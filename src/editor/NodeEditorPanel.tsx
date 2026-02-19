@@ -357,6 +357,13 @@ export function setActorAssetManager(mgr: ActorAssetManager): void {
 }
 
 // ============================================================
+//  Module-level flag: are we compiling an Animation Blueprint?
+//  When true, SetVariable nodes skip _scriptVars sync to avoid
+//  overwriting the pawn's own variables.
+// ============================================================
+let _isAnimBlueprint = false;
+
+// ============================================================
 //  Module-level reference to WidgetBlueprintManager
 //  (set once at startup so Create Widget picker can list widgets)
 // ============================================================
@@ -1631,7 +1638,10 @@ function genAction(
       }
     }
     // Sync closure-local variable to _scriptVars so cross-actor GetActorVariable reads the latest value
-    lines.push(`if (gameObject && gameObject._scriptVars) gameObject._scriptVars[${JSON.stringify(node.varName)}] = __var_${vn};`);
+    // For AnimBP: skip _scriptVars sync to avoid overwriting pawn's own variables
+    if (!_isAnimBlueprint) {
+      lines.push(`if (gameObject && gameObject._scriptVars) gameObject._scriptVars[${JSON.stringify(node.varName)}] = __var_${vn};`);
+    }
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2205,7 +2215,9 @@ function generateFullCode(
   bp: import('./BlueprintData').BlueprintData,
   functionEditors: Map<string, NodeEditor<Schemes>>,
   isWidgetBlueprint: boolean = false,
+  isAnimBlueprint: boolean = false,
 ): string {
+  _isAnimBlueprint = isAnimBlueprint;
   const parts: string[] = [];
 
   // Variable declarations
@@ -2494,7 +2506,9 @@ function generateFullCode(
 
   // For Actor Blueprints: Expose functions & variables on gameObject for remote access
   // For Widget Blueprints: Skip this section (no gameObject in widget context)
-  if (!isWidgetBlueprint) {
+  // For Anim Blueprints: Skip _scriptVars/_scriptFunctions/_scriptEvents export to avoid
+  //   overwriting the pawn's own variables (gameObject IS the pawn in AnimBP context)
+  if (!isWidgetBlueprint && !isAnimBlueprint) {
     if (bp.functions.length > 0) {
       const fnExports: string[] = [];
       for (const fn of bp.functions) {
@@ -2523,6 +2537,18 @@ function generateFullCode(
     if (sections.length) parts.push(sections.join('\n'));
   }
 
+  // For Animation Blueprints: Variables live in the AnimBP's own closure,
+  // NOT on the pawn's _scriptVars. The AnimBP can read the pawn's variables
+  // via CastTo → GetActorVariable (which reads pawn._scriptVars correctly).
+  if (isAnimBlueprint) {
+    const sections: string[] = [];
+    if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
+    if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
+    if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
+    if (sections.length) parts.push(sections.join('\n'));
+  }
+
+  _isAnimBlueprint = false;
   return parts.join('\n');
 }
 
@@ -7065,9 +7091,10 @@ interface NodeEditorViewProps {
   components?: ActorComponentData[];
   rootMeshType?: string;
   widgetList?: Array<{ name: string; type: string }>;
+  isAnimBlueprint?: boolean;
 }
 
-function NodeEditorView({ gameObject, components, rootMeshType, widgetList }: NodeEditorViewProps) {
+function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAnimBlueprint }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -7169,7 +7196,7 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList }: No
         return;
       }
       console.log('[NodeEditor] Compiling widget blueprint event graph...');
-      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList);
+      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList, !!isAnimBlueprint);
       console.log('[NodeEditor] Generated code length:', code.length, 'characters');
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
       gameObject.scripts[0].code = code;
@@ -7599,6 +7626,7 @@ export function mountNodeEditorForAsset(
   components?: ActorComponentData[],
   rootMeshType?: string,
   widgetList?: Array<{ name: string; type: string }>,
+  isAnimBlueprint?: boolean,
 ): () => void {
   // Create a virtual GameObject that shares the asset's blueprint data
   const dummyMesh = new THREE.Mesh(
@@ -7637,6 +7665,7 @@ export function mountNodeEditorForAsset(
     components: components,
     rootMeshType: rootMeshType,
     widgetList: widgetList,
+    isAnimBlueprint: isAnimBlueprint,
   }));
   return () => root.unmount();
 }

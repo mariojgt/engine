@@ -2252,6 +2252,10 @@ export class AnimBlueprintEditorPanel {
         this._asset.touch();
         this._onSave?.();
       },
+      undefined,  // components
+      undefined,  // rootMeshType
+      undefined,  // widgetList
+      true,       // isAnimBlueprint — prevents _scriptVars pollution on the pawn
     );
 
     // Auto-compile once the editor initializes so compiledCode exists.

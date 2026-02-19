@@ -72,6 +72,10 @@ export class AnimationInstance {
   public sceneRef: any = null;
   public physicsRef: any = null;
   public printFn: ((value: any) => void) | null = null;
+  /** Additional runtime references for full script context parity */
+  public uiManagerRef: any = null;
+  public engineRef: any = null;
+  public gameInstanceRef: any = null;
   /** Elapsed time accumulator for script context */
   private _elapsedTime = 0;
 
@@ -285,6 +289,9 @@ export class AnimationInstance {
       physics: this.physicsRef,
       scene: this.sceneRef,
       animInstance: this,
+      uiManager: this.uiManagerRef,
+      engine: this.engineRef,
+      gameInstance: this.gameInstanceRef,
     };
 
     // Run beginPlay once
