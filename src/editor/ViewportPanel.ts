@@ -15,6 +15,7 @@ import { ObjectOperationsManager } from './viewport/ObjectOperationsManager';
 import { ViewportGrid } from './viewport/ViewportGrid';
 import { ViewportToolbar, type ViewportDisplayMode } from './viewport/ViewportToolbar';
 import { ViewportContextMenu, buildViewportContextMenuItems } from './viewport/ViewportContextMenu';
+import { PhysicsDebugRenderer } from './viewport/PhysicsDebugRenderer';
 import { ActorAssetManager } from './ActorAsset';
 
 export class ViewportPanel {
@@ -34,6 +35,7 @@ export class ViewportPanel {
   private _grid!: ViewportGrid;
   private _toolbar!: ViewportToolbar;
   private _contextMenu!: ViewportContextMenu;
+  private _physicsDebug!: PhysicsDebugRenderer;
 
   /* Composition manager link (set after construction) */
   private _composition: SceneCompositionManager | null = null;
@@ -73,10 +75,11 @@ export class ViewportPanel {
       this._initSubSystems();
     } catch (err) {
       console.warn('WebGL not available:', err);
-      container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--color-text-muted);font-size:14px;text-align:center;padding:20px;">
+      container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#888;font-size:14px;text-align:center;padding:20px;">
         <div>
-          <div style="font-size:14px;margin-bottom:8px;color:var(--color-text-secondary);">3D Viewport requires WebGL</div>
-          <div style="font-size:12px;color:var(--color-text-muted);">Run in Tauri or a WebGL-capable browser</div>
+          <div style="font-size:40px;margin-bottom:12px;">🎮</div>
+          <div>3D Viewport requires WebGL</div>
+          <div style="font-size:12px;margin-top:8px;color:#666;">Run in Tauri or a WebGL-capable browser</div>
         </div>
       </div>`;
     }
@@ -220,7 +223,11 @@ export class ViewportPanel {
       },
       onToggleBounds: () => { /* bounds toggle — can be implemented later */ },
       onToggleStats: () => { /* handled internally by toolbar */ },
+      onTogglePhysicsDebug: () => { this._physicsDebug.toggle(); },
     });
+
+    // ---- Physics Debug ----
+    this._physicsDebug = new PhysicsDebugRenderer(this._engine);
 
     // ---- Events ----
     this._setupEvents();
@@ -603,11 +610,27 @@ export class ViewportPanel {
     const deltaTime = (now - this._lastFrameTime) / 1000;
     this._lastFrameTime = now;
 
-    // Play mode → render through EffectComposer so PostProcess effects apply
+    // Play mode → simple render
     if (this._playCamera) {
-      if (this._selectionManager) {
-        this._selectionManager.render();
-      } else if (this._renderer) {
+      if (this._renderer) {
+        const sceneBackground = this._engine.scene.threeScene.background;
+        const sceneEnv = this._engine.scene.threeScene.environment;
+        
+        // Log sky object info
+        let skySphereMesh: THREE.Object3D | null = null;
+        this._engine.scene.threeScene.children.forEach(child => {
+          if ((child as any).__isSceneCompositionHelper) {
+            skySphereMesh = child;
+            console.log('[Viewport] Found sky mesh:', child.type, 'visible:', child.visible, 'renderOrder:', (child as any).renderOrder);
+          }
+        });
+        if (!skySphereMesh) {
+          console.log('[Viewport] WARNING: No sky sphere mesh found in scene!');
+        }
+        
+        const bgStr = sceneBackground ? ((sceneBackground as any).isColor ? 'Color: ' + (sceneBackground as THREE.Color).getHexString() : 'Texture') : 'null';
+        console.log('[Viewport] Play render - background:', bgStr);
+        console.log('[Viewport] Play render - environment:', sceneEnv ? 'SET' : 'null');
         this._renderer.render(this._engine.scene.threeScene, this._playCamera);
       }
       return;
@@ -637,6 +660,9 @@ export class ViewportPanel {
 
     // Update volumetric effects from composition
     this._updateVolumetricEffects();
+
+    // Update physics debug overlay
+    this._physicsDebug.update();
 
     // Render scene with post-processing (selection outlines)
     if (this._selectionManager) {
@@ -692,22 +718,13 @@ export class ViewportPanel {
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      // Swap camera on EffectComposer so PostProcess effects apply to play camera
-      if (this._selectionManager) {
-        this._selectionManager.setCamera(cam);
-        // Disable selection outlines during play
-        this._selectionManager.clearSelection();
-      }
-      // EffectComposer handles gamma via GammaCorrectionShader → keep LinearSRGB
-      if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+      // Play mode renders directly (no EffectComposer) → need sRGB output
+      if (this._renderer) this._renderer.outputColorSpace = THREE.SRGBColorSpace;
       // Disable camera controls + gizmo during play
       this._cameraController.setEnabled(false);
       this._gizmo.detach();
     } else {
-      // Back to editor → restore editor camera on composer
-      if (this._selectionManager) {
-        this._selectionManager.setCamera(this._camera);
-      }
+      // Back to editor → EffectComposer handles gamma via GammaCorrectionShader
       if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       this._cameraController.setEnabled(true);
     }

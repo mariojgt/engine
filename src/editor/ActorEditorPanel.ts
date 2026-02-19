@@ -19,7 +19,6 @@ import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig
 import type { CameraMode, SpringArmConfig, CameraComponentConfig } from '../engine/CharacterPawnData';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
-import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -167,8 +166,8 @@ export class ActorEditorPanel {
       tabsLeft.appendChild(tab);
     };
 
-    makeTab('Viewport', 'viewport');
-    makeTab('Event Graph', 'graph');
+    makeTab('🎮 Viewport', 'viewport');
+    makeTab('⬡ Event Graph', 'graph');
     this._tabBar.appendChild(tabsLeft);
 
     // ── Right side: Compile + Save buttons (UE-style toolbar) ──
@@ -199,7 +198,7 @@ export class ActorEditorPanel {
     // Save button
     const saveBtn = document.createElement('button');
     saveBtn.className = 'ae-toolbar-btn ae-save-btn';
-    saveBtn.innerHTML = `${iconHTML(Icons.Save, 12, ICON_COLORS.blue)} Save`;
+    saveBtn.innerHTML = '💾 Save';
     saveBtn.title = 'Save all (Ctrl+S)';
     saveBtn.addEventListener('click', () => this._doSave());
     toolbarRight.appendChild(saveBtn);
@@ -219,17 +218,17 @@ export class ActorEditorPanel {
     const btn = this._compileBtnEl;
     switch (this._compileStatus) {
       case 'compiled':
-        btn.innerHTML = `${iconHTML(Icons.CheckCircle, 12, ICON_COLORS.success)} Compile`;
+        btn.innerHTML = '✅ Compile';
         btn.classList.remove('ae-compile-dirty', 'ae-compile-error');
         btn.classList.add('ae-compile-ok');
         break;
       case 'dirty':
-        btn.innerHTML = `${iconHTML(Icons.Loader2, 12, ICON_COLORS.warning)} Compile`;
+        btn.innerHTML = '🔨 Compile';
         btn.classList.remove('ae-compile-ok', 'ae-compile-error');
         btn.classList.add('ae-compile-dirty');
         break;
       case 'error':
-        btn.innerHTML = `${iconHTML(Icons.XCircle, 12, ICON_COLORS.error)} Compile`;
+        btn.innerHTML = '❌ Compile';
         btn.classList.remove('ae-compile-ok', 'ae-compile-dirty');
         btn.classList.add('ae-compile-error');
         break;
@@ -305,7 +304,7 @@ export class ActorEditorPanel {
   private _flashSaveStatus(): void {
     if (!this._compileStatusEl) return;
     const el = this._compileStatusEl;
-    el.textContent = 'Saved!';
+    el.textContent = '💾 Saved!';
     el.className = 'ae-compile-status ae-status-saved';
     setTimeout(() => this._updateCompileStatus(), 1500);
   }
@@ -409,12 +408,12 @@ export class ActorEditorPanel {
 
     const isPC = this._asset.actorType === 'playerController';
     const typeLabel = isPC ? 'Player Controller' : 'AI Controller';
-    const headerIcon = isPC ? iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor) : iconHTML(Icons.Camera, 12, ICON_COLORS.actor);
+    const emoji = isPC ? '🎮' : '🤖';
 
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'physics-section-header';
-    hdr.innerHTML = `${headerIcon} ${typeLabel} Blueprint`;
+    hdr.textContent = `${emoji} ${typeLabel} Blueprint`;
     wrap.appendChild(hdr);
 
     // Description
@@ -471,21 +470,19 @@ export class ActorEditorPanel {
           ? 'DefaultSceneRoot'
           : 'DefaultSceneRoot (' + this._asset.rootMeshType + ')',
         '__root__',
-        this._asset.rootMeshType === 'none'
-          ? iconHTML(Icons.Circle, 12, ICON_COLORS.blue)
-          : iconHTML(Icons.Box, 12, ICON_COLORS.mesh),
+        this._asset.rootMeshType === 'none' ? '🔵' : '📦',
       ),
     );
 
     // Child components — render with hierarchy indentation
     for (const comp of this._asset.components) {
-      const icon = comp.type === 'trigger' ? iconHTML(Icons.Zap, 12, ICON_COLORS.warning)
-        : comp.type === 'light' ? iconHTML(Icons.Sun, 12, ICON_COLORS.light)
-        : comp.type === 'camera' ? iconHTML(Icons.Camera, 12, ICON_COLORS.camera)
-        : comp.type === 'characterMovement' ? iconHTML(Icons.Move, 12, ICON_COLORS.primary)
-        : comp.type === 'springArm' ? iconHTML(Icons.Target, 12, ICON_COLORS.secondary)
-        : comp.type === 'capsule' ? iconHTML(Icons.Circle, 12, ICON_COLORS.blue)
-        : iconHTML(Icons.Diamond, 12, ICON_COLORS.muted);
+      const icon = comp.type === 'trigger' ? '⚡'
+        : comp.type === 'light' ? '💡'
+        : comp.type === 'camera' ? '📷'
+        : comp.type === 'characterMovement' ? '🏃'
+        : comp.type === 'springArm' ? '🎯'
+        : comp.type === 'capsule' ? '🔵'
+        : '🔹';
       const indent = comp.parentId ? true : false;
       const item = this._makeComponentItem(comp.name, comp.id, icon);
       if (indent) item.style.paddingLeft = '24px';
@@ -499,7 +496,7 @@ export class ActorEditorPanel {
 
     const iconSpan = document.createElement('span');
     iconSpan.className = 'actor-comp-item-icon';
-    iconSpan.innerHTML = icon;
+    iconSpan.textContent = icon;
     item.appendChild(iconSpan);
 
     const nameSpan = document.createElement('span');
@@ -615,7 +612,7 @@ export class ActorEditorPanel {
       // ── Controller selector ──
       const ctrlHeader = document.createElement('div');
       ctrlHeader.className = 'physics-section-header';
-      ctrlHeader.innerHTML = `${iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor)} Controller`;
+      ctrlHeader.textContent = '🎮 Controller';
       container.appendChild(ctrlHeader);
 
       // Build options list: Default types + any created controller blueprints
@@ -625,7 +622,7 @@ export class ActorEditorPanel {
         for (const a of this._assetManager.assets) {
           if (a.actorType === 'playerController' || a.actorType === 'aiController') {
             controllerBlueprintAssets.push(a);
-            const prefix = a.actorType === 'playerController' ? 'PC:' : 'AI:';
+            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
             controllerOptions.push(`${prefix} ${a.name}`);
           }
         }
@@ -636,7 +633,7 @@ export class ActorEditorPanel {
       if (this._asset.controllerBlueprintId) {
         const bpAsset = controllerBlueprintAssets.find(a => a.id === this._asset.controllerBlueprintId);
         if (bpAsset) {
-          const prefix = bpAsset.actorType === 'playerController' ? 'PC:' : 'AI:';
+          const prefix = bpAsset.actorType === 'playerController' ? '🎮' : '🤖';
           currentValue = `${prefix} ${bpAsset.name}`;
         }
       } else if (this._asset.controllerClass === 'PlayerController') {
@@ -658,7 +655,7 @@ export class ActorEditorPanel {
         } else {
           // A specific controller blueprint was selected
           const bpAsset = controllerBlueprintAssets.find(a => {
-            const prefix = a.actorType === 'playerController' ? 'PC:' : 'AI:';
+            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
             return `${prefix} ${a.name}` === v;
           });
           if (bpAsset) {
@@ -721,7 +718,7 @@ export class ActorEditorPanel {
     // ── Section header ──
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.innerHTML = `${iconHTML(Icons.Palette, 12, ICON_COLORS.material)} Material Slots`;
+    header.textContent = '🎨 Material Slots';
     container.appendChild(header);
 
     // Build all available material options
@@ -983,7 +980,7 @@ export class ActorEditorPanel {
 
         const profileHeader = document.createElement('div');
         profileHeader.className = 'physics-section-header';
-        profileHeader.innerHTML = `${iconHTML(Icons.Zap, 12, ICON_COLORS.warning)} Collision Profile`;
+        profileHeader.textContent = '🛡️ Collision Profile';
         profileSection.appendChild(profileHeader);
 
         const profileBody = document.createElement('div');
@@ -1093,7 +1090,7 @@ export class ActorEditorPanel {
       if (this._animBPManager && this._animBPManager.assets.length > 0) {
         const abpHeader = document.createElement('div');
         abpHeader.className = 'prop-section-title';
-        abpHeader.innerHTML = `${iconHTML(Icons.Clapperboard, 12, ICON_COLORS.actor)} Animation Blueprint`;
+        abpHeader.textContent = '🎬 Animation Blueprint';
         container.appendChild(abpHeader);
 
         const abpAssets = this._animBPManager.assets;
@@ -1233,22 +1230,22 @@ export class ActorEditorPanel {
       const allMeshOptions = [
         ...primitiveOptions,
         ...(importedMeshes.length > 0 ? ['──── Imported Meshes ────'] : []),
-        ...importedMeshes.map(m => `▸ ${m.label}`),
+        ...importedMeshes.map(m => `📁 ${m.label}`),
       ];
 
       // Determine current display value
       let currentMeshDisplay: string;
       if (comp.customMeshAssetId) {
         const ma = this._meshManager?.getAsset(comp.customMeshAssetId);
-        currentMeshDisplay = ma ? `▸ ${ma.name}` : '(Missing Mesh)';
+        currentMeshDisplay = ma ? `📁 ${ma.name}` : '(Missing Mesh)';
       } else {
         currentMeshDisplay = comp.meshType.charAt(0).toUpperCase() + comp.meshType.slice(1);
       }
 
       container.appendChild(this._makeDropdownRow('Static Mesh', currentMeshDisplay, allMeshOptions, (v) => {
         if (v.startsWith('────')) return; // separator — ignore
-        if (v.startsWith('▸ ')) {
-          const meshName = v.slice(2);
+        if (v.startsWith('📁 ')) {
+          const meshName = v.slice(3);
           const ma = importedMeshes.find(m => m.label === meshName);
           if (ma) {
             comp.customMeshAssetId = ma.id;
@@ -1310,7 +1307,7 @@ export class ActorEditorPanel {
     // ---- Mesh sub-header ----
     const meshHeader = document.createElement('div');
     meshHeader.className = 'context-menu-header';
-    meshHeader.innerHTML = `${iconHTML(Icons.Box, 12, ICON_COLORS.mesh)} Mesh`;
+    meshHeader.textContent = '📦 Mesh';
     menu.appendChild(meshHeader);
 
     // Static Mesh Component (imported mesh)
@@ -1346,7 +1343,7 @@ export class ActorEditorPanel {
     // ---- Skeletal Mesh sub-header ----
     const skeletalHeader = document.createElement('div');
     skeletalHeader.className = 'context-menu-header';
-    skeletalHeader.innerHTML = `${iconHTML(Icons.Box, 12, ICON_COLORS.mesh)} Skeletal Mesh`;
+    skeletalHeader.textContent = '🦴 Skeletal Mesh';
     menu.appendChild(skeletalHeader);
 
     const addSkeletalMesh = document.createElement('div');
@@ -1362,7 +1359,7 @@ export class ActorEditorPanel {
     // ---- Trigger sub-header ----
     const triggerHeader = document.createElement('div');
     triggerHeader.className = 'context-menu-header';
-    triggerHeader.innerHTML = `${iconHTML(Icons.Zap, 12, ICON_COLORS.warning)} Collision`;
+    triggerHeader.textContent = '⚡ Collision';
     menu.appendChild(triggerHeader);
 
     const triggerTypes: { label: string; shape: CollisionShapeType }[] = [
@@ -1386,7 +1383,7 @@ export class ActorEditorPanel {
     // ---- Light sub-header ----
     const lightHeader = document.createElement('div');
     lightHeader.className = 'context-menu-header';
-    lightHeader.innerHTML = `${iconHTML(Icons.Sun, 12, ICON_COLORS.light)} Light`;
+    lightHeader.textContent = '💡 Light';
     menu.appendChild(lightHeader);
 
     const lightTypes: { label: string; lt: LightType }[] = [
@@ -1412,7 +1409,7 @@ export class ActorEditorPanel {
     // ---- Camera sub-header ----
     const cameraHeader = document.createElement('div');
     cameraHeader.className = 'context-menu-header';
-    cameraHeader.innerHTML = `${iconHTML(Icons.Camera, 12, ICON_COLORS.camera)} Camera`;
+    cameraHeader.textContent = '📷 Camera';
     menu.appendChild(cameraHeader);
 
     const addSpringArm = document.createElement('div');
@@ -1664,7 +1661,7 @@ export class ActorEditorPanel {
     // Section header
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.innerHTML = `${iconHTML(Icons.Zap, 12, ICON_COLORS.warning)} Collision Settings`;
+    header.textContent = '⚡ Collision Settings';
     section.appendChild(header);
 
     const body = document.createElement('div');
@@ -1802,7 +1799,7 @@ export class ActorEditorPanel {
     // Section header
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.innerHTML = `${iconHTML(Icons.Activity, 12, ICON_COLORS.primary)} Physics Settings`;
+    header.textContent = '⚛ Physics Settings';
     section.appendChild(header);
 
     const body = document.createElement('div');
@@ -1896,7 +1893,7 @@ export class ActorEditorPanel {
         notifyChanged();
       }));
 
-      const channels: CollisionChannel[] = ['WorldStatic', 'WorldDynamic', 'Pawn', 'PhysicsBody', 'Trigger', 'Custom'];
+      const channels: CollisionChannel[] = ['WorldStatic', 'WorldDynamic', 'Pawn', 'PhysicsBody', 'Trigger', 'Custom1', 'Custom2', 'Custom3', 'Custom4'];
       body.appendChild(this._makeDropdownRow('Collision Channel', phys.collisionChannel, channels, (v) => {
         phys.collisionChannel = v as CollisionChannel;
         notifyChanged();
@@ -1917,7 +1914,7 @@ export class ActorEditorPanel {
     // ---- Movement settings ----
     const moveHeader = document.createElement('div');
     moveHeader.className = 'physics-section-header';
-    moveHeader.innerHTML = `${iconHTML(Icons.Move, 12, ICON_COLORS.primary)} Movement`;
+    moveHeader.textContent = '🏃 Movement';
     container.appendChild(moveHeader);
 
     container.appendChild(this._makeNumberRow('Walk Speed', cfg.movement.walkSpeed, 0.5, 0, 50, (v) => {
@@ -1976,7 +1973,7 @@ export class ActorEditorPanel {
     // ---- Input Bindings ----
     const inputHeader = document.createElement('div');
     inputHeader.className = 'physics-section-header';
-    inputHeader.innerHTML = `${iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor)} Input Bindings`;
+    inputHeader.textContent = '🎮 Input Bindings';
     container.appendChild(inputHeader);
 
     container.appendChild(this._makeTextRow('Forward', cfg.inputBindings.moveForward, (v) => {
@@ -2014,7 +2011,7 @@ export class ActorEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.innerHTML = `${iconHTML(Icons.Target, 12, ICON_COLORS.secondary)} Spring Arm (Camera Boom)`;
+    header.textContent = '🎯 Spring Arm (Camera Boom)';
     container.appendChild(header);
 
     container.appendChild(this._makeNumberRow('Arm Length', sa.armLength, 0.5, 0, 50, (v) => {
@@ -2135,7 +2132,7 @@ export class ActorEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.innerHTML = `${iconHTML(Icons.Camera, 12, ICON_COLORS.camera)} Camera`;
+    header.textContent = '📷 Camera';
     container.appendChild(header);
 
     container.appendChild(this._makeDropdownRow('Camera Mode', cam.cameraMode, ['firstPerson', 'thirdPerson'], (v) => {

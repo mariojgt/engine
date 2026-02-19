@@ -5,7 +5,8 @@ import type { PropertyDescriptor as ScenePropertyDescriptor } from './scene/Scen
 import { MeshAssetManager } from './MeshAsset';
 import type { TextureAssetJSON } from './MeshAsset';
 import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
-import { iconHTML, Icons, ICON_COLORS } from './icons';
+import { defaultPhysicsConfig, ALL_COLLISION_CHANNELS } from './ActorAsset';
+import type { PhysicsConfig, PhysicsBodyType, ColliderShapeType, CombineMode, CollisionChannel } from './ActorAsset';
 
 export class PropertiesPanel {
   public container: HTMLElement;
@@ -32,16 +33,12 @@ export class PropertiesPanel {
     });
   }
 
-  setCompositionManager(mgr: SceneCompositionManager): void {
-    this._composition = mgr;
-    // NOTE: Do NOT rebuild the UI on every property change — it disrupts
-    // continuous interactions (color pickers, sliders).  The actor's
-    // updateProperty already applied the Three.js change; the UI input
-    // element that fired the event still shows the correct value.
-    // Only rebuild when the *selected actor* changes (handled by showCompositionActor).
+  /** Set the composition manager reference (called from EditorLayout) */
+  setCompositionManager(comp: SceneCompositionManager | null): void {
+    this._composition = comp;
   }
 
-  /** Show properties for a scene composition actor */
+  /** Show properties for a composition actor (called from EditorLayout) */
   showCompositionActor(actorId: string | null): void {
     this._currentCompositionActorId = actorId;
     this._current = null;
@@ -86,7 +83,7 @@ export class PropertiesPanel {
     headerTitle.className = 'prop-group-title composition-actor-title';
     const icon = document.createElement('span');
     icon.style.marginRight = '6px';
-    icon.innerHTML = this._getActorIcon(entry.type);
+    icon.textContent = this._getActorIcon(entry.type);
     headerTitle.appendChild(icon);
     headerTitle.appendChild(document.createTextNode(entry.name));
     headerGroup.appendChild(headerTitle);
@@ -212,12 +209,12 @@ export class PropertiesPanel {
     });
 
     const browseBtn = document.createElement('button');
-    browseBtn.textContent = '…';
+    browseBtn.textContent = '📁';
     browseBtn.title = 'Browse...';
-    browseBtn.style.background = 'var(--color-bg-inset)';
-    browseBtn.style.border = '1px solid var(--color-border)';
-    browseBtn.style.borderRadius = 'var(--radius-sm)';
-    browseBtn.style.color = 'var(--color-text-secondary)';
+    browseBtn.style.background = 'var(--input-bg, #1e1e2e)';
+    browseBtn.style.border = '1px solid var(--border)';
+    browseBtn.style.borderRadius = '3px';
+    browseBtn.style.color = 'var(--text)';
     browseBtn.style.cursor = 'pointer';
     browseBtn.style.padding = '3px 6px';
     browseBtn.style.fontSize = '12px';
@@ -586,20 +583,12 @@ export class PropertiesPanel {
   }
 
   private _getActorIcon(type: string): string {
-    // Returns iconHTML for the given actor type
-    const map: Record<string, { icon: any[]; color: string }> = {
-      DirectionalLight: { icon: Icons.Sun, color: ICON_COLORS.light },
-      SkyAtmosphere:    { icon: Icons.Layers, color: ICON_COLORS.secondary },
-      SkyLight:         { icon: Icons.Sun, color: ICON_COLORS.light },
-      ExponentialHeightFog: { icon: Icons.Activity, color: ICON_COLORS.muted },
-      PostProcessVolume:    { icon: Icons.Camera, color: ICON_COLORS.camera },
-      WorldGrid:        { icon: Icons.Grid, color: ICON_COLORS.muted },
-      DevGroundPlane:   { icon: Icons.RectangleHorizontal, color: ICON_COLORS.muted },
-      PlayerStart:      { icon: Icons.MapPin, color: ICON_COLORS.actor },
+    const icons: Record<string, string> = {
+      DirectionalLight: '💡', SkyAtmosphere: '🌌', SkyLight: '🌤️',
+      ExponentialHeightFog: '🌫️', PostProcessVolume: '📷',
+      WorldGrid: '🔲', DevGroundPlane: '🟫', PlayerStart: '🚀',
     };
-    const entry = map[type];
-    if (entry) return iconHTML(entry.icon, 14, entry.color);
-    return iconHTML(Icons.Box, 14, ICON_COLORS.actor);
+    return icons[type] || '📦';
   }
 
   private _showProperties(go: GameObject | null): void {
@@ -626,15 +615,131 @@ export class PropertiesPanel {
       this._createVec3Row('Scale', go.mesh.scale),
     ]));
 
-    // Physics
-    this._bodyEl.appendChild(this._createGroup('Physics', [
-      this._createCheckboxRow('Enabled', go.hasPhysics, (v) => {
-        if (v) {
-          this._engine.physics.addPhysicsBody(go);
-        } else {
-          this._engine.physics.removePhysicsBody(go);
+    // ---- Full Physics Properties Panel ----
+    const cfg: PhysicsConfig = go.physicsConfig ?? defaultPhysicsConfig();
+    if (!go.physicsConfig) go.physicsConfig = cfg;
+
+    const physUpdate = (prop: string, value: any) => {
+      (cfg as any)[prop] = value;
+      if (this._engine.physics.isPlaying && go.rigidBody) {
+        this._engine.physics.queueChange({ type: 'updateProperty', go, prop, value });
+      }
+      this._engine.scene['_emitChanged']();
+    };
+
+    // Physics Body
+    this._bodyEl.appendChild(this._createGroup('Physics Body', [
+      this._createCheckboxRow('Simulate Physics', cfg.simulatePhysics, (v) => {
+        physUpdate('simulatePhysics', v);
+        if (v && cfg.enabled) this._engine.physics.addPhysicsBody(go);
+        else this._engine.physics.removePhysicsBody(go);
+      }),
+      this._createCheckboxRow('Enabled', cfg.enabled, (v) => {
+        physUpdate('enabled', v);
+        if (v && cfg.simulatePhysics) this._engine.physics.addPhysicsBody(go);
+        else this._engine.physics.removePhysicsBody(go);
+      }),
+      this._createSelectRow('Body Type', cfg.bodyType, [
+        { label: 'Static', value: 'Static' },
+        { label: 'Dynamic', value: 'Dynamic' },
+        { label: 'Kinematic', value: 'Kinematic' },
+      ], (v: PhysicsBodyType) => {
+        physUpdate('bodyType', v);
+        if (this._engine.physics.isPlaying && go.rigidBody) {
+          this._engine.physics.queueChange({ type: 'changeBodyType', go, newType: v });
         }
       }),
+      this._createNumberRow('Mass (kg)', cfg.mass, 0.001, 100000, 0.1, (v) => physUpdate('mass', v)),
+      this._createNumberRow('Linear Damping', cfg.linearDamping, 0, 100, 0.01, (v) => physUpdate('linearDamping', v)),
+      this._createNumberRow('Angular Damping', cfg.angularDamping, 0, 100, 0.01, (v) => physUpdate('angularDamping', v)),
+      this._createCheckboxRow('Gravity Enabled', cfg.gravityEnabled, (v) => physUpdate('gravityEnabled', v)),
+      this._createNumberRow('Gravity Scale', cfg.gravityScale, -10, 10, 0.1, (v) => physUpdate('gravityScale', v)),
+      this._createCheckboxRow('CCD Enabled', cfg.ccdEnabled, (v) => physUpdate('ccdEnabled', v)),
+    ]));
+
+    // Collider
+    this._bodyEl.appendChild(this._createGroup('Collider', [
+      this._createCheckboxRow('Collision Enabled', cfg.collisionEnabled, (v) => physUpdate('collisionEnabled', v)),
+      this._createSelectRow('Collider Shape', cfg.colliderShape, [
+        { label: 'Box', value: 'Box' },
+        { label: 'Sphere', value: 'Sphere' },
+        { label: 'Capsule', value: 'Capsule' },
+        { label: 'Cylinder', value: 'Cylinder' },
+        { label: 'Convex Hull', value: 'ConvexHull' },
+        { label: 'Trimesh', value: 'Trimesh' },
+        { label: 'None', value: 'None' },
+      ], (v: ColliderShapeType) => {
+        physUpdate('colliderShape', v);
+        if (this._engine.physics.isPlaying && go.rigidBody) {
+          this._engine.physics.queueChange({ type: 'changeShape', go });
+        }
+        this._showProperties(go);
+      }),
+      this._createCheckboxRow('Auto-Fit Collider', cfg.autoFitCollider, (v) => {
+        physUpdate('autoFitCollider', v);
+        if (this._engine.physics.isPlaying && go.rigidBody) {
+          this._engine.physics.queueChange({ type: 'changeShape', go });
+        }
+      }),
+      this._createCheckboxRow('Is Trigger', cfg.isTrigger, (v) => physUpdate('isTrigger', v)),
+    ]));
+
+    // Manual Collider Dimensions (contextual)
+    if (!cfg.autoFitCollider) {
+      const dimRows: HTMLElement[] = [];
+      if (cfg.colliderShape === 'Box') {
+        dimRows.push(this._createNumberRow('Half X', cfg.boxHalfExtents.x, 0.001, 1000, 0.1, (v) => { cfg.boxHalfExtents.x = v; physUpdate('boxHalfExtents', cfg.boxHalfExtents); }));
+        dimRows.push(this._createNumberRow('Half Y', cfg.boxHalfExtents.y, 0.001, 1000, 0.1, (v) => { cfg.boxHalfExtents.y = v; physUpdate('boxHalfExtents', cfg.boxHalfExtents); }));
+        dimRows.push(this._createNumberRow('Half Z', cfg.boxHalfExtents.z, 0.001, 1000, 0.1, (v) => { cfg.boxHalfExtents.z = v; physUpdate('boxHalfExtents', cfg.boxHalfExtents); }));
+      } else if (cfg.colliderShape === 'Sphere') {
+        dimRows.push(this._createNumberRow('Radius', cfg.sphereRadius, 0.001, 1000, 0.1, (v) => physUpdate('sphereRadius', v)));
+      } else if (cfg.colliderShape === 'Capsule') {
+        dimRows.push(this._createNumberRow('Radius', cfg.capsuleRadius, 0.001, 1000, 0.1, (v) => physUpdate('capsuleRadius', v)));
+        dimRows.push(this._createNumberRow('Half Height', cfg.capsuleHalfHeight, 0.001, 1000, 0.1, (v) => physUpdate('capsuleHalfHeight', v)));
+      } else if (cfg.colliderShape === 'Cylinder') {
+        dimRows.push(this._createNumberRow('Radius', cfg.cylinderRadius, 0.001, 1000, 0.1, (v) => physUpdate('cylinderRadius', v)));
+        dimRows.push(this._createNumberRow('Half Height', cfg.cylinderHalfHeight, 0.001, 1000, 0.1, (v) => physUpdate('cylinderHalfHeight', v)));
+      }
+      if (dimRows.length > 0) this._bodyEl.appendChild(this._createGroup('Collider Dimensions', dimRows));
+    }
+
+    // Collider Offset
+    this._bodyEl.appendChild(this._createGroup('Collider Offset', [
+      this._createNumberRow('Offset X', cfg.colliderOffset.x, -1000, 1000, 0.1, (v) => { cfg.colliderOffset.x = v; physUpdate('colliderOffset', cfg.colliderOffset); }),
+      this._createNumberRow('Offset Y', cfg.colliderOffset.y, -1000, 1000, 0.1, (v) => { cfg.colliderOffset.y = v; physUpdate('colliderOffset', cfg.colliderOffset); }),
+      this._createNumberRow('Offset Z', cfg.colliderOffset.z, -1000, 1000, 0.1, (v) => { cfg.colliderOffset.z = v; physUpdate('colliderOffset', cfg.colliderOffset); }),
+    ]));
+
+    // Physics Material
+    this._bodyEl.appendChild(this._createGroup('Physics Material', [
+      this._createNumberRow('Friction', cfg.friction, 0, 10, 0.05, (v) => physUpdate('friction', v)),
+      this._createSelectRow('Friction Combine', cfg.frictionCombine, [
+        { label: 'Average', value: 'Average' }, { label: 'Min', value: 'Min' },
+        { label: 'Max', value: 'Max' }, { label: 'Multiply', value: 'Multiply' },
+      ], (v: CombineMode) => physUpdate('frictionCombine', v)),
+      this._createNumberRow('Restitution', cfg.restitution, 0, 2, 0.05, (v) => physUpdate('restitution', v)),
+      this._createSelectRow('Restitution Combine', cfg.restitutionCombine, [
+        { label: 'Average', value: 'Average' }, { label: 'Min', value: 'Min' },
+        { label: 'Max', value: 'Max' }, { label: 'Multiply', value: 'Multiply' },
+      ], (v: CombineMode) => physUpdate('restitutionCombine', v)),
+    ]));
+
+    // Constraints (axis locks)
+    this._bodyEl.appendChild(this._createGroup('Constraints', [
+      this._createCheckboxRow('Lock Pos X', cfg.lockPositionX, (v) => physUpdate('lockPositionX', v)),
+      this._createCheckboxRow('Lock Pos Y', cfg.lockPositionY, (v) => physUpdate('lockPositionY', v)),
+      this._createCheckboxRow('Lock Pos Z', cfg.lockPositionZ, (v) => physUpdate('lockPositionZ', v)),
+      this._createCheckboxRow('Lock Rot X', cfg.lockRotationX, (v) => physUpdate('lockRotationX', v)),
+      this._createCheckboxRow('Lock Rot Y', cfg.lockRotationY, (v) => physUpdate('lockRotationY', v)),
+      this._createCheckboxRow('Lock Rot Z', cfg.lockRotationZ, (v) => physUpdate('lockRotationZ', v)),
+    ]));
+
+    // Collision Filtering
+    this._bodyEl.appendChild(this._createGroup('Collision Filtering', [
+      this._createSelectRow('Collision Channel', cfg.collisionChannel, ALL_COLLISION_CHANNELS.map(ch => ({ label: ch, value: ch })),
+        (v: CollisionChannel) => physUpdate('collisionChannel', v)),
+      this._createCheckboxRow('Generate Overlap Events', cfg.generateOverlapEvents, (v) => physUpdate('generateOverlapEvents', v)),
+      this._createCheckboxRow('Generate Hit Events', cfg.generateHitEvents, (v) => physUpdate('generateHitEvents', v)),
     ]));
   }
 

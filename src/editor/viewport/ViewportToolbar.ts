@@ -23,6 +23,7 @@ export interface ViewportToolbarCallbacks {
   onToggleCollision: () => void;
   onToggleBounds: () => void;
   onToggleStats: () => void;
+  onTogglePhysicsDebug: () => void;
 }
 
 export class ViewportToolbar {
@@ -208,6 +209,7 @@ export class ViewportToolbar {
             <div class="vp-tb-dd-item vp-check vp-checked" data-show="grid">Grid</div>
             <div class="vp-tb-dd-item vp-check vp-checked" data-show="axes">Axes</div>
             <div class="vp-tb-dd-item vp-check" data-show="collision">Collision</div>
+            <div class="vp-tb-dd-item vp-check" data-show="physics">Physics Debug</div>
             <div class="vp-tb-dd-item vp-check" data-show="bounds">Bounds</div>
             <div class="vp-tb-dd-item vp-check vp-checked" data-show="stats">Stats</div>
           </div>
@@ -262,6 +264,7 @@ export class ViewportToolbar {
           case 'grid': this._gridVisible = item.classList.contains('vp-checked'); this._callbacks.onToggleGrid(); break;
           case 'axes': this._axesVisible = item.classList.contains('vp-checked'); this._callbacks.onToggleAxes(); break;
           case 'collision': this._collisionVisible = item.classList.contains('vp-checked'); this._callbacks.onToggleCollision(); break;
+          case 'physics': this._callbacks.onTogglePhysicsDebug(); break;
           case 'bounds': this._boundsVisible = item.classList.contains('vp-checked'); this._callbacks.onToggleBounds(); break;
           case 'stats': this._statsVisible = item.classList.contains('vp-checked'); this._callbacks.onToggleStats(); break;
         }
@@ -296,7 +299,7 @@ export class ViewportToolbar {
     recent.forEach((n) => {
       const div = document.createElement('div');
       div.className = `vp-notification vp-notif-${n.type}`;
-      const icon = n.type === 'info' ? '●' : n.type === 'warning' ? '▲' : '✕';
+      const icon = n.type === 'info' ? '✅' : n.type === 'warning' ? '⚠️' : '❌';
       div.textContent = `${icon} ${n.message}`;
       this._notificationEl.appendChild(div);
     });

@@ -61,13 +61,20 @@ export function defaultLightConfig(lightType: LightType = 'point'): LightConfig 
 
 // ---- Physics configuration (UE-style per-component) ----
 
-export type CollisionChannel = 'WorldStatic' | 'WorldDynamic' | 'Pawn' | 'PhysicsBody' | 'Trigger' | 'Custom';
+export type CollisionChannel = 'WorldStatic' | 'WorldDynamic' | 'Pawn' | 'PhysicsBody' | 'Trigger' | 'Custom1' | 'Custom2' | 'Custom3' | 'Custom4';
+export const ALL_COLLISION_CHANNELS: CollisionChannel[] = ['WorldStatic','WorldDynamic','Pawn','PhysicsBody','Trigger','Custom1','Custom2','Custom3','Custom4'];
+
+export type PhysicsBodyType = 'Static' | 'Dynamic' | 'Kinematic';
+export type ColliderShapeType = 'Box' | 'Sphere' | 'Capsule' | 'Cylinder' | 'ConvexHull' | 'Trimesh' | 'None';
+export type CombineMode = 'Average' | 'Min' | 'Max' | 'Multiply';
 
 export interface PhysicsConfig {
   /** Master enable — when false the component is purely kinematic */
   enabled: boolean;
   /** Actively simulate physics (rigid-body is dynamic) */
   simulatePhysics: boolean;
+  /** Body type: Static / Dynamic / Kinematic */
+  bodyType: PhysicsBodyType;
   /** Mass in kg */
   mass: number;
   /** Whether gravity affects this body */
@@ -82,6 +89,30 @@ export interface PhysicsConfig {
   friction: number;
   /** Bounciness / coefficient of restitution */
   restitution: number;
+  /** Friction combine mode */
+  frictionCombine: CombineMode;
+  /** Restitution combine mode */
+  restitutionCombine: CombineMode;
+  /** Collision shape type */
+  colliderShape: ColliderShapeType;
+  /** Auto fit collider to mesh bounding box */
+  autoFitCollider: boolean;
+  /** Manual box half extents (when autoFit off + shape=Box) */
+  boxHalfExtents: { x: number; y: number; z: number };
+  /** Manual sphere radius (when autoFit off + shape=Sphere) */
+  sphereRadius: number;
+  /** Manual capsule radius */
+  capsuleRadius: number;
+  /** Manual capsule half height */
+  capsuleHalfHeight: number;
+  /** Manual cylinder radius */
+  cylinderRadius: number;
+  /** Manual cylinder half height */
+  cylinderHalfHeight: number;
+  /** Collider offset from actor pivot */
+  colliderOffset: { x: number; y: number; z: number };
+  /** If true, no physical response — only overlap events */
+  isTrigger: boolean;
   /** Lock individual position axes */
   lockPositionX: boolean;
   lockPositionY: boolean;
@@ -94,6 +125,16 @@ export interface PhysicsConfig {
   collisionEnabled: boolean;
   /** Collision channel preset */
   collisionChannel: CollisionChannel;
+  /** Which channels this body blocks */
+  blocksChannels: CollisionChannel[];
+  /** Which channels this body overlaps */
+  overlapsChannels: CollisionChannel[];
+  /** Enable CCD (continuous collision detection) for fast objects */
+  ccdEnabled: boolean;
+  /** Generate overlap events */
+  generateOverlapEvents: boolean;
+  /** Generate hit events */
+  generateHitEvents: boolean;
 }
 
 /** Returns a sensible default PhysicsConfig */
@@ -101,13 +142,26 @@ export function defaultPhysicsConfig(): PhysicsConfig {
   return {
     enabled: false,
     simulatePhysics: false,
+    bodyType: 'Dynamic',
     mass: 1.0,
     gravityEnabled: true,
     gravityScale: 1.0,
-    linearDamping: 0.01,
+    linearDamping: 0.0,
     angularDamping: 0.05,
     friction: 0.5,
     restitution: 0.3,
+    frictionCombine: 'Average',
+    restitutionCombine: 'Average',
+    colliderShape: 'Box',
+    autoFitCollider: true,
+    boxHalfExtents: { x: 0.5, y: 0.5, z: 0.5 },
+    sphereRadius: 0.5,
+    capsuleRadius: 0.5,
+    capsuleHalfHeight: 1.0,
+    cylinderRadius: 0.5,
+    cylinderHalfHeight: 0.5,
+    colliderOffset: { x: 0, y: 0, z: 0 },
+    isTrigger: false,
     lockPositionX: false,
     lockPositionY: false,
     lockPositionZ: false,
@@ -116,6 +170,11 @@ export function defaultPhysicsConfig(): PhysicsConfig {
     lockRotationZ: false,
     collisionEnabled: true,
     collisionChannel: 'WorldDynamic',
+    blocksChannels: ['WorldStatic','WorldDynamic','Pawn','PhysicsBody'],
+    overlapsChannels: ['Trigger'],
+    ccdEnabled: false,
+    generateOverlapEvents: true,
+    generateHitEvents: true,
   };
 }
 

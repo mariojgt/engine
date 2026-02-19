@@ -26,6 +26,7 @@ import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
+import { PhysicsSettingsPanel } from './PhysicsSettingsPanel';
 import type { CameraStateJSON } from './SceneSerializer';
 import { SceneCompositionManager } from './scene/SceneCompositionManager';
 import { WorldOutlinerPanel } from './WorldOutlinerPanel';
@@ -72,6 +73,7 @@ export class EditorLayout {
   private _engine: Engine;
   private _viewport: ViewportPanel | null = null;
   private _properties: PropertiesPanel | null = null;
+  private _physicsSettings: PhysicsSettingsPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
   private _animBPEditor: AnimBlueprintEditorPanel | null = null;
@@ -217,6 +219,17 @@ export class EditorLayout {
     this._initClassHierarchy('class-hierarchy');
     this._initAssetBrowser('asset-browser');
     this._initProperties('properties');
+
+    // 5. Physics Settings (tab alongside Properties)
+    this._api.addPanel({
+      id: 'physics-settings',
+      title: 'Physics',
+      component: 'default',
+      position: {
+        referencePanel: 'properties',
+      },
+    });
+    this._initPhysicsSettings('physics-settings');
   }
 
   private _initViewport(panelId: string): void {
@@ -372,6 +385,13 @@ export class EditorLayout {
     this._properties.setCompositionManager(this.composition);
   }
 
+  private _initPhysicsSettings(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._physicsSettings = new PhysicsSettingsPanel(el, this._engine);
+  }
+
   private _openNodeEditor(go: GameObject): void {
     // Close existing editors
     this._closeNodeEditor();
@@ -382,7 +402,7 @@ export class EditorLayout {
     // Add a new panel for the node editor below the viewport
     this._api.addPanel({
       id: panelId,
-      title: `Blueprint: ${go.name}`,
+      title: `⬡ Blueprint: ${go.name}`,
       component: 'default',
       position: {
         direction: 'below',
@@ -414,13 +434,16 @@ export class EditorLayout {
 
     const panelId = 'actor-editor-' + asset.id;
 
-    const titleIcon = asset.actorType === 'playerController' ? 'Controller'
-      : asset.actorType === 'aiController' ? 'AI Controller'
+    const titleIcon = asset.actorType === 'playerController' ? '🎮'
+      : asset.actorType === 'aiController' ? '🤖'
+      : '⬡';
+    const titleLabel = asset.actorType === 'playerController' ? 'PlayerController'
+      : asset.actorType === 'aiController' ? 'AIController'
       : 'Actor';
 
     this._api.addPanel({
       id: panelId,
-      title: `${titleIcon}: ${asset.name}`,
+      title: `${titleIcon} ${titleLabel}: ${asset.name}`,
       component: 'default',
       position: {
         direction: 'below',
@@ -556,7 +579,7 @@ export class EditorLayout {
     const panelId = 'game-instance-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `GameInstance: ${asset.name}`,
+      title: `🌐 GameInstance: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -589,7 +612,7 @@ export class EditorLayout {
     const panelId = 'anim-bp-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `AnimBP: ${asset.name}`,
+      title: `🎬 AnimBP: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -623,7 +646,7 @@ export class EditorLayout {
     const panelId = 'widget-bp-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `Widget: ${asset.name}`,
+      title: `🎨 Widget: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -662,7 +685,7 @@ export class EditorLayout {
     const panelId = 'struct-editor-' + sa.id;
     this._api.addPanel({
       id: panelId,
-      title: `Struct: ${sa.name}`,
+      title: `🔷 Struct: ${sa.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -684,7 +707,7 @@ export class EditorLayout {
       // Update panel title when name changes
       const panel = this._api.getPanel(panelId);
       if (panel) {
-        try { panel.setTitle(`Struct: ${sa.name}`); } catch (_e) {}
+        try { panel.setTitle(`🔷 Struct: ${sa.name}`); } catch (_e) {}
       }
     });
   }
@@ -698,7 +721,7 @@ export class EditorLayout {
     const panelId = 'enum-editor-' + ea.id;
     this._api.addPanel({
       id: panelId,
-      title: `Enum: ${ea.name}`,
+      title: `📋 Enum: ${ea.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -719,7 +742,7 @@ export class EditorLayout {
     new EnumEditorPanel(wrapper, ea, this._structManager, () => {
       const panel = this._api.getPanel(panelId);
       if (panel) {
-        try { panel.setTitle(`Enum: ${ea.name}`); } catch (_e) {}
+        try { panel.setTitle(`📋 Enum: ${ea.name}`); } catch (_e) {}
       }
     });
   }
@@ -733,7 +756,7 @@ export class EditorLayout {
     const panelId = 'material-editor-' + mat.assetId;
     this._api.addPanel({
       id: panelId,
-      title: `Material: ${mat.assetName}`,
+      title: `🎨 Material: ${mat.assetName}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
@@ -758,7 +781,7 @@ export class EditorLayout {
         // Update panel title when name changes
         const panel = this._api.getPanel(panelId);
         if (panel) {
-          try { panel.setTitle(`Material: ${mat.assetName}`); } catch (_e) {}
+          try { panel.setTitle(`🎨 Material: ${mat.assetName}`); } catch (_e) {}
         }
 
         // Sync all scene instances whose material overrides reference this material

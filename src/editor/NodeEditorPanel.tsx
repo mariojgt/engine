@@ -82,6 +82,34 @@ import {
   OnComponentEndOverlapNode,
   OnComponentWakeNode,
   OnComponentSleepNode,
+  // Physics (new nodes)
+  SetBodyTypeNode,
+  GetBodyTypeNode,
+  ResetPhysicsNode,
+  GetSpeedNode,
+  GetVelocityAtPointNode,
+  ClampVelocityNode,
+  SetWorldGravityNode,
+  GetWorldGravityNode,
+  SetPhysicsTransformNode,
+  TeleportPhysicsBodyNode,
+  AddAngularImpulseNode,
+  AddRadialForceNode,
+  AddRadialImpulseNode,
+  WakeBodyNode,
+  SleepBodyNode,
+  IsBodySleepingNode,
+  SetCollisionEnabledPhysicsNode,
+  SetCCDEnabledNode,
+  GetCenterOfMassNode,
+  // Collision Queries (new)
+  LineTraceSingleNode,
+  LineTraceMultiNode,
+  SphereTraceNode,
+  BoxTraceSingleNode,
+  OverlapSphereNode,
+  OverlapBoxNode,
+  PointIsInsideNode,
   GetVariableNode,
   SetVariableNode,
   FunctionEntryNode,
@@ -423,6 +451,22 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
       node instanceof OnComponentSleepNode) return 'Events';
+  // New physics nodes
+  if (node instanceof SetBodyTypeNode || node instanceof GetBodyTypeNode ||
+      node instanceof ResetPhysicsNode || node instanceof GetSpeedNode ||
+      node instanceof GetVelocityAtPointNode || node instanceof ClampVelocityNode ||
+      node instanceof SetWorldGravityNode || node instanceof GetWorldGravityNode ||
+      node instanceof SetPhysicsTransformNode || node instanceof TeleportPhysicsBodyNode ||
+      node instanceof AddAngularImpulseNode || node instanceof AddRadialForceNode ||
+      node instanceof AddRadialImpulseNode || node instanceof WakeBodyNode ||
+      node instanceof SleepBodyNode || node instanceof IsBodySleepingNode ||
+      node instanceof SetCollisionEnabledPhysicsNode || node instanceof SetCCDEnabledNode ||
+      node instanceof GetCenterOfMassNode) return 'Physics';
+  // Collision query nodes
+  if (node instanceof LineTraceSingleNode || node instanceof LineTraceMultiNode ||
+      node instanceof SphereTraceNode || node instanceof BoxTraceSingleNode ||
+      node instanceof OverlapSphereNode || node instanceof OverlapBoxNode ||
+      node instanceof PointIsInsideNode) return 'Collision Queries';
   // Collision / trigger event & query nodes
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode ||
       node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode ||
@@ -695,6 +739,21 @@ function resolveValue(
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     if (outputKey === 'selfComponent') return '__selfComponent';
+    return '0';
+  }
+  // Physics event output data — On Component Hit
+  if (node instanceof OnComponentHitNode) {
+    if (outputKey === 'normalX') return '__normalX';
+    if (outputKey === 'normalY') return '__normalY';
+    if (outputKey === 'normalZ') return '__normalZ';
+    if (outputKey === 'impulse') return '__impulse';
+    return '0';
+  }
+  // Physics event output data — On Component Begin/End Overlap
+  if (node instanceof OnComponentBeginOverlapNode || node instanceof OnComponentEndOverlapNode) {
+    if (outputKey === 'otherActor') return '__otherActor';
+    if (outputKey === 'otherActorName') return '__otherActorName';
+    if (outputKey === 'otherActorId') return '__otherActorId';
     return '0';
   }
   // Bound trigger component overlap event outputs (UE-style per-component)
@@ -1221,6 +1280,97 @@ function resolveValue(
         return '(gameObject.collider ? gameObject.collider.friction() : 0.5)';
       if (outputKey === 'restitution')
         return '(gameObject.collider ? gameObject.collider.restitution() : 0.3)';
+      return '0';
+    }
+
+    // ── Physics getters (new) ───────────────────────────────
+    case 'Get Body Type':
+      return '(gameObject.physicsConfig ? gameObject.physicsConfig.bodyType : "Dynamic")';
+    case 'Get Speed':
+      return '(gameObject.rigidBody ? Math.sqrt(Math.pow(gameObject.rigidBody.linvel().x,2)+Math.pow(gameObject.rigidBody.linvel().y,2)+Math.pow(gameObject.rigidBody.linvel().z,2)) : 0)';
+    case 'Get Velocity at Point': {
+      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
+      const px = pxS ? rv(pxS.nid, pxS.ok) : '0'; const py = pyS ? rv(pyS.nid, pyS.ok) : '0'; const pz = pzS ? rv(pzS.nid, pzS.ok) : '0';
+      return `(__physics.getVelocityAtPoint(gameObject, {x:${px},y:${py},z:${pz}}).${outputKey === 'vx' ? 'x' : outputKey === 'vy' ? 'y' : 'z'})`;
+    }
+    case 'Get World Gravity':
+      return `(__physics.getWorldGravity().${outputKey})`;
+    case 'Is Body Sleeping':
+      return '(__physics.isBodySleeping(gameObject))';
+    case 'Get Center of Mass':
+      return `(__physics.getCenterOfMass(gameObject).${outputKey})`;
+    case 'Point Is Inside': {
+      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
+      const px = pxS ? rv(pxS.nid, pxS.ok) : '0'; const py = pyS ? rv(pyS.nid, pyS.ok) : '0'; const pz = pzS ? rv(pzS.nid, pzS.ok) : '0';
+      return `(__physics.pointIsInside({x:${px},y:${py},z:${pz}}, gameObject))`;
+    }
+    case 'Overlap Sphere': {
+      const cxS = inputSrc.get(`${nodeId}.cx`); const cyS = inputSrc.get(`${nodeId}.cy`); const czS = inputSrc.get(`${nodeId}.cz`);
+      const rS = inputSrc.get(`${nodeId}.radius`);
+      return `(__physics.overlapSphere({x:${cxS ? rv(cxS.nid, cxS.ok) : '0'},y:${cyS ? rv(cyS.nid, cyS.ok) : '0'},z:${czS ? rv(czS.nid, czS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '1'}).length)`;
+    }
+    case 'Overlap Box': {
+      const cxS = inputSrc.get(`${nodeId}.cx`); const cyS = inputSrc.get(`${nodeId}.cy`); const czS = inputSrc.get(`${nodeId}.cz`);
+      const hxS = inputSrc.get(`${nodeId}.halfX`); const hyS = inputSrc.get(`${nodeId}.halfY`); const hzS = inputSrc.get(`${nodeId}.halfZ`);
+      return `(__physics.overlapBox({x:${cxS ? rv(cxS.nid, cxS.ok) : '0'},y:${cyS ? rv(cyS.nid, cyS.ok) : '0'},z:${czS ? rv(czS.nid, czS.ok) : '0'}}, {x:${hxS ? rv(hxS.nid, hxS.ok) : '0.5'},y:${hyS ? rv(hyS.nid, hyS.ok) : '0.5'},z:${hzS ? rv(hzS.nid, hzS.ok) : '0.5'}}, {x:0,y:0,z:0}).length)`;
+    }
+    case 'Line Trace Single': {
+      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
+      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+      const mdS = inputSrc.get(`${nodeId}.maxDist`);
+      const castExpr = `__physics.castRay({x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
+      if (outputKey === 'hit') return `(${castExpr}.hit)`;
+      if (outputKey === 'distance') return `(${castExpr}.distance)`;
+      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
+      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
+      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
+      if (outputKey === 'normalX') return `(${castExpr}.normal.x)`;
+      if (outputKey === 'normalY') return `(${castExpr}.normal.y)`;
+      if (outputKey === 'normalZ') return `(${castExpr}.normal.z)`;
+      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
+      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
+      return '0';
+    }
+    case 'Line Trace Multi': {
+      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
+      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+      const mdS = inputSrc.get(`${nodeId}.maxDist`);
+      const castExpr = `__physics.castRayMulti({x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
+      if (outputKey === 'hitCount') return `(${castExpr}.length)`;
+      if (outputKey === 'closestHitX') return `((${castExpr}[0] || {point:{x:0}}).point.x)`;
+      if (outputKey === 'closestHitY') return `((${castExpr}[0] || {point:{y:0}}).point.y)`;
+      if (outputKey === 'closestHitZ') return `((${castExpr}[0] || {point:{z:0}}).point.z)`;
+      if (outputKey === 'closestHitActorId') return `((${castExpr}[0] || {hitActorId:-1}).hitActorId)`;
+      if (outputKey === 'closestHitActorName') return `((${castExpr}[0] || {hitActorName:''}).hitActorName)`;
+      return '0';
+    }
+    case 'Sphere Trace': {
+      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
+      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+      const rS = inputSrc.get(`${nodeId}.radius`); const mdS = inputSrc.get(`${nodeId}.maxDist`);
+      const castExpr = `__physics.castShape('sphere', {radius:${rS ? rv(rS.nid, rS.ok) : '0.5'}}, {x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
+      if (outputKey === 'hit') return `(${castExpr}.hit)`;
+      if (outputKey === 'distance') return `(${castExpr}.distance)`;
+      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
+      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
+      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
+      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
+      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
+      return '0';
+    }
+    case 'Box Trace': {
+      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
+      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+      const hxS = inputSrc.get(`${nodeId}.halfX`); const hyS = inputSrc.get(`${nodeId}.halfY`); const hzS = inputSrc.get(`${nodeId}.halfZ`);
+      const mdS = inputSrc.get(`${nodeId}.maxDist`);
+      const castExpr = `__physics.castShape('box', {halfExtents:{x:${hxS ? rv(hxS.nid, hxS.ok) : '0.5'},y:${hyS ? rv(hyS.nid, hyS.ok) : '0.5'},z:${hzS ? rv(hzS.nid, hzS.ok) : '0.5'}}}, {x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
+      if (outputKey === 'hit') return `(${castExpr}.hit)`;
+      if (outputKey === 'distance') return `(${castExpr}.distance)`;
+      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
+      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
+      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
+      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
+      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
       return '0';
     }
 
@@ -2390,26 +2540,113 @@ function genAction(
       break;
     }
     case 'Add Force at Location': {
-      const fxS = inputSrc.get(`${nodeId}.forceX`); const fyS = inputSrc.get(`${nodeId}.forceY`); const fzS = inputSrc.get(`${nodeId}.forceZ`);
-      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
+      const fxS = inputSrc.get(`${nodeId}.fx`); const fyS = inputSrc.get(`${nodeId}.fy`); const fzS = inputSrc.get(`${nodeId}.fz`);
+      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForceAtPoint({x:${fxS ? rv(fxS.nid, fxS.ok) : '0'}, y:${fyS ? rv(fyS.nid, fyS.ok) : '0'}, z:${fzS ? rv(fzS.nid, fzS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Add Impulse at Location': {
-      const ixS = inputSrc.get(`${nodeId}.impulseX`); const iyS = inputSrc.get(`${nodeId}.impulseY`); const izS = inputSrc.get(`${nodeId}.impulseZ`);
-      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
+      const ixS = inputSrc.get(`${nodeId}.fx`); const iyS = inputSrc.get(`${nodeId}.fy`); const izS = inputSrc.get(`${nodeId}.fz`);
+      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.applyImpulseAtPoint({x:${ixS ? rv(ixS.nid, ixS.ok) : '0'}, y:${iyS ? rv(iyS.nid, iyS.ok) : '0'}, z:${izS ? rv(izS.nid, izS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Set Constraint': {
+    case 'Set Physics Constraints': {
       const lx = inputSrc.get(`${nodeId}.lockPosX`); const ly = inputSrc.get(`${nodeId}.lockPosY`); const lz = inputSrc.get(`${nodeId}.lockPosZ`);
       const rx = inputSrc.get(`${nodeId}.lockRotX`); const ry = inputSrc.get(`${nodeId}.lockRotY`); const rz = inputSrc.get(`${nodeId}.lockRotZ`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabledTranslations(!${lx ? rv(lx.nid, lx.ok) : 'false'}, !${ly ? rv(ly.nid, ly.ok) : 'false'}, !${lz ? rv(lz.nid, lz.ok) : 'false'}, true); gameObject.rigidBody.setEnabledRotations(!${rx ? rv(rx.nid, rx.ok) : 'false'}, !${ry ? rv(ry.nid, ry.ok) : 'false'}, !${rz ? rv(rz.nid, rz.ok) : 'false'}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+
+    // ── New Physics Action Nodes ──────────────────────────────
+    case 'Set Body Type': {
+      const tS = inputSrc.get(`${nodeId}.type`);
+      const tVal = tS ? rv(tS.nid, tS.ok) : '"Dynamic"';
+      lines.push(`if (__physics && gameObject.rigidBody) { __physics.queueChange({type:'changeBodyType', go:gameObject, newType:${tVal}}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Reset Physics': {
+      lines.push(`if (__physics) { __physics.removePhysicsBody(gameObject); __physics.addPhysicsBody(gameObject); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clamp Velocity': {
+      const msS = inputSrc.get(`${nodeId}.maxSpeed`);
+      const ms = msS ? rv(msS.nid, msS.ok) : '1000';
+      lines.push(`if (gameObject.rigidBody) { var __v = gameObject.rigidBody.linvel(); var __spd = Math.sqrt(__v.x*__v.x + __v.y*__v.y + __v.z*__v.z); if (__spd > ${ms}) { var __sc = ${ms} / __spd; gameObject.rigidBody.setLinvel({x:__v.x*__sc, y:__v.y*__sc, z:__v.z*__sc}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set World Gravity': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (__physics) { __physics.setWorldGravity({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '-9.81'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Physics Transform': {
+      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
+      const rxS = inputSrc.get(`${nodeId}.rx`); const ryS = inputSrc.get(`${nodeId}.ry`); const rzS = inputSrc.get(`${nodeId}.rz`);
+      const tpS = inputSrc.get(`${nodeId}.teleport`);
+      const tp = tpS ? rv(tpS.nid, tpS.ok) : 'true';
+      lines.push(`if (__physics) { __physics.setPhysicsTransform(gameObject, {x:${pxS ? rv(pxS.nid, pxS.ok) : 'gameObject.mesh.position.x'}, y:${pyS ? rv(pyS.nid, pyS.ok) : 'gameObject.mesh.position.y'}, z:${pzS ? rv(pzS.nid, pzS.ok) : 'gameObject.mesh.position.z'}}, {x:${rxS ? rv(rxS.nid, rxS.ok) : '0'}, y:${ryS ? rv(ryS.nid, ryS.ok) : '0'}, z:${rzS ? rv(rzS.nid, rzS.ok) : '0'}}, !!(${tp})); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Teleport Physics Body': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (__physics) { __physics.setPhysicsTransform(gameObject, {x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, null, true); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Angular Impulse': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`if (__physics) { __physics.addAngularImpulse(gameObject, {x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, false); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Radial Force': {
+      const oxS = inputSrc.get(`${nodeId}.ox`); const oyS = inputSrc.get(`${nodeId}.oy`); const ozS = inputSrc.get(`${nodeId}.oz`);
+      const rS = inputSrc.get(`${nodeId}.radius`); const strS = inputSrc.get(`${nodeId}.strength`); const foS = inputSrc.get(`${nodeId}.falloff`);
+      lines.push(`if (__physics && __scene) { __physics.addRadialForce({x:${oxS ? rv(oxS.nid, oxS.ok) : '0'}, y:${oyS ? rv(oyS.nid, oyS.ok) : '0'}, z:${ozS ? rv(ozS.nid, ozS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '10'}, ${strS ? rv(strS.nid, strS.ok) : '1000'}, ${foS ? rv(foS.nid, foS.ok) : '"Linear"'}, __scene); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Radial Impulse': {
+      const oxS = inputSrc.get(`${nodeId}.ox`); const oyS = inputSrc.get(`${nodeId}.oy`); const ozS = inputSrc.get(`${nodeId}.oz`);
+      const rS = inputSrc.get(`${nodeId}.radius`); const strS = inputSrc.get(`${nodeId}.strength`); const foS = inputSrc.get(`${nodeId}.falloff`);
+      lines.push(`if (__physics && __scene) { __physics.addRadialImpulse({x:${oxS ? rv(oxS.nid, oxS.ok) : '0'}, y:${oyS ? rv(oyS.nid, oyS.ok) : '0'}, z:${ozS ? rv(ozS.nid, ozS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '10'}, ${strS ? rv(strS.nid, strS.ok) : '500'}, ${foS ? rv(foS.nid, foS.ok) : '"Linear"'}, false, __scene); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Wake Physics Body': {
+      lines.push(`if (__physics) { __physics.wakeBody(gameObject); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Sleep Physics Body': {
+      lines.push(`if (__physics) { __physics.sleepBody(gameObject); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Collision Enabled': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      const eVal = eS ? rv(eS.nid, eS.ok) : 'true';
+      lines.push(`if (gameObject.collider) { gameObject.collider.setSensor(!!(${eVal}) ? false : true); if (gameObject.physicsConfig) gameObject.physicsConfig.collisionEnabled = !!(${eVal}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set CCD Enabled': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      const eVal = eS ? rv(eS.nid, eS.ok) : 'true';
+      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.enableCcd(!!(${eVal})); if (gameObject.physicsConfig) gameObject.physicsConfig.ccdEnabled = !!(${eVal}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
     case 'Branch': {
       const cS = inputSrc.get(`${nodeId}.condition`);
       const cond = cS ? rv(cS.nid, cS.ok) : 'false';
@@ -3321,6 +3558,51 @@ function generateFullCode(
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
         beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
+      }
+    }
+  }
+
+  // ── Physics Event Nodes (OnComponentHit/Wake/Sleep) ─────────────
+  const physHitNodes = nodes.filter(n => n instanceof OnComponentHitNode);
+  const physBeginOverlapNodes = nodes.filter(n => n instanceof OnComponentBeginOverlapNode);
+  const physEndOverlapNodes = nodes.filter(n => n instanceof OnComponentEndOverlapNode);
+  const physWakeNodes = nodes.filter(n => n instanceof OnComponentWakeNode);
+  const physSleepNodes = nodes.filter(n => n instanceof OnComponentSleepNode);
+  const hasPhysicsEvents = physHitNodes.length > 0 || physBeginOverlapNodes.length > 0 ||
+    physEndOverlapNodes.length > 0 || physWakeNodes.length > 0 || physSleepNodes.length > 0;
+
+  if (hasPhysicsEvents) {
+    if (!hasCollisionEvents) {
+      beginPlayCode.push('var __collCb = __physics.collision.registerCallbacks(gameObject.id);');
+    }
+    for (const n of physHitNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of physBeginOverlapNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of physEndOverlapNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of physWakeNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onWake = __collCb.onWake || []; __collCb.onWake.push(function() { ${body.join(' ')} });`);
+      }
+    }
+    for (const n of physSleepNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onSleep = __collCb.onSleep || []; __collCb.onSleep.push(function() { ${body.join(' ')} });`);
       }
     }
   }
@@ -4987,6 +5269,34 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof OnComponentEndOverlapNode) return 'OnComponentEndOverlapNode';
   if (node instanceof OnComponentWakeNode) return 'OnComponentWakeNode';
   if (node instanceof OnComponentSleepNode) return 'OnComponentSleepNode';
+  // Physics (new nodes)
+  if (node instanceof SetBodyTypeNode) return 'SetBodyTypeNode';
+  if (node instanceof GetBodyTypeNode) return 'GetBodyTypeNode';
+  if (node instanceof ResetPhysicsNode) return 'ResetPhysicsNode';
+  if (node instanceof GetSpeedNode) return 'GetSpeedNode';
+  if (node instanceof GetVelocityAtPointNode) return 'GetVelocityAtPointNode';
+  if (node instanceof ClampVelocityNode) return 'ClampVelocityNode';
+  if (node instanceof SetWorldGravityNode) return 'SetWorldGravityNode';
+  if (node instanceof GetWorldGravityNode) return 'GetWorldGravityNode';
+  if (node instanceof SetPhysicsTransformNode) return 'SetPhysicsTransformNode';
+  if (node instanceof TeleportPhysicsBodyNode) return 'TeleportPhysicsBodyNode';
+  if (node instanceof AddAngularImpulseNode) return 'AddAngularImpulseNode';
+  if (node instanceof AddRadialForceNode) return 'AddRadialForceNode';
+  if (node instanceof AddRadialImpulseNode) return 'AddRadialImpulseNode';
+  if (node instanceof WakeBodyNode) return 'WakeBodyNode';
+  if (node instanceof SleepBodyNode) return 'SleepBodyNode';
+  if (node instanceof IsBodySleepingNode) return 'IsBodySleepingNode';
+  if (node instanceof SetCollisionEnabledPhysicsNode) return 'SetCollisionEnabledPhysicsNode';
+  if (node instanceof SetCCDEnabledNode) return 'SetCCDEnabledNode';
+  if (node instanceof GetCenterOfMassNode) return 'GetCenterOfMassNode';
+  // Collision Queries (new)
+  if (node instanceof LineTraceSingleNode) return 'LineTraceSingleNode';
+  if (node instanceof LineTraceMultiNode) return 'LineTraceMultiNode';
+  if (node instanceof SphereTraceNode) return 'SphereTraceNode';
+  if (node instanceof BoxTraceSingleNode) return 'BoxTraceSingleNode';
+  if (node instanceof OverlapSphereNode) return 'OverlapSphereNode';
+  if (node instanceof OverlapBoxNode) return 'OverlapBoxNode';
+  if (node instanceof PointIsInsideNode) return 'PointIsInsideNode';
   // Component nodes
   if (node instanceof GetComponentLocationNode) return 'GetComponentLocationNode';
   if (node instanceof SetComponentLocationNode) return 'SetComponentLocationNode';
@@ -5574,6 +5884,34 @@ function createNodeFromData(
     case 'OnComponentEndOverlapNode':   return new OnComponentEndOverlapNode();
     case 'OnComponentWakeNode':         return new OnComponentWakeNode();
     case 'OnComponentSleepNode':        return new OnComponentSleepNode();
+    // Physics (new nodes)
+    case 'SetBodyTypeNode':              return new SetBodyTypeNode();
+    case 'GetBodyTypeNode':              return new GetBodyTypeNode();
+    case 'ResetPhysicsNode':             return new ResetPhysicsNode();
+    case 'GetSpeedNode':                 return new GetSpeedNode();
+    case 'GetVelocityAtPointNode':       return new GetVelocityAtPointNode();
+    case 'ClampVelocityNode':            return new ClampVelocityNode();
+    case 'SetWorldGravityNode':          return new SetWorldGravityNode();
+    case 'GetWorldGravityNode':          return new GetWorldGravityNode();
+    case 'SetPhysicsTransformNode':      return new SetPhysicsTransformNode();
+    case 'TeleportPhysicsBodyNode':      return new TeleportPhysicsBodyNode();
+    case 'AddAngularImpulseNode':        return new AddAngularImpulseNode();
+    case 'AddRadialForceNode':           return new AddRadialForceNode();
+    case 'AddRadialImpulseNode':         return new AddRadialImpulseNode();
+    case 'WakeBodyNode':                 return new WakeBodyNode();
+    case 'SleepBodyNode':                return new SleepBodyNode();
+    case 'IsBodySleepingNode':           return new IsBodySleepingNode();
+    case 'SetCollisionEnabledPhysicsNode': return new SetCollisionEnabledPhysicsNode();
+    case 'SetCCDEnabledNode':            return new SetCCDEnabledNode();
+    case 'GetCenterOfMassNode':          return new GetCenterOfMassNode();
+    // Collision Queries (new)
+    case 'LineTraceSingleNode':          return new LineTraceSingleNode();
+    case 'LineTraceMultiNode':           return new LineTraceMultiNode();
+    case 'SphereTraceNode':              return new SphereTraceNode();
+    case 'BoxTraceSingleNode':           return new BoxTraceSingleNode();
+    case 'OverlapSphereNode':            return new OverlapSphereNode();
+    case 'OverlapBoxNode':               return new OverlapBoxNode();
+    case 'PointIsInsideNode':            return new PointIsInsideNode();
 
     // Component nodes
     case 'GetComponentLocationNode':  return new GetComponentLocationNode(d.compName || 'Root', d.compIndex ?? -1);

@@ -107,6 +107,25 @@ export {
   OnComponentSleepNode,
 } from './physics/PhysicsEventNodes';
 
+// ── Physics (new — simulation control, velocity, gravity, movement) ──
+export { SetBodyTypeNode }          from './physics/SetBodyTypeNode';
+export { GetBodyTypeNode }          from './physics/GetBodyTypeNode';
+export { ResetPhysicsNode }         from './physics/ResetPhysicsNode';
+export { GetSpeedNode }             from './physics/GetSpeedNode';
+export { GetVelocityAtPointNode }   from './physics/GetVelocityAtPointNode';
+export { ClampVelocityNode }        from './physics/ClampVelocityNode';
+export { SetWorldGravityNode }      from './physics/SetWorldGravityNode';
+export { GetWorldGravityNode }      from './physics/GetWorldGravityNode';
+export { SetPhysicsTransformNode }  from './physics/SetPhysicsTransformNode';
+export { TeleportPhysicsBodyNode }  from './physics/TeleportPhysicsBodyNode';
+export { AddAngularImpulseNode }    from './physics/AddAngularImpulseNode';
+export { AddRadialForceNode, AddRadialImpulseNode } from './physics/RadialForceNodes';
+export { WakeBodyNode, SleepBodyNode, IsBodySleepingNode } from './physics/SleepWakeNodes';
+export { SetCollisionEnabledNode as SetCollisionEnabledPhysicsNode, SetCCDEnabledNode } from './physics/CollisionToggleNodes';
+export { GetCenterOfMassNode }      from './physics/GetCenterOfMassNode';
+// ── Collision Queries (new) ──────────────────────────────────
+export { LineTraceSingleNode, LineTraceMultiNode, SphereTraceNode, BoxTraceSingleNode, OverlapSphereNode, OverlapBoxNode, PointIsInsideNode } from './physics/CollisionQueryNodes';
+
 // ── Variables (dynamic) ─────────────────────────────────────
 export { GetVariableNode, SetVariableNode, socketForType } from './variables/VariableNodes';
 export { MakeStructNode, BreakStructNode } from './variables/StructNodes';

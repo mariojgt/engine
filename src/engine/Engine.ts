@@ -315,8 +315,8 @@ export class Engine {
       }
     }
 
-    // Step physics
-    this.physics.step(this.scene);
+    // Step physics (fixed timestep with accumulator & interpolation)
+    this.physics.step(this.scene, dt);
 
     // Notify update listeners
     for (const cb of this._onUpdate) cb(dt);
