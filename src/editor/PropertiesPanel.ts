@@ -1,9 +1,10 @@
+import * as THREE from 'three';
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import type { PropertyDescriptor as ScenePropertyDescriptor } from './scene/SceneActors';
-import { MeshAssetManager } from './MeshAsset';
-import type { TextureAssetJSON } from './MeshAsset';
+import { MeshAssetManager, buildThreeMaterialFromAsset } from './MeshAsset';
+import type { TextureAssetJSON, MaterialAssetJSON } from './MeshAsset';
 import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
 import { defaultPhysicsConfig, ALL_COLLISION_CHANNELS } from './ActorAsset';
 import type { PhysicsConfig, PhysicsBodyType, ColliderShapeType, CombineMode, CollisionChannel } from './ActorAsset';
@@ -741,6 +742,179 @@ export class PropertiesPanel {
       this._createCheckboxRow('Generate Overlap Events', cfg.generateOverlapEvents, (v) => physUpdate('generateOverlapEvents', v)),
       this._createCheckboxRow('Generate Hit Events', cfg.generateHitEvents, (v) => physUpdate('generateHitEvents', v)),
     ]));
+
+    // ---- Visual Material Assignment ----
+    this._bodyEl.appendChild(this._buildMaterialSection(go));
+  }
+
+  /** Build visual material assignment section for a game object */
+  private _buildMaterialSection(go: GameObject): HTMLElement {
+    const mgr = MeshAssetManager.getInstance();
+    const allMats = mgr?.allMaterials ?? [];
+
+    const group = document.createElement('div');
+    group.className = 'prop-group';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'prop-group-title';
+    titleEl.textContent = 'Visual Material';
+    group.appendChild(titleEl);
+
+    // Collect all meshes in the game object tree
+    const meshList: { name: string; mesh: THREE.Mesh }[] = [];
+    const collectMeshes = (obj: THREE.Object3D, prefix: string) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        const m = obj as THREE.Mesh;
+        const label = prefix || m.name || 'Root Mesh';
+        meshList.push({ name: label, mesh: m });
+      }
+      for (const child of obj.children) {
+        if (child.userData?.__isTriggerHelper) continue;
+        if (child.userData?.__isLightHelper) continue;
+        if (child.userData?.__isComponentHelper) continue;
+        collectMeshes(child, child.name || `Child ${obj.children.indexOf(child)}`);
+      }
+    };
+    collectMeshes(go.mesh, '');
+
+    if (meshList.length === 0) {
+      const note = document.createElement('div');
+      note.className = 'prop-row';
+      note.style.color = '#888';
+      note.style.fontSize = '11px';
+      note.textContent = 'No meshes found on this object';
+      group.appendChild(note);
+      return group;
+    }
+
+    // Build material options
+    const matOptions: { label: string; value: string }[] = [
+      { label: '— Default —', value: '' },
+    ];
+    for (const mat of allMats) {
+      matOptions.push({ label: mat.assetName, value: mat.assetId });
+    }
+
+    // For each mesh, show a material dropdown + color override
+    for (const entry of meshList) {
+      const currentMatId = entry.mesh.userData?.__assignedMaterialId || '';
+
+      // Material dropdown
+      const row = document.createElement('div');
+      row.className = 'prop-row';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'prop-label';
+      lbl.textContent = meshList.length === 1 ? 'Material' : entry.name;
+      lbl.title = entry.name;
+      lbl.style.overflow = 'hidden';
+      lbl.style.textOverflow = 'ellipsis';
+      lbl.style.whiteSpace = 'nowrap';
+
+      const select = document.createElement('select');
+      select.className = 'prop-input prop-select';
+
+      for (const opt of matOptions) {
+        const optEl = document.createElement('option');
+        optEl.value = opt.value;
+        optEl.textContent = opt.label;
+        if (opt.value === currentMatId) optEl.selected = true;
+        select.appendChild(optEl);
+      }
+
+      select.addEventListener('change', () => {
+        const matId = select.value;
+        if (matId && mgr) {
+          const matAsset = mgr.getMaterial(matId);
+          if (matAsset) {
+            const newMat = buildThreeMaterialFromAsset(matAsset, mgr);
+            entry.mesh.material = newMat;
+            entry.mesh.userData.__assignedMaterialId = matId;
+          }
+        } else {
+          // Reset - clear the override
+          entry.mesh.userData.__assignedMaterialId = '';
+        }
+        this._engine.scene['_emitChanged']();
+      });
+
+      row.appendChild(lbl);
+      row.appendChild(select);
+      group.appendChild(row);
+
+      // Color override row (quick tint without full material)
+      const currentMat = entry.mesh.material as THREE.MeshStandardMaterial | undefined;
+      if (currentMat && 'color' in currentMat) {
+        const colorRow = document.createElement('div');
+        colorRow.className = 'prop-row';
+
+        const colorLbl = document.createElement('span');
+        colorLbl.className = 'prop-label';
+        colorLbl.textContent = meshList.length === 1 ? 'Color' : 'Color';
+
+        const wrapper = document.createElement('div');
+        wrapper.style.display = 'flex';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.gap = '6px';
+        wrapper.style.flex = '1';
+
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.style.width = '28px';
+        colorInput.style.height = '22px';
+        colorInput.style.border = '1px solid var(--border)';
+        colorInput.style.borderRadius = '3px';
+        colorInput.style.cursor = 'pointer';
+        colorInput.style.padding = '0';
+        colorInput.value = '#' + currentMat.color.getHexString();
+
+        const hexInput = document.createElement('input');
+        hexInput.type = 'text';
+        hexInput.className = 'prop-input';
+        hexInput.value = '#' + currentMat.color.getHexString();
+        hexInput.style.flex = '1';
+
+        const applyColor = (hexVal: string) => {
+          const mat = entry.mesh.material;
+          if (mat && 'color' in mat) {
+            (mat as THREE.MeshStandardMaterial).color.set(hexVal);
+            (mat as THREE.MeshStandardMaterial).needsUpdate = true;
+          }
+        };
+
+        colorInput.addEventListener('input', () => {
+          hexInput.value = colorInput.value;
+          applyColor(colorInput.value);
+        });
+
+        hexInput.addEventListener('change', () => {
+          colorInput.value = hexInput.value;
+          applyColor(hexInput.value);
+        });
+
+        wrapper.appendChild(colorInput);
+        wrapper.appendChild(hexInput);
+        colorRow.appendChild(colorLbl);
+        colorRow.appendChild(wrapper);
+        group.appendChild(colorRow);
+
+        // Metalness / Roughness quick controls
+        if ('metalness' in currentMat) {
+          group.appendChild(this._createNumberRow('Metalness', currentMat.metalness, 0, 1, 0.05, (v) => {
+            (entry.mesh.material as THREE.MeshStandardMaterial).metalness = v;
+            (entry.mesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
+          }));
+        }
+        if ('roughness' in currentMat) {
+          group.appendChild(this._createNumberRow('Roughness', currentMat.roughness, 0, 1, 0.05, (v) => {
+            (entry.mesh.material as THREE.MeshStandardMaterial).roughness = v;
+            (entry.mesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
+          }));
+        }
+      }
+    }
+
+    return group;
   }
 
   private _createGroup(title: string, rows: HTMLElement[]): HTMLElement {
