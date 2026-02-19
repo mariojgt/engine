@@ -1401,6 +1401,8 @@ html, body, #app {
 .mybp-var-color    { background: #f97316; }
 .mybp-var-enum     { background: #3b82f6; }
 .mybp-var-struct   { background: #3b82f6; }
+.mybp-var-objectref { background: #0099ff; }
+.mybp-var-widget   { background: #00bcd4; }
 
 .mybp-var-name {
   flex: 1;

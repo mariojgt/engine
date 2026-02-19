@@ -82,34 +82,6 @@ import {
   OnComponentEndOverlapNode,
   OnComponentWakeNode,
   OnComponentSleepNode,
-  // Physics (new nodes)
-  SetBodyTypeNode,
-  GetBodyTypeNode,
-  ResetPhysicsNode,
-  GetSpeedNode,
-  GetVelocityAtPointNode,
-  ClampVelocityNode,
-  SetWorldGravityNode,
-  GetWorldGravityNode,
-  SetPhysicsTransformNode,
-  TeleportPhysicsBodyNode,
-  AddAngularImpulseNode,
-  AddRadialForceNode,
-  AddRadialImpulseNode,
-  WakeBodyNode,
-  SleepBodyNode,
-  IsBodySleepingNode,
-  SetCollisionEnabledPhysicsNode,
-  SetCCDEnabledNode,
-  GetCenterOfMassNode,
-  // Collision Queries (new)
-  LineTraceSingleNode,
-  LineTraceMultiNode,
-  SphereTraceNode,
-  BoxTraceSingleNode,
-  OverlapSphereNode,
-  OverlapBoxNode,
-  PointIsInsideNode,
   GetVariableNode,
   SetVariableNode,
   FunctionEntryNode,
@@ -349,34 +321,6 @@ import {
   LoadTextureNode,
   SetImageTextureNode,
   SetButtonTextureNode,
-  ActorClassSelectControl,
-  SpawnActorFromClassNode,
-  // Flow control nodes
-  DoNNode,
-  FlipFlopNode,
-  ForLoopWithBreakNode,
-  WhileLoopNode,
-  SwitchOnStringNode,
-  GateNode,
-  MultiGateNode,
-  DoOnceNode,
-  // Trace / collision nodes
-  LineTraceByChannelNode,
-  SphereTraceByChannelNode,
-  BoxTraceNode,
-  BreakHitResultNode,
-  // Timer nodes
-  SetTimerByFunctionNode,
-  SetTimerByEventNode,
-  RetriggerableDelayNode,
-  // World / player nodes
-  GetPlayerCharacterNode,
-  GetPlayerCameraManagerNode,
-  GetWorldNode,
-  GetComponentByClassNode,
-  // Refresh controls
-  RefreshNodesControl,
-  WidgetRefreshNodesControl,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -451,22 +395,6 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
       node instanceof OnComponentSleepNode) return 'Events';
-  // New physics nodes
-  if (node instanceof SetBodyTypeNode || node instanceof GetBodyTypeNode ||
-      node instanceof ResetPhysicsNode || node instanceof GetSpeedNode ||
-      node instanceof GetVelocityAtPointNode || node instanceof ClampVelocityNode ||
-      node instanceof SetWorldGravityNode || node instanceof GetWorldGravityNode ||
-      node instanceof SetPhysicsTransformNode || node instanceof TeleportPhysicsBodyNode ||
-      node instanceof AddAngularImpulseNode || node instanceof AddRadialForceNode ||
-      node instanceof AddRadialImpulseNode || node instanceof WakeBodyNode ||
-      node instanceof SleepBodyNode || node instanceof IsBodySleepingNode ||
-      node instanceof SetCollisionEnabledPhysicsNode || node instanceof SetCCDEnabledNode ||
-      node instanceof GetCenterOfMassNode) return 'Physics';
-  // Collision query nodes
-  if (node instanceof LineTraceSingleNode || node instanceof LineTraceMultiNode ||
-      node instanceof SphereTraceNode || node instanceof BoxTraceSingleNode ||
-      node instanceof OverlapSphereNode || node instanceof OverlapBoxNode ||
-      node instanceof PointIsInsideNode) return 'Collision Queries';
   // Collision / trigger event & query nodes
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode ||
       node instanceof OnActorBeginOverlapNode || node instanceof OnActorEndOverlapNode ||
@@ -588,6 +516,9 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
       }
       if (v.type.startsWith('Enum:')) {
         return JSON.stringify(String(v.defaultValue ?? ''));
+      }
+      if (v.type === 'ObjectRef' || v.type === 'Widget' || v.type.startsWith('ClassRef:')) {
+        return 'null';
       }
       return '0';
   }
@@ -727,33 +658,12 @@ function resolveValue(
     return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
   }
 
-  // SpawnActorFromClassNode — return the spawned game object reference
-  if (node instanceof SpawnActorFromClassNode) {
-    const spawnVarName = `__spawned_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    return spawnVarName;
-  }
-
   // Collision / Trigger event output data (variables set inside the callback closure)
   if (node instanceof OnTriggerBeginOverlapNode || node instanceof OnTriggerEndOverlapNode) {
     if (outputKey === 'otherActor') return '__otherActor';
     if (outputKey === 'otherActorName') return '__otherActorName';
     if (outputKey === 'otherActorId') return '__otherActorId';
     if (outputKey === 'selfComponent') return '__selfComponent';
-    return '0';
-  }
-  // Physics event output data — On Component Hit
-  if (node instanceof OnComponentHitNode) {
-    if (outputKey === 'normalX') return '__normalX';
-    if (outputKey === 'normalY') return '__normalY';
-    if (outputKey === 'normalZ') return '__normalZ';
-    if (outputKey === 'impulse') return '__impulse';
-    return '0';
-  }
-  // Physics event output data — On Component Begin/End Overlap
-  if (node instanceof OnComponentBeginOverlapNode || node instanceof OnComponentEndOverlapNode) {
-    if (outputKey === 'otherActor') return '__otherActor';
-    if (outputKey === 'otherActorName') return '__otherActorName';
-    if (outputKey === 'otherActorId') return '__otherActorId';
     return '0';
   }
   // Bound trigger component overlap event outputs (UE-style per-component)
@@ -913,10 +823,10 @@ function resolveValue(
   // Player Controller query nodes
   if (node instanceof GetPlayerControllerNode) {
     // Returns a reference to the player controller
-    return `(__engine ? __engine.playerControllers.get(0) : null)`;
+    return `(gameObject.scene.engine?.playerControllers.get(0) ?? null)`;
   }
   if (node instanceof IsMouseCursorVisibleNode) {
-    return `(__engine ? (__engine.playerControllers.get(0)?.isMouseCursorVisible() ?? true) : true)`;
+    return `(gameObject.scene.engine?.playerControllers.get(0)?.isMouseCursorVisible() ?? true)`;
   }
   // Camera & Spring Arm query nodes
   if (node instanceof GetSpringArmLengthNode) {
@@ -982,110 +892,6 @@ function resolveValue(
   if (node instanceof IsAIControlledNode) {
     return `(gameObject.controller ? gameObject.controller.controllerType === 'AIController' : false)`;
   }
-
-  // ── Trace node data outputs ──
-  if (node instanceof LineTraceByChannelNode) {
-    const trVar = `__trace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
-    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
-    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
-    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
-    if (outputKey === 'normalX') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalX : 0)`;
-    if (outputKey === 'normalY') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalY : 0)`;
-    if (outputKey === 'normalZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalZ : 0)`;
-    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
-    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
-    return '0';
-  }
-  if (node instanceof SphereTraceByChannelNode) {
-    const trVar = `__strace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
-    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
-    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
-    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
-    if (outputKey === 'normalX') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalX : 0)`;
-    if (outputKey === 'normalY') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalY : 0)`;
-    if (outputKey === 'normalZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.normalZ : 0)`;
-    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
-    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
-    return '0';
-  }
-  if (node instanceof BoxTraceNode) {
-    const trVar = `__btrace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'hit') return `(${trVar} ? ${trVar}.hit : false)`;
-    if (outputKey === 'hitX') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitX : 0)`;
-    if (outputKey === 'hitY') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitY : 0)`;
-    if (outputKey === 'hitZ') return `(${trVar} && ${trVar}.hit ? ${trVar}.hitZ : 0)`;
-    if (outputKey === 'hitActor') return `(${trVar} ? ${trVar}.hitActor : null)`;
-    if (outputKey === 'distance') return `(${trVar} ? ${trVar}.distance : 0)`;
-    return '0';
-  }
-  if (node instanceof BreakHitResultNode) {
-    const hS = inputSrc.get(`${nodeId}.hitResult`);
-    const hitVal = hS ? rv(hS.nid, hS.ok) : 'null';
-    if (outputKey === 'hit') return `(${hitVal} ? ${hitVal}.hit : false)`;
-    if (outputKey === 'hitX') return `(${hitVal} ? ${hitVal}.hitX : 0)`;
-    if (outputKey === 'hitY') return `(${hitVal} ? ${hitVal}.hitY : 0)`;
-    if (outputKey === 'hitZ') return `(${hitVal} ? ${hitVal}.hitZ : 0)`;
-    if (outputKey === 'normalX') return `(${hitVal} ? ${hitVal}.normalX : 0)`;
-    if (outputKey === 'normalY') return `(${hitVal} ? ${hitVal}.normalY : 0)`;
-    if (outputKey === 'normalZ') return `(${hitVal} ? ${hitVal}.normalZ : 0)`;
-    if (outputKey === 'distance') return `(${hitVal} ? ${hitVal}.distance : 0)`;
-    if (outputKey === 'hitActor') return `(${hitVal} ? ${hitVal}.hitActor : null)`;
-    return '0';
-  }
-
-  // ── Flow control data outputs ──
-  if (node instanceof FlipFlopNode) {
-    const ffVar = `__flipFlop_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'isA') return ffVar;
-    return '0';
-  }
-  if (node instanceof DoNNode) {
-    const dnVar = `__doN_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'counter') return dnVar;
-    return '0';
-  }
-  if (node instanceof ForLoopWithBreakNode) {
-    const idxVar = `__idx_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'index') return idxVar;
-    return '0';
-  }
-
-  // ── Timer data outputs ──
-  if (node instanceof SetTimerByFunctionNode) {
-    const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'handle') return handleVar;
-    return '0';
-  }
-  if (node instanceof SetTimerByEventNode) {
-    const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (outputKey === 'handle') return handleVar;
-    return '0';
-  }
-
-  // ── World / Player pure nodes ──
-  if (node instanceof GetPlayerCharacterNode) {
-    if (outputKey === 'character') return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
-    if (outputKey === 'valid') return `(!!(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) : null))`;
-    return 'null';
-  }
-  if (node instanceof GetPlayerCameraManagerNode) {
-    return `(__engine && __engine.playerControllers ? __engine.playerControllers.get(0)?.getActiveCamera() || null : null)`;
-  }
-  if (node instanceof GetWorldNode) {
-    return `__scene`;
-  }
-  if (node instanceof GetComponentByClassNode) {
-    const cn = node as GetComponentByClassNode;
-    const compType = (cn.controls['componentType'] as any)?.value ?? 'mesh';
-    if (compType === 'mesh') return `(gameObject.mesh || null)`;
-    if (compType === 'light') return `((gameObject._lightComponents || [])[0] || null)`;
-    if (compType === 'trigger') return `((gameObject._triggerComponents || [])[0] || null)`;
-    if (compType === 'audio') return `((gameObject._audioComponents || [])[0] || null)`;
-    return 'null';
-  }
-
   if (node instanceof CameraModeLiteralNode) {
     const ctrl = node.controls['mode'] as ClassicPreset.InputControl<'text'>;
     return `'${ctrl?.value ?? 'thirdPerson'}'`;
@@ -1283,97 +1089,6 @@ function resolveValue(
       return '0';
     }
 
-    // ── Physics getters (new) ───────────────────────────────
-    case 'Get Body Type':
-      return '(gameObject.physicsConfig ? gameObject.physicsConfig.bodyType : "Dynamic")';
-    case 'Get Speed':
-      return '(gameObject.rigidBody ? Math.sqrt(Math.pow(gameObject.rigidBody.linvel().x,2)+Math.pow(gameObject.rigidBody.linvel().y,2)+Math.pow(gameObject.rigidBody.linvel().z,2)) : 0)';
-    case 'Get Velocity at Point': {
-      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
-      const px = pxS ? rv(pxS.nid, pxS.ok) : '0'; const py = pyS ? rv(pyS.nid, pyS.ok) : '0'; const pz = pzS ? rv(pzS.nid, pzS.ok) : '0';
-      return `(__physics.getVelocityAtPoint(gameObject, {x:${px},y:${py},z:${pz}}).${outputKey === 'vx' ? 'x' : outputKey === 'vy' ? 'y' : 'z'})`;
-    }
-    case 'Get World Gravity':
-      return `(__physics.getWorldGravity().${outputKey})`;
-    case 'Is Body Sleeping':
-      return '(__physics.isBodySleeping(gameObject))';
-    case 'Get Center of Mass':
-      return `(__physics.getCenterOfMass(gameObject).${outputKey})`;
-    case 'Point Is Inside': {
-      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
-      const px = pxS ? rv(pxS.nid, pxS.ok) : '0'; const py = pyS ? rv(pyS.nid, pyS.ok) : '0'; const pz = pzS ? rv(pzS.nid, pzS.ok) : '0';
-      return `(__physics.pointIsInside({x:${px},y:${py},z:${pz}}, gameObject))`;
-    }
-    case 'Overlap Sphere': {
-      const cxS = inputSrc.get(`${nodeId}.cx`); const cyS = inputSrc.get(`${nodeId}.cy`); const czS = inputSrc.get(`${nodeId}.cz`);
-      const rS = inputSrc.get(`${nodeId}.radius`);
-      return `(__physics.overlapSphere({x:${cxS ? rv(cxS.nid, cxS.ok) : '0'},y:${cyS ? rv(cyS.nid, cyS.ok) : '0'},z:${czS ? rv(czS.nid, czS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '1'}).length)`;
-    }
-    case 'Overlap Box': {
-      const cxS = inputSrc.get(`${nodeId}.cx`); const cyS = inputSrc.get(`${nodeId}.cy`); const czS = inputSrc.get(`${nodeId}.cz`);
-      const hxS = inputSrc.get(`${nodeId}.halfX`); const hyS = inputSrc.get(`${nodeId}.halfY`); const hzS = inputSrc.get(`${nodeId}.halfZ`);
-      return `(__physics.overlapBox({x:${cxS ? rv(cxS.nid, cxS.ok) : '0'},y:${cyS ? rv(cyS.nid, cyS.ok) : '0'},z:${czS ? rv(czS.nid, czS.ok) : '0'}}, {x:${hxS ? rv(hxS.nid, hxS.ok) : '0.5'},y:${hyS ? rv(hyS.nid, hyS.ok) : '0.5'},z:${hzS ? rv(hzS.nid, hzS.ok) : '0.5'}}, {x:0,y:0,z:0}).length)`;
-    }
-    case 'Line Trace Single': {
-      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
-      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
-      const mdS = inputSrc.get(`${nodeId}.maxDist`);
-      const castExpr = `__physics.castRay({x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
-      if (outputKey === 'hit') return `(${castExpr}.hit)`;
-      if (outputKey === 'distance') return `(${castExpr}.distance)`;
-      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
-      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
-      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
-      if (outputKey === 'normalX') return `(${castExpr}.normal.x)`;
-      if (outputKey === 'normalY') return `(${castExpr}.normal.y)`;
-      if (outputKey === 'normalZ') return `(${castExpr}.normal.z)`;
-      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
-      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
-      return '0';
-    }
-    case 'Line Trace Multi': {
-      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
-      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
-      const mdS = inputSrc.get(`${nodeId}.maxDist`);
-      const castExpr = `__physics.castRayMulti({x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
-      if (outputKey === 'hitCount') return `(${castExpr}.length)`;
-      if (outputKey === 'closestHitX') return `((${castExpr}[0] || {point:{x:0}}).point.x)`;
-      if (outputKey === 'closestHitY') return `((${castExpr}[0] || {point:{y:0}}).point.y)`;
-      if (outputKey === 'closestHitZ') return `((${castExpr}[0] || {point:{z:0}}).point.z)`;
-      if (outputKey === 'closestHitActorId') return `((${castExpr}[0] || {hitActorId:-1}).hitActorId)`;
-      if (outputKey === 'closestHitActorName') return `((${castExpr}[0] || {hitActorName:''}).hitActorName)`;
-      return '0';
-    }
-    case 'Sphere Trace': {
-      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
-      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
-      const rS = inputSrc.get(`${nodeId}.radius`); const mdS = inputSrc.get(`${nodeId}.maxDist`);
-      const castExpr = `__physics.castShape('sphere', {radius:${rS ? rv(rS.nid, rS.ok) : '0.5'}}, {x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
-      if (outputKey === 'hit') return `(${castExpr}.hit)`;
-      if (outputKey === 'distance') return `(${castExpr}.distance)`;
-      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
-      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
-      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
-      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
-      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
-      return '0';
-    }
-    case 'Box Trace': {
-      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`); const szS = inputSrc.get(`${nodeId}.startZ`);
-      const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
-      const hxS = inputSrc.get(`${nodeId}.halfX`); const hyS = inputSrc.get(`${nodeId}.halfY`); const hzS = inputSrc.get(`${nodeId}.halfZ`);
-      const mdS = inputSrc.get(`${nodeId}.maxDist`);
-      const castExpr = `__physics.castShape('box', {halfExtents:{x:${hxS ? rv(hxS.nid, hxS.ok) : '0.5'},y:${hyS ? rv(hyS.nid, hyS.ok) : '0.5'},z:${hzS ? rv(hzS.nid, hzS.ok) : '0.5'}}}, {x:${sxS ? rv(sxS.nid, sxS.ok) : '0'},y:${syS ? rv(syS.nid, syS.ok) : '0'},z:${szS ? rv(szS.nid, szS.ok) : '0'}}, {x:${dxS ? rv(dxS.nid, dxS.ok) : '0'},y:${dyS ? rv(dyS.nid, dyS.ok) : '-1'},z:${dzS ? rv(dzS.nid, dzS.ok) : '0'}}, ${mdS ? rv(mdS.nid, mdS.ok) : '1000'}, __scene)`;
-      if (outputKey === 'hit') return `(${castExpr}.hit)`;
-      if (outputKey === 'distance') return `(${castExpr}.distance)`;
-      if (outputKey === 'hitX') return `(${castExpr}.point.x)`;
-      if (outputKey === 'hitY') return `(${castExpr}.point.y)`;
-      if (outputKey === 'hitZ') return `(${castExpr}.point.z)`;
-      if (outputKey === 'hitActorId') return `(${castExpr}.hitActorId)`;
-      if (outputKey === 'hitActorName') return `(${castExpr}.hitActorName)`;
-      return '0';
-    }
-
     // ── Type conversions ─────────────────────────────────────
     case 'Bool \u2192 Number': {
       const s = inputSrc.get(`${nodeId}.in`);
@@ -1446,320 +1161,6 @@ function resolveValue(
       const widgetHandle = wS ? resolveValue(wS.nid, wS.ok, nodeMap, inputSrc, bp) : '""';
       const varName = JSON.stringify(n.getVariableName());
       return `(__uiManager ? __uiManager.getWidgetVariable(${widgetHandle}, ${varName}) : undefined)`;
-    }
-
-    // ── Extended Math Nodes ─────────────────────────────────
-    case 'Modulo': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      const b = bS ? rv(bS.nid, bS.ok) : '1';
-      return `(${b} !== 0 ? (${aS ? rv(aS.nid, aS.ok) : '0'} % ${b}) : 0)`;
-    }
-    case 'Power': {
-      const bS = inputSrc.get(`${nodeId}.base`);
-      const eS = inputSrc.get(`${nodeId}.exponent`);
-      return `Math.pow(${bS ? rv(bS.nid, bS.ok) : '0'}, ${eS ? rv(eS.nid, eS.ok) : '1'})`;
-    }
-    case 'Min': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `Math.min(${aS ? rv(aS.nid, aS.ok) : '0'}, ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Max': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `Math.max(${aS ? rv(aS.nid, aS.ok) : '0'}, ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Round': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.round(${vS ? rv(vS.nid, vS.ok) : '0'})`;
-    }
-    case 'Floor': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.floor(${vS ? rv(vS.nid, vS.ok) : '0'})`;
-    }
-    case 'Ceil': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.ceil(${vS ? rv(vS.nid, vS.ok) : '0'})`;
-    }
-    case 'Sqrt': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.sqrt(Math.abs(${vS ? rv(vS.nid, vS.ok) : '0'}))`;
-    }
-    case 'Log': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.log(Math.max(${vS ? rv(vS.nid, vS.ok) : '1'}, 0.0001))`;
-    }
-    case 'Tangent': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `Math.tan(${vS ? rv(vS.nid, vS.ok) : '0'})`;
-    }
-    case 'Normalize': {
-      const xS = inputSrc.get(`${nodeId}.x`);
-      const yS = inputSrc.get(`${nodeId}.y`);
-      const zS = inputSrc.get(`${nodeId}.z`);
-      const x = xS ? rv(xS.nid, xS.ok) : '0';
-      const y = yS ? rv(yS.nid, yS.ok) : '0';
-      const z = zS ? rv(zS.nid, zS.ok) : '0';
-      const len = `Math.sqrt(${x}*${x}+${y}*${y}+${z}*${z})||1`;
-      if (outputKey === 'nx') return `(${x}/(${len}))`;
-      if (outputKey === 'ny') return `(${y}/(${len}))`;
-      if (outputKey === 'nz') return `(${z}/(${len}))`;
-      return '0';
-    }
-    case 'Dot Product': {
-      const ax = inputSrc.get(`${nodeId}.ax`);
-      const ay = inputSrc.get(`${nodeId}.ay`);
-      const az = inputSrc.get(`${nodeId}.az`);
-      const bx = inputSrc.get(`${nodeId}.bx`);
-      const by = inputSrc.get(`${nodeId}.by`);
-      const bz = inputSrc.get(`${nodeId}.bz`);
-      return `(${ax?rv(ax.nid,ax.ok):'0'}*${bx?rv(bx.nid,bx.ok):'0'}+${ay?rv(ay.nid,ay.ok):'0'}*${by?rv(by.nid,by.ok):'0'}+${az?rv(az.nid,az.ok):'0'}*${bz?rv(bz.nid,bz.ok):'0'})`;
-    }
-    case 'Cross Product': {
-      const ax = inputSrc.get(`${nodeId}.ax`);
-      const ay = inputSrc.get(`${nodeId}.ay`);
-      const az = inputSrc.get(`${nodeId}.az`);
-      const bx = inputSrc.get(`${nodeId}.bx`);
-      const by = inputSrc.get(`${nodeId}.by`);
-      const bz = inputSrc.get(`${nodeId}.bz`);
-      const _ax = ax?rv(ax.nid,ax.ok):'0', _ay = ay?rv(ay.nid,ay.ok):'0', _az = az?rv(az.nid,az.ok):'0';
-      const _bx = bx?rv(bx.nid,bx.ok):'0', _by = by?rv(by.nid,by.ok):'0', _bz = bz?rv(bz.nid,bz.ok):'0';
-      if (outputKey === 'rx') return `(${_ay}*${_bz}-${_az}*${_by})`;
-      if (outputKey === 'ry') return `(${_az}*${_bx}-${_ax}*${_bz})`;
-      if (outputKey === 'rz') return `(${_ax}*${_by}-${_ay}*${_bx})`;
-      return '0';
-    }
-    case 'Vector Length': {
-      const xS = inputSrc.get(`${nodeId}.x`);
-      const yS = inputSrc.get(`${nodeId}.y`);
-      const zS = inputSrc.get(`${nodeId}.z`);
-      const x = xS ? rv(xS.nid, xS.ok) : '0';
-      const y = yS ? rv(yS.nid, yS.ok) : '0';
-      const z = zS ? rv(zS.nid, zS.ok) : '0';
-      return `Math.sqrt(${x}*${x}+${y}*${y}+${z}*${z})`;
-    }
-    case 'Distance': {
-      const ax = inputSrc.get(`${nodeId}.ax`);
-      const ay = inputSrc.get(`${nodeId}.ay`);
-      const az = inputSrc.get(`${nodeId}.az`);
-      const bx = inputSrc.get(`${nodeId}.bx`);
-      const by = inputSrc.get(`${nodeId}.by`);
-      const bz = inputSrc.get(`${nodeId}.bz`);
-      const dx = `(${ax?rv(ax.nid,ax.ok):'0'}-${bx?rv(bx.nid,bx.ok):'0'})`;
-      const dy = `(${ay?rv(ay.nid,ay.ok):'0'}-${by?rv(by.nid,by.ok):'0'})`;
-      const dz = `(${az?rv(az.nid,az.ok):'0'}-${bz?rv(bz.nid,bz.ok):'0'})`;
-      return `Math.sqrt(${dx}*${dx}+${dy}*${dy}+${dz}*${dz})`;
-    }
-    case 'Random Float': return 'Math.random()';
-    case 'Random Float in Range': {
-      const mn = inputSrc.get(`${nodeId}.min`);
-      const mx = inputSrc.get(`${nodeId}.max`);
-      const a = mn ? rv(mn.nid, mn.ok) : '0';
-      const b = mx ? rv(mx.nid, mx.ok) : '1';
-      return `(${a} + Math.random() * (${b} - ${a}))`;
-    }
-    case 'Random Int in Range': {
-      const mn = inputSrc.get(`${nodeId}.min`);
-      const mx = inputSrc.get(`${nodeId}.max`);
-      const a = mn ? rv(mn.nid, mn.ok) : '0';
-      const b = mx ? rv(mx.nid, mx.ok) : '10';
-      return `(Math.floor(${a} + Math.random() * (${b} - ${a} + 1)))`;
-    }
-    case 'Random Bool': return '(Math.random() < 0.5)';
-    case 'Equal': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(${aS ? rv(aS.nid, aS.ok) : '0'} === ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Not Equal': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(${aS ? rv(aS.nid, aS.ok) : '0'} !== ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Less Than': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(${aS ? rv(aS.nid, aS.ok) : '0'} < ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Greater or Equal': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(${aS ? rv(aS.nid, aS.ok) : '0'} >= ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'Less or Equal': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(${aS ? rv(aS.nid, aS.ok) : '0'} <= ${bS ? rv(bS.nid, bS.ok) : '0'})`;
-    }
-    case 'AND': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) && !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
-    }
-    case 'OR': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) || !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
-    }
-    case 'NOT': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `(!(${vS ? rv(vS.nid, vS.ok) : 'false'}))`;
-    }
-    case 'XOR': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(!!(${aS ? rv(aS.nid, aS.ok) : 'false'}) !== !!(${bS ? rv(bS.nid, bS.ok) : 'false'}))`;
-    }
-
-    // ── String Nodes ────────────────────────────────────────
-    case 'Append': {
-      const aS = inputSrc.get(`${nodeId}.a`);
-      const bS = inputSrc.get(`${nodeId}.b`);
-      return `(String(${aS ? rv(aS.nid, aS.ok) : '""'}) + String(${bS ? rv(bS.nid, bS.ok) : '""'}))`;
-    }
-    case 'Format Text': {
-      const fS = inputSrc.get(`${nodeId}.format`);
-      const a0 = inputSrc.get(`${nodeId}.arg0`);
-      const a1 = inputSrc.get(`${nodeId}.arg1`);
-      const a2 = inputSrc.get(`${nodeId}.arg2`);
-      const fmt = fS ? rv(fS.nid, fS.ok) : '""';
-      return `(${fmt}).replace("{0}", String(${a0 ? rv(a0.nid, a0.ok) : '""'})).replace("{1}", String(${a1 ? rv(a1.nid, a1.ok) : '""'})).replace("{2}", String(${a2 ? rv(a2.nid, a2.ok) : '""'}))`;
-    }
-    case 'Bool to String': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `(${vS ? rv(vS.nid, vS.ok) : 'false'} ? "true" : "false")`;
-    }
-    case 'Int to String':
-    case 'Float to String': {
-      const vS = inputSrc.get(`${nodeId}.value`);
-      return `String(${vS ? rv(vS.nid, vS.ok) : '0'})`;
-    }
-    case 'Vec3 to String': {
-      const xS = inputSrc.get(`${nodeId}.x`);
-      const yS = inputSrc.get(`${nodeId}.y`);
-      const zS = inputSrc.get(`${nodeId}.z`);
-      return `("(" + ${xS ? rv(xS.nid, xS.ok) : '0'} + ", " + ${yS ? rv(yS.nid, yS.ok) : '0'} + ", " + ${zS ? rv(zS.nid, zS.ok) : '0'} + ")")`;
-    }
-    case 'String Length': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).length`;
-    }
-    case 'Substring': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const st = inputSrc.get(`${nodeId}.start`);
-      const ln = inputSrc.get(`${nodeId}.length`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).substr(${st ? rv(st.nid, st.ok) : '0'}, ${ln ? rv(ln.nid, ln.ok) : '0'})`;
-    }
-    case 'String Contains': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const sub = inputSrc.get(`${nodeId}.substring`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).includes(${sub ? rv(sub.nid, sub.ok) : '""'})`;
-    }
-    case 'String Replace': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const from = inputSrc.get(`${nodeId}.from`);
-      const to = inputSrc.get(`${nodeId}.to`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).replaceAll(${from ? rv(from.nid, from.ok) : '""'}, ${to ? rv(to.nid, to.ok) : '""'})`;
-    }
-    case 'String Split': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const dS = inputSrc.get(`${nodeId}.delimiter`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).split(${dS ? rv(dS.nid, dS.ok) : '","'}).length`;
-    }
-    case 'Trim': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).trim()`;
-    }
-    case 'To Upper': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).toUpperCase()`;
-    }
-    case 'To Lower': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      return `(${sS ? rv(sS.nid, sS.ok) : '""'}).toLowerCase()`;
-    }
-    case 'Parse Int': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const val = sS ? rv(sS.nid, sS.ok) : '""';
-      if (outputKey === 'value') return `(parseInt(${val}, 10) || 0)`;
-      if (outputKey === 'success') return `(!isNaN(parseInt(${val}, 10)))`;
-      return '0';
-    }
-    case 'Parse Float': {
-      const sS = inputSrc.get(`${nodeId}.string`);
-      const val = sS ? rv(sS.nid, sS.ok) : '""';
-      if (outputKey === 'value') return `(parseFloat(${val}) || 0)`;
-      if (outputKey === 'success') return `(!isNaN(parseFloat(${val})))`;
-      return '0';
-    }
-
-    // ── Actor direction/velocity getters ────────────────────
-    case 'Get Actor Forward Vector': {
-      if (outputKey === 'x') return '(gameObject.mesh ? Math.sin(gameObject.mesh.rotation.y) : 0)';
-      if (outputKey === 'y') return '0';
-      if (outputKey === 'z') return '(gameObject.mesh ? Math.cos(gameObject.mesh.rotation.y) : 0)';
-      return '0';
-    }
-    case 'Get Actor Right Vector': {
-      if (outputKey === 'x') return '(gameObject.mesh ? Math.cos(gameObject.mesh.rotation.y) : 0)';
-      if (outputKey === 'y') return '0';
-      if (outputKey === 'z') return '(gameObject.mesh ? -Math.sin(gameObject.mesh.rotation.y) : 0)';
-      return '0';
-    }
-    case 'Get Actor Up Vector': {
-      if (outputKey === 'x') return '0';
-      if (outputKey === 'y') return '1';
-      if (outputKey === 'z') return '0';
-      return '0';
-    }
-    case 'Get Actor Velocity': {
-      if (outputKey === 'x') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().x : 0)';
-      if (outputKey === 'y') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().y : 0)';
-      if (outputKey === 'z') return '(gameObject.rigidBody ? gameObject.rigidBody.linvel().z : 0)';
-      return '0';
-    }
-
-    // ── Tag queries ─────────────────────────────────────────
-    case 'Actor Has Tag': {
-      const tS = inputSrc.get(`${nodeId}.tag`);
-      return `(!!(gameObject.tags && gameObject.tags.includes(${tS ? rv(tS.nid, tS.ok) : '""'})))`;
-    }
-
-    // ── Timer queries ───────────────────────────────────────
-    case 'Is Timer Active': {
-      const hS = inputSrc.get(`${nodeId}.handle`);
-      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].active)`;
-    }
-    case 'Is Timer Paused': {
-      const hS = inputSrc.get(`${nodeId}.handle`);
-      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].paused)`;
-    }
-    case 'Get Timer Remaining Time': {
-      const hS = inputSrc.get(`${nodeId}.handle`);
-      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] ? __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].remaining : 0)`;
-    }
-    case 'Get Timer Elapsed Time': {
-      const hS = inputSrc.get(`${nodeId}.handle`);
-      return `(typeof __timers !== 'undefined' && __timers[${hS ? rv(hS.nid, hS.ok) : '0'}] ? __timers[${hS ? rv(hS.nid, hS.ok) : '0'}].elapsed : 0)`;
-    }
-
-    // ── World / Time getters ────────────────────────────────
-    case 'Get World Delta Seconds': return 'deltaTime';
-    case 'Get Real Time Seconds': return '(performance.now() / 1000)';
-    case 'Get Game Time in Seconds': return 'elapsedTime';
-    case 'Is Game Paused': return '(typeof __gamePaused !== "undefined" ? __gamePaused : false)';
-
-    // ── Mouse getters ───────────────────────────────────────
-    case 'Get Mouse Position': {
-      if (outputKey === 'x') return '(typeof __mouseX !== "undefined" ? __mouseX : 0)';
-      if (outputKey === 'y') return '(typeof __mouseY !== "undefined" ? __mouseY : 0)';
-      return '0';
-    }
-    case 'Get Mouse Delta': {
-      if (outputKey === 'dx') return '(typeof __mouseDX !== "undefined" ? __mouseDX : 0)';
-      if (outputKey === 'dy') return '(typeof __mouseDY !== "undefined" ? __mouseDY : 0)';
-      return '0';
     }
 
     default: return '0';
@@ -2070,38 +1471,34 @@ function genAction(
   // Player Controller cursor control nodes
   if (node instanceof SetShowMouseCursorNode) {
     const showS = inputSrc.get(`${nodeId}.show`);
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setShowMouseCursor(${showS ? rv(showS.nid, showS.ok) : 'true'}); }`);
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setShowMouseCursor(${showS ? rv(showS.nid, showS.ok) : 'true'}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeGameOnlyNode) {
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeGameOnly(); }`);
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameOnly(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeGameAndUINode) {
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeGameAndUI(); }`);
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameAndUI(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeUIOnlyNode) {
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeUIOnly(); }`);
+    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeUIOnly(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   // Player Controller pawn control nodes
   if (node instanceof PossessPawnNode) {
     const nS = inputSrc.get(`${nodeId}.pawnName`);
-    const pawnName = nS ? rv(nS.nid, nS.ok) : '""';
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc && __scene) {`);
-    lines.push(`  var _pawnGo = __scene.gameObjects.find(function(g) { return g.name === ${pawnName}; });`);
-    lines.push(`  if (_pawnGo && _pawnGo.characterController) { _pc.possess(_pawnGo.characterController); }`);
-    lines.push(`} }`);
+    lines.push(`{ /* Possess Pawn — handled at engine level */ }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof UnpossessPawnNode) {
-    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) { _pc.unpossess(); } }`);
+    lines.push(`{ /* Unpossess Pawn — handled at engine level */ }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2233,6 +1630,8 @@ function genAction(
         lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${JSON.stringify(node.varName)}, __var_${vn}); } }`);
       }
     }
+    // Sync closure-local variable to _scriptVars so cross-actor GetActorVariable reads the latest value
+    lines.push(`if (gameObject && gameObject._scriptVars) gameObject._scriptVars[${JSON.stringify(node.varName)}] = __var_${vn};`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2544,113 +1943,26 @@ function genAction(
       break;
     }
     case 'Add Force at Location': {
-      const fxS = inputSrc.get(`${nodeId}.fx`); const fyS = inputSrc.get(`${nodeId}.fy`); const fzS = inputSrc.get(`${nodeId}.fz`);
-      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
+      const fxS = inputSrc.get(`${nodeId}.forceX`); const fyS = inputSrc.get(`${nodeId}.forceY`); const fzS = inputSrc.get(`${nodeId}.forceZ`);
+      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForceAtPoint({x:${fxS ? rv(fxS.nid, fxS.ok) : '0'}, y:${fyS ? rv(fyS.nid, fyS.ok) : '0'}, z:${fzS ? rv(fzS.nid, fzS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Add Impulse at Location': {
-      const ixS = inputSrc.get(`${nodeId}.fx`); const iyS = inputSrc.get(`${nodeId}.fy`); const izS = inputSrc.get(`${nodeId}.fz`);
-      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
+      const ixS = inputSrc.get(`${nodeId}.impulseX`); const iyS = inputSrc.get(`${nodeId}.impulseY`); const izS = inputSrc.get(`${nodeId}.impulseZ`);
+      const pxS = inputSrc.get(`${nodeId}.pointX`); const pyS = inputSrc.get(`${nodeId}.pointY`); const pzS = inputSrc.get(`${nodeId}.pointZ`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.applyImpulseAtPoint({x:${ixS ? rv(ixS.nid, ixS.ok) : '0'}, y:${iyS ? rv(iyS.nid, iyS.ok) : '0'}, z:${izS ? rv(izS.nid, izS.ok) : '0'}}, {x:${pxS ? rv(pxS.nid, pxS.ok) : '0'}, y:${pyS ? rv(pyS.nid, pyS.ok) : '0'}, z:${pzS ? rv(pzS.nid, pzS.ok) : '0'}}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Set Physics Constraints': {
+    case 'Set Constraint': {
       const lx = inputSrc.get(`${nodeId}.lockPosX`); const ly = inputSrc.get(`${nodeId}.lockPosY`); const lz = inputSrc.get(`${nodeId}.lockPosZ`);
       const rx = inputSrc.get(`${nodeId}.lockRotX`); const ry = inputSrc.get(`${nodeId}.lockRotY`); const rz = inputSrc.get(`${nodeId}.lockRotZ`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabledTranslations(!${lx ? rv(lx.nid, lx.ok) : 'false'}, !${ly ? rv(ly.nid, ly.ok) : 'false'}, !${lz ? rv(lz.nid, lz.ok) : 'false'}, true); gameObject.rigidBody.setEnabledRotations(!${rx ? rv(rx.nid, rx.ok) : 'false'}, !${ry ? rv(ry.nid, ry.ok) : 'false'}, !${rz ? rv(rz.nid, rz.ok) : 'false'}, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-
-    // ── New Physics Action Nodes ──────────────────────────────
-    case 'Set Body Type': {
-      const tS = inputSrc.get(`${nodeId}.type`);
-      const tVal = tS ? rv(tS.nid, tS.ok) : '"Dynamic"';
-      lines.push(`if (__physics && gameObject.rigidBody) { __physics.queueChange({type:'changeBodyType', go:gameObject, newType:${tVal}}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Reset Physics': {
-      lines.push(`if (__physics) { __physics.removePhysicsBody(gameObject); __physics.addPhysicsBody(gameObject); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Clamp Velocity': {
-      const msS = inputSrc.get(`${nodeId}.maxSpeed`);
-      const ms = msS ? rv(msS.nid, msS.ok) : '1000';
-      lines.push(`if (gameObject.rigidBody) { var __v = gameObject.rigidBody.linvel(); var __spd = Math.sqrt(__v.x*__v.x + __v.y*__v.y + __v.z*__v.z); if (__spd > ${ms}) { var __sc = ${ms} / __spd; gameObject.rigidBody.setLinvel({x:__v.x*__sc, y:__v.y*__sc, z:__v.z*__sc}, true); } }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set World Gravity': {
-      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
-      lines.push(`if (__physics) { __physics.setWorldGravity({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '-9.81'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Physics Transform': {
-      const pxS = inputSrc.get(`${nodeId}.px`); const pyS = inputSrc.get(`${nodeId}.py`); const pzS = inputSrc.get(`${nodeId}.pz`);
-      const rxS = inputSrc.get(`${nodeId}.rx`); const ryS = inputSrc.get(`${nodeId}.ry`); const rzS = inputSrc.get(`${nodeId}.rz`);
-      const tpS = inputSrc.get(`${nodeId}.teleport`);
-      const tp = tpS ? rv(tpS.nid, tpS.ok) : 'true';
-      lines.push(`if (__physics) { __physics.setPhysicsTransform(gameObject, {x:${pxS ? rv(pxS.nid, pxS.ok) : 'gameObject.mesh.position.x'}, y:${pyS ? rv(pyS.nid, pyS.ok) : 'gameObject.mesh.position.y'}, z:${pzS ? rv(pzS.nid, pzS.ok) : 'gameObject.mesh.position.z'}}, {x:${rxS ? rv(rxS.nid, rxS.ok) : '0'}, y:${ryS ? rv(ryS.nid, ryS.ok) : '0'}, z:${rzS ? rv(rzS.nid, rzS.ok) : '0'}}, !!(${tp})); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Teleport Physics Body': {
-      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
-      lines.push(`if (__physics) { __physics.setPhysicsTransform(gameObject, {x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, null, true); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Angular Impulse': {
-      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
-      lines.push(`if (__physics) { __physics.addAngularImpulse(gameObject, {x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, false); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Radial Force': {
-      const oxS = inputSrc.get(`${nodeId}.ox`); const oyS = inputSrc.get(`${nodeId}.oy`); const ozS = inputSrc.get(`${nodeId}.oz`);
-      const rS = inputSrc.get(`${nodeId}.radius`); const strS = inputSrc.get(`${nodeId}.strength`); const foS = inputSrc.get(`${nodeId}.falloff`);
-      lines.push(`if (__physics && __scene) { __physics.addRadialForce({x:${oxS ? rv(oxS.nid, oxS.ok) : '0'}, y:${oyS ? rv(oyS.nid, oyS.ok) : '0'}, z:${ozS ? rv(ozS.nid, ozS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '10'}, ${strS ? rv(strS.nid, strS.ok) : '1000'}, ${foS ? rv(foS.nid, foS.ok) : '"Linear"'}, __scene); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Radial Impulse': {
-      const oxS = inputSrc.get(`${nodeId}.ox`); const oyS = inputSrc.get(`${nodeId}.oy`); const ozS = inputSrc.get(`${nodeId}.oz`);
-      const rS = inputSrc.get(`${nodeId}.radius`); const strS = inputSrc.get(`${nodeId}.strength`); const foS = inputSrc.get(`${nodeId}.falloff`);
-      lines.push(`if (__physics && __scene) { __physics.addRadialImpulse({x:${oxS ? rv(oxS.nid, oxS.ok) : '0'}, y:${oyS ? rv(oyS.nid, oyS.ok) : '0'}, z:${ozS ? rv(ozS.nid, ozS.ok) : '0'}}, ${rS ? rv(rS.nid, rS.ok) : '10'}, ${strS ? rv(strS.nid, strS.ok) : '500'}, ${foS ? rv(foS.nid, foS.ok) : '"Linear"'}, false, __scene); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Wake Physics Body': {
-      lines.push(`if (__physics) { __physics.wakeBody(gameObject); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Sleep Physics Body': {
-      lines.push(`if (__physics) { __physics.sleepBody(gameObject); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Collision Enabled': {
-      const eS = inputSrc.get(`${nodeId}.enabled`);
-      const eVal = eS ? rv(eS.nid, eS.ok) : 'true';
-      lines.push(`if (gameObject.collider) { gameObject.collider.setSensor(!!(${eVal}) ? false : true); if (gameObject.physicsConfig) gameObject.physicsConfig.collisionEnabled = !!(${eVal}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set CCD Enabled': {
-      const eS = inputSrc.get(`${nodeId}.enabled`);
-      const eVal = eS ? rv(eS.nid, eS.ok) : 'true';
-      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.enableCcd(!!(${eVal})); if (gameObject.physicsConfig) gameObject.physicsConfig.ccdEnabled = !!(${eVal}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
     case 'Branch': {
       const cS = inputSrc.get(`${nodeId}.condition`);
       const cond = cS ? rv(cS.nid, cS.ok) : 'false';
@@ -2690,16 +2002,7 @@ function genAction(
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
       const bpId = JSON.stringify(wn.widgetBPId || '');
-      // Build Expose on Spawn overrides for widget variables
-      const wOverrides: string[] = [];
-      for (const ev of (wn.exposedVars || [])) {
-        const evSrc = inputSrc.get(`${nodeId}.exposed_${ev.varId}`);
-        if (evSrc) {
-          wOverrides.push(`${JSON.stringify(ev.name)}: ${rv(evSrc.nid, evSrc.ok)}`);
-        }
-      }
-      const wOverridesObj = wOverrides.length > 0 ? `{ ${wOverrides.join(', ')} }` : 'null';
-      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}, ${wOverridesObj}) : '';`);
+      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}) : '';`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2888,519 +2191,6 @@ function genAction(
       const val = valSrc ? rv(valSrc.nid, valSrc.ok) : 'undefined';
       lines.push(`if (__gameInstance) { __gameInstance.setVariable(${varName}, ${val}); }`);
       lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
-    // ── Extended Flow Control Nodes ─────────────────────────
-    case 'Do Once': {
-      const stateVar = `__doOnce_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = false; }`);
-      lines.push(`if (!${stateVar}) { ${stateVar} = true;`);
-      lines.push(...we(nodeId, 'completed'));
-      lines.push(`}`);
-      break;
-    }
-    case 'Reset Do Once': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      if (handleS) {
-        const stateVar = `__doOnce_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        lines.push(`${stateVar} = false;`);
-      }
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Do N': {
-      const nS = inputSrc.get(`${nodeId}.n`);
-      const n = nS ? rv(nS.nid, nS.ok) : '1';
-      const stateVar = `__doN_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = 0; }`);
-      lines.push(`if (${stateVar} < ${n}) { ${stateVar}++;`);
-      lines.push(...we(nodeId, 'exec'));
-      lines.push(`}`);
-      break;
-    }
-    case 'Flip Flop': {
-      const stateVar = `__flipFlop_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = true; }`);
-      lines.push(`if (${stateVar}) {`);
-      lines.push(...we(nodeId, 'a'));
-      lines.push(`} else {`);
-      lines.push(...we(nodeId, 'b'));
-      lines.push(`}`);
-      lines.push(`${stateVar} = !${stateVar};`);
-      break;
-    }
-    case 'Gate': {
-      const stateVar = `__gate_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const startClosedS = inputSrc.get(`${nodeId}.startClosed`);
-      const startClosed = startClosedS ? rv(startClosedS.nid, startClosedS.ok) : 'false';
-      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = !${startClosed}; }`);
-      // Check which exec input triggered
-      lines.push(`if (${stateVar}) {`);
-      lines.push(...we(nodeId, 'exit'));
-      lines.push(`}`);
-      break;
-    }
-    case 'Open Gate': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      if (handleS) {
-        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        lines.push(`${stateVar} = true;`);
-      }
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Close Gate': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      if (handleS) {
-        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        lines.push(`${stateVar} = false;`);
-      }
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Toggle Gate': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      if (handleS) {
-        const stateVar = `__gate_${handleS.nid.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        lines.push(`${stateVar} = !${stateVar};`);
-      }
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Multi Gate': {
-      const isRandomS = inputSrc.get(`${nodeId}.isRandom`);
-      const loopS = inputSrc.get(`${nodeId}.loop`);
-      const startIdxS = inputSrc.get(`${nodeId}.startIndex`);
-      const isRandom = isRandomS ? rv(isRandomS.nid, isRandomS.ok) : 'false';
-      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
-      const startIdx = startIdxS ? rv(startIdxS.nid, startIdxS.ok) : '0';
-      const stateVar = `__multiGate_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`if (typeof ${stateVar} === 'undefined') { ${stateVar} = ${startIdx}; }`);
-      lines.push(`{ const _mg_max = 3;`);
-      lines.push(`if (${isRandom}) { ${stateVar} = Math.floor(Math.random() * _mg_max); }`);
-      lines.push(`switch (${stateVar}) {`);
-      lines.push(`case 0:`);
-      lines.push(...we(nodeId, 'out0'));
-      lines.push(`break;`);
-      lines.push(`case 1:`);
-      lines.push(...we(nodeId, 'out1'));
-      lines.push(`break;`);
-      lines.push(`case 2:`);
-      lines.push(...we(nodeId, 'out2'));
-      lines.push(`break;`);
-      lines.push(`}`);
-      lines.push(`if (!${isRandom}) { ${stateVar}++; if (${loop} && ${stateVar} >= _mg_max) { ${stateVar} = 0; } }`);
-      lines.push(`}`);
-      break;
-    }
-    case 'For Loop with Break': {
-      const firstS = inputSrc.get(`${nodeId}.firstIndex`);
-      const lastS = inputSrc.get(`${nodeId}.lastIndex`);
-      const first = firstS ? rv(firstS.nid, firstS.ok) : '0';
-      const last = lastS ? rv(lastS.nid, lastS.ok) : '0';
-      const idxVar = `__idx_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const breakVar = `__brk_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${breakVar} = false;`);
-      lines.push(`for (var ${idxVar} = ${first}; ${idxVar} <= ${last} && !${breakVar}; ${idxVar}++) {`);
-      lines.push(...we(nodeId, 'body'));
-      lines.push(`}`);
-      lines.push(`if (!${breakVar}) {`);
-      lines.push(...we(nodeId, 'completed'));
-      lines.push(`}`);
-      break;
-    }
-    case 'While Loop': {
-      const condS = inputSrc.get(`${nodeId}.condition`);
-      const cond = condS ? rv(condS.nid, condS.ok) : 'false';
-      lines.push(`{ var __whileGuard = 0; while ((${cond}) && __whileGuard++ < 10000) {`);
-      lines.push(...we(nodeId, 'body'));
-      lines.push(`}}`);
-      lines.push(...we(nodeId, 'completed'));
-      break;
-    }
-    case 'Switch on Int': {
-      const selS = inputSrc.get(`${nodeId}.selection`);
-      const sel = selS ? rv(selS.nid, selS.ok) : '0';
-      lines.push(`switch (${sel}) {`);
-      lines.push(`case 0:`);
-      lines.push(...we(nodeId, 'case0'));
-      lines.push(`break;`);
-      lines.push(`case 1:`);
-      lines.push(...we(nodeId, 'case1'));
-      lines.push(`break;`);
-      lines.push(`case 2:`);
-      lines.push(...we(nodeId, 'case2'));
-      lines.push(`break;`);
-      lines.push(`default:`);
-      lines.push(...we(nodeId, 'default'));
-      lines.push(`}`);
-      break;
-    }
-    case 'Switch on String': {
-      const selS = inputSrc.get(`${nodeId}.selection`);
-      const sel = selS ? rv(selS.nid, selS.ok) : '""';
-      const switchNode = node as SwitchOnStringNode;
-      const caseVals = switchNode.caseValues || ['Case 0', 'Case 1', 'Case 2'];
-      lines.push(`switch (${sel}) {`);
-      for (let ci = 0; ci < caseVals.length; ci++) {
-        lines.push(`case ${JSON.stringify(caseVals[ci])}:`);
-        lines.push(...we(nodeId, `case${ci}`));
-        lines.push(`break;`);
-      }
-      lines.push(`default:`);
-      lines.push(...we(nodeId, 'default'));
-      lines.push(`}`);
-      break;
-    }
-
-    // ── Spawning Nodes ──────────────────────────────────────
-    case 'Spawn Actor from Class': {
-      const spawnNode = node as SpawnActorFromClassNode;
-      const classId = JSON.stringify(spawnNode.targetClassId || '');
-      const className = JSON.stringify(spawnNode.targetClassName || '');
-      const locXS = inputSrc.get(`${nodeId}.locX`);
-      const locYS = inputSrc.get(`${nodeId}.locY`);
-      const locZS = inputSrc.get(`${nodeId}.locZ`);
-      const rotXS = inputSrc.get(`${nodeId}.rotX`);
-      const rotYS = inputSrc.get(`${nodeId}.rotY`);
-      const rotZS = inputSrc.get(`${nodeId}.rotZ`);
-      const scaleXS = inputSrc.get(`${nodeId}.scaleX`);
-      const scaleYS = inputSrc.get(`${nodeId}.scaleY`);
-      const scaleZS = inputSrc.get(`${nodeId}.scaleZ`);
-      const ownerS = inputSrc.get(`${nodeId}.owner`);
-      const lx = locXS ? rv(locXS.nid, locXS.ok) : '0';
-      const ly = locYS ? rv(locYS.nid, locYS.ok) : '0';
-      const lz = locZS ? rv(locZS.nid, locZS.ok) : '0';
-      const rx = rotXS ? rv(rotXS.nid, rotXS.ok) : '0';
-      const ry = rotYS ? rv(rotYS.nid, rotYS.ok) : '0';
-      const rz = rotZS ? rv(rotZS.nid, rotZS.ok) : '0';
-      const sx = scaleXS ? rv(scaleXS.nid, scaleXS.ok) : '1';
-      const sy = scaleYS ? rv(scaleYS.nid, scaleYS.ok) : '1';
-      const sz = scaleZS ? rv(scaleZS.nid, scaleZS.ok) : '1';
-      const ownerExpr = ownerS ? rv(ownerS.nid, ownerS.ok) : 'null';
-      const spawnVar = `__spawned_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-      // Build Expose on Spawn overrides object
-      const overrides: string[] = [];
-      for (const ev of spawnNode.exposedVars) {
-        const evSrc = inputSrc.get(`${nodeId}.exposed_${ev.varId}`);
-        if (evSrc) {
-          overrides.push(`${JSON.stringify(ev.name)}: ${rv(evSrc.nid, evSrc.ok)}`);
-        }
-      }
-      const overridesObj = overrides.length > 0 ? `{ ${overrides.join(', ')} }` : 'null';
-
-      lines.push(`var ${spawnVar} = __scene ? __scene.spawnActorFromClass(`);
-      lines.push(`  ${classId}, ${className},`);
-      lines.push(`  { x: ${lx}, y: ${ly}, z: ${lz} },`);
-      lines.push(`  { x: ${rx}, y: ${ry}, z: ${rz} },`);
-      lines.push(`  { x: ${sx}, y: ${sy}, z: ${sz} },`);
-      lines.push(`  ${ownerExpr}, ${overridesObj}`);
-      lines.push(`) : null;`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Destroy Actor': {
-      const target = inputSrc.get(`${nodeId}.target`);
-      const targetExpr = target ? rv(target.nid, target.ok) : 'gameObject';
-      // Remove physics body first, then remove from scene
-      lines.push(`(function() {`);
-      lines.push(`  var __da = ${targetExpr};`);
-      lines.push(`  if (__da && __scene) {`);
-      lines.push(`    if (__physics) { __physics.removePhysicsBody(__da); }`);
-      lines.push(`    __scene.removeGameObject(__da);`);
-      lines.push(`  }`);
-      lines.push(`})();`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Spawn Emitter at Location': {
-      lines.push(`console.warn('[Blueprint] Spawn Emitter at Location: particle system not yet implemented');`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Spawn Sound at Location': {
-      lines.push(`console.warn('[Blueprint] Spawn Sound at Location: audio system not yet implemented');`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
-    // ── Actor Manipulation Nodes ────────────────────────────
-    case 'Add Actor World Offset':
-    case 'Add World Offset': {
-      const dxS = inputSrc.get(`${nodeId}.dx`);
-      const dyS = inputSrc.get(`${nodeId}.dy`);
-      const dzS = inputSrc.get(`${nodeId}.dz`);
-      lines.push(`gameObject.position.x += ${dxS ? rv(dxS.nid, dxS.ok) : '0'};`);
-      lines.push(`gameObject.position.y += ${dyS ? rv(dyS.nid, dyS.ok) : '0'};`);
-      lines.push(`gameObject.position.z += ${dzS ? rv(dzS.nid, dzS.ok) : '0'};`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Actor World Rotation':
-    case 'Add World Rotation': {
-      const dxS = inputSrc.get(`${nodeId}.dx`);
-      const dyS = inputSrc.get(`${nodeId}.dy`);
-      const dzS = inputSrc.get(`${nodeId}.dz`);
-      lines.push(`gameObject.rotation.x += ${dxS ? rv(dxS.nid, dxS.ok) : '0'};`);
-      lines.push(`gameObject.rotation.y += ${dyS ? rv(dyS.nid, dyS.ok) : '0'};`);
-      lines.push(`gameObject.rotation.z += ${dzS ? rv(dzS.nid, dzS.ok) : '0'};`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Actor Local Offset':
-    case 'Add Local Offset': {
-      const dxS = inputSrc.get(`${nodeId}.dx`);
-      const dyS = inputSrc.get(`${nodeId}.dy`);
-      const dzS = inputSrc.get(`${nodeId}.dz`);
-      const dx = dxS ? rv(dxS.nid, dxS.ok) : '0';
-      const dy = dyS ? rv(dyS.nid, dyS.ok) : '0';
-      const dz = dzS ? rv(dzS.nid, dzS.ok) : '0';
-      // Apply offset in local space using mesh's quaternion
-      lines.push(`{ const _q = gameObject.mesh ? gameObject.mesh.quaternion : new THREE.Quaternion();`);
-      lines.push(`const _v = new THREE.Vector3(${dx}, ${dy}, ${dz}).applyQuaternion(_q);`);
-      lines.push(`gameObject.position.x += _v.x; gameObject.position.y += _v.y; gameObject.position.z += _v.z; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Teleport Actor': {
-      const xS = inputSrc.get(`${nodeId}.locX`);
-      const yS = inputSrc.get(`${nodeId}.locY`);
-      const zS = inputSrc.get(`${nodeId}.locZ`);
-      const rxS = inputSrc.get(`${nodeId}.rotX`);
-      const ryS = inputSrc.get(`${nodeId}.rotY`);
-      const rzS = inputSrc.get(`${nodeId}.rotZ`);
-      lines.push(`gameObject.position.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.position.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.position.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.position.z'});`);
-      lines.push(`gameObject.rotation.set(${rxS ? rv(rxS.nid, rxS.ok) : 'gameObject.rotation.x'}, ${ryS ? rv(ryS.nid, ryS.ok) : 'gameObject.rotation.y'}, ${rzS ? rv(rzS.nid, rzS.ok) : 'gameObject.rotation.z'});`);
-      lines.push(`if (gameObject.rigidBody) { gameObject.mesh.updateMatrixWorld(true); gameObject.rigidBody.setTranslation(gameObject.position, true); gameObject.rigidBody.setRotation(gameObject.mesh.quaternion, true); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Add Tag to Actor':
-    case 'Add Tag': {
-      const tagS = inputSrc.get(`${nodeId}.tag`);
-      const tag = tagS ? rv(tagS.nid, tagS.ok) : '""';
-      lines.push(`if (!gameObject.tags) { gameObject.tags = []; }`);
-      lines.push(`if (!gameObject.tags.includes(${tag})) { gameObject.tags.push(${tag}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Remove Tag from Actor':
-    case 'Remove Tag': {
-      const tagS = inputSrc.get(`${nodeId}.tag`);
-      const tag = tagS ? rv(tagS.nid, tagS.ok) : '""';
-      lines.push(`if (gameObject.tags) { const _i = gameObject.tags.indexOf(${tag}); if (_i >= 0) gameObject.tags.splice(_i, 1); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Actor Hidden in Game':
-    case 'Set Actor Hidden': {
-      const hiddenS = inputSrc.get(`${nodeId}.hidden`);
-      lines.push(`if (gameObject.mesh) { gameObject.mesh.visible = !${hiddenS ? rv(hiddenS.nid, hiddenS.ok) : 'false'}; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Actor Enable Collision': {
-      const enabledS = inputSrc.get(`${nodeId}.enabled`);
-      const enabled = enabledS ? rv(enabledS.nid, enabledS.ok) : 'true';
-      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabled(${enabled}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Actor Tick Enabled': {
-      const enabledS = inputSrc.get(`${nodeId}.enabled`);
-      lines.push(`gameObject.__tickEnabled = ${enabledS ? rv(enabledS.nid, enabledS.ok) : 'true'};`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Destroy Component': {
-      lines.push(`console.warn('[Blueprint] Destroy Component: component reference system not yet implemented');`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
-    // ── Timer Nodes ─────────────────────────────────────────
-    case 'Set Timer by Function Name': {
-      const fnS = inputSrc.get(`${nodeId}.functionName`);
-      const timeS = inputSrc.get(`${nodeId}.time`);
-      const loopS = inputSrc.get(`${nodeId}.looping`);
-      const fnName = fnS ? rv(fnS.nid, fnS.ok) : '""';
-      const time = timeS ? rv(timeS.nid, timeS.ok) : '1';
-      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
-      const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`if (typeof __timers === 'undefined') { var __timers = {}; var __timerIdCounter = 0; }`);
-      lines.push(`var ${handleVar} = ++__timerIdCounter; __timers[${handleVar}] = { active: true, paused: false, remaining: ${time}, elapsed: 0, fn: ${fnName}, interval: ${time}, loop: ${loop} };`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Timer by Event': {
-      const timeS = inputSrc.get(`${nodeId}.time`);
-      const loopS = inputSrc.get(`${nodeId}.looping`);
-      const time = timeS ? rv(timeS.nid, timeS.ok) : '1';
-      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
-      const handleVar = `__timerHandle_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const eventCode = we(nodeId, 'event');
-      lines.push(`if (typeof __timers === 'undefined') { var __timers = {}; var __timerIdCounter = 0; }`);
-      lines.push(`var ${handleVar} = ++__timerIdCounter; __timers[${handleVar}] = { active: true, paused: false, remaining: ${time}, elapsed: 0, interval: ${time}, loop: ${loop}, callback: function() { ${eventCode.join('\n')} } };`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Clear Timer': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
-      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].active = false; delete __timers[${handle}]; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Clear All Timers': {
-      lines.push(`if (typeof __timers !== 'undefined') { __timers = {}; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Pause Timer': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
-      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].paused = true; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Unpause Timer': {
-      const handleS = inputSrc.get(`${nodeId}.handle`);
-      const handle = handleS ? rv(handleS.nid, handleS.ok) : '0';
-      lines.push(`if (typeof __timers !== 'undefined' && __timers[${handle}]) { __timers[${handle}].paused = false; }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Retriggerable Delay': {
-      const durationS = inputSrc.get(`${nodeId}.duration`);
-      const duration = durationS ? rv(durationS.nid, durationS.ok) : '1';
-      const delayVar = `__delay_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const completedCode = we(nodeId, 'completed');
-      lines.push(`if (typeof ${delayVar} === 'undefined') { var ${delayVar} = { active: false, timer: null }; }`);
-      lines.push(`if (${delayVar}.timer) { clearTimeout(${delayVar}.timer); }`);
-      lines.push(`${delayVar}.active = true; ${delayVar}.timer = setTimeout(function() { ${delayVar}.active = false; ${completedCode.join('\n')} }, (${duration}) * 1000);`);
-      break;
-    }
-
-    // ── String Exec Nodes ───────────────────────────────────
-    case 'Print Warning': {
-      const msgS = inputSrc.get(`${nodeId}.message`);
-      lines.push(`console.warn(${msgS ? rv(msgS.nid, msgS.ok) : '""'});`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Print Error': {
-      const msgS = inputSrc.get(`${nodeId}.message`);
-      lines.push(`console.error(${msgS ? rv(msgS.nid, msgS.ok) : '""'});`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
-    // ── World / Game State Nodes ────────────────────────────
-    case 'Open Level': {
-      const levelS = inputSrc.get(`${nodeId}.levelName`);
-      lines.push(`if (__projectManager) { __projectManager.loadSceneRuntime(${levelS ? rv(levelS.nid, levelS.ok) : '""'}); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Quit Game': {
-      lines.push(`if (__engine && __engine.onQuitGame) { __engine.onQuitGame(); } else if (typeof __quitGame === 'function') { __quitGame(); } else { console.warn('[Blueprint] Quit Game requested — no quit handler registered'); }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Game Paused': {
-      const pausedS = inputSrc.get(`${nodeId}.paused`);
-      lines.push(`__gamePaused = ${pausedS ? rv(pausedS.nid, pausedS.ok) : 'true'};`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-
-    // ── Trace / Collision Nodes ─────────────────────────────
-    case 'Line Trace by Channel':
-    case 'Line Trace By Channel': {
-      const sxS = inputSrc.get(`${nodeId}.startX`);
-      const syS = inputSrc.get(`${nodeId}.startY`);
-      const szS = inputSrc.get(`${nodeId}.startZ`);
-      const exS = inputSrc.get(`${nodeId}.endX`);
-      const eyS = inputSrc.get(`${nodeId}.endY`);
-      const ezS = inputSrc.get(`${nodeId}.endZ`);
-      const resultVar = `__trace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
-      const sy = syS ? rv(syS.nid, syS.ok) : '0';
-      const sz = szS ? rv(szS.nid, szS.ok) : '0';
-      const ex = exS ? rv(exS.nid, exS.ok) : '0';
-      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
-      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
-      lines.push(`var ${resultVar} = (function() {`);
-      lines.push(`  if (!__physics) return null;`);
-      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
-      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
-      lines.push(`  if (_len < 0.0001) return null;`);
-      lines.push(`  return __physics.castRay({x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
-      lines.push(`})();`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Sphere Trace by Channel':
-    case 'Sphere Trace By Channel': {
-      const sxS = inputSrc.get(`${nodeId}.startX`);
-      const syS = inputSrc.get(`${nodeId}.startY`);
-      const szS = inputSrc.get(`${nodeId}.startZ`);
-      const exS = inputSrc.get(`${nodeId}.endX`);
-      const eyS = inputSrc.get(`${nodeId}.endY`);
-      const ezS = inputSrc.get(`${nodeId}.endZ`);
-      const radiusS = inputSrc.get(`${nodeId}.radius`);
-      const resultVar = `__strace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
-      const sy = syS ? rv(syS.nid, syS.ok) : '0';
-      const sz = szS ? rv(szS.nid, szS.ok) : '0';
-      const ex = exS ? rv(exS.nid, exS.ok) : '0';
-      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
-      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
-      const rad = radiusS ? rv(radiusS.nid, radiusS.ok) : '0.5';
-      lines.push(`var ${resultVar} = (function() {`);
-      lines.push(`  if (!__physics) return null;`);
-      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
-      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
-      lines.push(`  if (_len < 0.0001) return null;`);
-      lines.push(`  return __physics.castShape('sphere', { radius: ${rad} }, {x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
-      lines.push(`})();`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Box Trace': {
-      const sxS = inputSrc.get(`${nodeId}.startX`);
-      const syS = inputSrc.get(`${nodeId}.startY`);
-      const szS = inputSrc.get(`${nodeId}.startZ`);
-      const exS = inputSrc.get(`${nodeId}.endX`);
-      const eyS = inputSrc.get(`${nodeId}.endY`);
-      const ezS = inputSrc.get(`${nodeId}.endZ`);
-      const hxS = inputSrc.get(`${nodeId}.halfX`);
-      const hyS = inputSrc.get(`${nodeId}.halfY`);
-      const hzS = inputSrc.get(`${nodeId}.halfZ`);
-      const resultVar = `__btrace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
-      const sy = syS ? rv(syS.nid, syS.ok) : '0';
-      const sz = szS ? rv(szS.nid, szS.ok) : '0';
-      const ex = exS ? rv(exS.nid, exS.ok) : '0';
-      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
-      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
-      const hx = hxS ? rv(hxS.nid, hxS.ok) : '0.5';
-      const hy = hyS ? rv(hyS.nid, hyS.ok) : '0.5';
-      const hz = hzS ? rv(hzS.nid, hzS.ok) : '0.5';
-      lines.push(`var ${resultVar} = (function() {`);
-      lines.push(`  if (!__physics) return null;`);
-      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
-      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
-      lines.push(`  if (_len < 0.0001) return null;`);
-      lines.push(`  return __physics.castShape('box', { halfExtents: {x:${hx},y:${hy},z:${hz}} }, {x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
-      lines.push(`})();`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Break Hit Result': {
-      // Pure node — result values accessed via resolveValue
       break;
     }
   }
@@ -3593,51 +2383,6 @@ function generateFullCode(
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
         beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
-      }
-    }
-  }
-
-  // ── Physics Event Nodes (OnComponentHit/Wake/Sleep) ─────────────
-  const physHitNodes = nodes.filter(n => n instanceof OnComponentHitNode);
-  const physBeginOverlapNodes = nodes.filter(n => n instanceof OnComponentBeginOverlapNode);
-  const physEndOverlapNodes = nodes.filter(n => n instanceof OnComponentEndOverlapNode);
-  const physWakeNodes = nodes.filter(n => n instanceof OnComponentWakeNode);
-  const physSleepNodes = nodes.filter(n => n instanceof OnComponentSleepNode);
-  const hasPhysicsEvents = physHitNodes.length > 0 || physBeginOverlapNodes.length > 0 ||
-    physEndOverlapNodes.length > 0 || physWakeNodes.length > 0 || physSleepNodes.length > 0;
-
-  if (hasPhysicsEvents) {
-    if (!hasCollisionEvents) {
-      beginPlayCode.push('var __collCb = __physics.collision.registerCallbacks(gameObject.id);');
-    }
-    for (const n of physHitNodes) {
-      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-      if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
-      }
-    }
-    for (const n of physBeginOverlapNodes) {
-      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-      if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
-      }
-    }
-    for (const n of physEndOverlapNodes) {
-      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-      if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
-      }
-    }
-    for (const n of physWakeNodes) {
-      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-      if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onWake = __collCb.onWake || []; __collCb.onWake.push(function() { ${body.join(' ')} });`);
-      }
-    }
-    for (const n of physSleepNodes) {
-      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
-      if (body.length > 0) {
-        beginPlayCode.push(`__collCb.onSleep = __collCb.onSleep || []; __collCb.onSleep.push(function() { ${body.join(' ')} });`);
       }
     }
   }
@@ -3878,25 +2623,6 @@ function buildMyBlueprintPanel(
     typeSpan.className = 'mybp-var-type';
     typeSpan.textContent = typeDisplayName(v.type, bp);
     item.appendChild(typeSpan);
-
-    // Show Expose on Spawn / Instance Editable badges
-    if (v.exposeOnSpawn || v.instanceEditable) {
-      const badges = document.createElement('span');
-      badges.style.cssText = 'display:inline-flex;gap:2px;margin-left:4px;align-items:center;';
-      if (v.exposeOnSpawn) {
-        const badge = document.createElement('span');
-        badge.innerHTML = iconHTML(Icons.Zap, 10, '#ff9800');
-        badge.title = 'Expose on Spawn';
-        badges.appendChild(badge);
-      }
-      if (v.instanceEditable) {
-        const badge = document.createElement('span');
-        badge.innerHTML = iconHTML(Icons.Eye, 10, '#64b5f6');
-        badge.title = 'Instance Editable';
-        badges.appendChild(badge);
-      }
-      item.appendChild(badges);
-    }
 
     const actions = document.createElement('span');
     actions.className = 'mybp-item-actions';
@@ -4697,6 +3423,13 @@ function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?
       html += `<option value="${val}"${selected === val ? ' selected' : ''}>${e.name} (Enum)</option>`;
     }
   }
+  // Actor class references — for storing typed actor/object refs as variables
+  if (_actorAssetMgr) {
+    for (const asset of _actorAssetMgr.assets) {
+      const val: VarType = `ClassRef:${asset.id}`;
+      html += `<option value="${val}"${selected === val ? ' selected' : ''}>${asset.name} (Actor Ref)</option>`;
+    }
+  }
   return html;
 }
 
@@ -4721,6 +3454,14 @@ function typeDisplayName(type: VarType, bp: import('./BlueprintData').BlueprintD
     }
     return 'Enum?';
   }
+  if (type.startsWith('ClassRef:')) {
+    const actorId = type.slice(9);
+    if (_actorAssetMgr) {
+      const asset = _actorAssetMgr.assets.find(a => a.id === actorId);
+      if (asset) return `${asset.name} Ref`;
+    }
+    return 'Actor Ref?';
+  }
   return type;
 }
 
@@ -4728,6 +3469,7 @@ function typeDisplayName(type: VarType, bp: import('./BlueprintData').BlueprintD
 function typeDotClass(type: VarType): string {
   if (type.startsWith('Struct:')) return 'mybp-var-struct';
   if (type.startsWith('Enum:'))   return 'mybp-var-enum';
+  if (type.startsWith('ClassRef:')) return 'mybp-var-objectref';
   return `mybp-var-${type.toLowerCase()}`;
 }
 
@@ -5000,6 +3742,14 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       }
       return `<span style="color:#888;font-size:11px;">Enum — no values defined</span>`;
     }
+    if (type === 'ObjectRef' || type === 'Widget') {
+      return `<span style="color:#888;font-size:11px;">None — assigned at runtime via Cast/Get nodes</span>`;
+    }
+    if (type.startsWith('ClassRef:')) {
+      const actorId = type.slice(9);
+      const actorName = _actorAssetMgr?.assets.find(a => a.id === actorId)?.name ?? 'Actor';
+      return `<span style="color:#888;font-size:11px;">None (${actorName} Ref) — assigned at runtime via Cast nodes</span>`;
+    }
     return '';
   }
 
@@ -5039,18 +3789,6 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       </select>
       <label class="mybp-dialog-label">Default Value</label>
       <div id="dlg-default-container">${buildDefaultValueInput(v.type, v.defaultValue)}</div>
-      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#b0b0d0;cursor:pointer;">
-          <input type="checkbox" id="dlg-instance-editable" ${v.instanceEditable ? 'checked' : ''} />
-          Instance Editable
-          <span style="color:#666;font-size:10px;" title="Allow this variable to be edited per-instance in the Details panel">(?)</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#b0b0d0;cursor:pointer;">
-          <input type="checkbox" id="dlg-expose-on-spawn" ${v.exposeOnSpawn ? 'checked' : ''} />
-          Expose on Spawn
-          <span style="color:#666;font-size:10px;" title="Show this variable as an input pin on Spawn Actor from Class nodes">(?)</span>
-        </label>
-      </div>
       <div class="mybp-dialog-actions">
         <button class="mybp-dialog-btn cancel" id="dlg-cancel">Cancel</button>
         <button class="mybp-dialog-btn ok" id="dlg-ok">Save</button>
@@ -5072,8 +3810,6 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
     dialog.querySelector('#dlg-ok')!.addEventListener('click', () => {
       v.name = (dialog.querySelector('#dlg-var-name') as HTMLInputElement).value.trim() || v.name;
       v.type = (dialog.querySelector('#dlg-var-type') as HTMLSelectElement).value as VarType;
-      v.instanceEditable = (dialog.querySelector('#dlg-instance-editable') as HTMLInputElement).checked;
-      v.exposeOnSpawn = (dialog.querySelector('#dlg-expose-on-spawn') as HTMLInputElement).checked;
       if (v.type === 'Float') v.defaultValue = parseFloat((dialog.querySelector('#dlg-val') as HTMLInputElement).value) || 0;
       else if (v.type === 'Color') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).value;
       else if (v.type === 'Boolean') v.defaultValue = (dialog.querySelector('#dlg-val') as HTMLInputElement).checked;
@@ -5089,6 +3825,8 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       } else if (v.type.startsWith('Enum:')) {
         const valEl = dialog.querySelector('#dlg-val') as HTMLSelectElement | null;
         v.defaultValue = valEl?.value ?? '';
+      } else if (v.type === 'ObjectRef' || v.type === 'Widget' || v.type.startsWith('ClassRef:')) {
+        v.defaultValue = null; // Object references are always null by default, assigned at runtime
       }
       onChange();
       close();
@@ -5304,34 +4042,6 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof OnComponentEndOverlapNode) return 'OnComponentEndOverlapNode';
   if (node instanceof OnComponentWakeNode) return 'OnComponentWakeNode';
   if (node instanceof OnComponentSleepNode) return 'OnComponentSleepNode';
-  // Physics (new nodes)
-  if (node instanceof SetBodyTypeNode) return 'SetBodyTypeNode';
-  if (node instanceof GetBodyTypeNode) return 'GetBodyTypeNode';
-  if (node instanceof ResetPhysicsNode) return 'ResetPhysicsNode';
-  if (node instanceof GetSpeedNode) return 'GetSpeedNode';
-  if (node instanceof GetVelocityAtPointNode) return 'GetVelocityAtPointNode';
-  if (node instanceof ClampVelocityNode) return 'ClampVelocityNode';
-  if (node instanceof SetWorldGravityNode) return 'SetWorldGravityNode';
-  if (node instanceof GetWorldGravityNode) return 'GetWorldGravityNode';
-  if (node instanceof SetPhysicsTransformNode) return 'SetPhysicsTransformNode';
-  if (node instanceof TeleportPhysicsBodyNode) return 'TeleportPhysicsBodyNode';
-  if (node instanceof AddAngularImpulseNode) return 'AddAngularImpulseNode';
-  if (node instanceof AddRadialForceNode) return 'AddRadialForceNode';
-  if (node instanceof AddRadialImpulseNode) return 'AddRadialImpulseNode';
-  if (node instanceof WakeBodyNode) return 'WakeBodyNode';
-  if (node instanceof SleepBodyNode) return 'SleepBodyNode';
-  if (node instanceof IsBodySleepingNode) return 'IsBodySleepingNode';
-  if (node instanceof SetCollisionEnabledPhysicsNode) return 'SetCollisionEnabledPhysicsNode';
-  if (node instanceof SetCCDEnabledNode) return 'SetCCDEnabledNode';
-  if (node instanceof GetCenterOfMassNode) return 'GetCenterOfMassNode';
-  // Collision Queries (new)
-  if (node instanceof LineTraceSingleNode) return 'LineTraceSingleNode';
-  if (node instanceof LineTraceMultiNode) return 'LineTraceMultiNode';
-  if (node instanceof SphereTraceNode) return 'SphereTraceNode';
-  if (node instanceof BoxTraceSingleNode) return 'BoxTraceSingleNode';
-  if (node instanceof OverlapSphereNode) return 'OverlapSphereNode';
-  if (node instanceof OverlapBoxNode) return 'OverlapBoxNode';
-  if (node instanceof PointIsInsideNode) return 'PointIsInsideNode';
   // Component nodes
   if (node instanceof GetComponentLocationNode) return 'GetComponentLocationNode';
   if (node instanceof SetComponentLocationNode) return 'SetComponentLocationNode';
@@ -5520,8 +4230,6 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetGameInstanceNode) return 'GetGameInstanceNode';
   if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
   if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
-  // Spawning
-  if (node instanceof SpawnActorFromClassNode) return 'SpawnActorFromClassNode';
 
   return 'Unknown';
 }
@@ -5549,8 +4257,6 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
       controls[key] = { id: (ctrl as TextureSelectControl).value, name: (ctrl as TextureSelectControl).displayName };
-    } else if (ctrl instanceof ActorClassSelectControl) {
-      controls[key] = { id: (ctrl as ActorClassSelectControl).value, name: (ctrl as ActorClassSelectControl).displayName };
     } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
@@ -5679,7 +4385,6 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateWidgetNode) {
     data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
     data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
-    data.exposedVars = (node as CreateWidgetNode).exposedVars;
   }
 
   // Widget instance interaction nodes
@@ -5717,14 +4422,6 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.widgetBPName = n.widgetBPName;
     data.eventName = n.getEventName();
     data.eventParams = n.eventParams;
-  }
-
-  // Spawn Actor from Class
-  if (node instanceof SpawnActorFromClassNode) {
-    const spawnNode = node as SpawnActorFromClassNode;
-    data.targetClassId = spawnNode.targetClassId;
-    data.targetClassName = spawnNode.targetClassName;
-    data.exposedVars = spawnNode.exposedVars.map(v => ({ name: v.name, type: v.type, varId: v.varId }));
   }
 
   return data;
@@ -5919,34 +4616,6 @@ function createNodeFromData(
     case 'OnComponentEndOverlapNode':   return new OnComponentEndOverlapNode();
     case 'OnComponentWakeNode':         return new OnComponentWakeNode();
     case 'OnComponentSleepNode':        return new OnComponentSleepNode();
-    // Physics (new nodes)
-    case 'SetBodyTypeNode':              return new SetBodyTypeNode();
-    case 'GetBodyTypeNode':              return new GetBodyTypeNode();
-    case 'ResetPhysicsNode':             return new ResetPhysicsNode();
-    case 'GetSpeedNode':                 return new GetSpeedNode();
-    case 'GetVelocityAtPointNode':       return new GetVelocityAtPointNode();
-    case 'ClampVelocityNode':            return new ClampVelocityNode();
-    case 'SetWorldGravityNode':          return new SetWorldGravityNode();
-    case 'GetWorldGravityNode':          return new GetWorldGravityNode();
-    case 'SetPhysicsTransformNode':      return new SetPhysicsTransformNode();
-    case 'TeleportPhysicsBodyNode':      return new TeleportPhysicsBodyNode();
-    case 'AddAngularImpulseNode':        return new AddAngularImpulseNode();
-    case 'AddRadialForceNode':           return new AddRadialForceNode();
-    case 'AddRadialImpulseNode':         return new AddRadialImpulseNode();
-    case 'WakeBodyNode':                 return new WakeBodyNode();
-    case 'SleepBodyNode':                return new SleepBodyNode();
-    case 'IsBodySleepingNode':           return new IsBodySleepingNode();
-    case 'SetCollisionEnabledPhysicsNode': return new SetCollisionEnabledPhysicsNode();
-    case 'SetCCDEnabledNode':            return new SetCCDEnabledNode();
-    case 'GetCenterOfMassNode':          return new GetCenterOfMassNode();
-    // Collision Queries (new)
-    case 'LineTraceSingleNode':          return new LineTraceSingleNode();
-    case 'LineTraceMultiNode':           return new LineTraceMultiNode();
-    case 'SphereTraceNode':              return new SphereTraceNode();
-    case 'BoxTraceSingleNode':           return new BoxTraceSingleNode();
-    case 'OverlapSphereNode':            return new OverlapSphereNode();
-    case 'OverlapBoxNode':               return new OverlapBoxNode();
-    case 'PointIsInsideNode':            return new PointIsInsideNode();
 
     // Component nodes
     case 'GetComponentLocationNode':  return new GetComponentLocationNode(d.compName || 'Root', d.compIndex ?? -1);
@@ -6097,22 +4766,7 @@ function createNodeFromData(
     case 'SetAnimVarNode':                  return new SetAnimVarNode(d.varName || 'speed', d.varType || 'number');
     case 'GetAnimVarNode':                  return new GetAnimVarNode(d.varName || 'speed', d.varType || 'number');
     // Widget / UI nodes
-    case 'CreateWidgetNode': {
-      const n = new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
-      // Restore exposed vars (Expose on Spawn pins)
-      if (d.exposedVars && Array.isArray(d.exposedVars)) {
-        n.setExposedVars(d.exposedVars);
-      } else if (d.widgetBPId && _widgetBPMgr) {
-        const wAsset = _widgetBPMgr.getAsset(d.widgetBPId);
-        if (wAsset) {
-          const exposed = (wAsset.blueprintData.variables || [])
-            .filter((v: any) => v.exposeOnSpawn)
-            .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
-          if (exposed.length > 0) n.setExposedVars(exposed);
-        }
-      }
-      return n;
-    }
+    case 'CreateWidgetNode':                return new CreateWidgetNode(d.widgetBPId || '', d.widgetBPName || '(none)');
     case 'AddToViewportNode':               return new AddToViewportNode();
     case 'RemoveFromViewportNode':          return new RemoveFromViewportNode();
     case 'SetWidgetTextNode': {
@@ -6424,27 +5078,6 @@ function createNodeFromData(
       return n;
     }
 
-    // Spawning nodes
-    case 'SpawnActorFromClassNode': {
-      const classId = d.targetClassId || d.controls?.actorClass?.id || '';
-      const className = d.targetClassName || d.controls?.actorClass?.name || '';
-      const n = new SpawnActorFromClassNode(classId, className);
-      // Restore exposed vars (Expose on Spawn pins)
-      if (d.exposedVars && Array.isArray(d.exposedVars)) {
-        n.setExposedVars(d.exposedVars);
-      } else if (classId && _actorAssetMgr) {
-        // Try to rebuild from the actor asset's current blueprint data
-        const asset = _actorAssetMgr.getAsset(classId);
-        if (asset) {
-          const exposed = asset.blueprintData.variables
-            .filter(v => v.exposeOnSpawn)
-            .map(v => ({ name: v.name, type: v.type, varId: v.id }));
-          if (exposed.length > 0) n.setExposedVars(exposed);
-        }
-      }
-      return n;
-    }
-
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
@@ -6695,148 +5328,6 @@ async function createGraphEditor(
             );
           };
         }
-        if (data.payload instanceof ActorClassSelectControl) {
-          const ctrl = data.payload as ActorClassSelectControl;
-          return (_props: any) => {
-            const [val, setVal] = React.useState(ctrl.value);
-            const [actors, setActors] = React.useState<{ id: string; name: string }[]>([]);
-
-            React.useEffect(() => {
-              if (_actorAssetMgr) {
-                const list = _actorAssetMgr.assets.map(a => ({ id: a.id, name: a.name }));
-                list.sort((a, b) => a.name.localeCompare(b.name));
-                setActors(list);
-              }
-            }, []);
-
-            const handleChange = (e: any) => {
-              const selectedId = e.target.value;
-              const actor = actors.find(a => a.id === selectedId);
-              ctrl.setValue(selectedId, actor?.name ?? '');
-              setVal(selectedId);
-
-              // ------- Expose on Spawn: rebuild pins -------
-              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
-              if (parentNode && _actorAssetMgr) {
-                const asset = _actorAssetMgr.getAsset(selectedId);
-                if (asset) {
-                  const exposed = asset.blueprintData.variables
-                    .filter(v => v.exposeOnSpawn)
-                    .map(v => ({ name: v.name, type: v.type, varId: v.id }));
-                  parentNode.setExposedVars(exposed);
-                  parentNode.targetClassId = selectedId;
-                  parentNode.targetClassName = actor?.name ?? '';
-                } else {
-                  parentNode.setExposedVars([]);
-                }
-                // Force node re-render
-                area.update('node', parentNode.id);
-              }
-            };
-
-            return React.createElement('select', {
-              value: val,
-              onChange: handleChange,
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%',
-                padding: '4px 6px',
-                background: '#1e1e2e',
-                color: '#ff9800',
-                border: '1px solid #3a3a5c',
-                borderRadius: 4,
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                outline: 'none',
-                minWidth: 140,
-              },
-            },
-              React.createElement('option', { value: '', disabled: true }, '-- Select Actor Class --'),
-              ...actors.map(a =>
-                React.createElement('option', { key: a.id, value: a.id }, a.name),
-              ),
-            );
-          };
-        }
-        // ── Refresh Nodes button (Actor Spawn) ──
-        if (data.payload instanceof RefreshNodesControl) {
-          const ctrl = data.payload as RefreshNodesControl;
-          return (_props: any) => {
-            const handleClick = (e: any) => {
-              e.stopPropagation();
-              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
-              if (parentNode && _actorAssetMgr && parentNode.targetClassId) {
-                const asset = _actorAssetMgr.getAsset(parentNode.targetClassId);
-                if (asset) {
-                  const exposed = asset.blueprintData.variables
-                    .filter((v: any) => v.exposeOnSpawn)
-                    .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
-                  parentNode.setExposedVars(exposed);
-                  area.update('node', parentNode.id);
-                }
-              }
-            };
-            return React.createElement('button', {
-              onClick: handleClick,
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%', padding: '4px 8px', background: '#2a4a6a',
-                color: '#7ecbff', border: '1px solid #4a9eff', borderRadius: 4,
-                fontSize: 11, fontWeight: 600, cursor: 'pointer', marginTop: 2,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-              },
-            },
-              React.createElement('svg', {
-                width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none',
-                stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-              },
-                React.createElement('path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }),
-                React.createElement('path', { d: 'M21 3v5h-5' }),
-              ),
-              'Refresh Nodes',
-            );
-          };
-        }
-        // ── Refresh Nodes button (Widget Create) ──
-        if (data.payload instanceof WidgetRefreshNodesControl) {
-          const ctrl = data.payload as WidgetRefreshNodesControl;
-          return (_props: any) => {
-            const handleClick = (e: any) => {
-              e.stopPropagation();
-              const parentNode = (ctrl as any).__parentNode as CreateWidgetNode | undefined;
-              if (parentNode && _widgetBPMgr && parentNode.widgetBPId) {
-                const widgetBP = _widgetBPMgr.getAsset(parentNode.widgetBPId);
-                if (widgetBP) {
-                  const exposed = (widgetBP.blueprintData.variables || [])
-                    .filter((v: any) => v.exposeOnSpawn)
-                    .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
-                  parentNode.setExposedVars(exposed);
-                  area.update('node', parentNode.id);
-                }
-              }
-            };
-            return React.createElement('button', {
-              onClick: handleClick,
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%', padding: '4px 8px', background: '#2a4a6a',
-                color: '#7ecbff', border: '1px solid #4a9eff', borderRadius: 4,
-                fontSize: 11, fontWeight: 600, cursor: 'pointer', marginTop: 2,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-              },
-            },
-              React.createElement('svg', {
-                width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none',
-                stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-              },
-                React.createElement('path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }),
-                React.createElement('path', { d: 'M21 3v5h-5' }),
-              ),
-              'Refresh Nodes',
-            );
-          };
-        }
         if (data.payload instanceof GameInstanceVarNameControl) {
           const ctrl = data.payload as GameInstanceVarNameControl;
           return (_props: any) => {
@@ -6982,11 +5473,6 @@ async function createGraphEditor(
                       if (parentNode.eventControl) {
                         parentNode.eventControl.setAvailableEvents([]);
                       }
-                      // Clear Expose on Spawn pins
-                      if (typeof parentNode.setExposedVars === 'function') {
-                        parentNode.setExposedVars([]);
-                        area.update('node', parentNode.id);
-                      }
                     }
                   },
                   style: {
@@ -7048,15 +5534,6 @@ async function createGraphEditor(
                               }));
                               parentNode.eventControl.setAvailableEvents(events);
                               console.log(`[NodeEditor] Populated ${events.length} events for widget "${w.name}"`);
-                            }
-
-                            // Expose on Spawn: rebuild dynamic pins
-                            if (typeof parentNode.setExposedVars === 'function') {
-                              const exposed = (widgetBP.blueprintData.variables || [])
-                                .filter((v: any) => v.exposeOnSpawn)
-                                .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
-                              parentNode.setExposedVars(exposed);
-                              area.update('node', parentNode.id);
                             }
                           }
                         }
