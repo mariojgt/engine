@@ -62,6 +62,15 @@ export class GameObject {
    */
   public controllerBlueprintId: string = '';
 
+  /** Tags for gameplay tagging (Actor Has Tag, Add Tag, Remove Tag nodes) */
+  public tags: string[] = [];
+
+  /** Owner game object — set when spawned by another actor */
+  public owner: GameObject | null = null;
+
+  /** Whether tick is enabled for this actor (Set Actor Tick Enabled node) */
+  public __tickEnabled: boolean = true;
+
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;
     this.name = name;

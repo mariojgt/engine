@@ -913,10 +913,10 @@ function resolveValue(
   // Player Controller query nodes
   if (node instanceof GetPlayerControllerNode) {
     // Returns a reference to the player controller
-    return `(gameObject.scene.engine?.playerControllers.get(0) ?? null)`;
+    return `(__engine ? __engine.playerControllers.get(0) : null)`;
   }
   if (node instanceof IsMouseCursorVisibleNode) {
-    return `(gameObject.scene.engine?.playerControllers.get(0)?.isMouseCursorVisible() ?? true)`;
+    return `(__engine ? (__engine.playerControllers.get(0)?.isMouseCursorVisible() ?? true) : true)`;
   }
   // Camera & Spring Arm query nodes
   if (node instanceof GetSpringArmLengthNode) {
@@ -1071,7 +1071,7 @@ function resolveValue(
     return 'null';
   }
   if (node instanceof GetPlayerCameraManagerNode) {
-    return `(__scene && __scene.engine ? __scene.engine.camera : null)`;
+    return `(__engine && __engine.playerControllers ? __engine.playerControllers.get(0)?.getActiveCamera() || null : null)`;
   }
   if (node instanceof GetWorldNode) {
     return `__scene`;
@@ -1745,9 +1745,9 @@ function resolveValue(
     }
 
     // ── World / Time getters ────────────────────────────────
-    case 'Get World Delta Seconds': return '__dt';
+    case 'Get World Delta Seconds': return 'deltaTime';
     case 'Get Real Time Seconds': return '(performance.now() / 1000)';
-    case 'Get Game Time in Seconds': return '(typeof __gameTime !== "undefined" ? __gameTime : 0)';
+    case 'Get Game Time in Seconds': return 'elapsedTime';
     case 'Is Game Paused': return '(typeof __gamePaused !== "undefined" ? __gamePaused : false)';
 
     // ── Mouse getters ───────────────────────────────────────
@@ -2070,34 +2070,38 @@ function genAction(
   // Player Controller cursor control nodes
   if (node instanceof SetShowMouseCursorNode) {
     const showS = inputSrc.get(`${nodeId}.show`);
-    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setShowMouseCursor(${showS ? rv(showS.nid, showS.ok) : 'true'}); }`);
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setShowMouseCursor(${showS ? rv(showS.nid, showS.ok) : 'true'}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeGameOnlyNode) {
-    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameOnly(); }`);
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeGameOnly(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeGameAndUINode) {
-    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeGameAndUI(); }`);
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeGameAndUI(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetInputModeUIOnlyNode) {
-    lines.push(`{ const _pc = gameObject.scene.engine?.playerControllers.get(0); if (_pc) _pc.setInputModeUIOnly(); }`);
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) _pc.setInputModeUIOnly(); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   // Player Controller pawn control nodes
   if (node instanceof PossessPawnNode) {
     const nS = inputSrc.get(`${nodeId}.pawnName`);
-    lines.push(`{ /* Possess Pawn — handled at engine level */ }`);
+    const pawnName = nS ? rv(nS.nid, nS.ok) : '""';
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc && __scene) {`);
+    lines.push(`  var _pawnGo = __scene.gameObjects.find(function(g) { return g.name === ${pawnName}; });`);
+    lines.push(`  if (_pawnGo && _pawnGo.characterController) { _pc.possess(_pawnGo.characterController); }`);
+    lines.push(`} }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof UnpossessPawnNode) {
-    lines.push(`{ /* Unpossess Pawn — handled at engine level */ }`);
+    lines.push(`{ const _pc = __engine ? __engine.playerControllers.get(0) : null; if (_pc) { _pc.unpossess(); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3112,19 +3116,12 @@ function genAction(
       break;
     }
     case 'Spawn Emitter at Location': {
-      const xS = inputSrc.get(`${nodeId}.x`);
-      const yS = inputSrc.get(`${nodeId}.y`);
-      const zS = inputSrc.get(`${nodeId}.z`);
-      lines.push(`// Spawn emitter at (${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}) - needs particle system implementation`);
+      lines.push(`console.warn('[Blueprint] Spawn Emitter at Location: particle system not yet implemented');`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Spawn Sound at Location': {
-      const xS = inputSrc.get(`${nodeId}.x`);
-      const yS = inputSrc.get(`${nodeId}.y`);
-      const zS = inputSrc.get(`${nodeId}.z`);
-      const volS = inputSrc.get(`${nodeId}.volume`);
-      lines.push(`// Spawn sound at (${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}) volume ${volS ? rv(volS.nid, volS.ok) : '1'} - needs audio system implementation`);
+      lines.push(`console.warn('[Blueprint] Spawn Sound at Location: audio system not yet implemented');`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3176,7 +3173,7 @@ function genAction(
       const rzS = inputSrc.get(`${nodeId}.rotZ`);
       lines.push(`gameObject.position.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.position.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.position.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.position.z'});`);
       lines.push(`gameObject.rotation.set(${rxS ? rv(rxS.nid, rxS.ok) : 'gameObject.rotation.x'}, ${ryS ? rv(ryS.nid, ryS.ok) : 'gameObject.rotation.y'}, ${rzS ? rv(rzS.nid, rzS.ok) : 'gameObject.rotation.z'});`);
-      lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setTranslation(gameObject.position, true); gameObject.rigidBody.setRotation(gameObject.mesh.quaternion, true); }`);
+      lines.push(`if (gameObject.rigidBody) { gameObject.mesh.updateMatrixWorld(true); gameObject.rigidBody.setTranslation(gameObject.position, true); gameObject.rigidBody.setRotation(gameObject.mesh.quaternion, true); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3218,8 +3215,7 @@ function genAction(
       break;
     }
     case 'Destroy Component': {
-      // Needs component reference system
-      lines.push(`// Destroy component - needs component reference`);
+      lines.push(`console.warn('[Blueprint] Destroy Component: component reference system not yet implemented');`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3309,7 +3305,7 @@ function genAction(
       break;
     }
     case 'Quit Game': {
-      lines.push(`if (typeof __quitGame === 'function') { __quitGame(); } else { console.log('Quit game requested'); }`);
+      lines.push(`if (__engine && __engine.onQuitGame) { __engine.onQuitGame(); } else if (typeof __quitGame === 'function') { __quitGame(); } else { console.warn('[Blueprint] Quit Game requested — no quit handler registered'); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3330,9 +3326,19 @@ function genAction(
       const eyS = inputSrc.get(`${nodeId}.endY`);
       const ezS = inputSrc.get(`${nodeId}.endZ`);
       const resultVar = `__trace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${resultVar} = __physics ? __physics.castRay(`);
-      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
-      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
+      const sy = syS ? rv(syS.nid, syS.ok) : '0';
+      const sz = szS ? rv(szS.nid, szS.ok) : '0';
+      const ex = exS ? rv(exS.nid, exS.ok) : '0';
+      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
+      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+      lines.push(`var ${resultVar} = (function() {`);
+      lines.push(`  if (!__physics) return null;`);
+      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
+      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
+      lines.push(`  if (_len < 0.0001) return null;`);
+      lines.push(`  return __physics.castRay({x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3346,10 +3352,20 @@ function genAction(
       const ezS = inputSrc.get(`${nodeId}.endZ`);
       const radiusS = inputSrc.get(`${nodeId}.radius`);
       const resultVar = `__strace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${resultVar} = __physics ? __physics.castShape(`);
-      lines.push(`  'sphere', { radius: ${radiusS ? rv(radiusS.nid, radiusS.ok) : '0.5'} },`);
-      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
-      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
+      const sy = syS ? rv(syS.nid, syS.ok) : '0';
+      const sz = szS ? rv(szS.nid, szS.ok) : '0';
+      const ex = exS ? rv(exS.nid, exS.ok) : '0';
+      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
+      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+      const rad = radiusS ? rv(radiusS.nid, radiusS.ok) : '0.5';
+      lines.push(`var ${resultVar} = (function() {`);
+      lines.push(`  if (!__physics) return null;`);
+      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
+      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
+      lines.push(`  if (_len < 0.0001) return null;`);
+      lines.push(`  return __physics.castShape('sphere', { radius: ${rad} }, {x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -3364,10 +3380,22 @@ function genAction(
       const hyS = inputSrc.get(`${nodeId}.halfY`);
       const hzS = inputSrc.get(`${nodeId}.halfZ`);
       const resultVar = `__btrace_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${resultVar} = __physics ? __physics.castShape(`);
-      lines.push(`  'box', { halfExtents: { x: ${hxS ? rv(hxS.nid, hxS.ok) : '0.5'}, y: ${hyS ? rv(hyS.nid, hyS.ok) : '0.5'}, z: ${hzS ? rv(hzS.nid, hzS.ok) : '0.5'} } },`);
-      lines.push(`  { x: ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${szS ? rv(szS.nid, szS.ok) : '0'} },`);
-      lines.push(`  { x: ${exS ? rv(exS.nid, exS.ok) : '0'} - ${sxS ? rv(sxS.nid, sxS.ok) : '0'}, y: ${eyS ? rv(eyS.nid, eyS.ok) : '0'} - ${syS ? rv(syS.nid, syS.ok) : '0'}, z: ${ezS ? rv(ezS.nid, ezS.ok) : '0'} - ${szS ? rv(szS.nid, szS.ok) : '0'} }, 100) : null;`);
+      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
+      const sy = syS ? rv(syS.nid, syS.ok) : '0';
+      const sz = szS ? rv(szS.nid, szS.ok) : '0';
+      const ex = exS ? rv(exS.nid, exS.ok) : '0';
+      const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
+      const ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+      const hx = hxS ? rv(hxS.nid, hxS.ok) : '0.5';
+      const hy = hyS ? rv(hyS.nid, hyS.ok) : '0.5';
+      const hz = hzS ? rv(hzS.nid, hzS.ok) : '0.5';
+      lines.push(`var ${resultVar} = (function() {`);
+      lines.push(`  if (!__physics) return null;`);
+      lines.push(`  var _dx = (${ex}) - (${sx}), _dy = (${ey}) - (${sy}), _dz = (${ez}) - (${sz});`);
+      lines.push(`  var _len = Math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz);`);
+      lines.push(`  if (_len < 0.0001) return null;`);
+      lines.push(`  return __physics.castShape('box', { halfExtents: {x:${hx},y:${hy},z:${hz}} }, {x:${sx},y:${sy},z:${sz}}, {x:_dx/_len,y:_dy/_len,z:_dz/_len}, _len, __scene);`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }

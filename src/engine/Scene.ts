@@ -56,6 +56,7 @@ export class Scene {
   public _runtimePhysics: any = null;
   public _runtimeUiManager: any = null;
   public _runtimePrint: ((v: any) => void) | null = null;
+  public _runtimeEngine: any = null;
 
   /** Pending mesh load promises — awaited before physics play to avoid race conditions */
   private _pendingMeshLoads: Promise<void>[] = [];
@@ -348,6 +349,9 @@ export class Scene {
     go.mesh.rotation.set(rotation.x, rotation.y, rotation.z);
     go.mesh.scale.set(scale.x, scale.y, scale.z);
 
+    // Assign owner
+    if (owner && owner.id != null) go.owner = owner;
+
     // Fire BeginPlay on the spawned actor's scripts immediately
     const printFn = this._runtimePrint ?? ((v: any) => console.log('[Print]', v));
     for (const script of go.scripts) {
@@ -362,6 +366,7 @@ export class Scene {
         meshAssetManager: MeshAssetManager.getInstance(),
         loadMeshFromAsset,
         buildThreeMaterialFromAsset,
+        engine: this._runtimeEngine,
       };
       script.beginPlay(ctx);
     }

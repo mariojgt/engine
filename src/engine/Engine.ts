@@ -67,6 +67,7 @@ export class Engine {
       meshAssetManager: MeshAssetManager.getInstance(),
       loadMeshFromAsset,
       buildThreeMaterialFromAsset,
+      engine: this,
     };
   }
 
@@ -85,6 +86,7 @@ export class Engine {
     this.scene._runtimePhysics = this.physics;
     this.scene._runtimeUiManager = this.uiManager;
     this.scene._runtimePrint = print;
+    this.scene._runtimeEngine = this;
 
     // ── 0a. Initialize UI overlay ──
     if (canvas) {
@@ -259,6 +261,7 @@ export class Engine {
     this.scene._runtimePhysics = null;
     this.scene._runtimeUiManager = null;
     this.scene._runtimePrint = null;
+    this.scene._runtimeEngine = null;
 
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
@@ -273,6 +276,7 @@ export class Engine {
       this._elapsedTime += dt;
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
+        if (go.__tickEnabled === false) continue;
         for (const script of go.scripts) {
           const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
           script.tick(ctx);
