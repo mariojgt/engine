@@ -86,6 +86,7 @@ export class SelectionManager {
   /* Callbacks */
   private _findGameObjectRoot: (obj: THREE.Object3D) => THREE.Object3D | null;
   private _getSelectableObjects: () => THREE.Object3D[];
+  private _getGroupMembers: ((obj: THREE.Object3D) => THREE.Object3D[]) | null = null;
   private _listeners: Map<SelectionEvent, Array<(selected: THREE.Object3D[]) => void>> = new Map();
 
   /* Track if we're navigating → suppress click selection */
@@ -105,12 +106,12 @@ export class SelectionManager {
     this._findGameObjectRoot = findGameObjectRoot;
     this._getSelectableObjects = getSelectableObjects;
 
-    // Box select element
+    // Box select element — UE5-style blue selection rectangle
     this._boxEl = document.createElement('div');
     this._boxEl.style.cssText = `
       position: fixed;
-      border: 1px dashed rgba(0, 170, 255, 0.8);
-      background: rgba(0, 170, 255, 0.08);
+      border: 1px solid #3b82f6;
+      background: rgba(59, 130, 246, 0.08);
       pointer-events: none;
       display: none;
       z-index: 10000;
@@ -126,23 +127,23 @@ export class SelectionManager {
     this._renderPass = new RenderPass(scene, camera);
     this.composer.addPass(this._renderPass);
 
-    // Outline for selected objects (orange)
+    // Outline for selected objects (UE5-style blue)
     this._outlineSelected = new OutlinePass(size, scene, camera);
     this._outlineSelected.edgeStrength = 3.0;
-    this._outlineSelected.edgeGlow = 0.0;
+    this._outlineSelected.edgeGlow = 0.2;
     this._outlineSelected.edgeThickness = 1.5;
-    this._outlineSelected.visibleEdgeColor.set('#E8A427');
-    this._outlineSelected.hiddenEdgeColor.set('#8B5E0A');
+    this._outlineSelected.visibleEdgeColor.set('#3b82f6');
+    this._outlineSelected.hiddenEdgeColor.set('#1e40af');
     this._outlineSelected.pulsePeriod = 0;
     this.composer.addPass(this._outlineSelected);
 
-    // Outline for hovered object (blue)
+    // Outline for hovered object (white @ 40% opacity effect via reduced strength)
     this._outlineHover = new OutlinePass(size, scene, camera);
-    this._outlineHover.edgeStrength = 2.0;
+    this._outlineHover.edgeStrength = 1.5;
     this._outlineHover.edgeGlow = 0.0;
     this._outlineHover.edgeThickness = 1.0;
-    this._outlineHover.visibleEdgeColor.set('#4FC3F7');
-    this._outlineHover.hiddenEdgeColor.set('#2980B9');
+    this._outlineHover.visibleEdgeColor.set('#ffffff');
+    this._outlineHover.hiddenEdgeColor.set('#999999');
     this._outlineHover.pulsePeriod = 0;
     this.composer.addPass(this._outlineHover);
 
@@ -329,6 +330,11 @@ export class SelectionManager {
       this._boxSelectDragging = false;
       this._boxEl.style.display = 'none';
     }
+  }
+
+  /** Set the group-members callback so clicking a grouped object selects the whole group */
+  set groupMembersProvider(fn: ((obj: THREE.Object3D) => THREE.Object3D[]) | null) {
+    this._getGroupMembers = fn;
   }
 
   get selectedObjects(): THREE.Object3D[] {
@@ -571,10 +577,20 @@ export class SelectionManager {
       const root = this._findGameObjectRoot(hits[0].object);
       if (root) {
         if (e.ctrlKey || e.metaKey) {
+          // Ctrl+click: toggle individual object (ignores grouping)
           this.toggleSelection(root);
-        } else {
-          this.clearSelection();
+        } else if (e.shiftKey) {
+          // Shift+click: add to existing selection (ignores grouping)
           this.addToSelection(root);
+        } else {
+          // Plain click: select whole group (if grouped)
+          this.clearSelection();
+          const groupMembers = this._getGroupMembers?.(root) ?? [];
+          if (groupMembers.length > 0) {
+            for (const member of groupMembers) this.addToSelection(member);
+          } else {
+            this.addToSelection(root);
+          }
         }
         return;
       }
@@ -606,11 +622,26 @@ export class SelectionManager {
       }
     });
 
-    if (!e.ctrlKey && !e.metaKey) {
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+drag: toggle — remove if already selected, add if not
+      newlySelected.forEach((obj) => {
+        if (this._selected.has(obj)) {
+          this._selected.delete(obj);
+          if (this._primarySelection === obj) this._primarySelection = null;
+        } else {
+          this._selected.add(obj);
+        }
+      });
+    } else if (e.shiftKey) {
+      // Shift+drag: additive — keep existing, add new
+      newlySelected.forEach((obj) => this._selected.add(obj));
+    } else {
+      // Plain drag: replace selection
       this._selected.clear();
+      this._primarySelection = null;
+      newlySelected.forEach((obj) => this._selected.add(obj));
     }
 
-    newlySelected.forEach((obj) => this._selected.add(obj));
     if (this._selected.size > 0 && !this._primarySelection) {
       this._primarySelection = [...this._selected][0];
     }

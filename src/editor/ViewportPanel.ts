@@ -16,6 +16,8 @@ import { ViewportGrid } from './viewport/ViewportGrid';
 import { ViewportToolbar, type ViewportDisplayMode } from './viewport/ViewportToolbar';
 import { ViewportContextMenu, buildViewportContextMenuItems } from './viewport/ViewportContextMenu';
 import { PhysicsDebugRenderer } from './viewport/PhysicsDebugRenderer';
+import { ViewportInputManager } from './viewport/ViewportInputManager';
+import { ActorGroupSystem } from './viewport/ActorGroupSystem';
 import { ActorAssetManager } from './ActorAsset';
 
 export class ViewportPanel {
@@ -36,6 +38,8 @@ export class ViewportPanel {
   private _toolbar!: ViewportToolbar;
   private _contextMenu!: ViewportContextMenu;
   private _physicsDebug!: PhysicsDebugRenderer;
+  private _inputManager!: ViewportInputManager;
+  private _groupSystem!: ActorGroupSystem;
 
   /* Composition manager link (set after construction) */
   private _composition: SceneCompositionManager | null = null;
@@ -174,6 +178,9 @@ export class ViewportPanel {
 
     this._gizmo.onDraggingChanged = (dragging) => {
       this._cameraController.gizmoDragging = dragging;
+      // The InputManager already tracks this via its own dragging-changed
+      // listener, but we also set navigationActive on SelectionManager
+      // as a safety net to suppress any stale selection processing.
       this._selectionManager.navigationActive = dragging;
     };
 
@@ -189,9 +196,17 @@ export class ViewportPanel {
       this._toolbar.updateSnap(snap);
     };
 
+    // ---- Actor Group System ----
+    this._groupSystem = new ActorGroupSystem(this._engine.scene, this._history);
+
+    // Wire group-aware selection: clicking a grouped object selects all members
+    this._selectionManager.groupMembersProvider = (obj: THREE.Object3D) => {
+      return this._groupSystem.expandSelectionToGroup(obj);
+    };
+
     // ---- Object operations ----
     const actorAssetMgr = this._engine.assetManager ?? new ActorAssetManager();
-    this._operations = new ObjectOperationsManager(this._engine.scene, this._selectionManager, this._history, actorAssetMgr);
+    this._operations = new ObjectOperationsManager(this._engine.scene, this._selectionManager, this._history, actorAssetMgr, this._groupSystem);
 
     this._operations.onNotification = (notification) => {
       this._toolbar.pushNotification(notification);
@@ -224,10 +239,19 @@ export class ViewportPanel {
       onToggleBounds: () => { /* bounds toggle — can be implemented later */ },
       onToggleStats: () => { /* handled internally by toolbar */ },
       onTogglePhysicsDebug: () => { this._physicsDebug.toggle(); },
+      onGroup: () => { this._operations.groupSelected(); },
+      onUngroup: () => { this._operations.ungroupSelected(); },
     });
 
     // ---- Physics Debug ----
     this._physicsDebug = new PhysicsDebugRenderer(this._engine);
+
+    // ---- Input State Machine ----
+    this._inputManager = new ViewportInputManager(
+      this._gizmo,
+      this._selectionManager,
+      this._cameraController,
+    );
 
     // ---- Events ----
     this._setupEvents();
@@ -263,29 +287,27 @@ export class ViewportPanel {
     // Hide context menu on any click
     this._contextMenu.hide();
 
+    // ── Route through the input state machine ──
+    // The InputManager determines whether this event should go to the
+    // gizmo, camera, or selection system — they are mutually exclusive.
+    this._inputManager.onPointerDown(e);
+
+    // Track navigation for camera fly / context menu logic
     const isNavigating =
-      e.button === 2 || // RMB → fly mode (handled by camera controller)
-      e.button === 1 || // MMB → pan mode
-      (e.button === 0 && e.altKey); // Alt+LMB → orbit mode
+      e.button === 2 ||
+      e.button === 1 ||
+      (e.button === 0 && e.altKey);
 
     if (isNavigating) {
       this._wasNavigating = true;
-    }
-
-    // Pass to selection manager (only LMB without alt)
-    if (!isNavigating && e.button === 0) {
-      this._selectionManager.onMouseDown(e, false);
     }
   }
 
   private _onMouseMove(e: MouseEvent): void {
     if (this._playCamera) return;
 
-    const isNavigating = this._cameraController.isFlyMode ||
-      (e.buttons & 4) !== 0 || // MMB
-      (e.altKey && (e.buttons & 1) !== 0); // Alt+LMB
-
-    this._selectionManager.onMouseMove(e, isNavigating);
+    // ── Route through the input state machine ──
+    this._inputManager.onPointerMove(e);
   }
 
   private _onMouseUp(e: MouseEvent): void {
@@ -293,19 +315,17 @@ export class ViewportPanel {
 
     // Right-click with no drag → show context menu
     if (e.button === 2 && this._wasNavigating) {
-      // Check if we actually moved the camera — only show context menu if we didn't
       this._wasNavigating = false;
     }
 
-    const wasNav = this._wasNavigating;
     if (e.button === 2 || e.button === 1) {
       this._wasNavigating = false;
     }
 
-    if (e.button === 0) {
-      this._selectionManager.onMouseUp(e, wasNav);
-      this._wasNavigating = false;
-    }
+    // ── Route through the input state machine ──
+    // The InputManager ensures that if a gizmo drag just finished,
+    // the selection system will NOT process this pointer-up.
+    this._inputManager.onPointerUp(e);
   }
 
   private _onKeyDown(e: KeyboardEvent): void {
@@ -326,6 +346,11 @@ export class ViewportPanel {
         break;
       case 'r':
         if (!inFlyMode) this._gizmo.setMode('scale');
+        break;
+
+      // Backtick → toggle World/Local space (UE5 shortcut)
+      case '`':
+        if (!inFlyMode) this._gizmo.toggleSpace();
         break;
 
       // Focus on selection
@@ -740,6 +765,11 @@ export class ViewportPanel {
 
   getCamera(): THREE.PerspectiveCamera {
     return this._camera;
+  }
+
+  /** Public accessor for the actor group system */
+  get groupSystem(): ActorGroupSystem {
+    return this._groupSystem;
   }
 
   /** Connect the composition manager for actor gizmo support */

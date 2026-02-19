@@ -7,18 +7,21 @@ import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import type { SceneActorType } from './scene/SceneActors';
+import type { ActorGroupSystem, ActorGroup } from './viewport/ActorGroupSystem';
 import { createIcon, iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class WorldOutlinerPanel {
   public container: HTMLElement;
   private _engine: Engine;
   private _composition: SceneCompositionManager;
+  private _groupSystem: ActorGroupSystem | null;
   private _onOpenNodeEditor: (go: GameObject) => void;
   private _onSelectActor: (actorId: string | null) => void;
   private _bodyEl!: HTMLElement;
   private _searchInput!: HTMLInputElement;
   private _selectedActorId: string | null = null;
   private _selectedGoId: number | null = null;
+  private _selectedGroupId: string | null = null;
   private _collapsedCategories = new Set<string>();
   private _searchQuery = '';
   private _contextMenuEl: HTMLDivElement | null = null;
@@ -29,10 +32,12 @@ export class WorldOutlinerPanel {
     composition: SceneCompositionManager,
     onOpenNodeEditor: (go: GameObject) => void,
     onSelectActor: (actorId: string | null) => void,
+    groupSystem?: ActorGroupSystem | null,
   ) {
     this.container = container;
     this._engine = engine;
     this._composition = composition;
+    this._groupSystem = groupSystem ?? null;
     this._onOpenNodeEditor = onOpenNodeEditor;
     this._onSelectActor = onSelectActor;
 
@@ -61,6 +66,11 @@ export class WorldOutlinerPanel {
       }
       this._renderList();
     });
+
+    // Listen for group system changes
+    if (this._groupSystem) {
+      this._groupSystem.on('groupsChanged', () => this._renderList());
+    }
   }
 
   private _build(): void {
@@ -203,10 +213,165 @@ export class WorldOutlinerPanel {
       this._bodyEl.appendChild(goCatHeader);
 
       if (!goCollapsed) {
-        for (const go of filteredGOs) {
-          const item = this._createGameObjectItem(go);
-          this._bodyEl.appendChild(item);
+        if (this._groupSystem) {
+          // ---- Group-aware rendering ----
+          const groups = this._groupSystem.getRootGroups();
+          const groupedGoIds = new Set<number>();
+
+          // Render groups with their members
+          for (const group of groups) {
+            for (const id of group.memberIds) groupedGoIds.add(id);
+            // Also include nested group members
+            for (const id of this._groupSystem.resolveAllMemberIds(group.id)) {
+              groupedGoIds.add(id);
+            }
+            this._renderGroupNode(group, filteredGOs, 0);
+          }
+
+          // Render ungrouped objects
+          for (const go of filteredGOs) {
+            if (!groupedGoIds.has(go.id)) {
+              const item = this._createGameObjectItem(go);
+              this._bodyEl.appendChild(item);
+            }
+          }
+        } else {
+          // No group system — flat list
+          for (const go of filteredGOs) {
+            const item = this._createGameObjectItem(go);
+            this._bodyEl.appendChild(item);
+          }
         }
+      }
+    }
+  }
+
+  /** Render a group node with collapse/expand and its member game objects */
+  private _renderGroupNode(group: ActorGroup, allGOs: GameObject[], depth: number): void {
+    const isOpen = group.isOpen;
+    const memberGOs = allGOs.filter((go) => group.memberIds.has(go.id));
+    const childGroups = this._groupSystem?.getChildGroups(group.id) ?? [];
+
+    // Search filter: only show group if it matches or any member matches
+    if (this._searchQuery) {
+      const groupMatches = group.name.toLowerCase().includes(this._searchQuery);
+      const anyMemberMatches = memberGOs.length > 0;
+      const anyChildGroupMatches = childGroups.length > 0;
+      if (!groupMatches && !anyMemberMatches && !anyChildGroupMatches) return;
+    }
+
+    const indentPx = 8 + depth * 16;
+
+    // Group header row
+    const header = document.createElement('div');
+    header.className = 'outliner-go-item outliner-group-header';
+    if (this._selectedGroupId === group.id) header.classList.add('selected');
+    header.style.paddingLeft = `${indentPx}px`;
+
+    // Collapse icon
+    const collapseIcon = document.createElement('span');
+    collapseIcon.className = 'outliner-collapse-icon';
+    collapseIcon.appendChild(
+      createIcon(isOpen ? Icons.ChevronDown : Icons.ChevronRight, 10, ICON_COLORS.muted),
+    );
+    collapseIcon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._groupSystem?.toggleOpen(group.id);
+    });
+    header.appendChild(collapseIcon);
+
+    // Group icon (folder)
+    const groupIcon = document.createElement('span');
+    groupIcon.className = 'outliner-item-icon';
+    groupIcon.appendChild(createIcon(Icons.Layers, 12, ICON_COLORS.warning));
+    header.appendChild(groupIcon);
+
+    // Group name
+    const nameLabel = document.createElement('span');
+    nameLabel.className = 'outliner-item-label';
+    nameLabel.textContent = group.name;
+    if (group.isLocked) {
+      nameLabel.style.opacity = '0.6';
+      nameLabel.style.fontStyle = 'italic';
+    }
+    header.appendChild(nameLabel);
+
+    // Member count badge
+    const badge = document.createElement('span');
+    badge.className = 'outliner-category-count';
+    const totalMembers = this._groupSystem?.resolveAllMemberIds(group.id).size ?? group.memberIds.size;
+    badge.textContent = `(${totalMembers})`;
+    header.appendChild(badge);
+
+    // Controls
+    const controls = document.createElement('span');
+    controls.className = 'outliner-item-controls';
+
+    // Lock toggle
+    const lockBtn = document.createElement('button');
+    lockBtn.className = `outliner-toggle-btn ${group.isLocked ? 'locked' : ''}`;
+    lockBtn.appendChild(
+      createIcon(
+        group.isLocked ? Icons.Lock : Icons.Unlock,
+        12,
+        group.isLocked ? ICON_COLORS.warning : ICON_COLORS.muted,
+      ),
+    );
+    lockBtn.title = group.isLocked ? 'Unlock Group' : 'Lock Group';
+    lockBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._groupSystem?.toggleLock(group.id);
+    });
+    controls.appendChild(lockBtn);
+
+    header.appendChild(controls);
+
+    // Click to select group
+    header.addEventListener('click', () => {
+      this._selectedGroupId = group.id;
+      this._selectedGoId = null;
+      this._selectedActorId = null;
+
+      // Select all group members in the viewport
+      const meshes = this._groupSystem?.getGroupMeshes(group.id) ?? [];
+      if (meshes.length > 0) {
+        // Select first member to trigger engine selection, rest are multi-select
+        const firstGO = this._engine.scene.gameObjects.find(
+          (go) => group.memberIds.has(go.id),
+        );
+        if (firstGO) this._engine.scene.selectObject(firstGO);
+      }
+      this._renderList();
+    });
+
+    // Double-click to rename
+    header.addEventListener('dblclick', () => {
+      if (group.isLocked) return;
+      this._startGroupRename(header, nameLabel, group.id);
+    });
+
+    // Right-click context menu
+    header.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._showGroupContextMenu(e.clientX, e.clientY, group);
+    });
+
+    this._bodyEl.appendChild(header);
+
+    // Render children if open
+    if (isOpen) {
+      const childIndent = depth + 1;
+
+      // Child groups first
+      for (const childGroup of childGroups) {
+        this._renderGroupNode(childGroup, allGOs, childIndent);
+      }
+
+      // Member game objects
+      for (const go of memberGOs) {
+        const item = this._createGameObjectItem(go, 8 + childIndent * 16);
+        this._bodyEl.appendChild(item);
       }
     }
   }
@@ -306,11 +471,14 @@ export class WorldOutlinerPanel {
     return item;
   }
 
-  private _createGameObjectItem(go: GameObject): HTMLElement {
+  private _createGameObjectItem(go: GameObject, indentPx?: number): HTMLElement {
     const item = document.createElement('div');
     item.className = 'outliner-go-item';
     if (go.id === this._selectedGoId) {
       item.classList.add('selected');
+    }
+    if (indentPx != null) {
+      item.style.paddingLeft = `${indentPx}px`;
     }
 
     // Icon
@@ -550,5 +718,91 @@ export class WorldOutlinerPanel {
       }
     };
     setTimeout(() => document.addEventListener('mousedown', onClickOutside), 0);
+  }
+
+  /** Show context menu for a group (right-click on group header) */
+  private _showGroupContextMenu(x: number, y: number, group: ActorGroup): void {
+    this._dismissContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'outliner-context-menu context-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:100000;`;
+
+    const items: { label: string; iconEl: string; action: () => void }[] = [
+      {
+        label: 'Rename Group',
+        iconEl: iconHTML(Icons.GitBranch, 12, ICON_COLORS.secondary),
+        action: () => {
+          // Find the header label and trigger rename
+          this._dismissContextMenu();
+          // Re-render will handle it — for now just prompt
+          const newName = prompt('Rename group:', group.name);
+          if (newName && newName.trim()) {
+            this._groupSystem?.renameGroup(group.id, newName.trim());
+          }
+        },
+      },
+      {
+        label: group.isLocked ? 'Unlock Group' : 'Lock Group',
+        iconEl: iconHTML(
+          group.isLocked ? Icons.Unlock : Icons.Lock,
+          12,
+          group.isLocked ? ICON_COLORS.muted : ICON_COLORS.warning,
+        ),
+        action: () => this._groupSystem?.toggleLock(group.id),
+      },
+      {
+        label: 'Ungroup',
+        iconEl: iconHTML(Icons.Layers, 12, ICON_COLORS.error),
+        action: () => this._groupSystem?.ungroupById(group.id),
+      },
+    ];
+
+    for (const entry of items) {
+      const item = document.createElement('div');
+      item.className = 'context-menu-item';
+      item.innerHTML = `${entry.iconEl}<span>${entry.label}</span>`;
+      item.addEventListener('click', () => {
+        entry.action();
+        this._dismissContextMenu();
+      });
+      menu.appendChild(item);
+    }
+
+    document.body.appendChild(menu);
+    this._contextMenuEl = menu;
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        this._dismissContextMenu();
+        document.removeEventListener('mousedown', onClickOutside);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', onClickOutside), 0);
+  }
+
+  /** Inline rename for a group header */
+  private _startGroupRename(row: HTMLElement, labelEl: HTMLElement, groupId: string): void {
+    const currentName = labelEl.textContent || '';
+    const input = document.createElement('input');
+    input.className = 'outliner-rename-input';
+    input.value = currentName;
+
+    labelEl.textContent = '';
+    labelEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finish = () => {
+      const newName = input.value.trim() || currentName;
+      this._groupSystem?.renameGroup(groupId, newName);
+      labelEl.textContent = newName;
+    };
+
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { finish(); input.blur(); }
+      if (e.key === 'Escape') { labelEl.textContent = currentName; }
+    });
   }
 }

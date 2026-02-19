@@ -16,6 +16,7 @@ import type { SelectionManager } from './SelectionManager';
 import type { Scene, RootMeshType } from '../../engine/Scene';
 import type { GameObject } from '../../engine/GameObject';
 import type { ActorAssetManager } from '../ActorAsset';
+import type { ActorGroupSystem } from './ActorGroupSystem';
 import { MeshAssetManager } from '../MeshAsset';
 
 /** Notification type */
@@ -30,9 +31,10 @@ export class ObjectOperationsManager {
   private _selection: SelectionManager;
   private _history: HistoryManager;
   private _actorAssetManager: ActorAssetManager;
+  private _groupSystem: ActorGroupSystem;
 
   private _clipboard: ClipboardEntry[] = [];
-  /** Logical groups: groupId → Set of gameObjectIds */
+  /** @deprecated — use ActorGroupSystem instead. Kept for backward compat read paths. */
   private _groups = new Map<string, Set<number>>();
   private _hiddenObjects = new Set<THREE.Object3D>();
 
@@ -43,11 +45,13 @@ export class ObjectOperationsManager {
     selection: SelectionManager,
     history: HistoryManager,
     actorAssetManager: ActorAssetManager,
+    groupSystem: ActorGroupSystem,
   ) {
     this._scene = scene;
     this._selection = selection;
     this._history = history;
     this._actorAssetManager = actorAssetManager;
+    this._groupSystem = groupSystem;
   }
 
   set onNotification(fn: ((notification: ViewportNotification) => void) | null) {
@@ -172,7 +176,10 @@ export class ObjectOperationsManager {
     this._history.execute({
       name: `Delete ${removedGOs.length} object(s)`,
       execute: () => {
-        removedGOs.forEach((go) => this._scene.removeGameObject(go));
+        removedGOs.forEach((go) => {
+          this._scene.removeGameObject(go);
+          this._groupSystem.onObjectRemoved(go.id);
+        });
         this._selection.clearSelection();
       },
       undo: () => {
@@ -336,7 +343,7 @@ export class ObjectOperationsManager {
     this._notify(`Pasted ${this._clipboard.length} object(s)`, 'info');
   }
 
-  /* -------- Group / Ungroup (logical grouping) -------- */
+  /* -------- Group / Ungroup (delegates to ActorGroupSystem) -------- */
 
   groupSelected(): void {
     const selected = this._selection.selectedObjects;
@@ -351,33 +358,11 @@ export class ObjectOperationsManager {
       return;
     }
 
-    const groupId = `Group_${Date.now().toString(36)}`;
     const memberIds = goMap.map(({ go }) => go.id);
-    // Track any previous groupIds so undo can restore them
-    const previousGroupIds = goMap.map(({ go }) => go.mesh.userData.groupId as string | undefined);
-
-    this._history.execute({
-      name: `Group ${goMap.length} objects`,
-      execute: () => {
-        const idSet = new Set(memberIds);
-        this._groups.set(groupId, idSet);
-        goMap.forEach(({ go }) => {
-          go.mesh.userData.groupId = groupId;
-        });
-        this._notify(`Grouped ${goMap.length} objects → ${groupId}`, 'info');
-      },
-      undo: () => {
-        goMap.forEach(({ go }, i) => {
-          if (previousGroupIds[i]) {
-            go.mesh.userData.groupId = previousGroupIds[i];
-          } else {
-            delete go.mesh.userData.groupId;
-          }
-        });
-        this._groups.delete(groupId);
-        this._notify(`Undo: Ungrouped ${groupId}`, 'info');
-      },
-    });
+    const groupId = this._groupSystem.createGroup(memberIds);
+    if (groupId) {
+      this._notify(`Grouped ${goMap.length} objects`, 'info');
+    }
   }
 
   ungroupSelected(): void {
@@ -387,52 +372,14 @@ export class ObjectOperationsManager {
       return;
     }
 
-    // Collect all unique groupIds from selected objects
-    const groupIdsToRemove = new Set<string>();
-    selected.forEach((obj) => {
-      const gid = obj.userData.groupId as string | undefined;
-      if (gid && this._groups.has(gid)) groupIdsToRemove.add(gid);
-    });
-
-    if (groupIdsToRemove.size === 0) {
+    const goMap = this._mapSelectedToGameObjects(selected);
+    const memberIds = goMap.map(({ go }) => go.id);
+    const count = this._groupSystem.ungroupByMemberIds(memberIds);
+    if (count > 0) {
+      this._notify(`Ungrouped ${count} group(s)`, 'info');
+    } else {
       this._notify('Selected objects are not in a group', 'warning');
-      return;
     }
-
-    // Snapshot for undo
-    const snapshot: { goId: number; groupId: string }[] = [];
-    for (const gid of groupIdsToRemove) {
-      const memberIds = this._groups.get(gid)!;
-      for (const id of memberIds) {
-        snapshot.push({ goId: id, groupId: gid });
-      }
-    }
-
-    this._history.execute({
-      name: `Ungroup ${groupIdsToRemove.size} group(s)`,
-      execute: () => {
-        for (const gid of groupIdsToRemove) {
-          const memberIds = this._groups.get(gid)!;
-          for (const id of memberIds) {
-            const go = this._scene.findById(id);
-            if (go) delete go.mesh.userData.groupId;
-          }
-          this._groups.delete(gid);
-        }
-        this._notify(`Ungrouped ${groupIdsToRemove.size} group(s)`, 'info');
-      },
-      undo: () => {
-        for (const entry of snapshot) {
-          const go = this._scene.findById(entry.goId);
-          if (go) go.mesh.userData.groupId = entry.groupId;
-          if (!this._groups.has(entry.groupId)) {
-            this._groups.set(entry.groupId, new Set<number>());
-          }
-          this._groups.get(entry.groupId)!.add(entry.goId);
-        }
-        this._notify(`Undo: Restored ${groupIdsToRemove.size} group(s)`, 'info');
-      },
-    });
   }
 
   /**
@@ -440,17 +387,7 @@ export class ObjectOperationsManager {
    * Used by the selection manager to "select group" on click.
    */
   getGroupMembers(obj: THREE.Object3D): THREE.Object3D[] {
-    const gid = obj.userData.groupId as string | undefined;
-    if (!gid) return [];
-    const memberIds = this._groups.get(gid);
-    if (!memberIds) return [];
-
-    const members: THREE.Object3D[] = [];
-    for (const id of memberIds) {
-      const go = this._scene.findById(id);
-      if (go) members.push(go.mesh);
-    }
-    return members;
+    return this._groupSystem.expandSelectionToGroup(obj);
   }
 
   /* -------- Visibility -------- */

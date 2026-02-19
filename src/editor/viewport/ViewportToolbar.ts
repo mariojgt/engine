@@ -24,6 +24,8 @@ export interface ViewportToolbarCallbacks {
   onToggleBounds: () => void;
   onToggleStats: () => void;
   onTogglePhysicsDebug: () => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
 }
 
 export class ViewportToolbar {
@@ -180,6 +182,17 @@ export class ViewportToolbar {
       <div class="vp-toolbar-sep"></div>
 
       <div class="vp-toolbar-group">
+        <button class="vp-tb-btn" id="vp-group-btn" title="Group Selected (Ctrl+G)">
+          <span class="vp-tb-icon">▦</span> Group
+        </button>
+        <button class="vp-tb-btn" id="vp-ungroup-btn" title="Ungroup (Ctrl+Shift+G)">
+          <span class="vp-tb-icon">▤</span> Ungroup
+        </button>
+      </div>
+
+      <div class="vp-toolbar-sep"></div>
+
+      <div class="vp-toolbar-group">
         <div class="vp-tb-dropdown">
           <button class="vp-tb-btn" id="vp-display-btn">Lit ▾</button>
           <div class="vp-tb-dropdown-content" id="vp-display-menu">
@@ -234,6 +247,14 @@ export class ViewportToolbar {
     // Snap toggle
     this._toolbarEl.querySelector('#vp-snap-btn')?.addEventListener('click', () => {
       this._callbacks.onSnapToggle();
+    });
+
+    // Group / Ungroup buttons
+    this._toolbarEl.querySelector('#vp-group-btn')?.addEventListener('click', () => {
+      this._callbacks.onGroup?.();
+    });
+    this._toolbarEl.querySelector('#vp-ungroup-btn')?.addEventListener('click', () => {
+      this._callbacks.onUngroup?.();
     });
 
     // Display mode

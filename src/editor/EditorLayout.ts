@@ -273,6 +273,7 @@ export class EditorLayout {
           this._properties.showCompositionActor(actorId);
         }
       },
+      this._viewport?.groupSystem ?? null,
     );
   }
 

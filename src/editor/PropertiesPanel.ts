@@ -632,13 +632,22 @@ export class PropertiesPanel {
     this._bodyEl.appendChild(this._createGroup('Physics Body', [
       this._createCheckboxRow('Simulate Physics', cfg.simulatePhysics, (v) => {
         physUpdate('simulatePhysics', v);
-        if (v && cfg.enabled) this._engine.physics.addPhysicsBody(go);
+        // Auto-enable physics when Simulate Physics is turned on
+        if (v && !cfg.enabled) physUpdate('enabled', true);
+        if (v) this._engine.physics.addPhysicsBody(go);
         else this._engine.physics.removePhysicsBody(go);
+        this._showProperties(go);
       }),
       this._createCheckboxRow('Enabled', cfg.enabled, (v) => {
         physUpdate('enabled', v);
-        if (v && cfg.simulatePhysics) this._engine.physics.addPhysicsBody(go);
-        else this._engine.physics.removePhysicsBody(go);
+        if (!v && cfg.simulatePhysics) {
+          // Disabling also stops simulation
+          physUpdate('simulatePhysics', false);
+          this._engine.physics.removePhysicsBody(go);
+        } else if (v && cfg.simulatePhysics) {
+          this._engine.physics.addPhysicsBody(go);
+        }
+        this._showProperties(go);
       }),
       this._createSelectRow('Body Type', cfg.bodyType, [
         { label: 'Static', value: 'Static' },

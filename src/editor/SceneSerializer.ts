@@ -3,15 +3,31 @@
 //  Converts GameObjects → JSON and JSON → GameObjects
 // ============================================================
 
+import * as THREE from 'three';
 import type { Scene, MeshType } from '../engine/Scene';
 import type { GameObject } from '../engine/GameObject';
 import type { ActorAssetManager } from './ActorAsset';
-import type { MeshAssetManager } from './MeshAsset';
+import { MeshAssetManager, buildThreeMaterialFromAsset } from './MeshAsset';
 import type { BlueprintData } from './BlueprintData';
-import type { PhysicsConfig } from './ActorAsset';
+import type { PhysicsConfig, ActorType } from './ActorAsset';
+import type { ControllerType } from '../engine/Controller';
 import type { BufferGeometry } from 'three';
 
 // ---- Serialized shape ----
+
+/** Per-mesh material override saved in the scene */
+export interface MeshMaterialOverrideJSON {
+  /** Index within the mesh-child list (0 for root / single-mesh objects) */
+  index: number;
+  /** Material asset ID (empty string = default / no override) */
+  materialAssetId: string;
+  /** Color hex, e.g. "#ff0000" */
+  color?: string;
+  /** PBR metalness override (0-1) */
+  metalness?: number;
+  /** PBR roughness override (0-1) */
+  roughness?: number;
+}
 
 export interface GameObjectJSON {
   name: string;
@@ -28,6 +44,16 @@ export interface GameObjectJSON {
   blueprintData?: any;
   /** Per-object physics configuration */
   physicsConfig?: PhysicsConfig | null;
+  /** Per-instance visual material overrides (set in Properties Panel) */
+  materialOverrides?: MeshMaterialOverrideJSON[];
+  /** Actor type ('actor', 'characterPawn', etc.) */
+  actorType?: ActorType;
+  /** Controller class for this pawn */
+  controllerClass?: ControllerType;
+  /** Controller blueprint asset ID */
+  controllerBlueprintId?: string;
+  /** Gameplay tags */
+  tags?: string[];
 }
 
 export interface CameraStateJSON {
@@ -68,6 +94,106 @@ function serializeBlueprintData(bp: BlueprintData): any {
   };
 }
 
+/**
+ * Collect per-mesh material overrides from a game object's mesh tree.
+ * Returns an array of overrides for meshes that have been customised
+ * (via the Properties Panel material dropdown, colour picker, etc.).
+ */
+function collectMaterialOverrides(rootMesh: THREE.Object3D): MeshMaterialOverrideJSON[] {
+  const overrides: MeshMaterialOverrideJSON[] = [];
+  const meshes: THREE.Mesh[] = [];
+
+  // Gather meshes in the same order as PropertiesPanel._buildMaterialSection
+  const collect = (obj: THREE.Object3D) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      meshes.push(obj as THREE.Mesh);
+    }
+    for (const child of obj.children) {
+      if (child.userData?.__isTriggerHelper) continue;
+      if (child.userData?.__isLightHelper) continue;
+      if (child.userData?.__isComponentHelper) continue;
+      collect(child);
+    }
+  };
+  collect(rootMesh);
+
+  for (let i = 0; i < meshes.length; i++) {
+    const m = meshes[i];
+    const matId = (m.userData?.__assignedMaterialId as string) || '';
+    const mat = m.material as THREE.MeshStandardMaterial | undefined;
+
+    // Only save an override entry when something was customised
+    const hasMatId = matId !== '';
+    const hasColor = mat && 'color' in mat;
+
+    if (hasMatId || hasColor) {
+      const entry: MeshMaterialOverrideJSON = {
+        index: i,
+        materialAssetId: matId,
+      };
+      if (mat && 'color' in mat) {
+        entry.color = '#' + mat.color.getHexString();
+      }
+      if (mat && 'metalness' in mat) {
+        entry.metalness = mat.metalness;
+      }
+      if (mat && 'roughness' in mat) {
+        entry.roughness = mat.roughness;
+      }
+      overrides.push(entry);
+    }
+  }
+  return overrides;
+}
+
+/**
+ * Apply saved material overrides back to a game object's mesh tree.
+ */
+function applyMaterialOverrides(
+  rootMesh: THREE.Object3D,
+  overrides: MeshMaterialOverrideJSON[],
+): void {
+  if (!overrides || overrides.length === 0) return;
+
+  const meshes: THREE.Mesh[] = [];
+  const collect = (obj: THREE.Object3D) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      meshes.push(obj as THREE.Mesh);
+    }
+    for (const child of obj.children) {
+      if (child.userData?.__isTriggerHelper) continue;
+      if (child.userData?.__isLightHelper) continue;
+      if (child.userData?.__isComponentHelper) continue;
+      collect(child);
+    }
+  };
+  collect(rootMesh);
+
+  const mgr = MeshAssetManager.getInstance();
+
+  for (const ov of overrides) {
+    if (ov.index < 0 || ov.index >= meshes.length) continue;
+    const m = meshes[ov.index];
+
+    // Restore material asset if one was assigned
+    if (ov.materialAssetId && mgr) {
+      const matAsset = mgr.getMaterial(ov.materialAssetId);
+      if (matAsset) {
+        m.material = buildThreeMaterialFromAsset(matAsset, mgr);
+        m.userData.__assignedMaterialId = ov.materialAssetId;
+      }
+    }
+
+    // Apply colour / PBR overrides on top
+    const mat = m.material as THREE.MeshStandardMaterial;
+    if (mat && 'color' in mat) {
+      if (ov.color) mat.color.set(ov.color);
+      if (ov.metalness != null) mat.metalness = ov.metalness;
+      if (ov.roughness != null) mat.roughness = ov.roughness;
+    }
+  }
+}
+
 // ---- Serialization ----
 
 export function serializeScene(
@@ -103,6 +229,26 @@ export function serializeScene(
       customMeshAssetId: go.customMeshAssetId || null,
       physicsConfig: go.physicsConfig ? structuredClone(go.physicsConfig) : null,
     };
+
+    // Per-instance material overrides (material asset, colour, metalness, roughness)
+    const matOverrides = collectMaterialOverrides(go.mesh);
+    if (matOverrides.length > 0) {
+      obj.materialOverrides = matOverrides;
+    }
+
+    // Actor type / controller / tags (per-instance values)
+    if (go.actorType && go.actorType !== 'actor') {
+      obj.actorType = go.actorType;
+    }
+    if (go.controllerClass && go.controllerClass !== 'None') {
+      obj.controllerClass = go.controllerClass;
+    }
+    if (go.controllerBlueprintId) {
+      obj.controllerBlueprintId = go.controllerBlueprintId;
+    }
+    if (go.tags && go.tags.length > 0) {
+      obj.tags = [...go.tags];
+    }
 
     // For standalone game objects (not spawned from an actor asset),
     // save their blueprint data so we can restore it
@@ -149,6 +295,7 @@ export function deserializeScene(
           go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
           go.hasPhysics = goData.hasPhysics;
           if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
+          restoreInstanceProps(go, goData);
         });
         continue;
       }
@@ -178,6 +325,7 @@ export function deserializeScene(
         go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
         go.hasPhysics = goData.hasPhysics;
         if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
+        restoreInstanceProps(go, goData);
       } else {
         // Asset not found — create a standalone placeholder
         console.warn(`Actor asset ${goData.actorAssetId} not found, creating standalone object`);
@@ -187,6 +335,7 @@ export function deserializeScene(
         go.mesh.scale.set(goData.scale.x, goData.scale.y, goData.scale.z);
         go.hasPhysics = goData.hasPhysics;
         if (goData.physicsConfig) go.physicsConfig = structuredClone(goData.physicsConfig);
+        restoreInstanceProps(go, goData);
       }
     } else {
       // Standalone game object
@@ -215,6 +364,29 @@ export function deserializeScene(
         bp.structs = src.structs || [];
         bp.eventGraph = { nodeData: src.eventGraph?.nodeData ?? null };
       }
+
+      restoreInstanceProps(go, goData);
     }
   }
+}
+
+/**
+ * Restore per-instance properties that are stored alongside every
+ * game object type (asset-based, custom-mesh, or standalone).
+ */
+function restoreInstanceProps(go: GameObject, goData: GameObjectJSON): void {
+  // Material overrides (per-instance visual customisation)
+  if (goData.materialOverrides && goData.materialOverrides.length > 0) {
+    applyMaterialOverrides(go.mesh, goData.materialOverrides);
+  }
+
+  // Actor type (override only if saved — missing means 'actor' default)
+  if (goData.actorType) go.actorType = goData.actorType;
+
+  // Controller settings
+  if (goData.controllerClass) go.controllerClass = goData.controllerClass;
+  if (goData.controllerBlueprintId) go.controllerBlueprintId = goData.controllerBlueprintId;
+
+  // Gameplay tags
+  if (goData.tags && goData.tags.length > 0) go.tags = [...goData.tags];
 }
