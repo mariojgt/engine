@@ -3100,7 +3100,14 @@ function genAction(
     case 'Destroy Actor': {
       const target = inputSrc.get(`${nodeId}.target`);
       const targetExpr = target ? rv(target.nid, target.ok) : 'gameObject';
-      lines.push(`if (${targetExpr} && typeof ${targetExpr}.destroy === 'function') { ${targetExpr}.destroy(); }`);
+      // Remove physics body first, then remove from scene
+      lines.push(`(function() {`);
+      lines.push(`  var __da = ${targetExpr};`);
+      lines.push(`  if (__da && __scene) {`);
+      lines.push(`    if (__physics) { __physics.removePhysicsBody(__da); }`);
+      lines.push(`    __scene.removeGameObject(__da);`);
+      lines.push(`  }`);
+      lines.push(`})();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
