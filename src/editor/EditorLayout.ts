@@ -152,8 +152,8 @@ export class EditorLayout {
       },
       disableFloatingGroups: false,
       floatingGroupBounds: {
-        minimumHeightWithinViewport: 100,
-        minimumWidthWithinViewport: 100,
+        minimumHeightWithinViewport: 0,
+        minimumWidthWithinViewport: 0,
       },
       createRightHeaderActionComponent: (_group: DockviewGroupPanel) => {
         return new GroupHeaderActions();
@@ -162,11 +162,36 @@ export class EditorLayout {
 
     this._api = this._dockview.api;
 
+    // ── Allow floating panels to escape the editor container ────
+    // Dockview uses `contain: layout` and `overflow: hidden` on internal
+    // containers which visually clips floating groups to the editor area.
+    // We override those styles so panels can be dragged across monitors.
+    this._removeFloatingClipping(container);
+
     // Initialize docking manager for detachable/floating panels
     this._dockingManager = new DockingManager(this._api, container);
 
     // Add default panels
     this._addDefaultLayout();
+  }
+
+  /**
+   * Remove CSS properties that clip floating groups to the editor
+   * container, so panels can freely overflow onto other monitors.
+   */
+  private _removeFloatingClipping(container: HTMLElement): void {
+    // The DockviewComponent root `.dv-dockview`
+    const dvRoot = container.querySelector<HTMLElement>('.dv-dockview');
+    if (dvRoot) {
+      dvRoot.style.contain = 'none';
+      dvRoot.style.overflow = 'visible';
+    }
+
+    // The gridview element that parents floating overlays
+    const gridview = container.querySelector<HTMLElement>('.dv-gridview');
+    if (gridview) {
+      gridview.style.overflow = 'visible';
+    }
   }
 
   private _addDefaultLayout(): void {

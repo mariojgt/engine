@@ -260,6 +260,20 @@ html, body, #app {
 .editor-container {
   width: 100%;
   height: calc(100% - var(--height-menu-bar));
+  overflow: visible;
+}
+
+/*
+ * Allow floating panels to overflow the editor area so they can be
+ * dragged onto a second monitor.  Dockview sets `contain: layout`
+ * and `overflow: hidden` internally — we override those here.
+ */
+.editor-container .dv-dockview {
+  contain: none !important;
+  overflow: visible !important;
+}
+.editor-container .dv-gridview {
+  overflow: visible !important;
 }
 
 .dockview-theme-dark {
@@ -530,6 +544,110 @@ html, body, #app {
 .dock-zone-center.active {
   background: rgba(59, 130, 246, 0.14);
   box-shadow: inset 0 0 24px rgba(59,130,246,0.10);
+}
+
+/* =========================================
+   Popout Window — standalone panel window
+   ========================================= */
+
+.popout-window {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-darkest, #18181b);
+  color: var(--text, #fafafa);
+  font-family: var(--font, 'Inter', system-ui, sans-serif);
+  overflow: hidden;
+}
+
+.popout-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--bg-dark, #1c1c1f);
+  border-bottom: 1px solid var(--border, #27272a);
+  -webkit-app-region: drag;  /* Allow dragging the window by the header */
+  user-select: none;
+}
+
+.popout-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #fafafa);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popout-header-spacer {
+  flex: 1;
+}
+
+.popout-dock-btn {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, #27272a);
+  border-radius: 4px;
+  background: var(--bg-input, #2e2e32);
+  color: var(--text-dim, #a1a1aa);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.popout-dock-btn:hover {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: var(--accent, #3b82f6);
+}
+
+.popout-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.popout-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 40px;
+  opacity: 0;
+  animation: popout-fade-in 300ms ease-out 100ms forwards;
+}
+
+@keyframes popout-fade-in {
+  to { opacity: 1; }
+}
+
+.popout-placeholder-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.popout-placeholder-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text, #fafafa);
+}
+
+.popout-placeholder-hint {
+  font-size: 12px;
+  color: var(--text-dim, #a1a1aa);
+  line-height: 1.6;
+  max-width: 320px;
 }
 
 /* =========================================

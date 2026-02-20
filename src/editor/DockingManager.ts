@@ -1,10 +1,12 @@
 /**
- * DockingManager — manages detachable / floating / popout panels
+ * DockingManager — manages detachable / floating panels
  *
  * Provides docking modes per panel group:
  *  1. **Docked**   – standard grid layout (default dockview behaviour)
  *  2. **Floating** – draggable overlay within the editor viewport
- *  3. **Popout**   – separate browser window (with automatic fallback to floating)
+ *  3. **Popout**   – large floating overlay that also expands the Tauri
+ *                    window to span all monitors so the panel can be
+ *                    dragged freely across screens.
  *
  * Also adds Unreal-Engine-style dock-zone overlays: when the user drags a
  * floating panel near the edges of the editor area, translucent zone
@@ -245,6 +247,11 @@ export class DockingManager {
   private _listeners: Array<() => void> = [];
   private _zones: DockZoneOverlay;
 
+  /** Saved main-window bounds before we expand for multi-monitor */
+  private _savedBounds: { x: number; y: number; w: number; h: number } | null = null;
+  /** Whether the window is currently expanded across all monitors */
+  private _isExpanded = false;
+
   constructor(api: DockviewApi, container: HTMLElement) {
     this._api = api;
     this._container = container;
@@ -270,35 +277,34 @@ export class DockingManager {
         height: h,
       });
       this._track(panel, 'floating');
+      this._nudgeResize(panel);
     } catch (e) { console.warn('[Docking] float failed', e); }
   }
 
-  /** Pop out to a new browser window, with auto-fallback to floating */
-  async popoutPanel(panel: IDockviewPanel): Promise<void> {
-    try {
-      const ok = await this._api.addPopoutGroup(panel, {
-        position: { left: (window.screenX ?? 0) + 100, top: (window.screenY ?? 0) + 100, width: 900, height: 700 },
-        popoutUrl: '/popout.html',
-        onDidOpen: ({ window: w }) => this._copyStyles(w),
-        onWillClose: () => { this._detached.delete(panel.id); this._notify(); },
-      });
-      if (ok) { this._track(panel, 'popout'); return; }
-    } catch (_) { /* falls through */ }
-
-    // Fallback — popout blocked (Tauri / popup blocker)
-    console.warn('[Docking] popout blocked — falling back to large floating window');
+  /**
+   * Pop out a panel as a large floating overlay.
+   * In Tauri the main window is also expanded to span all monitors so
+   * the floating panel can be freely dragged to any screen — while
+   * still sharing the same DOM / JS runtime, so all edits stay live.
+   */
+  popoutPanel(panel: IDockviewPanel): void {
     try {
       const r = this._container.getBoundingClientRect();
-      const w = Math.min(1000, r.width * 0.72);
-      const h = Math.min(750, r.height * 0.72);
+      const w = Math.min(1200, r.width * 0.85);
+      const h = Math.min(900, r.height * 0.88);
       this._api.addFloatingGroup(panel, {
         x: (r.width - w) / 2,
-        y: (r.height - h) / 2,
+        y: Math.max(4, (r.height - h) / 2),
         width: w,
         height: h,
       });
-      this._track(panel, 'floating');
-    } catch (e2) { console.warn('[Docking] fallback float also failed', e2); }
+      this._track(panel, 'popout');
+      this._nudgeResize(panel);
+
+      // Expand Tauri window to cover all monitors so the floating panel
+      // can be dragged to other screens
+      this._expandToAllMonitors();
+    } catch (e) { console.warn('[Docking] popout failed', e); }
   }
 
   /**
@@ -343,6 +349,11 @@ export class DockingManager {
       }
       this._detached.delete(panel.id);
       this._notify();
+
+      // If no more floating/popout panels remain, restore window size
+      if (this._detached.size === 0) {
+        this._restoreWindowSize();
+      }
     } catch (e) { console.warn('[Docking] dock failed', e); }
   }
 
@@ -351,6 +362,8 @@ export class DockingManager {
     for (const id of [...this._detached.keys()]) {
       try { const p = this._api.getPanel(id); if (p) this.dockPanel(p); } catch (_) {}
     }
+    // Always restore window after docking all
+    this._restoreWindowSize();
   }
 
   getDetachedPanels(): DetachedPanelInfo[] { return [...this._detached.values()]; }
@@ -365,6 +378,108 @@ export class DockingManager {
     this._notify();
   }
   private _notify(): void { for (const cb of this._listeners) try { cb(); } catch (_) {} }
+
+  /**
+   * After a panel is floated, its DOM element is reparented which can
+   * cause Three.js canvases (and other size-dependent content) to lose
+   * their dimensions.  We fire a global resize event and also toggle a
+   * tiny style change to force ResizeObservers to re-measure.
+   */
+  private _nudgeResize(panel: IDockviewPanel): void {
+    const el = (panel as any).view?.content?.element as HTMLElement | undefined;
+    // Schedule multiple resize nudges to cover timing variations
+    const kick = () => {
+      window.dispatchEvent(new Event('resize'));
+      if (el) {
+        // Briefly change a layout-affecting property so ResizeObserver fires
+        const prev = el.style.minHeight;
+        el.style.minHeight = '1px';
+        requestAnimationFrame(() => { el.style.minHeight = prev; });
+      }
+    };
+    // Immediate + staggered nudges
+    requestAnimationFrame(kick);
+    setTimeout(kick, 60);
+    setTimeout(kick, 200);
+  }
+
+  /* ── Multi-monitor window expansion ────────────────────────────
+   *
+   * When a panel is popped out we expand the Tauri window to span
+   * ALL monitors.  Since the floating panel lives in the same DOM
+   * it can then be dragged to any screen.  The main editor content
+   * remains in its original position — only the OS window gets bigger.
+   * When all panels are docked back we restore the original size.
+   * ─────────────────────────────────────────────────────────────── */
+
+  private _expandToAllMonitors(): void {
+    if (this._isExpanded) return;
+    const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
+    if (!isTauri) return;
+
+    import('@tauri-apps/api/window').then(async ({ getCurrentWindow, availableMonitors, PhysicalPosition, PhysicalSize }) => {
+      try {
+        const win = getCurrentWindow();
+
+        // Save current bounds so we can restore later
+        const pos = await win.outerPosition();
+        const size = await win.outerSize();
+        this._savedBounds = { x: pos.x, y: pos.y, w: size.width, h: size.height };
+
+        // Compute bounding box of all monitors
+        const monitors = await availableMonitors();
+        if (monitors.length <= 1) {
+          // Single monitor — just maximise, no expansion needed
+          this._isExpanded = true;
+          return;
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const m of monitors) {
+          const mx = m.position.x;
+          const my = m.position.y;
+          minX = Math.min(minX, mx);
+          minY = Math.min(minY, my);
+          maxX = Math.max(maxX, mx + m.size.width);
+          maxY = Math.max(maxY, my + m.size.height);
+        }
+
+        // Expand window to cover all monitors
+        await win.setPosition(new PhysicalPosition(minX, minY));
+        await win.setSize(new PhysicalSize(maxX - minX, maxY - minY));
+        this._isExpanded = true;
+
+        // Nudge resize so dockview and Three.js recalculate
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+
+        console.log(`[Docking] Window expanded to span ${monitors.length} monitors: (${minX},${minY})→(${maxX},${maxY})`);
+      } catch (err) {
+        console.warn('[Docking] Failed to expand window', err);
+      }
+    }).catch(() => { /* Tauri not available */ });
+  }
+
+  private _restoreWindowSize(): void {
+    if (!this._isExpanded || !this._savedBounds) return;
+    const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
+    if (!isTauri) return;
+
+    const { x, y, w, h } = this._savedBounds;
+    this._savedBounds = null;
+    this._isExpanded = false;
+
+    import('@tauri-apps/api/window').then(async ({ getCurrentWindow, PhysicalPosition, PhysicalSize }) => {
+      try {
+        const win = getCurrentWindow();
+        await win.setPosition(new PhysicalPosition(x, y));
+        await win.setSize(new PhysicalSize(w, h));
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+        console.log('[Docking] Window restored to original size');
+      } catch (err) {
+        console.warn('[Docking] Failed to restore window', err);
+      }
+    }).catch(() => { /* Tauri not available */ });
+  }
 
   private _gridGroup(panelId: string): DockviewGroupPanel | null {
     try {
@@ -442,19 +557,4 @@ export class DockingManager {
     return null;
   }
 
-  /* ── Style copy for popout windows ─────────────────────────────── */
-
-  private _copyStyles(w: Window): void {
-    try {
-      const d = w.document;
-      document.querySelectorAll('link[rel="stylesheet"]').forEach((l) => {
-        const c = d.createElement('link'); c.rel = 'stylesheet'; c.href = (l as HTMLLinkElement).href; d.head.appendChild(c);
-      });
-      document.querySelectorAll('style').forEach((s) => {
-        const c = d.createElement('style'); c.textContent = s.textContent; d.head.appendChild(c);
-      });
-      d.body.style.cssText = 'background:#18181b;color:#fafafa;margin:0;overflow:hidden';
-      d.body.classList.add('dockview-theme-dark');
-    } catch (e) { console.warn('[Docking] style copy failed', e); }
-  }
 }

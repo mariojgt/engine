@@ -121,6 +121,20 @@ export class ViewportPanel {
 
     this.container.innerHTML = '';
     this.container.appendChild(this._renderer.domElement);
+
+    // ── WebGL context loss recovery ──────────────────────────────
+    // When the canvas is reparented (e.g. floating a panel) some GPU
+    // drivers drop the context.  Prevent the default behaviour and
+    // force a resize once the context is restored.
+    const canvas = this._renderer.domElement;
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('[Viewport] WebGL context lost — waiting for restore');
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.log('[Viewport] WebGL context restored');
+      this._onResize();
+    });
   }
 
   private _initCamera(): void {
@@ -719,10 +733,26 @@ export class ViewportPanel {
     this._selectionManager.setSunScreenPosition(sx, sy);
   }
 
+  private _lastValidWidth = 0;
+  private _lastValidHeight = 0;
+
   private _onResize(): void {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
-    if (w === 0 || h === 0) return;
+
+    if (w === 0 || h === 0) {
+      // Container temporarily collapsed (DOM reparent / floating transition).
+      // Schedule a retry so we don't miss the real dimensions.
+      if (this._lastValidWidth > 0) {
+        setTimeout(() => this._onResize(), 100);
+      }
+      return;
+    }
+
+    // Avoid redundant work if dimensions haven't actually changed
+    if (w === this._lastValidWidth && h === this._lastValidHeight) return;
+    this._lastValidWidth = w;
+    this._lastValidHeight = h;
 
     this._camera.aspect = w / h;
     this._camera.updateProjectionMatrix();
