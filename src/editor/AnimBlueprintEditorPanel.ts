@@ -503,33 +503,42 @@ export class AnimBlueprintEditorPanel {
       if (wx < minX || wx > maxX || wy < minY || wy > maxY) continue;
 
       const bundle = this._getTransitionBundle(sm, t);
-      const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
 
-      // Circle icon hit-test (at midpoint of curve)
-      const mpos = 0.5;
-      const mp = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, mpos);
-      const iconR = 13; // slightly larger than visual for easier clicking
-      const dxI = wx - mp.x;
-      const dyI = wy - mp.y;
+      // Compute the same canonical offset used in _drawTransition
+      const canonFlip = t.fromStateId > t.toStateId ? -1 : 1;
+      const dx2 = tx - fx;
+      const dy2 = ty - fy;
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1;
+      const nx2 = (-dy2 / len2) * canonFlip;
+      const ny2 = (dx2 / len2) * canonFlip;
+      const parallelStep = 16;
+      const offset2 = (bundle.index - (bundle.total - 1) / 2) * parallelStep;
+      const ofx = fx + nx2 * offset2;
+      const ofy = fy + ny2 * offset2;
+      const otx = tx + nx2 * offset2;
+      const oty = ty + ny2 * offset2;
+
+      // Circle icon hit-test at midpoint of the straight line
+      const mpx = (ofx + otx) / 2;
+      const mpy = (ofy + oty) / 2;
+      const iconR = 13;
+      const dxI = wx - mpx;
+      const dyI = wy - mpy;
       if (dxI * dxI + dyI * dyI < iconR * iconR) {
         return t;
       }
 
-      // Sample points on the curve for edge hit-test
-      const hitRadius = 12 / Math.max(0.25, this._zoom);
-      const hitRadiusSq = hitRadius * hitRadius;
-      let hit = false;
-      for (let i = 0; i <= 12; i++) {
-        const tt = i / 12;
-        const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tt);
-        const dx = wx - p.x;
-        const dy = wy - p.y;
-        if (dx * dx + dy * dy < hitRadiusSq) {
-          hit = true;
-          break;
-        }
-      }
-      if (hit) return t;
+      // Point-to-line distance hit-test for the straight line
+      const hitRadius = 10 / Math.max(0.25, this._zoom);
+      const lineDx = otx - ofx;
+      const lineDy = oty - ofy;
+      const lineLen = Math.sqrt(lineDx * lineDx + lineDy * lineDy) || 1;
+      // Project point onto line, clamped to segment
+      const tProj = Math.max(0, Math.min(1, ((wx - ofx) * lineDx + (wy - ofy) * lineDy) / (lineLen * lineLen)));
+      const closestX = ofx + tProj * lineDx;
+      const closestY = ofy + tProj * lineDy;
+      const distSq = (wx - closestX) * (wx - closestX) + (wy - closestY) * (wy - closestY);
+      if (distSq < hitRadius * hitRadius) return t;
     }
     return null;
   }
@@ -803,12 +812,28 @@ export class AnimBlueprintEditorPanel {
     ctx.textBaseline = 'alphabetic';
   }
 
+  /** Helper: draw a rounded rect path */
+  private _roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
   private _drawStateNode(ctx: CanvasRenderingContext2D, state: AnimStateData, sm: AnimStateMachineData): void {
     const x = state.posX;
     const y = state.posY;
     const w = 160;
     const h = 44;
-    const r = 5;
+    const r = 4;
+    const topBarH = 4; // UE-style thin color bar at top
     const isEntry = sm.entryStateId === state.id;
     const isSelected = this._selectedStateId === state.id;
 
@@ -818,78 +843,71 @@ export class AnimBlueprintEditorPanel {
 
     // ── Shadow ──
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
 
-    // ── Rounded rect body ──
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-
-    // Fill — active state gets warm orange, others stay dark
-    if (isActive) {
-      ctx.fillStyle = '#c4875a';
-    } else {
-      ctx.fillStyle = '#3a3a3a';
-    }
+    // ── Body fill ──
+    this._roundRect(ctx, x, y, w, h, r);
+    ctx.fillStyle = isActive ? '#8a5c34' : '#333';
     ctx.fill();
     ctx.restore(); // drop shadow
 
-    // ── Border ──
+    // ── Top color bar ──
+    ctx.save();
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.lineTo(x + w - r, y);
     ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x + w, y + topBarH);
+    ctx.lineTo(x, y + topBarH);
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+    if (isActive) {
+      ctx.fillStyle = '#d4935a';
+    } else if (isSelected) {
+      ctx.fillStyle = '#d4a844';
+    } else {
+      ctx.fillStyle = '#606060';
+    }
+    ctx.fill();
+    ctx.restore();
 
+    // ── Border ──
+    this._roundRect(ctx, x, y, w, h, r);
     if (isSelected) {
       ctx.strokeStyle = '#d4a844';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2;
     } else if (isActive) {
-      ctx.strokeStyle = '#e0a050';
+      ctx.strokeStyle = '#d4935a';
       ctx.lineWidth = 2;
     } else {
-      ctx.strokeStyle = '#555';
+      ctx.strokeStyle = '#4a4a4a';
       ctx.lineWidth = 1;
     }
     ctx.stroke();
 
-    // ── Film strip icon (left side) ──
-    const iconX = x + 9;
-    const iconY = y + h / 2 - 6;
-    ctx.fillStyle = isActive ? 'rgba(0,0,0,0.4)' : '#888';
-    // Small film strip representation
-    ctx.fillRect(iconX, iconY, 10, 12);
-    ctx.fillStyle = isActive ? '#c4875a' : '#3a3a3a';
-    // Film perforations
-    for (let fy = 0; fy < 4; fy++) {
-      ctx.fillRect(iconX + 1, iconY + 1 + fy * 3, 2, 2);
-      ctx.fillRect(iconX + 7, iconY + 1 + fy * 3, 2, 2);
-    }
+    // ── Film icon ──
+    const ix = x + 10;
+    const iy = y + topBarH + (h - topBarH) / 2 - 5;
+    ctx.fillStyle = isActive ? 'rgba(255,255,255,0.5)' : '#777';
+    ctx.fillRect(ix, iy, 8, 10);
+    ctx.fillStyle = isActive ? '#8a5c34' : '#333';
+    ctx.fillRect(ix + 1, iy + 1, 2, 1.5);
+    ctx.fillRect(ix + 5, iy + 1, 2, 1.5);
+    ctx.fillRect(ix + 1, iy + 4, 2, 1.5);
+    ctx.fillRect(ix + 5, iy + 4, 2, 1.5);
+    ctx.fillRect(ix + 1, iy + 7, 2, 1.5);
+    ctx.fillRect(ix + 5, iy + 7, 2, 1.5);
 
     // ── State name ──
-    ctx.fillStyle = isActive ? '#1a1a1a' : '#e0e0e0';
-    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = isActive ? '#fff' : '#ddd';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    const nameX = x + 24;
-    ctx.fillText(state.name, nameX, y + h / 2, w - 30);
+    ctx.fillText(state.name, x + 24, y + topBarH + (h - topBarH) / 2, w - 30);
 
     // ── Active state badge (shows weight % and time) ──
     if (isActive && debugInfo) {
@@ -898,28 +916,22 @@ export class AnimBlueprintEditorPanel {
       const badgeText = `${weight}%`;
       const timeText = `Active for ${time} secs`;
 
-      // Badge above the node
       ctx.font = '10px sans-serif';
       const bm = ctx.measureText(badgeText);
       const tm = ctx.measureText(timeText);
-      const bw = Math.max(bm.width, tm.width) + 12;
+      const bw = Math.max(bm.width, tm.width) + 14;
       const bh = 28;
       const bx = x + w / 2 - bw / 2;
-      const by = y - bh - 6;
+      const by = y - bh - 8;
 
-      ctx.fillStyle = 'rgba(196, 135, 90, 0.85)';
-      ctx.beginPath();
-      ctx.moveTo(bx + 3, by);
-      ctx.lineTo(bx + bw - 3, by);
-      ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + 3);
-      ctx.lineTo(bx + bw, by + bh - 3);
-      ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - 3, by + bh);
-      ctx.lineTo(bx + 3, by + bh);
-      ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - 3);
-      ctx.lineTo(bx, by + 3);
-      ctx.quadraticCurveTo(bx, by, bx + 3, by);
-      ctx.closePath();
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 2;
+      this._roundRect(ctx, bx, by, bw, bh, 3);
+      ctx.fillStyle = 'rgba(212, 147, 90, 0.9)';
       ctx.fill();
+      ctx.restore();
 
       ctx.fillStyle = '#1a1a1a';
       ctx.textAlign = 'center';
@@ -927,6 +939,15 @@ export class AnimBlueprintEditorPanel {
       ctx.fillText(badgeText, bx + bw / 2, by + 10);
       ctx.font = '9px sans-serif';
       ctx.fillText(timeText, bx + bw / 2, by + 22);
+
+      // Small triangle pointer below badge
+      ctx.fillStyle = 'rgba(212, 147, 90, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2 - 5, by + bh);
+      ctx.lineTo(x + w / 2 + 5, by + bh);
+      ctx.lineTo(x + w / 2, by + bh + 5);
+      ctx.closePath();
+      ctx.fill();
     }
 
     ctx.textAlign = 'start';
@@ -942,57 +963,70 @@ export class AnimBlueprintEditorPanel {
     const isSelected = this._selectedTransitionId === t.id;
 
     const bundle = this._getTransitionBundle(sm, t);
-    const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
 
-    // ── Edge line — white/light with subtle width ──
+    // Offset parallel lines so bidirectional transitions don't overlap.
+    // Use a CANONICAL normal: always compute from smaller-ID state toward larger-ID state,
+    // so both A→B and B→A get the same normal direction and separate correctly.
+    const canonFlip = t.fromStateId > t.toStateId ? -1 : 1;
+    const dx = tx - fx;
+    const dy = ty - fy;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = (-dy / len) * canonFlip; // canonical unit normal
+    const ny = (dx / len) * canonFlip;
+    const parallelStep = 16;
+    const offset = (bundle.index - (bundle.total - 1) / 2) * parallelStep;
+    const ofx = fx + nx * offset;
+    const ofy = fy + ny * offset;
+    const otx = tx + nx * offset;
+    const oty = ty + ny * offset;
+
+    // ── Straight line ──
     ctx.beginPath();
-    ctx.moveTo(fx, fy);
-    ctx.quadraticCurveTo(ctrl.x, ctrl.y, tx, ty);
-    ctx.strokeStyle = isSelected ? '#d4a844' : 'rgba(220,220,220,0.7)';
+    ctx.moveTo(ofx, ofy);
+    ctx.lineTo(otx, oty);
+    ctx.strokeStyle = isSelected ? '#d4a844' : 'rgba(200,200,200,0.6)';
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.stroke();
 
-    // ── Arrowhead at ~80% along the curve (near destination) ──
-    const apos = 0.82;
-    const ap = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, apos);
-    const at = this._quadTangent(fx, fy, ctrl.x, ctrl.y, tx, ty, apos);
-    const arrowAngle = Math.atan2(at.y, at.x);
-    const hl = 9;
+    // ── Arrowhead near destination ──
+    const arrowT = 0.85;
+    const apx = ofx + (otx - ofx) * arrowT;
+    const apy = ofy + (oty - ofy) * arrowT;
+    const lineAngle = Math.atan2(oty - ofy, otx - ofx);
+    const hl = 8;
     ctx.beginPath();
-    ctx.moveTo(ap.x + hl * Math.cos(arrowAngle), ap.y + hl * Math.sin(arrowAngle));
-    ctx.lineTo(ap.x - hl * Math.cos(arrowAngle - 0.45), ap.y - hl * Math.sin(arrowAngle - 0.45));
-    ctx.lineTo(ap.x - hl * Math.cos(arrowAngle + 0.45), ap.y - hl * Math.sin(arrowAngle + 0.45));
+    ctx.moveTo(apx + hl * Math.cos(lineAngle), apy + hl * Math.sin(lineAngle));
+    ctx.lineTo(apx - hl * Math.cos(lineAngle - 0.45), apy - hl * Math.sin(lineAngle - 0.45));
+    ctx.lineTo(apx - hl * Math.cos(lineAngle + 0.45), apy - hl * Math.sin(lineAngle + 0.45));
     ctx.closePath();
-    ctx.fillStyle = isSelected ? '#d4a844' : 'rgba(220,220,220,0.7)';
+    ctx.fillStyle = isSelected ? '#d4a844' : 'rgba(200,200,200,0.6)';
     ctx.fill();
 
-    // ── UE-style transition rule icon (circle with ⊖) at midpoint ──
-    const mpos = 0.5;
-    const mp = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, mpos);
-    const iconR = 11;
+    // ── UE-style transition rule circle at midpoint ──
+    const mx = (ofx + otx) / 2;
+    const my = (ofy + oty) / 2;
+    const iconR = 10;
 
-    // Circle background
+    // Outer circle
     ctx.beginPath();
-    ctx.arc(mp.x, mp.y, iconR, 0, Math.PI * 2);
-    ctx.fillStyle = isSelected ? '#d4a844' : '#3a3a3a';
+    ctx.arc(mx, my, iconR, 0, Math.PI * 2);
+    ctx.fillStyle = isSelected ? '#d4a844' : '#2d2d2d';
     ctx.fill();
-    ctx.strokeStyle = isSelected ? '#e8c060' : '#888';
+    ctx.strokeStyle = isSelected ? '#e8c060' : '#777';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Icon inside: double horizontal bars (≡ like UE transition icon)
-    ctx.strokeStyle = isSelected ? '#1a1a1a' : '#ccc';
+    // Inner icon: ⊖ (circle-minus) like UE
+    const innerFg = isSelected ? '#1a1a1a' : '#bbb';
+    ctx.strokeStyle = innerFg;
     ctx.lineWidth = 1.5;
+    // Horizontal line
     ctx.beginPath();
-    ctx.moveTo(mp.x - 5, mp.y - 2.5);
-    ctx.lineTo(mp.x + 5, mp.y - 2.5);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(mp.x - 5, mp.y + 2.5);
-    ctx.lineTo(mp.x + 5, mp.y + 2.5);
+    ctx.moveTo(mx - 4.5, my);
+    ctx.lineTo(mx + 4.5, my);
     ctx.stroke();
 
-    // ── Show condition text only when selected ──
+    // ── Condition label (only when selected) ──
     if (isSelected) {
       const label = this._getTransitionLabel(t);
       if (label) {
@@ -1000,21 +1034,11 @@ export class AnimBlueprintEditorPanel {
         const metrics = ctx.measureText(label);
         const lw = Math.min(180, metrics.width + 12);
         const lh = 16;
-        const lx = mp.x - lw / 2;
-        const ly = mp.y - iconR - lh - 4;
+        const lx = mx - lw / 2;
+        const ly = my - iconR - lh - 6;
 
-        ctx.beginPath();
-        ctx.moveTo(lx + 3, ly);
-        ctx.lineTo(lx + lw - 3, ly);
-        ctx.quadraticCurveTo(lx + lw, ly, lx + lw, ly + 3);
-        ctx.lineTo(lx + lw, ly + lh - 3);
-        ctx.quadraticCurveTo(lx + lw, ly + lh, lx + lw - 3, ly + lh);
-        ctx.lineTo(lx + 3, ly + lh);
-        ctx.quadraticCurveTo(lx, ly + lh, lx, ly + lh - 3);
-        ctx.lineTo(lx, ly + 3);
-        ctx.quadraticCurveTo(lx, ly, lx + 3, ly);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        this._roundRect(ctx, lx, ly, lw, lh, 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fill();
         ctx.strokeStyle = '#d4a844';
         ctx.lineWidth = 1;
@@ -1023,7 +1047,7 @@ export class AnimBlueprintEditorPanel {
         ctx.fillStyle = '#e8c060';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, mp.x, ly + lh / 2, 170);
+        ctx.fillText(label, mx, ly + lh / 2, 170);
         ctx.textAlign = 'start';
         ctx.textBaseline = 'alphabetic';
       }
@@ -1045,96 +1069,58 @@ export class AnimBlueprintEditorPanel {
     return { index, total: Math.max(1, list.length) };
   }
 
+  /** Compute anchor points where a transition leaves/enters nodes.
+   *  Uses ray-from-center-to-center clipped to the node rect edge. */
   private _getTransitionAnchors(
-    sm: AnimStateMachineData,
-    t: AnimTransitionData,
+    _sm: AnimStateMachineData,
+    _t: AnimTransitionData,
     from: AnimStateData,
     to: AnimStateData,
   ): { fx: number; fy: number; tx: number; ty: number } {
     const nodeW = 160;
     const nodeH = 44;
-    const fromCenterX = from.posX + nodeW / 2;
-    const fromCenterY = from.posY + nodeH / 2;
-    const toCenterX = to.posX + nodeW / 2;
-    const toCenterY = to.posY + nodeH / 2;
-    const dx = toCenterX - fromCenterX;
-    const dy = toCenterY - fromCenterY;
+    const fromCx = from.posX + nodeW / 2;
+    const fromCy = from.posY + nodeH / 2;
+    const toCx = to.posX + nodeW / 2;
+    const toCy = to.posY + nodeH / 2;
 
-    // Prefer horizontal ports; fall back to vertical if mostly above/below.
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      const fromOffset = this._getPortOffset(sm, from.id, t.id, true, 'horizontal');
-      const toOffset = this._getPortOffset(sm, to.id, t.id, false, 'horizontal');
-      const fx = from.posX + (dx >= 0 ? nodeW : 0);
-      const fy = from.posY + nodeH / 2 + fromOffset;
-      const tx = to.posX + (dx >= 0 ? 0 : nodeW);
-      const ty = to.posY + nodeH / 2 + toOffset;
-      return { fx, fy, tx, ty };
-    }
-
-    const fromOffset = this._getPortOffset(sm, from.id, t.id, true, 'vertical');
-    const toOffset = this._getPortOffset(sm, to.id, t.id, false, 'vertical');
-    const fx = from.posX + nodeW / 2 + fromOffset;
-    const fy = from.posY + (dy >= 0 ? nodeH : 0);
-    const tx = to.posX + nodeW / 2 + toOffset;
-    const ty = to.posY + (dy >= 0 ? 0 : nodeH);
-    return { fx, fy, tx, ty };
+    const f = this._clipToRect(fromCx, fromCy, toCx, toCy, from.posX, from.posY, nodeW, nodeH);
+    const t2 = this._clipToRect(toCx, toCy, fromCx, fromCy, to.posX, to.posY, nodeW, nodeH);
+    return { fx: f.x, fy: f.y, tx: t2.x, ty: t2.y };
   }
 
-  private _getPortOffset(
-    sm: AnimStateMachineData,
-    stateId: string,
-    transitionId: string,
-    outgoing: boolean,
-    axis: 'horizontal' | 'vertical',
-  ): number {
-    const nodeW = 160;
-    const nodeH = 44;
-    const list = sm.transitions.filter(t => outgoing ? t.fromStateId === stateId : t.toStateId === stateId);
-    const total = Math.max(1, list.length);
-    const index = Math.max(0, list.findIndex(t => t.id === transitionId));
-    const max = axis === 'horizontal' ? (nodeH / 2 - 6) : (nodeW / 2 - 12);
-    const step = Math.min(12, (max * 2) / total);
-    const offset = (index - (total - 1) / 2) * step;
-    return Math.max(-max, Math.min(max, offset));
-  }
-
-  private _getTransitionControlPoint(
-    fx: number, fy: number, tx: number, ty: number,
-    index: number, total: number,
+  /** Clip a ray from (cx,cy)→(tx,ty) to the edge of a rect at (rx,ry,rw,rh). */
+  private _clipToRect(
+    cx: number, cy: number, tx: number, ty: number,
+    rx: number, ry: number, rw: number, rh: number,
   ): { x: number; y: number } {
-    const mx = (fx + tx) / 2;
-    const my = (fy + ty) / 2;
-    const dx = tx - fx;
-    const dy = ty - fy;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const step = Math.min(70, Math.max(22, len * 0.22));
-    const bundleOffset = (index - (total - 1) / 2) * step;
-    const curvature = Math.min(80, Math.max(18, len * 0.18));
-    const curveSign = dy >= 0 ? 1 : -1;
+    const dx = tx - cx;
+    const dy = ty - cy;
+    if (dx === 0 && dy === 0) return { x: cx, y: cy };
+
+    // Half dimensions
+    const hw = rw / 2;
+    const hh = rh / 2;
+
+    // Scale factors to each edge
+    let tMin = Infinity;
+    if (dx !== 0) {
+      const tRight = hw / Math.abs(dx);
+      if (tRight < tMin) tMin = tRight;
+    }
+    if (dy !== 0) {
+      const tBottom = hh / Math.abs(dy);
+      if (tBottom < tMin) tMin = tBottom;
+    }
+    if (tMin === Infinity) tMin = 0;
+
     return {
-      x: mx + nx * bundleOffset,
-      y: my + ny * bundleOffset + curveSign * curvature,
+      x: cx + dx * tMin,
+      y: cy + dy * tMin,
     };
   }
 
-  private _quadPoint(
-    x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, t: number,
-  ): { x: number; y: number } {
-    const it = 1 - t;
-    const x = it * it * x0 + 2 * it * t * x1 + t * t * x2;
-    const y = it * it * y0 + 2 * it * t * y1 + t * t * y2;
-    return { x, y };
-  }
-
-  private _quadTangent(
-    x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, t: number,
-  ): { x: number; y: number } {
-    const x = 2 * (1 - t) * (x1 - x0) + 2 * t * (x2 - x1);
-    const y = 2 * (1 - t) * (y1 - y0) + 2 * t * (y2 - y1);
-    return { x, y };
-  }
+  /* Dead bezier helpers removed — transitions are straight lines now */
 
   // ---- Canvas Context Menu ----
 
