@@ -313,7 +313,14 @@ import {
   GetGameInstanceNode,
   GetGameInstanceVariableNode,
   SetGameInstanceVariableNode,
+  CallGameInstanceFunctionNode,
+  CallGameInstanceEventNode,
   GameInstanceVarNameControl,
+  GIBPSelectControl,
+  GIVariableSelectorControl,
+  GIFunctionSelectorControl,
+  GIEventSelectorControl,
+  DestroyActorNode,
   TextureSelectControl,
   GetTextureIDNode,
   FindTextureByNameNode,
@@ -328,6 +335,7 @@ import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
 import type { StructureAssetManager } from './StructureAsset';
 import type { WidgetBlueprintManager } from './WidgetBlueprintData';
+import type { GameInstanceBlueprintManager } from './GameInstanceData';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
@@ -372,6 +380,16 @@ let _widgetBPMgr: WidgetBlueprintManager | null = null;
 /** Call once at startup to wire widget blueprint data into the node editor */
 export function setWidgetBPManager(mgr: WidgetBlueprintManager): void {
   _widgetBPMgr = mgr;
+}
+
+// ============================================================
+//  Module-level reference to GameInstanceBlueprintManager
+// ============================================================
+let _giMgr: GameInstanceBlueprintManager | null = null;
+
+/** Call once at startup to wire Game Instance data into the node editor */
+export function setGameInstanceBPManager(mgr: GameInstanceBlueprintManager): void {
+  _giMgr = mgr;
 }
 
 // ============================================================
@@ -432,7 +450,8 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode ||
       node instanceof CallActorFunctionNode ||
       node instanceof GetGameInstanceNode || node instanceof GetGameInstanceVariableNode ||
-      node instanceof SetGameInstanceVariableNode) return 'Casting';
+      node instanceof SetGameInstanceVariableNode ||
+      node instanceof CallGameInstanceFunctionNode || node instanceof CallGameInstanceEventNode) return 'Casting';
   // Animation BP nodes
   if (node instanceof AnimUpdateEventNode) return 'Events';
   if (node instanceof TryGetPawnOwnerNode || node instanceof SetAnimVarNode ||
@@ -945,13 +964,14 @@ function resolveValue(
     return `(__gameInstance || null)`;
   }
   if (node instanceof GetGameInstanceVariableNode) {
-    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
-    const varName = JSON.stringify(ctrl?.value ?? '');
+    const n = node as GetGameInstanceVariableNode;
+    const varName = JSON.stringify(n.getVariableName());
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof SetGameInstanceVariableNode) {
-    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
-    const varName = JSON.stringify(ctrl?.value ?? '');
+    // Set is an exec node, but if wired as value (read-back) expose the var
+    const n = node as SetGameInstanceVariableNode;
+    const varName = JSON.stringify(n.getVariableName());
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof GetOwnerNode) {
@@ -2189,17 +2209,48 @@ function genAction(
       break;
     }
     case 'Get Game Instance Variable': {
-      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
-      const varName = JSON.stringify(ctrl?.value ?? '');
       // Pure node — value resolved inline via rv()
       break;
     }
     case 'Set Game Instance Variable': {
-      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
-      const varName = JSON.stringify(ctrl?.value ?? '');
+      const n = node as SetGameInstanceVariableNode;
+      const varName = JSON.stringify(n.getVariableName());
       const valSrc = inputSrc.get(`${nodeId}.value`);
       const val = valSrc ? rv(valSrc.nid, valSrc.ok) : 'undefined';
       lines.push(`if (__gameInstance) { __gameInstance.setVariable(${varName}, ${val}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Call Game Instance Function': {
+      const n = node as CallGameInstanceFunctionNode;
+      const funcName = JSON.stringify(n.getFunctionName());
+      const params: string[] = [];
+      for (const inp of n.functionInputs) {
+        const src = inputSrc.get(`${nodeId}.in_${inp.name}`);
+        params.push(src ? rv(src.nid, src.ok) : 'undefined');
+      }
+      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
+      lines.push(`if (__gameInstance) { __gameInstance.callFunction(${funcName}${paramsStr}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Call Game Instance Event': {
+      const n = node as CallGameInstanceEventNode;
+      const eventName = JSON.stringify(n.getEventName());
+      const params: string[] = [];
+      for (const p of n.eventParams) {
+        const src = inputSrc.get(`${nodeId}.param_${p.name}`);
+        params.push(src ? rv(src.nid, src.ok) : 'undefined');
+      }
+      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
+      lines.push(`if (__gameInstance) { __gameInstance.callEvent(${eventName}${paramsStr}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Destroy Actor': {
+      const targetSrc = inputSrc.get(`${nodeId}.target`);
+      const target = targetSrc ? rv(targetSrc.nid, targetSrc.ok) : 'gameObject';
+      lines.push(`(function() { var __da_target = ${target}; if (__da_target && __scene) { __scene.destroyActor(__da_target); } })();`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2216,6 +2267,7 @@ function generateFullCode(
   functionEditors: Map<string, NodeEditor<Schemes>>,
   isWidgetBlueprint: boolean = false,
   isAnimBlueprint: boolean = false,
+  isGameInstanceBlueprint: boolean = false,
 ): string {
   _isAnimBlueprint = isAnimBlueprint;
   const parts: string[] = [];
@@ -2541,6 +2593,30 @@ function generateFullCode(
   // NOT on the pawn's _scriptVars. The AnimBP can read the pawn's variables
   // via CastTo → GetActorVariable (which reads pawn._scriptVars correctly).
   if (isAnimBlueprint) {
+    const sections: string[] = [];
+    if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
+    if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
+    if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
+    if (sections.length) parts.push(sections.join('\n'));
+  }
+
+  // For Game Instance Blueprints: Register functions, events, and sync
+  // variables on __gameInstance so other blueprints can call them
+  // via CallGameInstanceFunction / CallGameInstanceEvent nodes.
+  if (isGameInstanceBlueprint) {
+    // Register compiled functions on the __gameInstance
+    for (const fn of bp.functions) {
+      beginPlayCode.push(`if (__gameInstance && __gameInstance.__registerFunction) __gameInstance.__registerFunction(${JSON.stringify(fn.name)}, __fn_${sanitizeName(fn.name)});`);
+    }
+    // Register custom events on the __gameInstance
+    for (const evt of bp.customEvents) {
+      beginPlayCode.push(`if (__gameInstance && __gameInstance.__registerEvent) __gameInstance.__registerEvent(${JSON.stringify(sanitizeName(evt.name))}, __custom_evt_${sanitizeName(evt.name)});`);
+    }
+    // Sync initial variable values to __gameInstance.variables
+    for (const v of bp.variables) {
+      beginPlayCode.push(`if (__gameInstance) __gameInstance.variables[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
+    }
+
     const sections: string[] = [];
     if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
     if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
@@ -4210,6 +4286,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetAnimInstanceNode) return 'GetAnimInstanceNode';
   if (node instanceof PureCastNode) return 'PureCastNode';
   if (node instanceof CallActorFunctionNode) return 'CallActorFunctionNode';
+  if (node instanceof DestroyActorNode) return 'DestroyActorNode';
   // Animation BP nodes
   if (node instanceof AnimUpdateEventNode) return 'AnimUpdateEventNode';
   if (node instanceof TryGetPawnOwnerNode) return 'TryGetPawnOwnerNode';
@@ -4256,6 +4333,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetGameInstanceNode) return 'GetGameInstanceNode';
   if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
   if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
+  if (node instanceof CallGameInstanceFunctionNode) return 'CallGameInstanceFunctionNode';
+  if (node instanceof CallGameInstanceEventNode) return 'CallGameInstanceEventNode';
 
   return 'Unknown';
 }
@@ -4430,9 +4509,34 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     const sceneCtrl = node.controls['scene'] as SceneSelectControl;
     if (sceneCtrl) data.sceneName = sceneCtrl.value;
   }
-  if (node instanceof GetGameInstanceVariableNode || node instanceof SetGameInstanceVariableNode) {
-    const varCtrl = node.controls['varName'] as GameInstanceVarNameControl;
-    if (varCtrl) data.varName = varCtrl.value;
+  if (node instanceof GetGameInstanceVariableNode) {
+    const n = node as GetGameInstanceVariableNode;
+    data.giBPId = n.giBPId;
+    data.giBPName = n.giBPName;
+    data.variableName = n.getVariableName();
+    data.selectedVarType = n.selectedVarType;
+  }
+  if (node instanceof SetGameInstanceVariableNode) {
+    const n = node as SetGameInstanceVariableNode;
+    data.giBPId = n.giBPId;
+    data.giBPName = n.giBPName;
+    data.variableName = n.getVariableName();
+    data.selectedVarType = n.selectedVarType;
+  }
+  if (node instanceof CallGameInstanceFunctionNode) {
+    const n = node as CallGameInstanceFunctionNode;
+    data.giBPId = n.giBPId;
+    data.giBPName = n.giBPName;
+    data.giFunctionName = n.getFunctionName();
+    data.giFunctionInputs = n.functionInputs;
+    data.giFunctionOutputs = n.functionOutputs;
+  }
+  if (node instanceof CallGameInstanceEventNode) {
+    const n = node as CallGameInstanceEventNode;
+    data.giBPId = n.giBPId;
+    data.giBPName = n.giBPName;
+    data.giEventName = n.getEventName();
+    data.giEventParams = n.eventParams;
   }
   if (node instanceof CallWidgetFunctionNode) {
     const n = node as CallWidgetFunctionNode;
@@ -4777,6 +4881,7 @@ function createNodeFromData(
     case 'GetActorVariableNode':            return new GetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
     case 'SetActorVariableNode':            return new SetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
     case 'GetOwnerNode':                    return new GetOwnerNode();
+    case 'DestroyActorNode':                return new DestroyActorNode();
     case 'GetAnimInstanceNode':             return new GetAnimInstanceNode();
     case 'PureCastNode':                    return new PureCastNode(d.targetClassId || '', d.targetClassName || 'Unknown');
     case 'CallActorFunctionNode': {
@@ -5060,13 +5165,65 @@ function createNodeFromData(
     }
     case 'GetGameInstanceNode':              return new GetGameInstanceNode();
     case 'GetGameInstanceVariableNode': {
-      const n = new GetGameInstanceVariableNode();
-      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
+      const n = new GetGameInstanceVariableNode(d.giBPId || '', d.giBPName || '(none)', d.variableName || d.varName || '');
+      // Restore typed output pin
+      if (d.selectedVarType && d.selectedVarType !== 'String') {
+        n.rebuildOutputPin(d.selectedVarType);
+      }
+      // Populate available variables from GI blueprint
+      if (d.giBPId && _giMgr) {
+        const giBP = _giMgr.getAsset(d.giBPId);
+        if (giBP && n.variableControl) {
+          n.variableControl.setAvailableVariables(
+            (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type })),
+          );
+        }
+      }
       return n;
     }
     case 'SetGameInstanceVariableNode': {
-      const n = new SetGameInstanceVariableNode();
-      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
+      const n = new SetGameInstanceVariableNode(d.giBPId || '', d.giBPName || '(none)', d.variableName || d.varName || '');
+      if (d.selectedVarType && d.selectedVarType !== 'String') {
+        n.rebuildValuePin(d.selectedVarType);
+      }
+      if (d.giBPId && _giMgr) {
+        const giBP = _giMgr.getAsset(d.giBPId);
+        if (giBP && n.variableControl) {
+          n.variableControl.setAvailableVariables(
+            (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type })),
+          );
+        }
+      }
+      return n;
+    }
+    case 'CallGameInstanceFunctionNode': {
+      const n = new CallGameInstanceFunctionNode(
+        d.giBPId || '', d.giBPName || '(none)',
+        d.giFunctionName || '', d.giFunctionInputs || [], d.giFunctionOutputs || [],
+      );
+      if (d.giBPId && _giMgr) {
+        const giBP = _giMgr.getAsset(d.giBPId);
+        if (giBP && n.functionControl) {
+          n.functionControl.setAvailableFunctions(
+            (giBP.blueprintData.functions || []).map((f: any) => ({ name: f.name, inputs: f.inputs || [], outputs: f.outputs || [] })),
+          );
+        }
+      }
+      return n;
+    }
+    case 'CallGameInstanceEventNode': {
+      const n = new CallGameInstanceEventNode(
+        d.giBPId || '', d.giBPName || '(none)',
+        d.giEventName || '', d.giEventParams || [],
+      );
+      if (d.giBPId && _giMgr) {
+        const giBP = _giMgr.getAsset(d.giBPId);
+        if (giBP && n.eventControl) {
+          n.eventControl.setAvailableEvents(
+            (giBP.blueprintData.customEvents || []).map((e: any) => ({ name: e.name, params: e.params || [] })),
+          );
+        }
+      }
       return n;
     }
 
@@ -5354,6 +5511,7 @@ async function createGraphEditor(
             );
           };
         }
+        // ── Legacy GameInstanceVarNameControl (kept for old graphs) ──
         if (data.payload instanceof GameInstanceVarNameControl) {
           const ctrl = data.payload as GameInstanceVarNameControl;
           return (_props: any) => {
@@ -5377,6 +5535,287 @@ async function createGraphEditor(
                 minWidth: 100,
               },
             });
+          };
+        }
+
+        // ── GI Blueprint Select Control (searchable dropdown) ──────
+        if (data.payload instanceof GIBPSelectControl) {
+          const ctrl = data.payload as GIBPSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            const items: { id: string; name: string }[] = [];
+            if (_giMgr) {
+              for (const asset of _giMgr.assets) {
+                items.push({ id: asset.id, name: asset.name });
+              }
+            }
+            const filtered = search
+              ? items.filter(w => w.name.toLowerCase().includes(search.toLowerCase()))
+              : items;
+
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            const dropdownStyle: any = {
+              position: 'absolute', top: '100%', left: 0, right: 0,
+              maxHeight: 160, overflowY: 'auto',
+              background: '#1a1a2e', border: '1px solid #ff9800',
+              borderRadius: '0 0 4px 4px', zIndex: 9999,
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%', padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#ffcc80',
+                  border: open ? '1px solid #ff9800' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+              ),
+              open && React.createElement('div', { style: dropdownStyle },
+                React.createElement('input', {
+                  type: 'text', placeholder: 'Search Game Instances...',
+                  value: search, autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%', padding: '5px 8px',
+                    background: '#141422', color: '#e0e0e0',
+                    border: 'none', borderBottom: '1px solid #333',
+                    fontSize: 11, outline: 'none', boxSizing: 'border-box' as const,
+                  },
+                }),
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '(none)');
+                    setSelected('(none)');
+                    setOpen(false); setSearch('');
+                    const parentNode = (ctrl as any)._parentNode;
+                    if (parentNode) {
+                      parentNode.giBPId = '';
+                      parentNode.giBPName = '(none)';
+                      if (parentNode.variableControl) parentNode.variableControl.setAvailableVariables([]);
+                      if (parentNode.functionControl) parentNode.functionControl.setAvailableFunctions([]);
+                      if (parentNode.eventControl) parentNode.eventControl.setAvailableEvents([]);
+                    }
+                  },
+                  style: { padding: '5px 8px', fontSize: 11, color: '#888', fontStyle: 'italic' as const, cursor: 'pointer', borderBottom: '1px solid #222' },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a3a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                ...filtered.map(w =>
+                  React.createElement('div', {
+                    key: w.id,
+                    onClick: () => {
+                      ctrl.setValue(w.id, w.name);
+                      setSelected(w.name);
+                      setOpen(false); setSearch('');
+                      const parentNode = (ctrl as any)._parentNode;
+                      if (parentNode) {
+                        parentNode.giBPId = w.id;
+                        parentNode.giBPName = w.name;
+                        // Populate child selectors from GI blueprint data
+                        if (_giMgr) {
+                          const giBP = _giMgr.getAsset(w.id);
+                          if (giBP) {
+                            if (parentNode.variableControl) {
+                              const vars = (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type }));
+                              parentNode.variableControl.setAvailableVariables(vars);
+                            }
+                            if (parentNode.functionControl) {
+                              const fns = (giBP.blueprintData.functions || []).map((f: any) => ({ name: f.name, inputs: f.inputs || [], outputs: f.outputs || [] }));
+                              parentNode.functionControl.setAvailableFunctions(fns);
+                            }
+                            if (parentNode.eventControl) {
+                              const evts = (giBP.blueprintData.customEvents || []).map((e: any) => ({ name: e.name, params: e.params || [] }));
+                              parentNode.eventControl.setAvailableEvents(evts);
+                            }
+                          }
+                        }
+                      }
+                    },
+                    style: {
+                      padding: '5px 8px', fontSize: 11,
+                      color: w.id === ctrl.value ? '#ff9800' : '#e0e0e0',
+                      fontWeight: w.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a3a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, '🎮'),
+                    w.name,
+                  ),
+                ),
+                filtered.length === 0 && items.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching Game Instances'),
+                items.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No Game Instance blueprints yet'),
+              ),
+            );
+          };
+        }
+
+        // ── GI Variable Selector Control ──────────────────────────
+        if (data.payload instanceof GIVariableSelectorControl) {
+          const ctrl = data.payload as GIVariableSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useState(0);
+            React.useEffect(() => {
+              const id = setInterval(() => forceUpdate(c => c + 1), 100);
+              return () => clearInterval(id);
+            }, []);
+
+            const variables = ctrl.availableVariables || [];
+            return React.createElement('select', {
+              value: ctrl.value,
+              onChange: (e: any) => {
+                const newValue = e.target.value;
+                ctrl.setValue(newValue);
+                // Rebuild typed pin on the parent node
+                const parentNode = (ctrl as any)._parentNode;
+                const selVar = variables.find((v: any) => v.name === newValue);
+                if (parentNode && selVar) {
+                  const varType = selVar.type as any;
+                  if (parentNode instanceof GetGameInstanceVariableNode) {
+                    parentNode.rebuildOutputPin(varType);
+                    area.update('node', parentNode.id);
+                  } else if (parentNode instanceof SetGameInstanceVariableNode) {
+                    parentNode.rebuildValuePin(varType);
+                    area.update('node', parentNode.id);
+                  }
+                }
+                forceUpdate(c => c + 1);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%', padding: '3px 6px',
+                background: '#1e1e2e', color: '#81c784',
+                border: '1px solid #3a3a5c', borderRadius: 4,
+                fontSize: 11, cursor: 'pointer', outline: 'none',
+              },
+            },
+              React.createElement('option', { value: '' }, '(select variable)'),
+              ...variables.map((v: any) =>
+                React.createElement('option', { key: v.name, value: v.name }, `${v.name} (${v.type})`),
+              ),
+            );
+          };
+        }
+
+        // ── GI Function Selector Control ──────────────────────────
+        if (data.payload instanceof GIFunctionSelectorControl) {
+          const ctrl = data.payload as GIFunctionSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useState(0);
+            React.useEffect(() => {
+              const id = setInterval(() => forceUpdate(c => c + 1), 100);
+              return () => clearInterval(id);
+            }, []);
+
+            const functions = ctrl.availableFunctions || [];
+            return React.createElement('select', {
+              value: ctrl.value,
+              onChange: (e: any) => {
+                ctrl.setValue(e.target.value);
+                // Rebuild dynamic pins on the parent node
+                const parentNode = (ctrl as any)._parentNode;
+                if (parentNode && parentNode.rebuildPins) {
+                  const selectedFunc = functions.find((f: any) => f.name === e.target.value);
+                  if (selectedFunc) {
+                    parentNode.rebuildPins(selectedFunc.inputs || [], selectedFunc.outputs || []);
+                  } else {
+                    parentNode.rebuildPins([], []);
+                  }
+                  area.update('node', parentNode.id);
+                }
+                forceUpdate(c => c + 1);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%', padding: '3px 6px',
+                background: '#1e1e2e', color: '#64b5f6',
+                border: '1px solid #3a3a5c', borderRadius: 4,
+                fontSize: 11, cursor: 'pointer', outline: 'none',
+              },
+            },
+              React.createElement('option', { value: '' }, '(select function)'),
+              ...functions.map((f: any) =>
+                React.createElement('option', { key: f.name, value: f.name }, f.name),
+              ),
+            );
+          };
+        }
+
+        // ── GI Event Selector Control ─────────────────────────────
+        if (data.payload instanceof GIEventSelectorControl) {
+          const ctrl = data.payload as GIEventSelectorControl;
+          return (_props: any) => {
+            const [, forceUpdate] = React.useState(0);
+            React.useEffect(() => {
+              const id = setInterval(() => forceUpdate(c => c + 1), 100);
+              return () => clearInterval(id);
+            }, []);
+
+            const events = ctrl.availableEvents || [];
+            return React.createElement('select', {
+              value: ctrl.value,
+              onChange: (e: any) => {
+                ctrl.setValue(e.target.value);
+                const parentNode = (ctrl as any)._parentNode;
+                if (parentNode && parentNode.rebuildPins) {
+                  const selectedEvt = events.find((ev: any) => ev.name === e.target.value);
+                  if (selectedEvt) {
+                    parentNode.rebuildPins(selectedEvt.params || []);
+                  } else {
+                    parentNode.rebuildPins([]);
+                  }
+                  area.update('node', parentNode.id);
+                }
+                forceUpdate(c => c + 1);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%', padding: '3px 6px',
+                background: '#1e1e2e', color: '#ce93d8',
+                border: '1px solid #3a3a5c', borderRadius: 4,
+                fontSize: 11, cursor: 'pointer', outline: 'none',
+              },
+            },
+              React.createElement('option', { value: '' }, '(select event)'),
+              ...events.map((ev: any) =>
+                React.createElement('option', { key: ev.name, value: ev.name }, ev.name),
+              ),
+            );
           };
         }
         if (data.payload instanceof WidgetBPSelectControl) {
@@ -7092,9 +7531,10 @@ interface NodeEditorViewProps {
   rootMeshType?: string;
   widgetList?: Array<{ name: string; type: string }>;
   isAnimBlueprint?: boolean;
+  isGameInstanceBlueprint?: boolean;
 }
 
-function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAnimBlueprint }: NodeEditorViewProps) {
+function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAnimBlueprint, isGameInstanceBlueprint }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -7196,7 +7636,7 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAn
         return;
       }
       console.log('[NodeEditor] Compiling widget blueprint event graph...');
-      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList, !!isAnimBlueprint);
+      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList, !!isAnimBlueprint, !!isGameInstanceBlueprint);
       console.log('[NodeEditor] Generated code length:', code.length, 'characters');
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
       gameObject.scripts[0].code = code;
@@ -7627,6 +8067,7 @@ export function mountNodeEditorForAsset(
   rootMeshType?: string,
   widgetList?: Array<{ name: string; type: string }>,
   isAnimBlueprint?: boolean,
+  isGameInstanceBlueprint?: boolean,
 ): () => void {
   // Create a virtual GameObject that shares the asset's blueprint data
   const dummyMesh = new THREE.Mesh(
@@ -7666,6 +8107,7 @@ export function mountNodeEditorForAsset(
     rootMeshType: rootMeshType,
     widgetList: widgetList,
     isAnimBlueprint: isAnimBlueprint,
+    isGameInstanceBlueprint: isGameInstanceBlueprint,
   }));
   return () => root.unmount();
 }

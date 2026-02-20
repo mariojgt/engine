@@ -27,6 +27,7 @@ import { StructureEditorPanel } from './StructureEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
 import { PhysicsSettingsPanel } from './PhysicsSettingsPanel';
+import { ProjectSettingsPanel } from './ProjectSettingsPanel';
 import type { CameraStateJSON } from './SceneSerializer';
 import { SceneCompositionManager } from './scene/SceneCompositionManager';
 import { WorldOutlinerPanel } from './WorldOutlinerPanel';
@@ -74,6 +75,7 @@ export class EditorLayout {
   private _viewport: ViewportPanel | null = null;
   private _properties: PropertiesPanel | null = null;
   private _physicsSettings: PhysicsSettingsPanel | null = null;
+  private _projectSettings: ProjectSettingsPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
   private _animBPEditor: AnimBlueprintEditorPanel | null = null;
@@ -230,6 +232,17 @@ export class EditorLayout {
       },
     });
     this._initPhysicsSettings('physics-settings');
+
+    // 6. Project Settings (tab alongside Physics)
+    this._api.addPanel({
+      id: 'project-settings',
+      title: 'Project Settings',
+      component: 'default',
+      position: {
+        referencePanel: 'physics-settings',
+      },
+    });
+    this._initProjectSettings('project-settings');
   }
 
   private _initViewport(panelId: string): void {
@@ -391,6 +404,17 @@ export class EditorLayout {
     if (!renderer) return;
     const el = renderer.element;
     this._physicsSettings = new PhysicsSettingsPanel(el, this._engine);
+  }
+
+  private _initProjectSettings(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._projectSettings = new ProjectSettingsPanel(el, this._engine);
+    // Wire managers that are already available
+    if (this._gameInstanceManager) {
+      this._projectSettings.setGameInstanceManager(this._gameInstanceManager);
+    }
   }
 
   private _openNodeEditor(go: GameObject): void {
@@ -568,6 +592,10 @@ export class EditorLayout {
     this._gameInstanceManager = mgr;
     if (this._assetBrowser) {
       this._assetBrowser.setGameInstanceManager(mgr, (asset: GameInstanceBlueprintAsset) => this._openGameInstanceEditor(asset));
+    }
+    // Also wire into Project Settings panel for Game Instance Class dropdown
+    if (this._projectSettings) {
+      this._projectSettings.setGameInstanceManager(mgr);
     }
   }
 
@@ -900,10 +928,14 @@ export class EditorLayout {
     return this._viewport?.getCanvas() ?? null;
   }
 
-  /** Wire up project manager with folder manager */
+  /** Wire up project manager with folder manager and project settings */
   setProjectManager(mgr: any): void {
     if (this._assetBrowser) {
       mgr.setFolderManager(this._assetBrowser.getFolderManager());
+    }
+    // Wire into Project Settings panel so it can read/write project-level settings
+    if (this._projectSettings) {
+      this._projectSettings.setProjectManager(mgr);
     }
   }
 

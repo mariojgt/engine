@@ -13,7 +13,7 @@ import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { FontLibrary } from './editor/FontLibrary';
-import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager } from './editor/NodeEditorPanel';
+import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 
 async function main() {
@@ -114,6 +114,9 @@ async function main() {
 
   // Wire widget BP manager into node editor for Create Widget picker
   setWidgetBPManager(widgetBPManager);
+
+  // Wire game instance BP manager into node editor for GI dropdowns
+  setGameInstanceBPManager(gameInstanceManager);
 
   // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
   engine.projectManager = projectManager;

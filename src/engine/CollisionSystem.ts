@@ -107,6 +107,16 @@ export class CollisionSystem {
     return this._callbacks.get(goId);
   }
 
+  /** Remove all collision callbacks for a game object (called when destroying an actor at runtime). */
+  unregisterCallbacks(goId: number): void {
+    this._callbacks.delete(goId);
+    this._activeOverlaps.delete(goId);
+    // Also remove this goId from other actors' active overlap sets
+    for (const [, overlaps] of this._activeOverlaps) {
+      overlaps.delete(goId);
+    }
+  }
+
   getSensorCount(): number {
     return this._sensors.length;
   }

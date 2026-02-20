@@ -60,6 +60,8 @@ export interface ProjectMeta {
   modifiedAt: number;
   /** Active scene file (relative path within Scenes/) */
   activeScene: string;
+  /** Game Instance class ID — which Game Instance blueprint to auto-create at runtime (like UE Project Settings → Game Instance Class) */
+  gameInstanceClassId?: string;
 }
 
 // ---- Project folder structure ----
@@ -156,6 +158,19 @@ export class ProjectManager {
   /** Wire up the GameInstanceBlueprintManager for saving/loading game instances */
   setGameInstanceManager(mgr: GameInstanceBlueprintManager): void {
     this._gameInstanceManager = mgr;
+  }
+
+  /** Get the configured Game Instance class ID (from Project Settings) */
+  get gameInstanceClassId(): string | undefined {
+    return this._meta?.gameInstanceClassId;
+  }
+
+  /** Set the Game Instance class ID (Project Settings → Game Instance Class) and sync to engine */
+  setGameInstanceClassId(id: string | undefined): void {
+    if (!this._meta) return;
+    this._meta.gameInstanceClassId = id;
+    this._engine.gameInstanceClassId = id ?? null;
+    this._dirty = true;
   }
 
   /** Wire up the ContentFolderManager for saving/loading folder structure */
@@ -288,6 +303,9 @@ export class ProjectManager {
 
       this._projectPath = projectRoot;
       this._meta = meta;
+
+      // Sync Game Instance class ID to engine
+      this._engine.gameInstanceClassId = meta.gameInstanceClassId ?? null;
 
       console.log(`[ProjectManager] ▶ Opening project "${meta.name}" at ${projectRoot}`);
       console.log(`[ProjectManager]   Active scene: ${meta.activeScene}`);

@@ -318,7 +318,13 @@ export {
   GetGameInstanceNode,
   GetGameInstanceVariableNode,
   SetGameInstanceVariableNode,
+  CallGameInstanceFunctionNode,
+  CallGameInstanceEventNode,
   GameInstanceVarNameControl,
+  GIBPSelectControl,
+  GIVariableSelectorControl,
+  GIFunctionSelectorControl,
+  GIEventSelectorControl,
 } from './casting/GameInstanceNodes';
 
 // ── Inheritance / Class Hierarchy Nodes ─────────────────────

@@ -492,6 +492,71 @@ export class Scene {
     this._emitChanged();
   }
 
+  /**
+   * Runtime "Destroy Actor" — fires OnDestroy on scripts, removes physics bodies,
+   * unregisters collision callbacks, removes from Three.js scene & gameObjects array.
+   * Called from blueprint-generated code: `__scene.destroyActor(target)`
+   */
+  destroyActor(go: GameObject): void {
+    if (!go) return;
+
+    // Fire OnDestroy on all scripts so cleanup code runs (input listeners, etc.)
+    const printFn = this._runtimePrint ?? ((v: any) => console.log('[Print]', v));
+    for (const script of go.scripts) {
+      try {
+        const ctx: import('./ScriptComponent').ScriptContext = {
+          gameObject: go,
+          deltaTime: 0,
+          elapsedTime: 0,
+          print: printFn,
+          physics: this._runtimePhysics,
+          scene: this,
+          uiManager: this._runtimeUiManager,
+          meshAssetManager: MeshAssetManager.getInstance(),
+          loadMeshFromAsset,
+          buildThreeMaterialFromAsset,
+          engine: this._runtimeEngine,
+        };
+        script.onDestroy(ctx);
+        script.reset();
+      } catch (e) {
+        console.warn(`[Scene] destroyActor: error in onDestroy for "${go.name}":`, e);
+      }
+    }
+
+    // Remove physics body & colliders
+    if (this._runtimePhysics) {
+      try {
+        this._runtimePhysics.removePhysicsBody(go);
+      } catch { /* noop — GO might not have physics */ }
+      // Unregister collision callbacks
+      if (this._runtimePhysics.collision) {
+        try {
+          this._runtimePhysics.collision.unregisterCallbacks(go.id);
+        } catch { /* noop */ }
+      }
+    }
+
+    // Dispose geometry & materials for the mesh and all children
+    go.mesh.traverse((child: any) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((m: any) => m.dispose());
+        else child.material.dispose();
+      }
+    });
+
+    // Remove from Three.js scene & gameObjects array
+    this.threeScene.remove(go.mesh);
+    this.gameObjects = this.gameObjects.filter((o) => o.id !== go.id);
+    if (this.selectedObject === go) {
+      this.selectObject(null);
+    }
+
+    console.log(`[Scene] destroyActor: destroyed "${go.name}" (id=${go.id})`);
+    this._emitChanged();
+  }
+
   selectObject(go: GameObject | null): void {
     this.selectedObject = go;
     for (const cb of this._onSelectionChanged) cb(go);

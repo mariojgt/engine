@@ -59,6 +59,9 @@ export class Engine {
   /** Game Instance blueprint manager — set by editor for creating runtime instances */
   public gameInstanceManager: any = null;
 
+  /** Configured Game Instance class ID from Project Settings (like UE's Game Instance Class) */
+  public gameInstanceClassId: string | null = null;
+
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
@@ -210,6 +213,35 @@ export class Engine {
       }
     }
 
+    // ── 3. Initialize Game Instance BEFORE any BeginPlay ──
+    // Must happen first so every blueprint can access __gameInstance in BeginPlay.
+    // Uses the class ID configured in Project Settings (like UE's Game Instance Class).
+    // Falls back to the first available Game Instance blueprint if none is configured.
+    if (!this.gameInstance && this.gameInstanceManager) {
+      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
+      let targetAsset = null;
+      if (this.gameInstanceClassId) {
+        targetAsset = assets.find((a: any) => a.id === this.gameInstanceClassId) || null;
+        if (!targetAsset) {
+          console.warn(`[Engine] Configured Game Instance class "${this.gameInstanceClassId}" not found — falling back`);
+        }
+      }
+      if (!targetAsset && assets.length > 0) {
+        targetAsset = assets[0];
+      }
+      if (targetAsset) {
+        this.gameInstance = new GameInstance(targetAsset);
+        console.log(`[Engine] Created Game Instance from "${targetAsset.name}" (id: ${targetAsset.id})`);
+      }
+    }
+    // Fire BeginPlay on Game Instance first (so its variables are ready for other scripts)
+    if (this.gameInstance) {
+      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
+      const giCtx = this._buildCtx(dummyGO, 0, 0, print);
+      this.gameInstance.beginPlay(giCtx);
+    }
+
+    // ── 4. Fire BeginPlay on all actor & controller scripts ──
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
@@ -223,22 +255,6 @@ export class Engine {
       scriptCount++;
       const ctx = this._buildCtx(go, 0, 0, print);
       script.beginPlay(ctx);
-    }
-
-    // ── 4. Initialize Game Instance (persistent across scene loads) ──
-    if (!this.gameInstance && this.gameInstanceManager) {
-      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
-      if (assets.length > 0) {
-        // Use the first Game Instance blueprint (like UE — one GameInstance per project)
-        this.gameInstance = new GameInstance(assets[0]);
-        console.log(`[Engine] Created Game Instance from "${assets[0].name}"`);
-      }
-    }
-    // Fire BeginPlay on Game Instance (only once, even across scene reloads)
-    if (this.gameInstance) {
-      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-      const giCtx = this._buildCtx(dummyGO, 0, 0, print);
-      this.gameInstance.beginPlay(giCtx);
     }
 
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);

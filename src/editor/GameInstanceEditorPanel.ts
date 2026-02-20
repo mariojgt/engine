@@ -137,6 +137,11 @@ export class GameInstanceEditorPanel {
         this._asset.touch();
         this._onSave?.();
       },
+      undefined, // components
+      undefined, // rootMeshType
+      undefined, // widgetList
+      undefined, // isAnimBlueprint
+      true,      // isGameInstanceBlueprint
     );
 
     // Auto-compile once the editor initializes
