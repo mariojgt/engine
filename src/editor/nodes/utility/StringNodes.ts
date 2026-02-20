@@ -168,24 +168,3 @@ export class ParseFloatNode extends ClassicPreset.Node {
   }
 }
 registerNode('Parse Float', 'String', () => new ParseFloatNode());
-
-// ── Print variants (exec nodes) ─────────────────────────────
-export class PrintWarningNode extends ClassicPreset.Node {
-  constructor() {
-    super('Print Warning');
-    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('message', new ClassicPreset.Input(strSocket, 'Message'));
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-  }
-}
-registerNode('Print Warning', 'Utility', () => new PrintWarningNode());
-
-export class PrintErrorNode extends ClassicPreset.Node {
-  constructor() {
-    super('Print Error');
-    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('message', new ClassicPreset.Input(strSocket, 'Message'));
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-  }
-}
-registerNode('Print Error', 'Utility', () => new PrintErrorNode());

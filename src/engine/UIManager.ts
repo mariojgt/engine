@@ -380,7 +380,9 @@ export class UIManager {
     if (!el) return;
     const fill = el.querySelector('[data-progress-fill]') as HTMLElement;
     if (fill) {
-      const p = Math.max(0, Math.min(1, percent));
+      // Round to 2 decimal places to avoid floating-point precision artifacts
+      // (e.g. 0.999999 → 1.0, 0.500001 → 0.5)
+      const p = Math.round(Math.max(0, Math.min(1, percent)) * 100) / 100;
       fill.style.width = `${p * 100}%`;
       el.dataset.progressPercent = String(p);
     }
@@ -389,7 +391,9 @@ export class UIManager {
   getProgressBarPercent(handle: string, widgetName: string): number {
     const el = this._findByName(handle, widgetName);
     if (!el) return 0;
-    return parseFloat(el.dataset.progressPercent || '0');
+    const raw = parseFloat(el.dataset.progressPercent || '0');
+    // Ensure clean return value — round to 2 decimal places
+    return Math.round(raw * 100) / 100;
   }
 
   setSliderValue(handle: string, widgetName: string, value: number): void {

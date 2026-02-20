@@ -516,7 +516,6 @@ export {
   StringReplaceNode, StringSplitNode,
   TrimNode, ToUpperNode, ToLowerNode,
   ParseIntNode, ParseFloatNode,
-  PrintWarningNode, PrintErrorNode,
 } from './utility/StringNodes';
 
 // ── Spawning ────────────────────────────────────────────────
