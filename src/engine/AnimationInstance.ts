@@ -64,7 +64,7 @@ export class AnimationInstance {
   private _debugLoggedBeginPlay = false;
   private _debugLoggedNoCode = false;
   private _debugTransitionLogCooldown = 0;
-  private _debugTransitionLogEnabled = true;
+  private _debugTransitionLogEnabled = false;  // Disabled by default — enable explicitly for debugging
   private _overrideClipCache: Map<string, THREE.AnimationClip[]> = new Map();
   private _overrideClipLoading: Set<string> = new Set();
 
@@ -163,7 +163,6 @@ export class AnimationInstance {
     }
     const sc = new ScriptComponent();
     sc.code = code;
-    console.log(`[AnimBP] setEventGraphCode: ${this.asset.name} (${code.length} chars)`);
     if (sc.compile()) {
       this._eventScript = sc;
       this._eventScriptStarted = false;
@@ -320,24 +319,11 @@ export class AnimationInstance {
       if (t.toStateId === this._currentStateId) continue;
 
       const condResult = this._evaluateTransitionRules(t);
-      if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown <= 0) {
-        const varName = this._getConditionVarName(t);
-        const varVal = varName ? this.variables.get(varName) : undefined;
-        console.log(
-          `[AnimBP] Transition check: ${this.asset.name} ${t.fromStateId} -> ${t.toStateId} ` +
-          `expr="${this._getTransitionLabel(t) || 'true'}" result=${condResult}` +
-          (varName ? ` ${varName}=${String(varVal)}` : '')
-        );
-      }
 
       // Evaluate condition
       if (condResult) {
         candidates.push(t);
       }
-    }
-
-    if (this._debugTransitionLogEnabled && this._debugTransitionLogCooldown <= 0) {
-      this._debugTransitionLogCooldown = 0.5;
     }
 
     if (candidates.length === 0) return;
@@ -349,10 +335,12 @@ export class AnimationInstance {
     // Transition to new state
     const targetState = this._findState(winner.toStateId);
     if (targetState && targetState.id !== this._currentStateId) {
-      console.log(
-        `[AnimBP] Transition fired: ${this.asset.name} ${this._currentStateId} -> ${targetState.id} ` +
-        `label="${this._getTransitionLabel(winner)}"`
-      );
+      if (this._debugTransitionLogEnabled) {
+        console.log(
+          `[AnimBP] Transition fired: ${this.asset.name} ${this._currentStateId} -> ${targetState.id} ` +
+          `label="${this._getTransitionLabel(winner)}"`
+        );
+      }
       this._transitionTo(targetState, winner.blendProfile, winner.blendTime);
     }
   }
@@ -600,19 +588,29 @@ export class AnimationInstance {
     this._currentActions.push(action);
   }
 
-  /** Set up all actions for a 1D blend space (all play simultaneously with varying weights) */
+  /** Set up all actions for a 1D blend space (all play simultaneously with varying weights).
+   *  Range-based: each sample has rangeMin/rangeMax. Samples play at full weight inside their
+   *  range, and crossfade at range boundaries using the blend space's blendMargin. */
   private _setupBlendSpace1D(state: AnimStateData): void {
     const bs = this.asset.blendSpaces1D.find(b => b.id === state.blendSpace1DId);
     if (!bs || bs.samples.length === 0) return;
 
-    for (const sample of bs.samples) {
-      const clip = this.animations.find(a => a.name === sample.animationName);
-      if (!clip) continue;
+    // Sort samples by rangeMin for consistent ordering
+    const sorted = [...bs.samples].sort((a, b) => a.rangeMin - b.rangeMin);
+
+    for (const sample of sorted) {
+      const clip = this._findClipByName(this.animations, sample.animationName);
+      if (!clip) {
+        // Push a null placeholder action so indices stay aligned
+        this._currentActions.push(null as any);
+        continue;
+      }
 
       const action = this.mixer.clipAction(clip);
       action.reset();
-      action.setLoop(THREE.LoopRepeat, Infinity);
-      action.timeScale = state.playRate;
+      action.setLoop(sample.loop !== false ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      action.clampWhenFinished = !sample.loop;
+      action.timeScale = (sample.playRate ?? 1) * (state.playRate || 1);
       action.setEffectiveWeight(0);
       action.play();
 
@@ -623,55 +621,117 @@ export class AnimationInstance {
     this._updateBlendSpace1D(state);
   }
 
-  /** Update blend space 1D weights based on current variable value */
+  /** Update blend space 1D weights based on current variable value (range-based).
+   *
+   *  Algorithm:
+   *  1. If value is inside one or more ranges [rangeMin, rangeMax] → those get weight 1
+   *  2. If value is outside all ranges but within blendMargin of some → proximity-based fade
+   *  3. If value is in a gap beyond margin → nearest range gets weight 1
+   */
   private _updateBlendSpace1D(state: AnimStateData): void {
     const bs = this.asset.blendSpaces1D.find(b => b.id === state.blendSpace1DId);
     if (!bs || bs.samples.length === 0) return;
 
-    const varName = state.blendSpaceAxisVar || bs.axisLabel.toLowerCase();
+    // Resolve driving variable: state override → blend space config → axis label fallback
+    const varName = state.blendSpaceAxisVar || bs.drivingVariable || bs.axisLabel?.toLowerCase() || 'speed';
     const rawValue = this.variables.get(varName);
     const value = typeof rawValue === 'number' ? rawValue : 0;
 
     // Clamp to axis range
     const clamped = Math.max(bs.axisMin, Math.min(bs.axisMax, value));
+    const margin = bs.blendMargin ?? 0;
 
-    // Sort samples by position
-    const sorted = [...bs.samples].sort((a, b) => a.position - b.position);
+    // Sort by rangeMin (same order as _setupBlendSpace1D)
+    const sorted = [...bs.samples].sort((a, b) => a.rangeMin - b.rangeMin);
 
-    // Calculate weights using linear interpolation between nearest neighbours
     const weights: number[] = new Array(sorted.length).fill(0);
 
     if (sorted.length === 1) {
       weights[0] = 1;
     } else {
-      // Find the two samples surrounding the current value
-      let lowerIdx = 0;
-      let upperIdx = sorted.length - 1;
-
-      for (let i = 0; i < sorted.length - 1; i++) {
-        if (clamped >= sorted[i].position && clamped <= sorted[i + 1].position) {
-          lowerIdx = i;
-          upperIdx = i + 1;
-          break;
+      // Step 1: Find all ranges that directly contain the value
+      const containingIndices: number[] = [];
+      for (let i = 0; i < sorted.length; i++) {
+        if (clamped >= sorted[i].rangeMin && clamped <= sorted[i].rangeMax) {
+          containingIndices.push(i);
         }
       }
 
-      if (clamped <= sorted[0].position) {
-        weights[0] = 1;
-      } else if (clamped >= sorted[sorted.length - 1].position) {
-        weights[sorted.length - 1] = 1;
+      if (containingIndices.length > 0) {
+        // Value is inside one or more ranges — give those ranges full weight
+        // If inside multiple overlapping ranges, weight by how centered we are
+        if (containingIndices.length === 1) {
+          weights[containingIndices[0]] = 1;
+        } else {
+          // Overlapping ranges: distribute weight based on centrality within each range
+          for (const idx of containingIndices) {
+            const s = sorted[idx];
+            const span = s.rangeMax - s.rangeMin;
+            if (span < 0.001) {
+              weights[idx] = 1;
+            } else {
+              // How centered is the value within this range? 1.0 at center, lower at edges
+              const center = (s.rangeMin + s.rangeMax) / 2;
+              const distFromCenter = Math.abs(clamped - center);
+              weights[idx] = Math.max(0.01, 1 - (distFromCenter / (span / 2)));
+            }
+          }
+        }
       } else {
-        const range = sorted[upperIdx].position - sorted[lowerIdx].position;
-        const t = range > 0 ? (clamped - sorted[lowerIdx].position) / range : 0;
-        weights[lowerIdx] = 1 - t;
-        weights[upperIdx] = t;
+        // Value is outside all ranges — crossfade based on proximity
+        for (let i = 0; i < sorted.length; i++) {
+          const s = sorted[i];
+          // Distance from value to nearest edge of this range
+          let distOutside = 0;
+          if (clamped < s.rangeMin) {
+            distOutside = s.rangeMin - clamped;
+          } else if (clamped > s.rangeMax) {
+            distOutside = clamped - s.rangeMax;
+          }
+
+          if (margin > 0 && distOutside < margin) {
+            // Within blend margin — fade based on distance
+            weights[i] = 1 - (distOutside / margin);
+          } else {
+            weights[i] = 0;
+          }
+        }
+      }
+
+      // If no weights at all (fell in a gap beyond margin), snap to nearest range
+      let totalWeight = 0;
+      for (let i = 0; i < weights.length; i++) totalWeight += weights[i];
+
+      if (totalWeight < 0.001) {
+        let nearestIdx = 0;
+        let nearestDist = Infinity;
+        for (let i = 0; i < sorted.length; i++) {
+          const dMin = Math.abs(clamped - sorted[i].rangeMin);
+          const dMax = Math.abs(clamped - sorted[i].rangeMax);
+          const dist = Math.min(dMin, dMax);
+          if (dist < nearestDist) {
+            nearestDist = dist;
+            nearestIdx = i;
+          }
+        }
+        weights[nearestIdx] = 1;
+        totalWeight = 1;
+      }
+
+      // Normalize weights so they sum to 1
+      if (totalWeight > 0 && totalWeight !== 1) {
+        for (let i = 0; i < weights.length; i++) {
+          weights[i] /= totalWeight;
+        }
       }
     }
 
-    // Apply weights to actions (actions are in the same order as sorted samples)
-    // We need to map sorted sample indices back to actions
+    // Apply weights to actions
     for (let i = 0; i < sorted.length && i < this._currentActions.length; i++) {
-      this._currentActions[i].setEffectiveWeight(weights[i]);
+      const action = this._currentActions[i];
+      if (action && action.setEffectiveWeight) {
+        action.setEffectiveWeight(weights[i]);
+      }
     }
   }
 

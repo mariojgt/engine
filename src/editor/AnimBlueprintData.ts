@@ -11,23 +11,33 @@ import { BlueprintData, type BlueprintGraphData } from './BlueprintData';
 
 // ---- Unique ID helper ----
 let _uid = 0;
-function animUid(): string {
+export function animUid(): string {
   return 'abp_' + Date.now().toString(36) + '_' + (++_uid).toString(36);
 }
 
 // ---- Blend Space Types ----
 
-/** A single sample point in a 1D blend space */
+/** A single sample point in a 1D blend space (range-based, UE-style) */
 export interface BlendSpaceSample1D {
+  /** Unique ID for this sample */
+  id: string;
   /** Animation asset ID (from MeshAssetManager) */
   animationId: string;
   /** Animation clip name within the asset */
   animationName: string;
-  /** Position on the axis (e.g., speed value) */
-  position: number;
+  /** Start of the range on the axis where this animation is active */
+  rangeMin: number;
+  /** End of the range on the axis where this animation is active */
+  rangeMax: number;
+  /** Playback speed override for this sample (1 = normal) */
+  playRate: number;
+  /** Whether this sample loops */
+  loop: boolean;
+  /** Legacy: single position (for migration) */
+  position?: number;
 }
 
-/** 1D Blend Space definition */
+/** 1D Blend Space definition (UE-style: driven by a variable, ranges map to animations) */
 export interface BlendSpace1D {
   id: string;
   name: string;
@@ -37,7 +47,11 @@ export interface BlendSpace1D {
   axisMin: number;
   /** Max value on axis */
   axisMax: number;
-  /** Ordered sample points */
+  /** The event graph variable that drives this blend space */
+  drivingVariable: string;
+  /** Blend margin: crossfade width at range boundaries (in axis units) */
+  blendMargin: number;
+  /** Ordered sample ranges */
   samples: BlendSpaceSample1D[];
 }
 
@@ -254,6 +268,8 @@ export function defaultBlendSpace1D(name: string): BlendSpace1D {
     axisLabel: 'Speed',
     axisMin: 0,
     axisMax: 600,
+    drivingVariable: 'speed',
+    blendMargin: 10,
     samples: [],
   };
 }
@@ -351,6 +367,23 @@ export class AnimBlueprintAsset {
     asset.blendSpaces2D = json.blendSpaces2D ?? [];
     asset.eventGraph = json.eventGraph ?? null;
     asset.compiledCode = (json as any).compiledCode ?? '';
+
+    // Migrate legacy blend space samples (position → rangeMin/rangeMax)
+    for (const bs of asset.blendSpaces1D) {
+      if (!bs.drivingVariable) bs.drivingVariable = bs.axisLabel?.toLowerCase() || 'speed';
+      if (bs.blendMargin === undefined) bs.blendMargin = 10;
+      for (const s of bs.samples) {
+        if (!s.id) s.id = animUid();
+        if (s.playRate === undefined) s.playRate = 1;
+        if (s.loop === undefined) s.loop = true;
+        // Migrate point-based → range-based
+        if (s.rangeMin === undefined || s.rangeMax === undefined) {
+          const pos = (s as any).position ?? 0;
+          s.rangeMin = pos;
+          s.rangeMax = pos;
+        }
+      }
+    }
 
     // Restore blueprint graph node data
     if ((json as any).blueprintGraphNodeData) {
