@@ -1,687 +1,155 @@
-I want to add a complete 2D scene mode to my existing 3D game engine, exactly like Unreal Engine's Paper2D system. The 2D system should reuse ALL existing engine systems (blueprint nodes, animation graph, physics, widgets, casting, class inheritance, content browser, project save/load) but adapted for 2D. This means 2D actors, sprites, tilemaps, 2D physics, 2D camera, and a 2D animation system that reuses the existing animation graph architecture.
-IMPORTANT: Please consider the current architecture and what we've already implemented:
+⚠️ CRITICAL CONTEXT — READ BEFORE IMPLEMENTING ANYTHING
+This engine already has: Three.js rendering, Rapier3D physics, Blueprint visual scripting, Animation Graph (state machines with blendspaces), Widget/UI system, Class inheritance, Content Browser, Project save/load (JSON), Actor/Component system, Docking panel system.
+DO NOT rewrite anything that already works.
+Only add, extend, and adapt for 2D. Every node, editor, and runtime behaviour described here must execute in real-time during Play mode. Editor previews (tile painting, sprite animation) must update live in the viewport without pressing Play.
 
-Three.js rendering engine (3D)
-Actor system with components
-Blueprint/Node visual programming system
-Animation Graph (state machine, blend spaces)
-Physics system (Cannon.js/Rapier)
-Widget/UI system
-Casting and reference system
-Class inheritance system
-Scene composition system (lights, skybox, etc.)
-Viewport navigation system
-Content Browser
-Project save/load system
-JSON storage
-FBX/GLTF import system
-Socket/attachment system
 
-YES - All existing systems can be reused for 2D with adaptations.
+Core Goals
+This prompt adds a fully functional 2D game mode to the existing engine. The key principles are:
 
-Research: How to Build 2D in Three.js
-Three.js 2D Approach (Best Practices):
-Three.js is 3D but perfect for 2D because:
+Mode switching — the user can switch between 3D and 2D scenes; systems adapt automatically
+Shared architecture — the existing Animation Blueprint, Widget system, and Blueprint node graph are reused and extended, not replaced
+Sprite animation tool — a dedicated visual editor for creating sprite sheet animations, which feeds into the existing Animation Blueprint (states reference sprite animations instead of skeletal clips)
+Blendspaces work the same — the existing blendspace system works in 2D scenes; nodes read velocity/input values and blend between sprite animations exactly as they do between 3D clips
+Tilemap editor — a full tile painting editor with layers, collision generation, and per-tile properties
+Character Pad 2D — a dedicated panel for configuring a 2D character's movement types, physics, and animation links all in one place
+2D Actor system — actors with SpriteRenderer, RigidBody2D, and Collider2D components; logic is wired in the existing Blueprint graph
+Widget system unchanged — existing Widget Blueprints work in 2D scenes without modification
 
-Option 1: Orthographic Camera (RECOMMENDED)
-├── Use THREE.OrthographicCamera instead of PerspectiveCamera
-├── Lock Z-axis movement (depth = layer order)
-├── All objects are flat planes (PlaneGeometry)
-├── Use Z position for draw order (sprites stacked)
-├── Physics runs in 2D (X/Y only)
-├── Perfect for platformers, top-down, puzzle games
-└── Full Three.js features available (shaders, post-fx)
 
-Option 2: Pure CSS/Canvas 2D (NOT recommended)
-└── Would require rewriting everything, loses engine features
-
-Option 3: Three.js Sprites
-├── THREE.Sprite for billboard sprites
-└── Less control than PlaneGeometry approach
-
-BEST APPROACH: OrthographicCamera + PlaneGeometry
-├── Sprites = PlaneGeometry + MeshBasicMaterial (texture)
-├── Layers = Z-position (0.001 increments)
-├── Physics = 2D wrapper (ignore Z axis)
-├── Animation = Sprite sheet UV animation
-└── Camera = OrthographicCamera with 2D controls
-Coordinate System for 2D:
-3D Engine:          2D Mode:
-X = Right           X = Right (same)
-Y = Up              Y = Up (same)
-Z = Forward/Back    Z = Draw Layer (0-100)
-
-2D World Space:
-├── X: -∞ to +∞ (horizontal)
-├── Y: -∞ to +∞ (vertical)
-└── Z: 0.0 to 100.0 (layer depth)
-    ├── 0.0 = Background
-    ├── 50.0 = Midground
-    └── 100.0 = Foreground
-
-2D Scene Mode Architecture
-Switching Between 2D and 3D
-Scene Type Selection:
-New Scene Dialog:
-┌─────────────────────────────────────────────────────────┐
-│ Create New Scene                                         │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  Scene Type:                                            │
-│                                                          │
-│  ┌──────────────┐    ┌──────────────┐                  │
-│  │   🎮 3D      │    │   📺 2D      │                  │
-│  │              │    │              │                  │
-│  │  Perspective │    │ Orthographic │                  │
-│  │  Camera      │    │ Camera       │                  │
-│  │              │    │              │                  │
-│  │  Actors,     │    │  Sprites,    │                  │
-│  │  Meshes,     │    │  Tilemaps,   │                  │
-│  │  Lights      │    │  Layers      │                  │
-│  └──────────────┘    └──────────────┘                  │
-│     (selected)            ↑ click                       │
-│                                                          │
-│  Name: [MyGame2D]                                       │
-│  Template:                                              │
-│  ├── [Blank]                                            │
-│  ├── [Platformer]                                       │
-│  ├── [Top Down]                                         │
-│  └── [Puzzle]                                           │
-│                                                          │
-│  [Create Scene]                                         │
-└─────────────────────────────────────────────────────────┘
-Scene Mode JSON:
+1. Scene Mode Selection
+Add a sceneMode field ("2D" | "3D") to the New Scene dialog. This single field drives camera type, physics world, available actors, and panel visibility.
+New Scene Dialog
+┌──────────────────────────────────────────────────────────────────────┐
+│  Create New Scene                                                    │
+├──────────────────────────────────────────────────────────────────────┤
+│  Scene Type                                                          │
+│  ┌──────────────────────┐    ┌──────────────────────┐               │
+│  │  3D                  │    │  2D                  │               │
+│  │  Perspective camera  │    │  Orthographic camera │               │
+│  │  Meshes & lights     │    │  Sprites & tilemaps  │               │
+│  │  Rapier3D            │    │  Rapier2D            │               │
+│  └──────────────────────┘    └──────────────────────┘               │
+│                                                                      │
+│  Scene Name       [MyPlatformer                   ]                 │
+│  Template         ○ Blank  ○ Platformer  ○ Top Down  ○ Puzzle       │
+│  Pixels Per Unit  [100]                                              │
+│  Reference Res    [1920] × [1080]                                    │
+│                                                                      │
+│                                    [Cancel]    [Create Scene]       │
+└──────────────────────────────────────────────────────────────────────┘
+Mode Switch Logic
+javascriptfunction loadScene(sceneData) {
+  if (sceneData.sceneMode === '2D') {
+    // 1. Swap PerspectiveCamera → OrthographicCamera
+    camera2D = new Camera2D(renderer, sceneData.renderSettings);
+    // 2. Init Rapier2D (does NOT replace Rapier3D — separate instance)
+    await physics2DWorld.init(sceneData.worldSettings);
+    // 3. Show 2D panels, hide 3D-only panels
+    panelManager.show(['sortingLayers', 'tileEditor', 'spriteAnimEditor', 'characterPad2D']);
+    panelManager.hide(['skyboxSettings', 'directionalLight', 'fogSettings']);
+    // 4. Update status bar
+    statusBar.setMode('2D');
+  } else {
+    switchTo3DMode(sceneData); // existing behaviour — untouched
+  }
+}
+Scene JSON
 json{
-  "sceneId": "2d-scene-001",
-  "sceneName": "MyPlatformerScene",
+  "sceneId": "scene-2d-001",
+  "sceneName": "MyPlatformer",
   "sceneMode": "2D",
-  "sceneVersion": 1,
   "renderSettings": {
     "cameraType": "orthographic",
     "pixelsPerUnit": 100,
-    "referenceResolution": {
-      "width": 1920,
-      "height": 1080
-    },
-    "backgroundColor": "#1A1A2E",
-    "sortingMode": "zPosition"
+    "referenceResolution": { "width": 1920, "height": 1080 },
+    "backgroundColor": "#1a1a2e"
   },
   "worldSettings": {
-    "gravity": {"x": 0, "y": -980},
+    "gravity": { "x": 0, "y": -980 },
     "physicsMode": "2D",
     "pixelsPerUnit": 100
-  }
+  },
+  "sortingLayers": [
+    { "name": "Background",  "z": 0   },
+    { "name": "Ground",      "z": 10  },
+    { "name": "Default",     "z": 20  },
+    { "name": "Characters",  "z": 30  },
+    { "name": "Projectiles", "z": 40  },
+    { "name": "Effects",     "z": 50  },
+    { "name": "UI",          "z": 90  },
+    { "name": "Overlay",     "z": 100 }
+  ]
 }
 
-2D Camera System
-Orthographic Camera Setup:
+2. Orthographic Camera (Camera2D)
+Replaces PerspectiveCamera in 2D mode. Pan with middle mouse or Alt+drag. Zoom toward cursor with scroll wheel.
 javascriptclass Camera2D {
   constructor(renderer, settings = {}) {
-    this.renderer = renderer;
-    this.settings = {
-      pixelsPerUnit: settings.pixelsPerUnit || 100,
-      zoom: settings.zoom || 1.0,
-      position: settings.position || { x: 0, y: 0 },
-      ...settings
-    };
-
-    this.setupCamera();
-    this.setupControls();
+    this.pixelsPerUnit = settings.pixelsPerUnit || 100;
+    this.zoom = 1.0;
+    this._buildCamera();
+    this._bindControls(renderer.domElement);
   }
 
-  setupCamera() {
-    const aspect = window.innerWidth / window.innerHeight;
-    const viewHeight = window.innerHeight / this.settings.pixelsPerUnit;
-    const viewWidth = viewHeight * aspect;
-
-    this.camera = new THREE.OrthographicCamera(
-      -viewWidth / 2 * this.settings.zoom,   // left
-       viewWidth / 2 * this.settings.zoom,   // right
-       viewHeight / 2 * this.settings.zoom,  // top
-      -viewHeight / 2 * this.settings.zoom,  // bottom
-      -1000,                                  // near
-       1000                                   // far
-    );
-
-    this.camera.position.set(
-      this.settings.position.x,
-      this.settings.position.y,
-      100  // Z offset to see all layers
-    );
-
-    this.camera.lookAt(
-      this.settings.position.x,
-      this.settings.position.y,
-      0
-    );
-  }
-
-  setupControls() {
-    // 2D viewport navigation
-    this.isPanning = false;
-    this.lastMousePos = new THREE.Vector2();
-
-    const canvas = this.renderer.domElement;
-
-    // Middle mouse pan
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 1) {
-        this.isPanning = true;
-        this.lastMousePos.set(e.clientX, e.clientY);
-        e.preventDefault();
-      }
-    });
-
-    canvas.addEventListener('mouseup', () => {
-      this.isPanning = false;
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (!this.isPanning) return;
-
-      const dx = (e.clientX - this.lastMousePos.x) / this.settings.pixelsPerUnit;
-      const dy = (e.clientY - this.lastMousePos.y) / this.settings.pixelsPerUnit;
-
-      this.camera.position.x -= dx * this.settings.zoom;
-      this.camera.position.y += dy * this.settings.zoom;
-
-      this.lastMousePos.set(e.clientX, e.clientY);
-    });
-
-    // Scroll to zoom
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-      this.setZoom(this.settings.zoom * zoomFactor);
-    });
-
-    // Keyboard pan (Arrow keys)
-    window.addEventListener('keydown', (e) => {
-      if (document.activeElement.tagName === 'INPUT') return;
-      const speed = 5 * this.settings.zoom;
-      switch (e.key) {
-        case 'ArrowLeft':  this.camera.position.x -= speed; break;
-        case 'ArrowRight': this.camera.position.x += speed; break;
-        case 'ArrowUp':    this.camera.position.y += speed; break;
-        case 'ArrowDown':  this.camera.position.y -= speed; break;
-        case 'f': case 'F': this.focusOnSelection(); break;
-      }
-    });
+  _buildCamera() {
+    const { w, h } = this._viewSize();
+    this.camera = new THREE.OrthographicCamera(-w/2, w/2, h/2, -h/2, -1000, 1000);
+    this.camera.position.set(0, 0, 100);
+    this.camera.lookAt(0, 0, 0);
   }
 
   setZoom(zoom) {
-    this.settings.zoom = Math.max(0.1, Math.min(20, zoom));
-    const aspect = window.innerWidth / window.innerHeight;
-    const viewHeight = window.innerHeight / this.settings.pixelsPerUnit;
-    const viewWidth = viewHeight * aspect;
-
-    this.camera.left   = -viewWidth  / 2 * this.settings.zoom;
-    this.camera.right  =  viewWidth  / 2 * this.settings.zoom;
-    this.camera.top    =  viewHeight / 2 * this.settings.zoom;
-    this.camera.bottom = -viewHeight / 2 * this.settings.zoom;
-
+    this.zoom = Math.max(0.05, Math.min(20, zoom));
+    const { w, h } = this._viewSize();
+    Object.assign(this.camera, { left: -w/2, right: w/2, top: h/2, bottom: -h/2 });
     this.camera.updateProjectionMatrix();
   }
 
-  worldToScreen(worldPos) {
-    const vector = new THREE.Vector3(worldPos.x, worldPos.y, 0);
-    vector.project(this.camera);
-
-    return {
-      x: (vector.x + 1) / 2 * window.innerWidth,
-      y: (-vector.y + 1) / 2 * window.innerHeight
-    };
-  }
-
-  screenToWorld(screenPos) {
-    const vector = new THREE.Vector3(
-      (screenPos.x / window.innerWidth) * 2 - 1,
-      -((screenPos.y / window.innerHeight) * 2 - 1),
-      0
+  screenToWorld(sx, sy) {
+    const v = new THREE.Vector3(
+      (sx / window.innerWidth) * 2 - 1,
+      -((sy / window.innerHeight) * 2 - 1), 0
     );
-    vector.unproject(this.camera);
-
-    return { x: vector.x, y: vector.y };
+    v.unproject(this.camera);
+    return { x: v.x, y: v.y };
   }
 
-  focusOnSelection(objects) {
-    if (!objects || objects.length === 0) return;
-
-    const box = new THREE.Box3();
-    objects.forEach(obj => box.expandByObject(obj));
-
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-
-    this.camera.position.x = center.x;
-    this.camera.position.y = center.y;
-
-    const requiredZoom = Math.max(
-      size.x / (window.innerWidth / this.settings.pixelsPerUnit),
-      size.y / (window.innerHeight / this.settings.pixelsPerUnit)
-    ) * 1.5;
-
-    this.setZoom(requiredZoom);
-  }
-
-  follow(target, smoothing = 0.1) {
-    // Camera follow for runtime
-    this.followTarget = target;
-    this.followSmoothing = smoothing;
-  }
-
-  update(deltaTime) {
-    if (this.followTarget) {
-      const targetX = this.followTarget.position.x;
-      const targetY = this.followTarget.position.y;
-
-      this.camera.position.x += (targetX - this.camera.position.x) * this.followSmoothing;
-      this.camera.position.y += (targetY - this.camera.position.y) * this.followSmoothing;
+  update() {
+    if (this._followTarget) {
+      const { x, y } = this._followTarget.group.position;
+      const s = this._followSmoothing;
+      this.camera.position.x += (x - this.camera.position.x) * s;
+      this.camera.position.y += (y - this.camera.position.y) * s;
     }
   }
-}
 
-2D Actor System
-Sprite Actor (Core 2D Actor)
-Sprite Actor JSON:
+  follow(actor, smoothing = 0.1) {
+    this._followTarget = actor;
+    this._followSmoothing = smoothing;
+  }
+}
+Controls:
+InputActionMiddle mouse drag / Alt+dragPanScroll wheelZoom toward cursorFFocus on selected actorCtrl+0Reset zoom to 100%GToggle grid overlayPToggle physics debug overlay
+
+3. Sprite Sheet System & Sprite Animation Tool
+This is the primary new visual tool. It lets users slice a sprite sheet into individual frames and assemble them into named animations. Those animations are then referenced by the existing Animation Blueprint.
+Sprite Sheet Asset JSON
 json{
-  "actorId": "sprite-player-001",
-  "actorName": "Player2D",
-  "actorType": "SpriteActor",
-  "sceneMode": "2D",
-  "parentClass": "Character2D",
-  "transform": {
-    "position": {"x": 0, "y": 0, "z": 10},
-    "rotation": {"z": 0},
-    "scale": {"x": 1, "y": 1}
-  },
-  "components": [
-    {
-      "componentId": "sprite-comp",
-      "type": "SpriteRenderer",
-      "spriteSheet": "player-spritesheet",
-      "sprite": "player-idle-frame-0",
-      "color": "#FFFFFF",
-      "flipX": false,
-      "flipY": false,
-      "sortingLayer": "Characters",
-      "orderInLayer": 0,
-      "pixelsPerUnit": 100,
-      "pivot": {"x": 0.5, "y": 0.5}
-    },
-    {
-      "componentId": "anim-comp",
-      "type": "SpriteAnimator",
-      "animationBlueprint": "abp-player-2d",
-      "defaultAnimation": "Idle"
-    },
-    {
-      "componentId": "collision-comp",
-      "type": "BoxCollider2D",
-      "size": {"x": 0.8, "y": 1.8},
-      "offset": {"x": 0, "y": 0},
-      "isTrigger": false
-    },
-    {
-      "componentId": "physics-comp",
-      "type": "RigidBody2D",
-      "bodyType": "Dynamic",
-      "mass": 1.0,
-      "gravityScale": 1.0,
-      "linearDrag": 0,
-      "angularDrag": 0.05,
-      "freezeRotation": true
-    },
-    {
-      "componentId": "movement-comp",
-      "type": "CharacterMovement2D",
-      "moveSpeed": 300,
-      "jumpForce": 600,
-      "maxJumps": 2,
-      "coyoteTime": 0.1,
-      "jumpBuffer": 0.1
-    }
-  ],
-  "variables": [
-    {"name": "health", "type": "float", "value": 100},
-    {"name": "speed", "type": "float", "value": 0},
-    {"name": "isGrounded", "type": "boolean", "value": false},
-    {"name": "isJumping", "type": "boolean", "value": false},
-    {"name": "facingRight", "type": "boolean", "value": true}
-  ],
-  "nodes": []
-}
-
-2D Component System
-SpriteRenderer Component
-javascriptclass SpriteRenderer {
-  constructor(actor, properties = {}) {
-    this.actor = actor;
-    this.type = 'SpriteRenderer';
-
-    this.properties = {
-      texture: null,
-      color: '#FFFFFF',
-      flipX: false,
-      flipY: false,
-      sortingLayer: 'Default',
-      orderInLayer: 0,
-      pixelsPerUnit: 100,
-      pivot: { x: 0.5, y: 0.5 },
-      ...properties
-    };
-
-    this.mesh = null;
-    this.material = null;
-
-    this.create();
-  }
-
-  create() {
-    const ppu = this.properties.pixelsPerUnit;
-
-    let width = 1;
-    let height = 1;
-
-    if (this.properties.texture) {
-      const tex = this.properties.texture;
-      width = tex.image.width / ppu;
-      height = tex.image.height / ppu;
-    }
-
-    // Create plane geometry (the sprite quad)
-    const geometry = new THREE.PlaneGeometry(width, height);
-
-    // Adjust pivot point
-    const pivotOffsetX = (0.5 - this.properties.pivot.x) * width;
-    const pivotOffsetY = (0.5 - this.properties.pivot.y) * height;
-    geometry.translate(pivotOffsetX, pivotOffsetY, 0);
-
-    // Sprite material
-    this.material = new THREE.MeshBasicMaterial({
-      map: this.properties.texture,
-      color: new THREE.Color(this.properties.color),
-      transparent: true,
-      alphaTest: 0.01,
-      side: THREE.DoubleSide
-    });
-
-    this.mesh = new THREE.Mesh(geometry, this.material);
-    this.mesh.userData.componentType = 'SpriteRenderer';
-    this.mesh.userData.isActor = true;
-    this.mesh.userData.actorId = this.actor.actorId;
-
-    // Apply flip
-    if (this.properties.flipX) this.mesh.scale.x = -1;
-    if (this.properties.flipY) this.mesh.scale.y = -1;
-
-    // Set Z based on layer
-    this.updateSortingOrder();
-
-    this.actor.group.add(this.mesh);
-  }
-
-  updateSortingOrder() {
-    // Use Z position for sorting
-    // Higher Z = drawn on top
-    const layerZ = this.getSortingLayerZ(this.properties.sortingLayer);
-    const orderZ = this.properties.orderInLayer * 0.001;
-    this.mesh.position.z = layerZ + orderZ;
-  }
-
-  getSortingLayerZ(layerName) {
-    const layers = {
-      'Background': 0,
-      'BackgroundDetail': 1,
-      'Ground': 10,
-      'Default': 20,
-      'Characters': 30,
-      'Projectiles': 40,
-      'Effects': 50,
-      'UI': 90,
-      'Overlay': 100
-    };
-    return layers[layerName] ?? 20;
-  }
-
-  setSprite(texture) {
-    this.properties.texture = texture;
-    this.material.map = texture;
-    this.material.needsUpdate = true;
-
-    // Update size from texture
-    const ppu = this.properties.pixelsPerUnit;
-    const width = texture.image.width / ppu;
-    const height = texture.image.height / ppu;
-
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = new THREE.PlaneGeometry(width, height);
-  }
-
-  setColor(color) {
-    this.properties.color = color;
-    this.material.color.set(color);
-  }
-
-  setFlipX(flip) {
-    this.properties.flipX = flip;
-    this.mesh.scale.x = flip ? -1 : 1;
-  }
-
-  setOpacity(opacity) {
-    this.material.opacity = opacity;
-  }
-
-  setUVRect(x, y, width, height) {
-    // For sprite sheet animation
-    const uv = this.mesh.geometry.attributes.uv;
-
-    uv.setXY(0, x, y + height);
-    uv.setXY(1, x + width, y + height);
-    uv.setXY(2, x, y);
-    uv.setXY(3, x + width, y);
-
-    uv.needsUpdate = true;
-  }
-}
-RigidBody2D Component
-javascriptclass RigidBody2D {
-  constructor(actor, properties = {}) {
-    this.actor = actor;
-    this.type = 'RigidBody2D';
-
-    this.properties = {
-      bodyType: 'Dynamic', // Dynamic, Static, Kinematic
-      mass: 1.0,
-      gravityScale: 1.0,
-      linearDrag: 0,
-      angularDrag: 0.05,
-      freezeRotation: true,
-      ...properties
-    };
-
-    // Physics state (pure 2D)
-    this.velocity = new THREE.Vector2(0, 0);
-    this.acceleration = new THREE.Vector2(0, 0);
-    this.force = new THREE.Vector2(0, 0);
-    this.angularVelocity = 0;
-
-    this.isGrounded = false;
-    this.isTouching = {
-      left: false,
-      right: false,
-      top: false,
-      bottom: false
-    };
-  }
-
-  addForce(x, y) {
-    if (this.properties.bodyType !== 'Dynamic') return;
-    this.force.x += x;
-    this.force.y += y;
-  }
-
-  addImpulse(x, y) {
-    if (this.properties.bodyType !== 'Dynamic') return;
-    this.velocity.x += x / this.properties.mass;
-    this.velocity.y += y / this.properties.mass;
-  }
-
-  setVelocity(x, y) {
-    this.velocity.set(x, y);
-  }
-
-  setVelocityX(x) {
-    this.velocity.x = x;
-  }
-
-  setVelocityY(y) {
-    this.velocity.y = y;
-  }
-
-  update(deltaTime, gravity) {
-    if (this.properties.bodyType !== 'Dynamic') return;
-
-    // Apply gravity
-    this.force.y += gravity * this.properties.gravityScale * this.properties.mass;
-
-    // Apply forces to velocity
-    this.acceleration.x = this.force.x / this.properties.mass;
-    this.acceleration.y = this.force.y / this.properties.mass;
-
-    this.velocity.x += this.acceleration.x * deltaTime;
-    this.velocity.y += this.acceleration.y * deltaTime;
-
-    // Apply drag
-    this.velocity.x *= Math.max(0, 1 - this.properties.linearDrag * deltaTime);
-    this.velocity.y *= Math.max(0, 1 - this.properties.linearDrag * deltaTime);
-
-    // Move actor
-    this.actor.group.position.x += this.velocity.x * deltaTime;
-    this.actor.group.position.y += this.velocity.y * deltaTime;
-
-    // Reset forces
-    this.force.set(0, 0);
-  }
-}
-BoxCollider2D Component
-javascriptclass BoxCollider2D {
-  constructor(actor, properties = {}) {
-    this.actor = actor;
-    this.type = 'BoxCollider2D';
-
-    this.properties = {
-      size: { x: 1, y: 1 },
-      offset: { x: 0, y: 0 },
-      isTrigger: false,
-      layer: 'Default',
-      ...properties
-    };
-
-    this.debugMesh = this.createDebugMesh();
-  }
-
-  createDebugMesh() {
-    const geo = new THREE.EdgesGeometry(
-      new THREE.BoxGeometry(
-        this.properties.size.x,
-        this.properties.size.y,
-        0.01
-      )
-    );
-    const mat = new THREE.LineBasicMaterial({
-      color: this.properties.isTrigger ? 0x00FFFF : 0x00FF00,
-      transparent: true,
-      opacity: 0.8,
-      depthTest: false
-    });
-
-    const mesh = new THREE.LineSegments(geo, mat);
-    mesh.position.x = this.properties.offset.x;
-    mesh.position.y = this.properties.offset.y;
-    mesh.position.z = 200;
-    mesh.visible = false;
-    mesh.userData.isDebugGizmo = true;
-
-    this.actor.group.add(mesh);
-    return mesh;
-  }
-
-  getBounds() {
-    const worldPos = new THREE.Vector3();
-    this.actor.group.getWorldPosition(worldPos);
-
-    const halfW = this.properties.size.x / 2;
-    const halfH = this.properties.size.y / 2;
-    const offsetX = this.properties.offset.x;
-    const offsetY = this.properties.offset.y;
-
-    return {
-      left:   worldPos.x + offsetX - halfW,
-      right:  worldPos.x + offsetX + halfW,
-      top:    worldPos.y + offsetY + halfH,
-      bottom: worldPos.y + offsetY - halfH,
-      centerX: worldPos.x + offsetX,
-      centerY: worldPos.y + offsetY
-    };
-  }
-
-  intersects(other) {
-    const a = this.getBounds();
-    const b = other.getBounds();
-
-    return a.left < b.right &&
-           a.right > b.left &&
-           a.bottom < b.top &&
-           a.top > b.bottom;
-  }
-
-  getOverlap(other) {
-    const a = this.getBounds();
-    const b = other.getBounds();
-
-    const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-    const overlapY = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-
-    return { x: overlapX, y: overlapY };
-  }
-
-  setDebugVisible(visible) {
-    this.debugMesh.visible = visible;
-  }
-}
-
-2D Sprite Sheet System
-Sprite Sheet Asset:
-json{
-  "assetId": "ss-player",
+  "assetId": "ss-player-001",
   "assetType": "spriteSheet",
   "assetName": "Player_SpriteSheet",
-  "sourceTexture": "player-spritesheet.png",
+  "sourceTexture": "player-sheet.png",
   "textureWidth": 512,
   "textureHeight": 256,
   "pixelsPerUnit": 100,
+  "filterMode": "point",
   "sprites": [
     {
       "spriteId": "idle-0",
       "name": "Idle_0",
-      "x": 0, "y": 192,
-      "width": 64, "height": 64,
-      "pivot": {"x": 0.5, "y": 0}
-    },
-    {
-      "spriteId": "idle-1",
-      "name": "Idle_1",
-      "x": 64, "y": 192,
-      "width": 64, "height": 64,
-      "pivot": {"x": 0.5, "y": 0}
-    },
-    {
-      "spriteId": "run-0",
-      "name": "Run_0",
-      "x": 0, "y": 128,
-      "width": 64, "height": 64,
-      "pivot": {"x": 0.5, "y": 0}
+      "x": 0, "y": 192, "width": 64, "height": 64,
+      "pivot": { "x": 0.5, "y": 0.0 }
     }
   ],
   "animations": [
@@ -690,859 +158,851 @@ json{
       "animName": "Idle",
       "frames": ["idle-0", "idle-1", "idle-2", "idle-3"],
       "fps": 8,
-      "loop": true
+      "loop": true,
+      "events": []
     },
     {
       "animId": "anim-run",
       "animName": "Run",
       "frames": ["run-0", "run-1", "run-2", "run-3", "run-4", "run-5"],
       "fps": 12,
-      "loop": true
+      "loop": true,
+      "events": [
+        { "frame": 1, "name": "FootstepLeft" },
+        { "frame": 4, "name": "FootstepRight" }
+      ]
     },
     {
       "animId": "anim-jump",
       "animName": "Jump",
       "frames": ["jump-0", "jump-1", "jump-2"],
       "fps": 8,
-      "loop": false
-    },
-    {
-      "animId": "anim-fall",
-      "animName": "Fall",
-      "frames": ["fall-0", "fall-1"],
-      "fps": 8,
-      "loop": true
+      "loop": false,
+      "events": []
     },
     {
       "animId": "anim-attack",
       "animName": "Attack",
-      "frames": ["attack-0", "attack-1", "attack-2", "attack-3", "attack-4"],
+      "frames": ["attack-0", "attack-1", "attack-2", "attack-3"],
       "fps": 16,
-      "loop": false
+      "loop": false,
+      "events": [{ "frame": 2, "name": "DealDamage" }]
     }
   ]
 }
 ```
 
-**Sprite Sheet Editor:**
+### Sprite Sheet Editor Panel
+
+Double-click any sprite sheet in the Content Browser to open:
 ```
-Sprite Sheet Editor: Player_SpriteSheet
+┌───────────────────────────────────────────────────────────────────────────┐
+│  [film] Player_SpriteSheet.png                      [Save]  [Revert]     │
+├──────────────────────────────────┬────────────────────────────────────────┤
+│  TEXTURE VIEW                    │  SPRITES LIST                         │
+│  ┌────────────────────────────┐  │  [search] Filter…                     │
+│  │   [spritesheet texture]    │  │  ┌──────────────────────────────────┐ │
+│  │   selected: blue highlight │  │  │ Idle_0    x:0   y:192  64×64    │ │
+│  │   hover: show tile info    │  │  │ Idle_1    x:64  y:192  64×64    │ │
+│  └────────────────────────────┘  │  │ Run_0     x:0   y:128  64×64    │ │
+│  Zoom [1× ▾]                     │  │ …                                │ │
+│                                  │  └──────────────────────────────────┘ │
+│                                  │  [Slice Grid]  [Slice Auto]  [+ Add]  │
+├──────────────────────────────────┼────────────────────────────────────────┤
+│  SELECTED SPRITE: Idle_0         │  ANIMATIONS                           │
+│  X [0] Y [192] W [64] H [64]     │  ┌──────────────────────────────────┐ │
+│  Pivot [0.5] [0.0]               │  │ ▶ Idle    4fr  8fps  loop        │ │
+│  Name  [Idle_0]                  │  │ ▶ Run     6fr 12fps  loop        │ │
+│                                  │  │ ▶ Jump    3fr  8fps              │ │
+│                                  │  │ ▶ Attack  4fr 16fps              │ │
+│                                  │  │ [+ New Animation]                │ │
+│                                  │  └──────────────────────────────────┘ │
+│                                  │  PREVIEW  [Idle ▾]  [▶ Play]          │
+│                                  │  ┌──────┐ Frame 2/4  8fps            │
+│                                  │  │ [■]  │ [◀◀][◀][▶][▶▶]            │
+│                                  │  └──────┘ Speed [1.0×]               │
+└──────────────────────────────────┴────────────────────────────────────────┘
+```
 
-┌──────────────────────────────────────────────────────┐
-│ [Texture View]                  [Sprite List]        │
-│                                                       │
-│  ┌─────────────────────────┐   ├── Idle_0  (64x64)  │
-│  │ 📷 Texture: 512x256     │   ├── Idle_1  (64x64)  │
-│  │                         │   ├── Idle_2  (64x64)  │
-│  │ [■][■][■][■] ← Idle Row │   ├── Run_0   (64x64)  │
-│  │ [■][■][■][■] ← Run Row  │   ├── Run_1   (64x64)  │
-│  │ [■][■][■]    ← Jump     │   └── ...              │
-│  │                         │                         │
-│  └─────────────────────────┘   [+ Slice Automatic]  │
-│                                 [+ Slice by Grid]   │
-│                                 [+ Add Sprite]       │
-│                                                       │
-│ [Animation List]                                     │
-│ ├── Idle (4 frames, 8fps) ▶                         │
-│ ├── Run (6 frames, 12fps) ▶                         │
-│ ├── Jump (3 frames, 8fps) ▶                         │
-│ └── [+ New Animation]                               │
-│                                                       │
-│ [Preview Animation: Idle ▼] ▶️ Playing               │
-└──────────────────────────────────────────────────────┘
-
-2D Animation Graph (Reuses Existing System!)
-The key insight: The existing Animation Graph architecture is REUSED for 2D, just with sprite frames instead of skeletal poses.
-2D Animation Blueprint:
-json{
-  "assetId": "abp-player-2d",
-  "assetType": "animationBlueprint2D",
-  "assetName": "ABP_Player2D",
-  "spriteSheet": "ss-player",
-  "variables": [
-    {"name": "speed",      "type": "float",   "default": 0.0},
-    {"name": "isGrounded", "type": "boolean", "default": true},
-    {"name": "isJumping",  "type": "boolean", "default": false},
-    {"name": "isFalling",  "type": "boolean", "default": false},
-    {"name": "isAttacking","type": "boolean", "default": false}
-  ],
-  "eventGraph": {
-    "nodes": [
-      {
-        "nodeId": "event-update",
-        "nodeType": "EventUpdateAnimation2D",
-        "outputs": {"exec": ["get-owner"]}
-      },
-      {
-        "nodeId": "get-owner",
-        "nodeType": "TryGetOwner",
-        "outputs": {"exec": ["cast-player"], "owner": "cast-player"}
-      },
-      {
-        "nodeId": "cast-player",
-        "nodeType": "Cast",
-        "parameters": {"targetClass": "player-2d-class"},
-        "outputs": {
-          "success": ["get-vel", "get-grounded"],
-          "castedObject": ["get-vel", "get-grounded"]
-        }
-      },
-      {
-        "nodeId": "get-vel",
-        "nodeType": "GetVelocity2D",
-        "inputs": {"target": "cast-player.castedObject"},
-        "outputs": {"velocity": "get-speed"}
-      },
-      {
-        "nodeId": "get-speed",
-        "nodeType": "Vector2Length",
-        "inputs": {"vector": "get-vel.velocity"},
-        "outputs": {"length": "set-speed"}
-      },
-      {
-        "nodeId": "set-speed",
-        "nodeType": "SetVariable",
-        "parameters": {"variableName": "speed"},
-        "inputs": {"value": "get-speed.length"}
-      },
-      {
-        "nodeId": "get-grounded",
-        "nodeType": "IsGrounded2D",
-        "inputs": {"target": "cast-player.castedObject"},
-        "outputs": {"result": "set-grounded"}
-      },
-      {
-        "nodeId": "set-grounded",
-        "nodeType": "SetVariable",
-        "parameters": {"variableName": "isGrounded"},
-        "inputs": {"value": "get-grounded.result"}
-      }
-    ]
-  },
-  "animationGraph": {
-    "stateMachines": [
-      {
-        "stateMachineId": "sm-locomotion",
-        "stateMachineName": "Locomotion",
-        "states": [
-          {
-            "stateId": "state-idle",
-            "stateName": "Idle",
-            "animation2D": "anim-idle",
-            "loop": true,
-            "position": {"x": 100, "y": 100}
-          },
-          {
-            "stateId": "state-run",
-            "stateName": "Run",
-            "animation2D": "anim-run",
-            "loop": true,
-            "position": {"x": 300, "y": 100}
-          },
-          {
-            "stateId": "state-jump",
-            "stateName": "Jump",
-            "animation2D": "anim-jump",
-            "loop": false,
-            "position": {"x": 200, "y": 250}
-          },
-          {
-            "stateId": "state-fall",
-            "stateName": "Fall",
-            "animation2D": "anim-fall",
-            "loop": true,
-            "position": {"x": 400, "y": 250}
-          },
-          {
-            "stateId": "state-attack",
-            "stateName": "Attack",
-            "animation2D": "anim-attack",
-            "loop": false,
-            "position": {"x": 200, "y": 0}
-          }
-        ],
-        "transitions": [
-          {
-            "from": "state-idle",
-            "to": "state-run",
-            "condition": "speed > 10",
-            "blendTime": 0.05
-          },
-          {
-            "from": "state-run",
-            "to": "state-idle",
-            "condition": "speed < 10",
-            "blendTime": 0.05
-          },
-          {
-            "from": "*",
-            "to": "state-jump",
-            "condition": "isJumping == true && isGrounded == false",
-            "blendTime": 0.0,
-            "priority": 10
-          },
-          {
-            "from": "state-jump",
-            "to": "state-fall",
-            "condition": "velocityY < 0",
-            "blendTime": 0.0
-          },
-          {
-            "from": "*",
-            "to": "state-idle",
-            "condition": "isGrounded == true && isJumping == false",
-            "blendTime": 0.1,
-            "priority": 5
-          },
-          {
-            "from": "*",
-            "to": "state-attack",
-            "condition": "isAttacking == true",
-            "blendTime": 0.0,
-            "priority": 15
-          }
-        ],
-        "entryState": "state-idle"
-      }
-    ]
-  }
-}
-2D Animation Instance (Reuses Architecture):
-javascriptclass AnimationInstance2D {
-  constructor(animationBlueprint, spriteRenderer) {
-    this.blueprint = animationBlueprint;
-    this.spriteRenderer = spriteRenderer;
-    this.spriteSheet = null;
-
-    this.variables = {};
-    this.currentState = null;
+### Sprite Animation Editor (Standalone Panel)
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│  [film] SPRITE ANIMATION EDITOR        [Target: Player_SpriteSheet ▾]     │
+├──────────────────┬─────────────────────────────────────────────────────────┤
+│  ANIMATION LIST  │  TIMELINE — Idle                                        │
+│  [+ New]         │  FPS [8]  Loop [✓]  [▶ Preview] [⏹ Stop]              │
+│  ▶ Idle          │  ┌──────────────────────────────────────────────────┐   │
+│  ▶ Run           │  │  0    1    2    3  ← frame numbers               │   │
+│  ▶ Jump          │  │ [f0] [f1] [f2] [f3]  ← drag to reorder          │   │
+│  ▶ Fall          │  │  ▲ playhead                                      │   │
+│  ▶ Attack        │  └──────────────────────────────────────────────────┘   │
+│  ▶ Die           │  FRAME STRIP (drag to reorder)                          │
+│  [▲][▼] reorder  │  [f0][f1][f2][f3]   [+ Add Frame]                     │
+│  [trash] delete  │                                                          │
+│                  │  FRAME EVENTS                                            │
+│                  │  Frame 1: [FootstepLeft] [+ Add] [trash]               │
+│                  │  Frame 4: [FootstepRight] [+ Add] [trash]              │
+├──────────────────┴─────────────────────────────────────────────────────────┤
+│  LIVE PREVIEW                                                               │
+│  ┌──────────────────┐  Animation: Idle   Frame: 2/4   FPS: 8              │
+│  │  [animated       │  [◀◀ First][◀ Prev][▶ Play][▶ Next][▶▶ Last]       │
+│  │   sprite here]   │  Speed [1.0×]                                        │
+│  └──────────────────┘                                                       │
+└────────────────────────────────────────────────────────────────────────────┘
+Animation Editor Implementation
+javascriptclass SpriteAnimationEditor {
+  constructor(container) {
+    this.container = container;
+    this.activeSpriteSheet = null;
+    this.activeAnimation = null;
+    this.isPlaying = false;
     this.currentFrame = 0;
     this.frameTimer = 0;
-    this.currentAnimation = null;
+    this.playbackSpeed = 1.0;
 
-    this.stateMachine = null;
-
-    this.initialize();
+    this.previewCanvas = document.createElement('canvas');
+    this.previewCanvas.width = 128;
+    this.previewCanvas.height = 128;
+    this.previewCtx = this.previewCanvas.getContext('2d');
+    this.previewCtx.imageSmoothingEnabled = false;
   }
 
-  initialize() {
-    // Load sprite sheet
-    this.spriteSheet = this.loadSpriteSheet(
-      this.blueprint.spriteSheet
-    );
+  tickPreview(timestamp) {
+    if (!this.isPlaying) return;
+    const dt = (timestamp - this.lastTime) / 1000;
+    this.lastTime = timestamp;
+    this.frameTimer += dt * this.playbackSpeed;
 
-    // Initialize variables (SAME AS 3D!)
-    this.blueprint.variables.forEach(v => {
-      this.variables[v.name] = v.default;
-    });
-
-    // Setup state machine (SAME ARCHITECTURE AS 3D!)
-    this.stateMachine = this.blueprint.animationGraph.stateMachines[0];
-    this.currentState = this.stateMachine.entryState;
-  }
-
-  update(deltaTime, owner) {
-    // Execute Event Graph (SAME AS 3D!)
-    this.executeEventGraph(owner);
-
-    // Evaluate State Machine (SAME AS 3D!)
-    this.evaluateStateMachine();
-
-    // Update current animation frame
-    this.updateFrame(deltaTime);
-  }
-
-  executeEventGraph(owner) {
-    // Get speed from owner
-    if (owner?.rigidBody2D) {
-      const vel = owner.rigidBody2D.velocity;
-      this.variables.speed = Math.abs(vel.x);
-      this.variables.isGrounded = owner.rigidBody2D.isGrounded;
-      this.variables.isJumping = owner.rigidBody2D.velocity.y > 0 && !owner.rigidBody2D.isGrounded;
-      this.variables.isFalling = owner.rigidBody2D.velocity.y < -10 && !owner.rigidBody2D.isGrounded;
-    }
-  }
-
-  evaluateStateMachine() {
-    // EXACT SAME LOGIC AS 3D STATE MACHINE!
-    const sm = this.stateMachine;
-
-    for (const transition of sm.transitions) {
-      if (transition.from === this.currentState || transition.from === '*') {
-        if (this.evaluateCondition(transition.condition)) {
-          if (transition.to !== this.currentState) {
-            this.transitionToState(transition.to);
-            break;
-          }
-        }
+    const frameDuration = 1.0 / this.activeAnimation.fps;
+    while (this.frameTimer >= frameDuration) {
+      this.frameTimer -= frameDuration;
+      this.currentFrame++;
+      if (this.currentFrame >= this.activeAnimation.frames.length) {
+        this.currentFrame = this.activeAnimation.loop ? 0 : this.activeAnimation.frames.length - 1;
+        if (!this.activeAnimation.loop) { this.stopPreview(); return; }
       }
     }
+
+    this.renderPreviewFrame();
+    requestAnimationFrame(t => this.tickPreview(t));
   }
 
-  evaluateCondition(condition) {
-    // SAME CONDITION EVALUATION AS 3D!
-    const vars = this.variables;
-    try {
-      return new Function(...Object.keys(vars),
-        `return ${condition}`
-      )(...Object.values(vars));
-    } catch (e) {
-      return false;
-    }
-  }
+  renderPreviewFrame() {
+    const frameId = this.activeAnimation.frames[this.currentFrame];
+    const sprite = this.activeSpriteSheet.sprites.find(s => s.spriteId === frameId);
+    if (!sprite) return;
 
-  transitionToState(newStateId) {
-    this.currentState = newStateId;
+    const ctx = this.previewCtx;
+    ctx.clearRect(0, 0, 128, 128);
+    this.drawCheckerboard(ctx, 128, 128);
 
-    const state = this.stateMachine.states.find(
-      s => s.stateId === newStateId
+    const scale = Math.min(128 / sprite.width, 128 / sprite.height);
+    const dw = sprite.width * scale;
+    const dh = sprite.height * scale;
+    ctx.drawImage(
+      this.activeSpriteSheet.image,
+      sprite.x, sprite.y, sprite.width, sprite.height,
+      (128 - dw) / 2, (128 - dh) / 2, dw, dh
     );
+  }
+}
 
-    if (state) {
-      // Find animation in sprite sheet
-      this.currentAnimation = this.spriteSheet.animations.find(
-        a => a.animId === state.animation2D
-      );
+4. Animation Blueprint — 2D Extension
+The existing Animation Blueprint system is reused exactly. The only difference: states reference animation2D (a sprite animation ID from a sprite sheet) instead of a skeletal clip.
+Blendspaces Work the Same
+Existing blendspace nodes work identically in 2D. Instead of blending between skeletal poses, they cross-fade between sprite animations or select which animation to play based on a 1D/2D parameter (e.g. speed, direction). The variable system, condition evaluator, and transition graph are unchanged.
+Animation Blueprint 2D State Node
+json{
+  "stateId": "state-run",
+  "stateName": "Run",
+  "animation2D": "anim-run",
+  "spriteSheet": "ss-player-001",
+  "speed": 1.0,
+  "loop": true
+}
+2D → 3D Compatibility
+
+In a 3D scene: Animation Blueprint states reference skeletal animation clips → existing system
+In a 2D scene: Animation Blueprint states reference sprite animation IDs → SpriteAnimator drives UV offsets on the sprite mesh
+
+The graph editor, variable panel, condition editor, and blendspace canvas are the same UI in both modes. The runtime executor checks sceneMode to decide whether to drive a skeletal mesh or a sprite UV.
+SpriteAnimator Runtime
+javascriptclass SpriteAnimator {
+  constructor(actor, animBlueprintId) {
+    this.actor = actor;
+    this.blueprint = assetManager.get(animBlueprintId);
+    this.spriteSheet = assetManager.get(this.blueprint.spriteSheet);
+    this.spriteRenderer = actor.getComponent('SpriteRenderer');
+    this.variables = {};
+    this.currentStateId = null;
+    this.currentAnim = null;
+    this.currentFrame = 0;
+    this.frameTimer = 0;
+    this._init();
+  }
+
+  update(deltaTime) {
+    this._syncAutoVariables();   // speed, isGrounded, velocityX, velocityY
+    this._evaluateTransitions(); // same logic as 3D — reads condition strings
+    this._advanceFrame(deltaTime);
+  }
+
+  _syncAutoVariables() {
+    const rb = this.actor.getComponent('RigidBody2D');
+    if (!rb?.rigidBody) return;
+    const vel = rb.rigidBody.linvel();
+    this.variables.speed = Math.abs(vel.x);
+    this.variables.velocityX = vel.x;
+    this.variables.velocityY = vel.y;
+    this.variables.isGrounded = rb.isGrounded;
+    this.variables.isJumping = vel.y > 50 && !rb.isGrounded;
+    this.variables.isFalling = vel.y < -50 && !rb.isGrounded;
+  }
+
+  _applyFrame() {
+    const frameId = this.currentAnim.frames[this.currentFrame];
+    const sprite = this.spriteSheet.sprites.find(s => s.spriteId === frameId);
+    if (sprite) this.spriteRenderer.setSprite(sprite, this.spriteSheet.texture);
+  }
+
+  _checkEvents(frameIndex) {
+    (this.currentAnim.events || [])
+      .filter(e => e.frame === frameIndex)
+      .forEach(e => this.actor.emit('animEvent_' + e.name));
+  }
+
+  setVariable(name, value) { this.variables[name] = value; }
+  play(animName) {
+    const anim = this.spriteSheet.animations.find(a => a.animName === animName);
+    if (anim && anim.animId !== this.currentAnim?.animId) {
+      this.currentAnim = anim;
       this.currentFrame = 0;
       this.frameTimer = 0;
     }
   }
+}
+```
 
-  updateFrame(deltaTime) {
-    if (!this.currentAnimation) return;
+---
 
-    const fps = this.currentAnimation.fps;
-    this.frameTimer += deltaTime;
+## 5. Tilemap Editor
 
-    if (this.frameTimer >= 1.0 / fps) {
-      this.frameTimer -= 1.0 / fps;
+A dockable panel that activates when a Tilemap actor is selected. Full real-time painting with collision generation.
 
-      if (this.currentAnimation.loop) {
-        this.currentFrame = (this.currentFrame + 1) %
-          this.currentAnimation.frames.length;
-      } else {
-        this.currentFrame = Math.min(
-          this.currentFrame + 1,
-          this.currentAnimation.frames.length - 1
-        );
-      }
+### Tile Editor Panel
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  [grid] TILE EDITOR                                [collapse ▾]  [⚙]   │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TARGET TILEMAP  [Level1_Tilemap ▾]                           [+ New]  │
+│  LAYER           [Ground          ▾]                 [+ Layer] [trash] │
+│  TILESET         [Forest_Tileset  ▾]                        [+ Import] │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TOOLS                                                                  │
+│  [brush] Paint  [eraser] Erase  [fill] Fill  [select] Select           │
+│  [rect]  Rect   [line]   Line   [eye]  Pick  [move]   Move Layer       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TILE PALETTE                               [zoom: 1× ▾]               │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │  [■][■][■][■][■][■][■][■]  ← tileset rows                        │ │
+│  │  [■][■][■][■][■][■][■][■]  selected tile: blue highlight          │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│  Selected: grass-top   Tags: ground, walkable   Collision: top          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  BRUSH OPTIONS                                                           │
+│  Brush Size [1]×[1]   Rotation [0° ▾]   Flip X [ ]   Flip Y [ ]       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  LAYERS                                                                  │
+│  👁 🔒  Background    Z:0                                              │
+│  👁 🔒  Ground        Z:10  [🔲 collision]   ← active (highlighted)   │
+│  👁 🔒  Decoration    Z:15                                             │
+│  👁 🔒  Foreground    Z:70                                             │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-      this.applyFrame();
-    }
+**Target Tilemap dropdown** lists all `TilemapActor` instances in the current scene. Switching it loads that tilemap's layers and tileset into the editor instantly — no page refresh.
+
+### Tileset Importer Dialog
+
+Triggered automatically when importing a `.png` as a tileset:
+```
+┌──────────────────────────────────────────────────────┐
+│  Import as Tileset — forest-tileset.png              │
+├──────────────────────────────────────────────────────┤
+│  Tile Width  [64] px    Tile Height  [64] px         │
+│  Offset X    [0 ] px    Offset Y     [0 ] px         │
+│  Padding X   [0 ] px    Padding Y    [0 ] px         │
+│  Filter Mode [Point ▾]                               │
+│  Default Collision [Full ▾]  (None/Full/Top/Platform)│
+│  Preview: 32 tiles detected (8 cols × 4 rows)        │
+│                          [Cancel]  [Import Tileset]  │
+└──────────────────────────────────────────────────────┘
+Paint Tools (Real-Time)
+javascriptclass TilePaintTool {
+  paint(cell) {
+    const stamp = this.editor.palette.selected;  // multi-tile stamp
+    const layer = this.editor.activeLayer;
+
+    stamp.forEach(({ x: sx, y: sy }) => {
+      const tx = cell.x + sx - stamp[0].x;
+      const ty = cell.y + sy - stamp[0].y;
+      const tileId = this.editor.activeTileset.getTileId(sx, sy);
+      const key = `${tx},${ty}`;
+      this.undoBatch.push({ key, prev: layer.tiles[key], next: tileId });
+      layer.tiles[key] = tileId;
+    });
+
+    // Rebuild Three.js mesh for affected cells only (not full layer)
+    this.editor.activeTilemap.rebuildCells(layer, stamp.map((_, i) => ({
+      x: cell.x + stamp[i].x - stamp[0].x,
+      y: cell.y + stamp[i].y - stamp[0].y,
+    })));
+
+    // Rebuild collision — debounced 200ms
+    this.editor.scheduleCollisionRebuild(layer);
   }
 
-  applyFrame() {
-    if (!this.currentAnimation || !this.spriteSheet) return;
+  fill(startCell) {
+    // BFS flood fill — only replaces matching tile ID
+    const layer = this.editor.activeLayer;
+    const targetId = layer.tiles[`${startCell.x},${startCell.y}`] ?? null;
+    const fillId = this.editor.palette.selected[0];
+    if (targetId === fillId) return;
 
-    const frameId = this.currentAnimation.frames[this.currentFrame];
-    const sprite = this.spriteSheet.sprites.find(s => s.spriteId === frameId);
-
-    if (sprite) {
-      // Update UV coordinates on the sprite mesh
-      const texW = this.spriteSheet.textureWidth;
-      const texH = this.spriteSheet.textureHeight;
-
-      const u = sprite.x / texW;
-      const v = 1 - (sprite.y + sprite.height) / texH;
-      const uw = sprite.width / texW;
-      const uh = sprite.height / texH;
-
-      this.spriteRenderer.setUVRect(u, v, uw, uh);
+    const queue = [startCell];
+    const visited = new Set();
+    while (queue.length > 0) {
+      const { x, y } = queue.shift();
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      if ((layer.tiles[key] ?? null) !== targetId) continue;
+      this.undoBatch.push({ key, prev: layer.tiles[key], next: fillId });
+      layer.tiles[key] = fillId;
+      queue.push({ x: x+1, y }, { x: x-1, y }, { x, y: y+1 }, { x, y: y-1 });
     }
+
+    this.editor.activeTilemap.rebuildLayer(layer);
+    this.editor.scheduleCollisionRebuild(layer);
+  }
+}
+Auto-Collision Generation
+Merges adjacent solid tiles into as few Rapier2D static bodies as possible (greedy rectangle merge), then rebuilds on every paint operation (debounced 200ms):
+javascriptclass TilemapCollisionBuilder {
+  rebuild(layer, physics2DWorld, tileset) {
+    physics2DWorld.removeLayerBodies(layer.layerId);
+    if (!layer.hasCollision) return;
+
+    const merged = this.mergeRects(layer.tiles, tileset);
+    merged.forEach(rect => {
+      const w = rect.cols * (tileset.tileWidth / pixelsPerUnit);
+      const h = rect.rows * (tileset.tileHeight / pixelsPerUnit);
+      const cx = rect.x * (tileset.tileWidth / pixelsPerUnit) + w / 2;
+      const cy = rect.y * (tileset.tileHeight / pixelsPerUnit) + h / 2;
+      physics2DWorld.addStaticBox(layer.layerId, cx, cy, w, h);
+    });
+  }
+}
+```
+
+---
+
+## 6. Character Pad 2D
+
+A dedicated panel for configuring all properties of a `Character2D` actor in one place. All fields update the live actor immediately during Play mode.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  [person] CHARACTER PAD                  [Target: Player2D ▾]         │
+├────────────────────────────────────────────────────────────────────────┤
+│  MOVEMENT                                                               │
+│  Move Speed      [300.0]  px/s        Run Speed      [600.0]  px/s   │
+│  Acceleration    [2000.0]              Deceleration   [2000.0]         │
+│  Air Control     [0.8]  (0–1)                                          │
+│                                                                         │
+│  JUMPING                                                                │
+│  Jump Force      [600.0]  px/s        Max Jumps      [2]               │
+│  Coyote Time     [0.10]  s            Jump Buffer    [0.10]  s         │
+│  Max Fall Speed  [-1200.0] px/s       Jump Cut       [✓]               │
+│                                                                         │
+│  PHYSICS                                                                │
+│  Gravity Scale   [1.0]                Linear Drag    [0.0]             │
+│  Freeze Rotation [✓]                                                   │
+│                                                                         │
+│  COLLIDER                                                               │
+│  Shape    [Capsule ▾]  (Box / Capsule / Circle)                        │
+│  Width    [0.8] units    Height   [1.8] units                          │
+│  Offset X [0.0]          Offset Y [0.0]                                │
+│                                                                         │
+│  ANIMATION LINKS                                                        │
+│  Anim Blueprint  [ABP_Player2D  ] [browse]                             │
+│  Idle Anim       [Idle          ] [browse]                             │
+│  Run Anim        [Run           ] [browse]                             │
+│  Jump Anim       [Jump          ] [browse]                             │
+│  Fall Anim       [Fall          ] [browse]                             │
+│  Attack Anim     [Attack        ] [browse]                             │
+│  Die Anim        [Die           ] [browse]                             │
+│                                                                         │
+│  INPUT BINDINGS                                                         │
+│  Move Left   [A / Arrow Left ]    Move Right [D / Arrow Right]         │
+│  Jump        [Space / W / Up ]    Attack     [J / Left Click  ]        │
+│  Crouch      [S / Down Arrow ]    Dash       [Shift           ]        │
+│                                                                         │
+│                               [Reset to Defaults]                      │
+└────────────────────────────────────────────────────────────────────────┘
+javascriptclass CharacterPad {
+  loadActor(actor) {
+    if (actor?.actorType !== 'Character2D') {
+      this.showPlaceholder('Select a Character2D actor');
+      return;
+    }
+    this.targetActor = actor;
+    this.syncFromActor();
+  }
+
+  bindInput(inputKey, componentName, propName, parser = parseFloat) {
+    const input = this.inputs[inputKey];
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const comp = this.targetActor?.getComponent(componentName);
+      if (!comp) return;
+      const value = parser(input.value);
+      if (isNaN(value)) return;
+      comp.properties[propName] = value;
+      // Apply immediately to live Rapier body if playing
+      if (engineState.isPlaying) comp.applyToRapierBody?.();
+    });
+  }
+}
+CharacterMovement2D Component
+javascriptclass CharacterMovement2D {
+  update(deltaTime) {
+    const rb = this.actor.getComponent('RigidBody2D');
+    if (!rb) return;
+
+    this.isGrounded = rb.isGrounded;
+    if (this.wasGrounded && !this.isGrounded) this.coyoteTimer = this.properties.coyoteTime;
+    if (this.coyoteTimer > 0) this.coyoteTimer -= deltaTime;
+    if (this.jumpBufferTimer > 0) {
+      this.jumpBufferTimer -= deltaTime;
+      if (this.isGrounded || this.coyoteTimer > 0) this._doJump(rb);
+    }
+    if (this.isGrounded && !this.wasGrounded) this.jumpsRemaining = this.properties.maxJumps;
+
+    const vel = rb.rigidBody.linvel();
+    if (vel.y < this.properties.maxFallSpeed)
+      rb.rigidBody.setLinvel({ x: vel.x, y: this.properties.maxFallSpeed }, true);
+
+    this.wasGrounded = this.isGrounded;
+  }
+
+  moveHorizontal(direction, deltaTime, isRunning = false) {
+    const rb = this.actor.getComponent('RigidBody2D');
+    const targetSpeed = direction * (isRunning ? this.properties.runSpeed : this.properties.moveSpeed);
+    const accel = this.properties.acceleration * (this.isGrounded ? 1.0 : this.properties.airControl);
+    const vel = rb.rigidBody.linvel();
+    rb.rigidBody.setLinvel({
+      x: THREE.MathUtils.lerp(vel.x, targetSpeed, Math.min(1, accel * deltaTime / Math.max(1, Math.abs(targetSpeed)))),
+      y: vel.y
+    }, true);
+
+    // Auto-flip sprite
+    if (Math.abs(direction) > 0.01)
+      this.actor.getComponent('SpriteRenderer')?.setFlipX(direction < 0);
+  }
+
+  jump() {
+    const rb = this.actor.getComponent('RigidBody2D');
+    if (this.jumpsRemaining > 0 || this.coyoteTimer > 0) this._doJump(rb);
+    else this.jumpBufferTimer = this.properties.jumpBufferTime;
+  }
+
+  stopJump() {
+    if (!this.properties.jumpCut) return;
+    const rb = this.actor.getComponent('RigidBody2D');
+    const vel = rb?.rigidBody.linvel();
+    if (vel?.y > 0) rb.rigidBody.setLinvel({ x: vel.x, y: vel.y * 0.4 }, true);
+  }
+
+  _doJump(rb) {
+    const vel = rb.rigidBody.linvel();
+    rb.rigidBody.setLinvel({ x: vel.x, y: this.properties.jumpForce }, true);
+    this.jumpsRemaining = Math.max(0, this.jumpsRemaining - 1);
+    this.coyoteTimer = 0;
+    this.jumpBufferTimer = 0;
   }
 }
 
-2D Physics System
-2D Physics World:
-javascriptclass Physics2DWorld {
-  constructor(settings = {}) {
-    this.gravity = settings.gravity || { x: 0, y: -980 };
-    this.bodies = [];
-    this.colliders = [];
-    this.contacts = [];
+7. 2D Actor System
+SpriteActor Base Class
+All 2D actors extend this instead of the 3D Actor base:
+javascriptclass SpriteActor extends Actor {
+  constructor(properties = {}) {
+    super(properties);
+    this.sceneMode = '2D';
+    this.group = new THREE.Group();
+    this.transform2D = {
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      scale: { x: 1, y: 1 },
+      sortingLayer: 'Default',
+      orderInLayer: 0,
+    };
+  }
 
+  setPosition(x, y) {
+    this.transform2D.position = { x, y };
+    this.group.position.set(x, y, this._getSortingZ());
+    if (engineState.isPlaying) this.getComponent('RigidBody2D')?.syncToRapier();
+  }
+
+  _getSortingZ() {
+    return (sortingLayers.getZ(this.transform2D.sortingLayer) ?? 20)
+      + this.transform2D.orderInLayer * 0.001;
+  }
+}
+```
+
+### Built-In 2D Actor Types
+```
+ADD ACTOR (2D Scene)
+├── Sprites
+│   ├── Sprite Actor          — SpriteRenderer only
+│   ├── Animated Sprite       — SpriteRenderer + SpriteAnimator
+│   ├── Character 2D          — SpriteRenderer + SpriteAnimator +
+│   │                           CapsuleCollider2D + RigidBody2D + CharacterMovement2D
+│   └── Static Sprite         — SpriteRenderer, no physics (background decor)
+├── Tilemaps
+│   ├── Tilemap               — empty, no collision
+│   └── Tilemap with Collision — tilemap + auto-collision on Ground layer
+├── Physics Bodies
+│   ├── Static Body 2D        — fixed BoxCollider2D (platforms, walls)
+│   ├── Rigid Body 2D         — dynamic BoxCollider2D + RigidBody2D
+│   └── Trigger Zone 2D       — BoxCollider2D (isTrigger = true)
+├── Camera
+│   └── Camera 2D             — Orthographic camera actor with follow, bounds
+├── Lights
+│   ├── Ambient Light 2D      — global flat illumination
+│   └── Point Light 2D        — circular local light (shader-based)
+└── Miscellaneous
+    ├── Player Start 2D       — spawn point marker
+    ├── Parallax Layer        — scrolling background with UV offset
+    └── Spawn Point 2D        — generic spawn point with tag
+Widget System — Unchanged
+The existing Widget Blueprint system works in 2D scenes without modification. Widgets render on top of the scene via an HTML overlay or a Three.js orthographic UI camera (same as 3D). No widget code needs to change.
+
+8. 2D Physics — Rapier2D
+Use @dimforge/rapier2d-compat — a separate import from the 3D version. The two worlds are never active simultaneously.
+javascriptimport RAPIER from '@dimforge/rapier2d-compat';
+
+class Physics2DWorld {
+  async init(settings = {}) {
+    await RAPIER.init();
+    this.world = new RAPIER.World(
+      new RAPIER.Vector2(settings.gravity?.x ?? 0, settings.gravity?.y ?? -980)
+    );
     this.pixelsPerUnit = settings.pixelsPerUnit || 100;
-  }
-
-  addBody(rigidBody2D) {
-    this.bodies.push(rigidBody2D);
-  }
-
-  addCollider(collider2D) {
-    this.colliders.push(collider2D);
+    this.bodyMap = new Map();
+    this.eventQueue = new RAPIER.EventQueue(true);
+    this.accumulator = 0;
+    this.fixedStep = 1 / 60;
   }
 
   step(deltaTime) {
-    // Fixed timestep for stable physics
-    const fixedDT = Math.min(deltaTime, 0.033);
-
-    // Update all dynamic bodies
-    this.bodies.forEach(body => {
-      if (body.properties.bodyType === 'Dynamic') {
-        body.update(fixedDT, this.gravity.y);
-      }
-    });
-
-    // Collision detection and resolution
-    this.detectAndResolveCollisions();
-
-    // Clear grounded flags
-    this.bodies.forEach(body => {
-      body.isGrounded = false;
-      body.isTouching.left = false;
-      body.isTouching.right = false;
-      body.isTouching.top = false;
-      body.isTouching.bottom = false;
-    });
-
-    // Update grounded from contacts
-    this.contacts.forEach(contact => {
-      this.resolveContact(contact);
-    });
-  }
-
-  detectAndResolveCollisions() {
-    this.contacts = [];
-
-    for (let i = 0; i < this.colliders.length; i++) {
-      for (let j = i + 1; j < this.colliders.length; j++) {
-        const a = this.colliders[i];
-        const b = this.colliders[j];
-
-        if (a.intersects(b)) {
-          const overlap = a.getOverlap(b);
-          this.contacts.push({ a, b, overlap });
-
-          // Fire overlap events if trigger
-          if (a.properties.isTrigger || b.properties.isTrigger) {
-            this.fireOverlapEvent(a, b);
-          } else {
-            this.resolvePhysicsCollision(a, b, overlap);
-          }
-        }
-      }
+    this.accumulator += Math.min(deltaTime, 0.1);
+    let steps = 0;
+    while (this.accumulator >= this.fixedStep && steps < 8) {
+      this.world.step(this.eventQueue);
+      this.accumulator -= this.fixedStep;
+      steps++;
     }
+    this.syncToThreeJS();
+    this.processEvents();
   }
 
-  resolvePhysicsCollision(a, b, overlap) {
-    const bodyA = a.actor.getRigidBody2D();
-    const bodyB = b.actor.getRigidBody2D();
-
-    if (!bodyA && !bodyB) return;
-
-    // Find minimum overlap axis
-    if (Math.abs(overlap.x) < Math.abs(overlap.y)) {
-      // Horizontal collision
-      const dir = a.getBounds().centerX < b.getBounds().centerX ? -1 : 1;
-
-      if (bodyA && bodyA.properties.bodyType === 'Dynamic') {
-        a.actor.group.position.x += overlap.x * dir * 0.5;
-        bodyA.velocity.x = 0;
-        bodyA.isTouching.left = dir > 0;
-        bodyA.isTouching.right = dir < 0;
-      }
-      if (bodyB && bodyB.properties.bodyType === 'Dynamic') {
-        b.actor.group.position.x -= overlap.x * dir * 0.5;
-        bodyB.velocity.x = 0;
-        bodyB.isTouching.left = dir < 0;
-        bodyB.isTouching.right = dir > 0;
-      }
-
-    } else {
-      // Vertical collision
-      const dir = a.getBounds().centerY < b.getBounds().centerY ? -1 : 1;
-
-      if (bodyA && bodyA.properties.bodyType === 'Dynamic') {
-        a.actor.group.position.y += overlap.y * dir * 0.5;
-
-        if (dir > 0) {
-          // Landing on top
-          bodyA.velocity.y = Math.max(0, bodyA.velocity.y);
-          bodyA.isGrounded = true;
-          bodyA.isTouching.bottom = true;
-        } else {
-          bodyA.velocity.y = Math.min(0, bodyA.velocity.y);
-          bodyA.isTouching.top = true;
-        }
-      }
-
-      if (bodyB && bodyB.properties.bodyType === 'Dynamic') {
-        b.actor.group.position.y -= overlap.y * dir * 0.5;
-
-        if (dir < 0) {
-          bodyB.velocity.y = Math.max(0, bodyB.velocity.y);
-          bodyB.isGrounded = true;
-          bodyB.isTouching.bottom = true;
-        } else {
-          bodyB.velocity.y = Math.min(0, bodyB.velocity.y);
-          bodyB.isTouching.top = true;
-        }
-      }
-    }
+  syncToThreeJS() {
+    this.bodyMap.forEach(({ rigidBody, actor }) => {
+      if (!rigidBody.isDynamic() && !rigidBody.isKinematic()) return;
+      const pos = rigidBody.translation();
+      actor.group.position.x = pos.x;
+      actor.group.position.y = pos.y;
+      actor.group.rotation.z = rigidBody.rotation();
+    });
   }
 
-  fireOverlapEvent(a, b) {
-    a.actor.emit('onBeginOverlap', { other: b.actor });
-    b.actor.emit('onBeginOverlap', { other: a.actor });
+  cleanup() {
+    this.world.free();
+    this.bodyMap.clear();
   }
 }
 
-Tilemap System
-Tilemap Asset:
+9. 2D Blueprint Nodes
+All nodes execute against live Rapier2D data during Play. They appear under category 2D in the node search menu. All existing nodes (Branch, Sequence, Math, Cast, Print, etc.) work unchanged.
+Movement Nodes
+NodeInputsOutputsAdd Movement Input 2DExec, Direction vec2, Scale floatExecJump 2DExec, TargetExecStop Jump 2DExec, TargetExecLaunch Character 2DExec, Velocity vec2, Override X bool, Override Y boolExecSet Max Walk SpeedExec, Target, Speed floatExecIs GroundedTargetboolIs JumpingTargetboolIs FallingTargetboolGet Velocity 2DTargetvec2Set Velocity 2DExec, Target, Velocity vec2ExecAdd Impulse 2DExec, Target, Impulse vec2ExecAdd Force 2DExec, Target, Force vec2ExecSet Gravity ScaleExec, Target, Scale floatExecStop MovementExec, TargetExec
+Animation 2D Nodes
+NodeInputsOutputsPlay Animation 2DExec, Target, Animation NameExecStop Animation 2DExec, TargetExecSet Playback SpeedExec, Target, Speed floatExecSet Anim Variable BoolExec, Target, Name, ValueExecSet Anim Variable FloatExec, Target, Name, ValueExecOn Animation EventTarget, Event NameExec (fires on frame event)On Animation FinishedTarget, Animation NameExecIs Animation PlayingTarget, Namebool
+Physics 2D Nodes
+NodeInputsOutputsLine Trace 2DExec, Start vec2, End vec2, Draw Debug boolbool, Hit Result 2DBox Overlap 2DExec, Center vec2, Half Size vec2Actor ArrayCircle Overlap 2DExec, Center vec2, Radius floatActor ArrayBreak Hit Result 2DHit Result 2DLocation, Normal, Hit Actor, DistanceSet Simulate Physics 2DExec, Target, boolExec
+Camera 2D Nodes
+NodeInputsOutputsSet Camera Follow TargetExec, Camera, Target, Smoothing floatExecClear Camera FollowExec, CameraExecSet Camera PositionExec, Camera, Position vec2ExecSet Camera ZoomExec, Camera, Zoom floatExecCamera Shake 2DExec, Camera, Intensity float, Duration floatExecSet Camera BoundsExec, Camera, Min vec2, Max vec2ExecScreen to World 2DScreen Position vec2World Position vec2
+Tilemap Nodes
+NodeInputsOutputsGet Tile at LocationTilemap ref, World Location vec2Tile IDSet Tile at LocationExec, Tilemap ref, World Location vec2, Tile IDExecClear Tile at LocationExec, Tilemap ref, World Location vec2ExecHas Tile at LocationTilemap ref, World Location vec2bool
+Node Implementation Pattern
+javascriptnodeExecutors['LineTrace2D'] = function(node, context) {
+  const start = context.getPinValue(node, 'Start');
+  const end   = context.getPinValue(node, 'End');
+  const debug = context.getPinValue(node, 'DrawDebug');
+
+  const dir = { x: end.x - start.x, y: end.y - start.y };
+  const len = Math.sqrt(dir.x*dir.x + dir.y*dir.y);
+  const norm = { x: dir.x/len, y: dir.y/len };
+
+  const result = physics2DWorld.raycast2D(start.x, start.y, norm.x, norm.y, len);
+
+  if (debug) {
+    debugDraw2D.drawLine(start, result.hit ? result.point : end,
+      result.hit ? '#22c55e' : '#ef4444', 0.1);
+    if (result.hit) debugDraw2D.drawCircle(result.point, 0.05, '#22c55e', 0.1);
+  }
+
+  context.setPinValue(node, 'ReturnValue', result.hit);
+  context.setPinValue(node, 'OutHit', result);
+  context.fireExec(node, result.hit ? 'Hit' : 'NoHit');
+};
+```
+
+---
+
+## 10. Sorting Layers Panel
+```
+┌──────────────────────────────────────────────────────────────┐
+│  [layers] SORTING LAYERS                         [+ Add]     │
+├──────────────────────────────────────────────────────────────┤
+│  ⠿  Background    Z: 0    [👁] [🔒] [rename] [trash]       │
+│  ⠿  Ground        Z: 10   [👁] [🔒] [rename] [trash]       │
+│  ⠿  Default       Z: 20   [👁] [🔒] [rename] [trash]       │
+│  ⠿  Characters    Z: 30   [👁] [🔒] [rename] [trash]       │
+│  ⠿  Projectiles   Z: 40   [👁] [🔒] [rename] [trash]       │
+│  ⠿  Effects       Z: 50   [👁] [🔒] [rename] [trash]       │
+│  ⠿  UI            Z: 90   [👁] [🔒] [rename] [trash]       │
+│  ⠿  Overlay       Z: 100  [👁] [🔒] [rename] [trash]       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Drag ⠿ to reorder — Z values auto-redistribute. 👁 hides/shows all actors on the layer in the viewport. 🔒 prevents selection or editing of actors on that layer.
+
+---
+
+## 11. Camera 2D Actor Properties
+```
+CAMERA 2D
+────────────────────────────────────────────────────────────
+Zoom                [1.0  ]
+Pixels Per Unit     [100  ]
+────────────────────────────────────────────────────────────
+FOLLOW
+Follow Target       [None ▾]
+Follow Smoothing    [0.1  ]
+Dead Zone X         [0.1  ]   fraction of screen width
+Dead Zone Y         [0.1  ]   fraction of screen height
+Look Ahead X        [0.5  ]   units ahead in direction of travel
+────────────────────────────────────────────────────────────
+BOUNDS
+Constrain to Bounds [ ]
+Min X  [-100.0]    Max X  [100.0]
+Min Y  [ -50.0]    Max Y  [ 50.0]
+────────────────────────────────────────────────────────────
+EFFECTS
+Shake Intensity  [0.0]   (settable via Blueprint at runtime)
+Shake Duration   [0.0]
+```
+
+---
+
+## 12. Content Browser — 2D Assets
+
+### New Asset Types
+
+| Asset | Create Via | Description |
+|---|---|---|
+| Sprite Sheet | Right-click → 2D → Sprite Sheet | PNG + animation definitions |
+| Tileset | Right-click → 2D → Tileset | PNG sliced into tiles with collision data |
+| Tilemap | Right-click → 2D → Tilemap | Grid of placed tiles with layers |
+| Anim Blueprint 2D | Right-click → 2D → Anim Blueprint 2D | State machine referencing sprite anims |
+| Physics Material 2D | Right-click → 2D → Physics Material | Friction/restitution presets |
+
+### Import Flow
+
+When importing a `.png` in a 2D scene:
+```
+┌──────────────────────────────────────────────────┐
+│  Import Image — player-sheet.png                 │
+├──────────────────────────────────────────────────┤
+│  ○ Texture (3D — MeshBasicMaterial)              │
+│  ○ Sprite  (2D — single sprite)                  │
+│  ● Sprite Sheet (2D — multiple sprites)          │
+│  ○ Tileset (for tilemap painting)                │
+│  Filter Mode  [Point ▾]                          │
+│                          [Cancel] [Continue →]   │
+└──────────────────────────────────────────────────┘
+Sprite Sheet → opens slice dialog automatically.
+Tileset → opens tileset importer dialog.
+
+13. Project Save/Load — 2D Extension
+The existing JSON save/load reads sceneMode on load to initialise the correct camera and physics world:
 json{
-  "assetId": "tilemap-level1",
-  "assetType": "tilemap",
-  "assetName": "Level1_Tilemap",
-  "tileSize": {"x": 64, "y": 64},
-  "gridSize": {"width": 50, "height": 20},
-  "pixelsPerUnit": 100,
-  "layers": [
-    {
-      "layerId": "layer-bg",
-      "layerName": "Background",
-      "visible": true,
-      "locked": false,
-      "sortingOrder": 0,
-      "opacity": 1.0,
-      "tiles": {}
-    },
-    {
-      "layerId": "layer-collision",
-      "layerName": "Ground",
-      "visible": true,
-      "locked": false,
-      "sortingOrder": 10,
-      "hasCollision": true,
-      "tiles": {
-        "0,0": "tile-grass-top",
-        "1,0": "tile-grass-top",
-        "0,-1": "tile-dirt",
-        "1,-1": "tile-dirt"
-      }
+  "project": { "name": "MyPlatformer", "defaultScene": "scene-2d-001" },
+  "scenes": {
+    "scene-2d-001": {
+      "sceneMode": "2D",
+      "pixelsPerUnit": 100,
+      "sortingLayers": [...],
+      "actors": [...],
+      "tilemaps": [...]
     }
-  ],
-  "tileSets": [
-    {
-      "tileSetId": "ts-forest",
-      "tileSetName": "Forest Tileset",
-      "texture": "forest-tileset.png",
-      "tileWidth": 64,
-      "tileHeight": 64,
-      "tiles": [
-        {
-          "tileId": "tile-grass-top",
-          "x": 0, "y": 0,
-          "collision": "top",
-          "tags": ["ground", "walkable"]
-        },
-        {
-          "tileId": "tile-dirt",
-          "x": 64, "y": 0,
-          "collision": "full",
-          "tags": ["solid"]
-        }
-      ]
-    }
-  ]
-}
-Tilemap Renderer:
-javascriptclass TilemapRenderer {
-  constructor(scene, tilemapData) {
-    this.scene = scene;
-    this.data = tilemapData;
-    this.group = new THREE.Group();
-    this.group.name = tilemapData.assetName;
-
-    this.collisionBodies = [];
-
-    this.build();
-    scene.add(this.group);
-  }
-
-  build() {
-    this.data.layers.forEach(layer => {
-      if (layer.visible) {
-        this.buildLayer(layer);
-      }
-    });
-  }
-
-  buildLayer(layer) {
-    const layerGroup = new THREE.Group();
-    layerGroup.name = layer.layerName;
-
-    const tileSize = this.data.tileSize;
-    const ppu = this.data.pixelsPerUnit;
-    const tileSizeWorld = tileSize.x / ppu;
-
-    Object.entries(layer.tiles).forEach(([coordStr, tileId]) => {
-      const [x, y] = coordStr.split(',').map(Number);
-      const tileData = this.getTileData(tileId);
-
-      if (!tileData) return;
-
-      const sprite = this.createTileSprite(tileData, tileSizeWorld);
-      sprite.position.x = x * tileSizeWorld + tileSizeWorld / 2;
-      sprite.position.y = y * tileSizeWorld + tileSizeWorld / 2;
-      sprite.position.z = layer.sortingOrder * 0.01;
-
-      layerGroup.add(sprite);
-
-      // Generate collision for solid tiles
-      if (layer.hasCollision && tileData.collision) {
-        this.generateTileCollision(x, y, tileData, tileSizeWorld);
-      }
-    });
-
-    this.group.add(layerGroup);
-  }
-
-  createTileSprite(tileData, size) {
-    const geo = new THREE.PlaneGeometry(size, size);
-    const mat = new THREE.MeshBasicMaterial({
-      map: this.getTileTexture(tileData),
-      transparent: true,
-      alphaTest: 0.01
-    });
-    return new THREE.Mesh(geo, mat);
-  }
-
-  generateTileCollision(x, y, tileData, tileSize) {
-    const bounds = {
-      left:   x * tileSize,
-      right:  x * tileSize + tileSize,
-      top:    y * tileSize + tileSize,
-      bottom: y * tileSize,
-      centerX: x * tileSize + tileSize / 2,
-      centerY: y * tileSize + tileSize / 2
-    };
-
-    this.collisionBodies.push({
-      type: 'static',
-      collisionType: tileData.collision,
-      bounds: bounds
-    });
+  },
+  "assets": {
+    "spriteSheets": {},
+    "tilesets": {},
+    "tilemaps": {},
+    "animBP2D": {}
   }
 }
 ```
 
 ---
 
-## 2D Sorting Layers Panel
+## 14. 2D Scene Templates
 
-**Layers Panel:**
+### Platformer Template
 ```
-Sorting Layers (2D Scene)
-┌─────────────────────────────────────────────────────────┐
-│ [+ Add Layer]                                           │
-│                                                         │
-│ ⠿ Background     (Z: 0)    👁️ 🔒                       │
-│ ⠿ BackgroundFX   (Z: 5)    👁️ 🔒                       │
-│ ⠿ Ground         (Z: 10)   👁️ 🔒                       │
-│ ⠿ Default        (Z: 20)   👁️ 🔒                       │
-│ ⠿ Characters     (Z: 30)   👁️ 🔒                       │
-│ ⠿ Projectiles    (Z: 40)   👁️ 🔒                       │
-│ ⠿ Effects        (Z: 50)   👁️ 🔒                       │
-│ ⠿ UI             (Z: 90)   👁️ 🔒                       │
-│ ⠿ Overlay        (Z: 100)  👁️ 🔒                       │
-│                                                         │
-│ (⠿ = drag to reorder)                                  │
-└─────────────────────────────────────────────────────────┘
-
-2D Scene Default Composition
-What Gets Created for 2D Scene (Instead of 3D defaults):
-json{
-  "sceneId": "2d-scene-001",
-  "sceneName": "PlatformerScene",
-  "sceneMode": "2D",
-  "defaultActors": [
-    {
-      "actorId": "2d-camera",
-      "actorName": "Camera2D",
-      "actorType": "Camera2D",
-      "category": "WorldSettings",
-      "properties": {
-        "zoom": 1.0,
-        "pixelsPerUnit": 100,
-        "followTarget": null,
-        "followSmoothing": 0.1,
-        "deadZone": {"x": 0.1, "y": 0.1},
-        "bounds": null
-      }
-    },
-    {
-      "actorId": "2d-background",
-      "actorName": "Background2D",
-      "actorType": "Background2D",
-      "category": "WorldSettings",
-      "properties": {
-        "type": "solidColor",
-        "color": "#1A1A2E",
-        "gradient": null,
-        "texture": null
-      }
-    },
-    {
-      "actorId": "2d-postprocess",
-      "actorName": "PostProcessVolume2D",
-      "actorType": "PostProcessVolume",
-      "category": "WorldSettings",
-      "properties": {
-        "bloom": {"enabled": false},
-        "pixelation": {"enabled": false, "size": 4},
-        "colorGrading": {"enabled": true}
-      }
-    },
-    {
-      "actorId": "2d-physics",
-      "actorName": "PhysicsWorld2D",
-      "actorType": "PhysicsWorld2D",
-      "category": "WorldSettings",
-      "properties": {
-        "gravity": {"x": 0, "y": -980},
-        "pixelsPerUnit": 100,
-        "debugDraw": false
-      }
-    },
-    {
-      "actorId": "2d-player-start",
-      "actorName": "PlayerStart2D",
-      "actorType": "PlayerStart",
-      "category": "WorldSettings",
-      "transform": {
-        "position": {"x": 0, "y": 200, "z": 30}
-      }
-    },
-    {
-      "actorId": "2d-grid",
-      "actorName": "Grid2D",
-      "actorType": "Grid2D",
-      "category": "WorldSettings",
-      "properties": {
-        "cellSize": 64,
-        "color": "#333333",
-        "opacity": 0.3,
-        "snap": false,
-        "snapSize": 64,
-        "visible": true
-      }
-    },
-    {
-      "actorId": "2d-ambient-light",
-      "actorName": "AmbientLight2D",
-      "actorType": "AmbientLight2D",
-      "category": "WorldSettings",
-      "properties": {
-        "color": "#FFFFFF",
-        "intensity": 1.0
-      }
-    }
-  ],
-  "sortingLayers": [
-    {"name": "Background",     "z": 0},
-    {"name": "BackgroundFX",   "z": 5},
-    {"name": "Ground",         "z": 10},
-    {"name": "Default",        "z": 20},
-    {"name": "Characters",     "z": 30},
-    {"name": "Projectiles",    "z": 40},
-    {"name": "Effects",        "z": 50},
-    {"name": "UI",             "z": 90},
-    {"name": "Overlay",        "z": 100}
-  ]
-}
+Scene: NewPlatformer
+├── Camera2D          Follow: Player2D  Smoothing: 0.1
+├── Ground (Tilemap)  Layer: Ground (collision on)  5 tiles pre-painted
+├── Player2D (Character2D)
+│     CapsuleCollider2D: 0.8 × 1.8
+│     RigidBody2D: dynamic, freeze rotation
+│     CharacterMovement2D: defaults
+│     Blueprint: WASD move + Space jump pre-wired
+├── Physics2DWorld    gravity (0, -980)
+├── AmbientLight2D    white, intensity 1.0
+└── PlayerStart2D     position (0, 2)
 ```
 
----
-
-## Systems Reused Exactly from 3D
+### Top Down Template
 ```
-✅ FULLY REUSED (no changes needed):
-├── Blueprint/Node visual programming system
-│   ├── All event nodes (OnBeginPlay, OnTick, etc.)
-│   ├── All flow control (Branch, Sequence, Loop)
-│   ├── All variable nodes (Get/Set)
-│   ├── All math nodes
-│   ├── All string nodes
-│   └── All casting nodes
-│
-├── Animation Graph architecture
-│   ├── State machine (Idle→Walk→Run→Jump)
-│   ├── State transition conditions
-│   ├── Variables (speed, isGrounded, etc.)
-│   ├── Event graph (update animation variables)
-│   └── Same JSON structure (different animation data)
-│
-├── Class inheritance system
-│   ├── Parent/child classes
-│   ├── Override system
-│   └── Propagation
-│
-├── Casting and reference system
-│   ├── Cast to any 2D class
-│   ├── Store typed references
-│   └── Access custom variables/functions
-│
-├── Widget/UI system
-│   ├── All UI works the same in 2D scenes
-│   ├── Canvas, buttons, text, images
-│   └── HUD overlays
-│
-├── Content Browser
-│   ├── All asset types managed same way
-│   └── Sprite sheets added as new asset type
-│
-└── Project save/load system
-    ├── Same JSON serialization
-    └── Scene type flag differentiates 2D/3D
+Scene: NewTopDown
+├── Camera2D          follows player, no bounds
+├── Ground (Tilemap)  no collision needed
+├── Player2D (Character2D)
+│     RigidBody2D: gravity scale 0
+│     CharacterMovement2D: 8-directional
+│     Blueprint: WASD 8-dir move pre-wired
+├── Physics2DWorld    gravity (0, 0)
+└── AmbientLight2D    white, intensity 1.0
 
-✅ ADAPTED (minor changes):
-├── Actor system
-│   ├── 2D transform (no Z rotation/movement)
-│   └── 2D-specific components available
-│
-├── Physics system
-│   ├── 2D physics (X/Y only)
-│   └── Same event system (OnHit, OnOverlap)
-│
-├── Scene composition
-│   ├── 2D defaults (Camera2D, Background2D, etc.)
-│   └── No 3D lights needed (use 2D ambient/point)
-│
-└── Viewport navigation
-    ├── Orthographic camera
-    ├── Pan with middle mouse
-    └── Scroll to zoom (no fly mode)
+15. Implementation Checklist
+Phase 1 — Foundation
 
-The Point (Complete 2D System)
-YES - Fully Possible and Integrated:
-The entire existing engine adapts naturally to 2D because:
+ Scene mode dialog with 2D / 3D toggle
+ sceneMode field drives camera, physics, panel visibility
+ Camera2D class (orthographic, pan, zoom toward cursor)
+ 2D grid overlay in viewport
+ Rapier2D world (separate from Rapier3D — never both active at once)
+ Status bar mode indicator
 
-Three.js supports orthographic cameras perfectly
-Sprites are just flat PlaneGeometry meshes
-Z position = draw order (layers)
-Same blueprint system controls 2D actors
-Same animation graph drives sprite frame animation
-Same physics events (overlap, hit)
-Same class inheritance for 2D character types
-Same widget system for UI
+Phase 2 — Sprite Animation Tool
 
-New 2D-Specific Systems:
+ Sprite Sheet asset (JSON + Three.js texture)
+ Sprite Sheet Editor panel (slice, select, preview)
+ Slice grid dialog
+ Animation list (add / delete / reorder)
+ Frame strip (drag to reorder)
+ Frame event system (named events per frame)
+ Live preview canvas (play / pause / step / speed control)
+ SpriteRenderer component (UV offset per frame, flip X/Y, tint)
+ SpriteAnimator runtime
 
-Orthographic Camera2D with pan/zoom
-SpriteRenderer component
-SpriteSheet asset + editor
-2D Animation Blueprint (reuses graph architecture)
-RigidBody2D + BoxCollider2D
-CharacterMovement2D
-Tilemap system with collision
-Sorting Layers panel
-2D scene defaults
+Phase 3 — Animation Blueprint 2D
 
-Game Types Supported:
+ Animation Blueprint 2D asset type
+ 2D state nodes reference sprite animation IDs (same graph canvas as 3D)
+ Blendspace nodes work in 2D (same logic, drives sprite anim selection)
+ SpriteAnimator auto-variable sync (speed, isGrounded, velocityX, etc.)
+ Frame event → Blueprint exec pin
 
-Platformers (Mario, Hollow Knight style)
-Top-Down (Zelda, Hotline Miami style)
-Puzzle (Braid style)
-Shoot-em-up (vertical/horizontal)
-RPG (top-down 2D)
-Fighting games
+Phase 4 — Tile Editor
+
+ Tile Editor dockable panel
+ Target Tilemap dropdown (lists all TilemapActors in scene)
+ Layer dropdown (lists layers of active tilemap)
+ Tileset dropdown (lists all tileset assets in Content Browser)
+ Tile Palette canvas (click + drag multi-select, zoom)
+ Paint, Erase, Fill, Rectangle, Line, Pick tools (all real-time)
+ Brush size, rotation, flip options
+ Undo/Redo (Ctrl+Z / Ctrl+Y)
+ Auto-collision rebuild on paint (debounced 200ms)
+ Layer visibility toggle and lock
+ Tileset importer dialog (grid slicer)
+ Tileset editor (per-tile collision type, tags)
+
+Phase 5 — Character Systems
+
+ Character2D actor type
+ CharacterMovement2D component (coyote time, jump buffer, jump cut, air control)
+ RigidBody2D component (Rapier2D dynamic body)
+ BoxCollider2D, CapsuleCollider2D, CircleCollider2D
+ Character Pad 2D panel (all movement, physics, collider, anim link, input fields)
+ Character Pad live update (fields apply immediately to Rapier body during Play)
+
+Phase 6 — 2D Blueprint Nodes
+
+ All Movement nodes
+ All Animation 2D nodes
+ All Physics 2D nodes (including Line Trace 2D with debug draw)
+ All Camera 2D nodes
+ All Tilemap nodes
+ Sorting Layer nodes
+
+Phase 7 — Scene Systems
+
+ Sorting Layers panel (drag-reorder, show/hide, lock)
+ Parallax Layer actor (UV offset scroll)
+ Camera 2D actor (follow, dead zone, look ahead, bounds, shake)
+ World Outliner 2D actor icons
+ Physics debug overlay (Rapier2D collider wireframes)
+ Viewport toolbar 2D controls (grid, snap, layers, physics debug)
+
+Phase 8 — Content Browser & Save/Load
+
+ 2D asset type registration
+ Import flow routing (PNG → Texture / Sprite / Sprite Sheet / Tileset)
+ sceneMode field in save/load — auto-initialises correct camera and physics world
+ Widget Blueprints confirmed working in 2D scenes without modification
+
+Phase 9 — Templates & Polish
+
+ Platformer template (pre-wired)
+ Top Down template (pre-wired)
+ Puzzle template
+ Blank 2D template
+ 2D-specific Properties panel sections
+ Right-click context menus for 2D actors in Outliner
+
+
+Performance Rules
+
+Sprite UV update: only set uv.needsUpdate = true — never recreate geometry per frame
+Tilemap rebuild: only rebuild changed cells on paint — not the full layer
+Collision rebuild: debounced 200ms — not per-frame
+Camera follow: use lerp in update() — never hard-set position per frame
+Parallax: update material.map.offset only — no geometry changes
+Physics debug overlay: depthTest: false, rebuild only when colliders change
+
+System Isolation Rules
+
+@dimforge/rapier2d-compat and @dimforge/rapier3d-compat are separate imports
+2D world and 3D world are never active simultaneously
+On scene mode switch: call physics2DWorld.cleanup() or physics3DWorld.cleanup() before init
+All 2D actors live in their own Three.js Group — never mixed with 3D actor groups
+Widget Blueprints, Blueprint graph canvas, and save/load are shared — do not fork them

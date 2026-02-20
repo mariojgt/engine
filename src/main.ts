@@ -547,8 +547,13 @@ async function main() {
     const sceneWasRestored = await projectManager.restorePrePlayScene();
 
     if (sceneWasRestored) {
+      // Full scene reload from disk — clear any stale destroyed-actor backups
+      (engine.scene as any)._runtimeDestroyedGOs = [];
       console.log('[Editor] Pre-play scene restored from disk after runtime scene change');
     } else {
+      // ── Restore actors destroyed at runtime so the scene returns to pre-play state ──
+      engine.scene.restoreRuntimeDestroyedActors();
+
       // ── Remove actors that were spawned at runtime (not in the pre-play set) ──
       const spawnedAtRuntime = engine.scene.gameObjects.filter(go => !prePlayGameObjectIds.has(go.id));
       for (const go of spawnedAtRuntime) {

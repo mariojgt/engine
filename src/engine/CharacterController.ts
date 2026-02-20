@@ -1298,6 +1298,12 @@ export class CharacterController implements Pawn {
     }
     this._keysDown.clear();
 
+    // Null Rapier WASM resource references so they can be GC'd cleanly
+    // (the world.free() call in PhysicsWorld.stop() frees the underlying WASM objects)
+    this.rapierController = null;
+    this.rigidBody = null;
+    this.collider = null;
+
     // Remove debug capsule from scene
     if (this._debugCapsule && this._debugCapsule.parent) {
       this._debugCapsule.parent.remove(this._debugCapsule);

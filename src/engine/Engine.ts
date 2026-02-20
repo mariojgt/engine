@@ -82,6 +82,7 @@ export class Engine {
       buildThreeMaterialFromAsset,
       projectManager: this.projectManager,
       gameInstance: this.gameInstance,
+      engine: this,
     };
   }
 
@@ -100,6 +101,12 @@ export class Engine {
     if (canvas) {
       this.uiManager.init(canvas);
     }
+
+    // ── 0a. Wire runtime references into Scene so spawnActorFromClass / destroyActor work ──
+    this.scene._runtimePhysics = this.physics;
+    this.scene._runtimeUiManager = this.uiManager;
+    this.scene._runtimePrint = (v: any) => this.onPrint(v);
+    this.scene._runtimeEngine = this;
 
     // ── 0b. Apply PlayerStart spawn position to character/spectator pawns ──
     if (this.playerStartTransform) {
@@ -303,6 +310,15 @@ export class Engine {
       this.gameInstance = null;
       console.log('[Engine] Game Instance destroyed');
     }
+
+    // Clear runtime references from Scene
+    this.scene._runtimePhysics = null;
+    this.scene._runtimeUiManager = null;
+    this.scene._runtimePrint = null;
+    this.scene._runtimeEngine = null;
+
+    // Clear update callbacks (may have been registered during play)
+    this._onUpdate = [];
 
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;

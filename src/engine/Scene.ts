@@ -58,6 +58,12 @@ export class Scene {
   public _runtimePrint: ((v: any) => void) | null = null;
   public _runtimeEngine: any = null;
 
+  /**
+   * Actors destroyed at runtime via DestroyActor node.
+   * Stored here so they can be restored when play stops.
+   */
+  private _runtimeDestroyedGOs: GameObject[] = [];
+
   /** Pending mesh load promises — awaited before physics play to avoid race conditions */
   private _pendingMeshLoads: Promise<void>[] = [];
 
@@ -495,6 +501,7 @@ export class Scene {
   /**
    * Runtime "Destroy Actor" — fires OnDestroy on scripts, removes physics bodies,
    * unregisters collision callbacks, removes from Three.js scene & gameObjects array.
+   * The GO is backed up so it can be restored when play stops.
    * Called from blueprint-generated code: `__scene.destroyActor(target)`
    */
   destroyActor(go: GameObject): void {
@@ -537,15 +544,7 @@ export class Scene {
       }
     }
 
-    // Dispose geometry & materials for the mesh and all children
-    go.mesh.traverse((child: any) => {
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (Array.isArray(child.material)) child.material.forEach((m: any) => m.dispose());
-        else child.material.dispose();
-      }
-    });
-
+    // Do NOT dispose geometry/materials — the GO may need to be restored on stop.
     // Remove from Three.js scene & gameObjects array
     this.threeScene.remove(go.mesh);
     this.gameObjects = this.gameObjects.filter((o) => o.id !== go.id);
@@ -553,7 +552,27 @@ export class Scene {
       this.selectObject(null);
     }
 
+    // Backup for restoration when play stops
+    this._runtimeDestroyedGOs.push(go);
+
     console.log(`[Scene] destroyActor: destroyed "${go.name}" (id=${go.id})`);
+    this._emitChanged();
+  }
+
+  /**
+   * Restore all actors that were destroyed at runtime via DestroyActor.
+   * Called when play stops to reset the scene to its pre-play state.
+   */
+  restoreRuntimeDestroyedActors(): void {
+    if (this._runtimeDestroyedGOs.length === 0) return;
+    for (const go of this._runtimeDestroyedGOs) {
+      // Re-add mesh to Three.js scene
+      this.threeScene.add(go.mesh);
+      // Re-add to gameObjects array
+      this.gameObjects.push(go);
+    }
+    console.log(`[Scene] Restored ${this._runtimeDestroyedGOs.length} runtime-destroyed actor(s)`);
+    this._runtimeDestroyedGOs = [];
     this._emitChanged();
   }
 
