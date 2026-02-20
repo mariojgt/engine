@@ -471,8 +471,8 @@ export class AnimBlueprintEditorPanel {
   // ---- Hit testing ----
 
   private _hitTestState(wx: number, wy: number): AnimStateData | null {
-    const nodeW = 150;
-    const nodeH = 40;
+    const nodeW = 160;
+    const nodeH = 44;
     for (const state of this._asset.stateMachine.states) {
       if (wx >= state.posX && wx <= state.posX + nodeW &&
           wy >= state.posY && wy <= state.posY + nodeH) {
@@ -505,22 +505,17 @@ export class AnimBlueprintEditorPanel {
       const bundle = this._getTransitionBundle(sm, t);
       const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
 
-      // Label hit-test
-      const tpos = 0.6;
-      const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
-      const label = this._getTransitionLabel(t);
-      if (label) {
-        const metrics = this._ctx.measureText(label);
-        const lw = Math.min(160, metrics.width + 10);
-        const lh = 14;
-        const lx = p.x - lw / 2;
-        const ly = p.y - 22;
-        if (wx >= lx && wx <= lx + lw && wy >= ly && wy <= ly + lh) {
-          return t;
-        }
+      // Circle icon hit-test (at midpoint of curve)
+      const mpos = 0.5;
+      const mp = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, mpos);
+      const iconR = 13; // slightly larger than visual for easier clicking
+      const dxI = wx - mp.x;
+      const dyI = wy - mp.y;
+      if (dxI * dxI + dyI * dyI < iconR * iconR) {
+        return t;
       }
 
-      // Sample fewer points on the curve (12 instead of 20) with early exit
+      // Sample points on the curve for edge hit-test
       const hitRadius = 12 / Math.max(0.25, this._zoom);
       const hitRadiusSq = hitRadius * hitRadius;
       let hit = false;
@@ -608,10 +603,19 @@ export class AnimBlueprintEditorPanel {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Background grid
-    ctx.fillStyle = '#1a1a2e';
+    // UE-style dark background
+    ctx.fillStyle = '#1b1b1b';
     ctx.fillRect(0, 0, w, h);
     this._drawGrid(ctx, w, h);
+
+    // "ANIMATION" watermark bottom-right
+    ctx.save();
+    ctx.font = 'bold 52px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('ANIMATION', w - 24, h - 16);
+    ctx.restore();
 
     ctx.save();
     ctx.translate(this._panX, this._panY);
@@ -621,6 +625,9 @@ export class AnimBlueprintEditorPanel {
 
     // Ensure transition bundle cache is up-to-date
     this._ensureTransitionBundleCache();
+
+    // Draw Entry node label
+    this._drawEntryNode(ctx, sm);
 
     // Draw transitions (edges)
     for (const t of sm.transitions) {
@@ -639,7 +646,7 @@ export class AnimBlueprintEditorPanel {
 
     // Linking indicator
     if (this._linkingFrom) {
-      ctx.fillStyle = '#ff0';
+      ctx.fillStyle = 'rgba(255,200,0,0.9)';
       ctx.font = '11px sans-serif';
       ctx.fillText('Shift-drag to target state...', 10, h - 10);
     }
@@ -659,44 +666,164 @@ export class AnimBlueprintEditorPanel {
     const y = 10;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(x, y, boxW, boxH);
-    ctx.fillStyle = '#ddd';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('Anim Variables', x + padding, y + padding + 10);
+    ctx.fillStyle = 'rgba(30,30,30,0.75)';
+    ctx.strokeStyle = 'rgba(80,80,80,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y);
+    ctx.lineTo(x + boxW - 4, y);
+    ctx.quadraticCurveTo(x + boxW, y, x + boxW, y + 4);
+    ctx.lineTo(x + boxW, y + boxH - 4);
+    ctx.quadraticCurveTo(x + boxW, y + boxH, x + boxW - 4, y + boxH);
+    ctx.lineTo(x + 4, y + boxH);
+    ctx.quadraticCurveTo(x, y + boxH, x, y + boxH - 4);
+    ctx.lineTo(x, y + 4);
+    ctx.quadraticCurveTo(x, y, x + 4, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText('ANIM VARIABLES', x + padding, y + padding + 9);
+
+    ctx.font = '11px sans-serif';
     for (let i = 0; i < max; i++) {
       const [k, v] = vars[i];
       const val = typeof v === 'number' ? v.toFixed(3) : String(v);
-      ctx.fillText(`${k}: ${val}`, x + padding, y + padding + 10 + lineH * (i + 1));
+      ctx.fillStyle = '#888';
+      ctx.fillText(`${k}:`, x + padding, y + padding + 10 + lineH * (i + 1));
+      ctx.fillStyle = '#e0c070';
+      const nameWidth = ctx.measureText(`${k}: `).width;
+      ctx.fillText(val, x + padding + nameWidth, y + padding + 10 + lineH * (i + 1));
     }
     ctx.restore();
   }
 
   private _drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    const step = 30 * this._zoom;
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    // Fine grid
+    const stepSmall = 20 * this._zoom;
+    ctx.strokeStyle = 'rgba(255,255,255,0.025)';
     ctx.lineWidth = 1;
-    const offX = this._panX % step;
-    const offY = this._panY % step;
-    for (let x = offX; x < w; x += step) {
+    let offX = this._panX % stepSmall;
+    let offY = this._panY % stepSmall;
+    for (let x = offX; x < w; x += stepSmall) {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
     }
-    for (let y = offY; y < h; y += step) {
+    for (let y = offY; y < h; y += stepSmall) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
+    // Coarse grid
+    const stepLarge = 100 * this._zoom;
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    offX = this._panX % stepLarge;
+    offY = this._panY % stepLarge;
+    for (let x = offX; x < w; x += stepLarge) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let y = offY; y < h; y += stepLarge) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+  }
+
+  /** Draw the "Entry" node — a small rounded label with a play arrow pointing to the entry state */
+  private _drawEntryNode(ctx: CanvasRenderingContext2D, sm: AnimStateMachineData): void {
+    const entryState = sm.states.find(s => s.id === sm.entryStateId);
+    if (!entryState) return;
+
+    const NODE_W = 160;
+    // Position the entry label to the left of the entry state
+    const ex = entryState.posX - 90;
+    const ey = entryState.posY + 12;
+    const ew = 62;
+    const eh = 22;
+    const r = 4;
+
+    // Rounded rect background
+    ctx.beginPath();
+    ctx.moveTo(ex + r, ey);
+    ctx.lineTo(ex + ew - r, ey);
+    ctx.quadraticCurveTo(ex + ew, ey, ex + ew, ey + r);
+    ctx.lineTo(ex + ew, ey + eh - r);
+    ctx.quadraticCurveTo(ex + ew, ey + eh, ex + ew - r, ey + eh);
+    ctx.lineTo(ex + r, ey + eh);
+    ctx.quadraticCurveTo(ex, ey + eh, ex, ey + eh - r);
+    ctx.lineTo(ex, ey + r);
+    ctx.quadraticCurveTo(ex, ey, ex + r, ey);
+    ctx.closePath();
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fill();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // "Entry" text
+    ctx.fillStyle = '#ccc';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Entry', ex + 6, ey + eh / 2);
+
+    // Play triangle
+    const tx = ex + ew - 12;
+    const ty = ey + eh / 2;
+    ctx.fillStyle = '#ccc';
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - 4);
+    ctx.lineTo(tx + 7, ty);
+    ctx.lineTo(tx, ty + 4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Arrow line from entry to the entry state
+    const arrowFromX = ex + ew + 2;
+    const arrowFromY = ey + eh / 2;
+    const arrowToX = entryState.posX - 2;
+    const arrowToY = entryState.posY + 22;
+
+    ctx.beginPath();
+    ctx.moveTo(arrowFromX, arrowFromY);
+    ctx.lineTo(arrowToX, arrowToY);
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Small arrowhead
+    const angle = Math.atan2(arrowToY - arrowFromY, arrowToX - arrowFromX);
+    const hl = 8;
+    ctx.beginPath();
+    ctx.moveTo(arrowToX, arrowToY);
+    ctx.lineTo(arrowToX - hl * Math.cos(angle - 0.4), arrowToY - hl * Math.sin(angle - 0.4));
+    ctx.lineTo(arrowToX - hl * Math.cos(angle + 0.4), arrowToY - hl * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = '#999';
+    ctx.fill();
+
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
   }
 
   private _drawStateNode(ctx: CanvasRenderingContext2D, state: AnimStateData, sm: AnimStateMachineData): void {
     const x = state.posX;
     const y = state.posY;
-    const w = 150;
-    const h = 40;
-    const r = 6;
+    const w = 160;
+    const h = 44;
+    const r = 5;
     const isEntry = sm.entryStateId === state.id;
     const isSelected = this._selectedStateId === state.id;
 
-    // Rounded rect
+    // Check if this is the active state in preview
+    const debugInfo = this._previewAnimInstance?.getDebugInfo();
+    const isActive = debugInfo ? debugInfo.stateId === state.id : false;
+
+    // ── Shadow ──
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 3;
+
+    // ── Rounded rect body ──
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.lineTo(x + w - r, y);
@@ -709,47 +836,97 @@ export class AnimBlueprintEditorPanel {
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
 
-    // Fill
-    if (isEntry) {
-      ctx.fillStyle = '#2d5a27';
+    // Fill — active state gets warm orange, others stay dark
+    if (isActive) {
+      ctx.fillStyle = '#c4875a';
     } else {
-      ctx.fillStyle = isSelected ? '#3a3a5c' : '#2a2a44';
+      ctx.fillStyle = '#3a3a3a';
     }
     ctx.fill();
+    ctx.restore(); // drop shadow
 
-    // Border
-    ctx.strokeStyle = isSelected ? '#7c8fff' : (isEntry ? '#4caf50' : '#555');
-    ctx.lineWidth = isSelected ? 2 : 1;
+    // ── Border ──
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+
+    if (isSelected) {
+      ctx.strokeStyle = '#d4a844';
+      ctx.lineWidth = 2.5;
+    } else if (isActive) {
+      ctx.strokeStyle = '#e0a050';
+      ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1;
+    }
     ctx.stroke();
 
-    // Entry marker
-    if (isEntry) {
-      ctx.fillStyle = '#4caf50';
-      ctx.beginPath();
-      ctx.moveTo(x - 12, y + h / 2 - 6);
-      ctx.lineTo(x - 2, y + h / 2);
-      ctx.lineTo(x - 12, y + h / 2 + 6);
-      ctx.closePath();
-      ctx.fill();
+    // ── Film strip icon (left side) ──
+    const iconX = x + 9;
+    const iconY = y + h / 2 - 6;
+    ctx.fillStyle = isActive ? 'rgba(0,0,0,0.4)' : '#888';
+    // Small film strip representation
+    ctx.fillRect(iconX, iconY, 10, 12);
+    ctx.fillStyle = isActive ? '#c4875a' : '#3a3a3a';
+    // Film perforations
+    for (let fy = 0; fy < 4; fy++) {
+      ctx.fillRect(iconX + 1, iconY + 1 + fy * 3, 2, 2);
+      ctx.fillRect(iconX + 7, iconY + 1 + fy * 3, 2, 2);
     }
 
-    // State name
-    ctx.fillStyle = '#e0e0e0';
+    // ── State name ──
+    ctx.fillStyle = isActive ? '#1a1a1a' : '#e0e0e0';
     ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(state.name, x + w / 2, y + h / 2 - (state.animationName ? 4 : 0), w - 10);
+    const nameX = x + 24;
+    ctx.fillText(state.name, nameX, y + h / 2, w - 30);
 
-    // Subtitle (animation name or blend space)
-    if (state.animationName || state.outputType === 'blendSpace1D' || state.outputType === 'blendSpace2D') {
-      ctx.fillStyle = '#888';
+    // ── Active state badge (shows weight % and time) ──
+    if (isActive && debugInfo) {
+      const weight = (debugInfo.stateRelevance * 100).toFixed(1);
+      const time = debugInfo.stateTime.toFixed(2);
+      const badgeText = `${weight}%`;
+      const timeText = `Active for ${time} secs`;
+
+      // Badge above the node
       ctx.font = '10px sans-serif';
-      const subtitle = state.outputType === 'blendSpace1D'
-        ? 'Blend Space 1D'
-        : state.outputType === 'blendSpace2D'
-          ? 'Blend Space 2D'
-        : state.animationName || 'No animation';
-      ctx.fillText(subtitle, x + w / 2, y + h / 2 + 10, w - 10);
+      const bm = ctx.measureText(badgeText);
+      const tm = ctx.measureText(timeText);
+      const bw = Math.max(bm.width, tm.width) + 12;
+      const bh = 28;
+      const bx = x + w / 2 - bw / 2;
+      const by = y - bh - 6;
+
+      ctx.fillStyle = 'rgba(196, 135, 90, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(bx + 3, by);
+      ctx.lineTo(bx + bw - 3, by);
+      ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + 3);
+      ctx.lineTo(bx + bw, by + bh - 3);
+      ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - 3, by + bh);
+      ctx.lineTo(bx + 3, by + bh);
+      ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - 3);
+      ctx.lineTo(bx, by + 3);
+      ctx.quadraticCurveTo(bx, by, bx + 3, by);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#1a1a1a';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(badgeText, bx + bw / 2, by + 10);
+      ctx.font = '9px sans-serif';
+      ctx.fillText(timeText, bx + bw / 2, by + 22);
     }
 
     ctx.textAlign = 'start';
@@ -767,45 +944,89 @@ export class AnimBlueprintEditorPanel {
     const bundle = this._getTransitionBundle(sm, t);
     const ctrl = this._getTransitionControlPoint(fx, fy, tx, ty, bundle.index, bundle.total);
 
-    // Edge line
+    // ── Edge line — white/light with subtle width ──
     ctx.beginPath();
     ctx.moveTo(fx, fy);
     ctx.quadraticCurveTo(ctrl.x, ctrl.y, tx, ty);
-    ctx.strokeStyle = isSelected ? '#ff0' : '#888';
+    ctx.strokeStyle = isSelected ? '#d4a844' : 'rgba(220,220,220,0.7)';
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.stroke();
 
-    // Arrowhead
-    const tpos = 0.6;
-    const p = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
-    const tan = this._quadTangent(fx, fy, ctrl.x, ctrl.y, tx, ty, tpos);
-    const angle = Math.atan2(tan.y, tan.x);
-    const headLen = 10;
-    const mx = p.x;
-    const my = p.y;
+    // ── Arrowhead at ~80% along the curve (near destination) ──
+    const apos = 0.82;
+    const ap = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, apos);
+    const at = this._quadTangent(fx, fy, ctrl.x, ctrl.y, tx, ty, apos);
+    const arrowAngle = Math.atan2(at.y, at.x);
+    const hl = 9;
     ctx.beginPath();
-    ctx.moveTo(mx + headLen * Math.cos(angle), my + headLen * Math.sin(angle));
-    ctx.lineTo(mx - headLen * Math.cos(angle - Math.PI / 6), my - headLen * Math.sin(angle - Math.PI / 6));
-    ctx.lineTo(mx - headLen * Math.cos(angle + Math.PI / 6), my - headLen * Math.sin(angle + Math.PI / 6));
+    ctx.moveTo(ap.x + hl * Math.cos(arrowAngle), ap.y + hl * Math.sin(arrowAngle));
+    ctx.lineTo(ap.x - hl * Math.cos(arrowAngle - 0.45), ap.y - hl * Math.sin(arrowAngle - 0.45));
+    ctx.lineTo(ap.x - hl * Math.cos(arrowAngle + 0.45), ap.y - hl * Math.sin(arrowAngle + 0.45));
     ctx.closePath();
-    ctx.fillStyle = isSelected ? '#ff0' : '#888';
+    ctx.fillStyle = isSelected ? '#d4a844' : 'rgba(220,220,220,0.7)';
     ctx.fill();
 
-    // Condition label
-    const label = this._getTransitionLabel(t);
-    if (label) {
-      ctx.font = '10px sans-serif';
-      const metrics = ctx.measureText(label);
-      const lw = Math.min(160, metrics.width + 10);
-      const lh = 14;
-      const lx = mx - lw / 2;
-      const ly = my - 22;
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(lx, ly, lw, lh);
-      ctx.fillStyle = isSelected ? '#ff0' : '#ddd';
-      ctx.textAlign = 'center';
-      ctx.fillText(label, mx, ly + 10, 150);
-      ctx.textAlign = 'start';
+    // ── UE-style transition rule icon (circle with ⊖) at midpoint ──
+    const mpos = 0.5;
+    const mp = this._quadPoint(fx, fy, ctrl.x, ctrl.y, tx, ty, mpos);
+    const iconR = 11;
+
+    // Circle background
+    ctx.beginPath();
+    ctx.arc(mp.x, mp.y, iconR, 0, Math.PI * 2);
+    ctx.fillStyle = isSelected ? '#d4a844' : '#3a3a3a';
+    ctx.fill();
+    ctx.strokeStyle = isSelected ? '#e8c060' : '#888';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Icon inside: double horizontal bars (≡ like UE transition icon)
+    ctx.strokeStyle = isSelected ? '#1a1a1a' : '#ccc';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mp.x - 5, mp.y - 2.5);
+    ctx.lineTo(mp.x + 5, mp.y - 2.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mp.x - 5, mp.y + 2.5);
+    ctx.lineTo(mp.x + 5, mp.y + 2.5);
+    ctx.stroke();
+
+    // ── Show condition text only when selected ──
+    if (isSelected) {
+      const label = this._getTransitionLabel(t);
+      if (label) {
+        ctx.font = '10px sans-serif';
+        const metrics = ctx.measureText(label);
+        const lw = Math.min(180, metrics.width + 12);
+        const lh = 16;
+        const lx = mp.x - lw / 2;
+        const ly = mp.y - iconR - lh - 4;
+
+        ctx.beginPath();
+        ctx.moveTo(lx + 3, ly);
+        ctx.lineTo(lx + lw - 3, ly);
+        ctx.quadraticCurveTo(lx + lw, ly, lx + lw, ly + 3);
+        ctx.lineTo(lx + lw, ly + lh - 3);
+        ctx.quadraticCurveTo(lx + lw, ly + lh, lx + lw - 3, ly + lh);
+        ctx.lineTo(lx + 3, ly + lh);
+        ctx.quadraticCurveTo(lx, ly + lh, lx, ly + lh - 3);
+        ctx.lineTo(lx, ly + 3);
+        ctx.quadraticCurveTo(lx, ly, lx + 3, ly);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fill();
+        ctx.strokeStyle = '#d4a844';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = '#e8c060';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, mp.x, ly + lh / 2, 170);
+        ctx.textAlign = 'start';
+        ctx.textBaseline = 'alphabetic';
+      }
     }
   }
 
@@ -830,8 +1051,8 @@ export class AnimBlueprintEditorPanel {
     from: AnimStateData,
     to: AnimStateData,
   ): { fx: number; fy: number; tx: number; ty: number } {
-    const nodeW = 150;
-    const nodeH = 40;
+    const nodeW = 160;
+    const nodeH = 44;
     const fromCenterX = from.posX + nodeW / 2;
     const fromCenterY = from.posY + nodeH / 2;
     const toCenterX = to.posX + nodeW / 2;
@@ -866,8 +1087,8 @@ export class AnimBlueprintEditorPanel {
     outgoing: boolean,
     axis: 'horizontal' | 'vertical',
   ): number {
-    const nodeW = 150;
-    const nodeH = 40;
+    const nodeW = 160;
+    const nodeH = 44;
     const list = sm.transitions.filter(t => outgoing ? t.fromStateId === stateId : t.toStateId === stateId);
     const total = Math.max(1, list.length);
     const index = Math.max(0, list.findIndex(t => t.id === transitionId));
