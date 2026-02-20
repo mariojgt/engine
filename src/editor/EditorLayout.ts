@@ -3,6 +3,7 @@ import {
   type DockviewApi,
   type IContentRenderer,
   type GroupPanelPartInitParameters,
+  type DockviewGroupPanel,
 } from 'dockview-core';
 import * as THREE from 'three';
 import type { Engine } from '../engine/Engine';
@@ -34,6 +35,7 @@ import { WorldOutlinerPanel } from './WorldOutlinerPanel';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { ClassHierarchyPanel } from './ClassHierarchyPanel';
 import { InheritanceDialogsUI } from './InheritanceDialogsUI';
+import { DockingManager, GroupHeaderActions } from './DockingManager';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -72,6 +74,7 @@ export class EditorLayout {
   private _dockview!: DockviewComponent;
   private _api!: DockviewApi;
   private _engine: Engine;
+  private _dockingManager!: DockingManager;
   private _viewport: ViewportPanel | null = null;
   private _properties: PropertiesPanel | null = null;
   private _physicsSettings: PhysicsSettingsPanel | null = null;
@@ -147,10 +150,20 @@ export class EditorLayout {
       createComponent: (options) => {
         return new PanelRenderer(options.id);
       },
-      disableFloatingGroups: true,
+      disableFloatingGroups: false,
+      floatingGroupBounds: {
+        minimumHeightWithinViewport: 100,
+        minimumWidthWithinViewport: 100,
+      },
+      createRightHeaderActionComponent: (_group: DockviewGroupPanel) => {
+        return new GroupHeaderActions();
+      },
     });
 
     this._api = this._dockview.api;
+
+    // Initialize docking manager for detachable/floating panels
+    this._dockingManager = new DockingManager(this._api, container);
 
     // Add default panels
     this._addDefaultLayout();
@@ -961,5 +974,15 @@ export class EditorLayout {
   /** Get the hierarchy panel (for project manager or external wiring) */
   getHierarchyPanel(): ClassHierarchyPanel | null {
     return this._hierarchyPanel;
+  }
+
+  /** Get the docking manager (for Window menu integration) */
+  getDockingManager(): DockingManager {
+    return this._dockingManager;
+  }
+
+  /** Get the dockview API (for advanced docking operations) */
+  getDockviewApi(): DockviewApi {
+    return this._api;
   }
 }

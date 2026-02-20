@@ -298,6 +298,241 @@ html, body, #app {
 }
 
 /* =========================================
+   Dockview Floating / Popout Panel Overrides
+   ========================================= */
+
+/* Floating group container — the draggable overlay */
+.dockview-theme-dark .dv-floating-groupview {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(59,130,246,0.15);
+  background: var(--color-bg-surface);
+  overflow: hidden;
+}
+
+/* Floating group resize handles */
+.dockview-theme-dark .dv-floating-groupview .dv-resize-container > .dv-resize-handle-right,
+.dockview-theme-dark .dv-floating-groupview .dv-resize-container > .dv-resize-handle-left,
+.dockview-theme-dark .dv-floating-groupview .dv-resize-container > .dv-resize-handle-top,
+.dockview-theme-dark .dv-floating-groupview .dv-resize-container > .dv-resize-handle-bottom {
+  z-index: 10;
+}
+
+/* Header action buttons (Detach / Popout / Dock) on group tab bars */
+.docking-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  height: 100%;
+}
+
+.docking-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.docking-action-btn:hover {
+  background: var(--color-bg-overlay);
+  color: var(--color-text-primary);
+}
+
+.docking-action-btn:active {
+  background: var(--color-bg-subtle);
+}
+
+.docking-action-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Dock-position picker dropdown ───────────────────────────────── */
+.dock-btn-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.dock-position-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 10000;
+  min-width: 150px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  animation: dock-menu-in 120ms ease-out;
+}
+
+@keyframes dock-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+.dock-menu-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--color-border-default);
+  margin-bottom: 6px;
+}
+
+.dock-menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+
+.dock-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms, color 100ms;
+}
+
+.dock-menu-item:hover {
+  background: var(--color-bg-overlay);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.dock-menu-item:active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.dock-menu-item svg {
+  flex-shrink: 0;
+}
+
+.dock-menu-item-wide {
+  grid-column: 1 / -1;
+}
+
+/* When floating, give the header a subtle glow so it's visually distinct */
+.dv-floating-groupview .tabs-and-actions-container {
+  background: var(--color-bg-elevated) !important;
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+/* Drop target overlay styling for docking */
+.dockview-theme-dark .drop-target-dropzone > .drop-target-selection {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 2px dashed rgba(59, 130, 246, 0.4) !important;
+  border-radius: var(--radius);
+}
+
+/* =========================================
+   Dock Zone Overlay — UE-style snap indicators
+   ========================================= */
+
+.dock-zone-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.dock-zone {
+  position: absolute;
+  border-radius: var(--radius);
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  opacity: 0.35;
+  background: transparent;
+  border: 2px dashed transparent;
+}
+
+.dock-zone.active {
+  opacity: 1;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Left zone */
+.dock-zone-left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+}
+.dock-zone-left.active {
+  background: linear-gradient(90deg, rgba(59,130,246,0.18) 0%, transparent 100%);
+}
+
+/* Right zone */
+.dock-zone-right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+}
+.dock-zone-right.active {
+  background: linear-gradient(-90deg, rgba(59,130,246,0.18) 0%, transparent 100%);
+}
+
+/* Top zone */
+.dock-zone-top {
+  left: 18%;
+  right: 18%;
+  top: 0;
+  height: 18%;
+}
+.dock-zone-top.active {
+  background: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, transparent 100%);
+}
+
+/* Bottom zone */
+.dock-zone-bottom {
+  left: 18%;
+  right: 18%;
+  bottom: 0;
+  height: 18%;
+}
+.dock-zone-bottom.active {
+  background: linear-gradient(0deg, rgba(59,130,246,0.18) 0%, transparent 100%);
+}
+
+/* Center zone */
+.dock-zone-center {
+  left: 30%;
+  right: 30%;
+  top: 25%;
+  bottom: 25%;
+  border-radius: 8px;
+}
+.dock-zone-center.active {
+  background: rgba(59, 130, 246, 0.14);
+  box-shadow: inset 0 0 24px rgba(59,130,246,0.10);
+}
+
+/* =========================================
    Panel Common
    ========================================= */
 .panel {
@@ -4059,363 +4294,6 @@ html, body, #app {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
-}
-
-/* ──────────────────────────────────────────────────
-   UE-style 1D Blend Space – axis, dots, details
-   ────────────────────────────────────────────────── */
-
-.anim-bs-toolbar {
-  padding: 12px 16px 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.anim-bs-body {
-  padding: 8px 10px 12px;
-}
-
-.anim-bs-config-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.anim-bs-config-row label {
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.anim-bs-config-row select,
-.anim-bs-config-row input {
-  font-size: 11px;
-  font-family: var(--font);
-  background: var(--input-bg, rgba(0,0,0,0.25));
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text);
-  padding: 3px 6px;
-  min-width: 50px;
-}
-
-/* ── Axis container ── */
-.bs-axis-container {
-  margin: 6px 0 12px;
-}
-
-.bs-axis-header {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.bs-axis-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.bs-axis-hint {
-  font-size: 10px;
-  color: var(--text-dim);
-}
-
-/* ── Track area ── */
-.bs-axis-track-area {
-  position: relative;
-  height: 80px;
-  cursor: crosshair;
-  user-select: none;
-}
-
-/* Colored range segments behind the axis */
-.bs-axis-segments {
-  position: absolute;
-  left: 0; right: 0;
-  top: 26px;
-  height: 28px;
-  pointer-events: none;
-}
-
-.bs-axis-segment {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  opacity: 0.3;
-  border-radius: 2px;
-  transition: opacity 0.15s;
-}
-
-/* The horizontal axis line */
-.bs-axis-line {
-  position: absolute;
-  left: 0; right: 0;
-  top: 39px;
-  height: 2px;
-  background: var(--text-dim);
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-/* Tick marks */
-.bs-axis-tick-layer {
-  position: absolute;
-  left: 0; right: 0;
-  top: 32px;
-  height: 16px;
-  pointer-events: none;
-}
-
-.bs-axis-tick {
-  position: absolute;
-  width: 1px;
-  top: 0;
-  height: 100%;
-  background: var(--border);
-  opacity: 0.5;
-}
-
-/* Tick labels below the track */
-.bs-axis-tick-labels {
-  position: relative;
-  height: 14px;
-  margin-top: 2px;
-}
-
-.bs-axis-tick-label {
-  position: absolute;
-  transform: translateX(-50%);
-  font-size: 9px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-/* ── Dots on the axis ── */
-.bs-axis-dot-layer {
-  position: absolute;
-  left: 0; right: 0;
-  top: 0;
-  bottom: 0;
-  pointer-events: none;
-}
-
-.bs-axis-dot {
-  position: absolute;
-  top: 28px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 3px solid #4a9eff;
-  background: #1e1e2e;
-  transform: translate(-50%, -50%);
-  cursor: grab;
-  pointer-events: all;
-  z-index: 2;
-  transition: transform 0.1s, box-shadow 0.15s;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-}
-
-.bs-axis-dot:hover {
-  transform: translate(-50%, -50%) scale(1.15);
-  box-shadow: 0 0 8px rgba(74, 158, 255, 0.4);
-}
-
-.bs-axis-dot-selected {
-  transform: translate(-50%, -50%) scale(1.2);
-  box-shadow: 0 0 10px rgba(74, 158, 255, 0.6);
-  z-index: 3;
-}
-
-.bs-axis-dot:active {
-  cursor: grabbing;
-}
-
-/* Value label above dot */
-.bs-axis-dot-label {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text);
-  white-space: nowrap;
-  pointer-events: none;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-}
-
-/* Animation name below dot */
-.bs-axis-dot-anim {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 6px;
-  font-size: 9px;
-  color: var(--accent, #61afef);
-  white-space: nowrap;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-}
-
-/* ── Sample details list ── */
-.bs-sample-details {
-  margin-top: 4px;
-}
-
-.bs-detail-hint {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 10px 0;
-  text-align: center;
-}
-
-.bs-detail-list-header {
-  display: grid;
-  grid-template-columns: 16px 1fr 50px 55px 55px 42px 30px 24px;
-  gap: 4px;
-  padding: 4px 6px;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.bs-detail-row {
-  display: grid;
-  grid-template-columns: 16px 1fr 50px 55px 55px 42px 30px 24px;
-  gap: 4px;
-  align-items: center;
-  padding: 4px 6px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: background 0.1s;
-  border: 1px solid transparent;
-}
-
-.bs-detail-row:hover {
-  background: rgba(255,255,255,0.03);
-}
-
-.bs-detail-row-selected {
-  background: rgba(74, 158, 255, 0.08);
-  border-color: rgba(74, 158, 255, 0.25);
-}
-
-.bs-detail-color {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid rgba(0,0,0,0.3);
-}
-
-.bs-detail-select {
-  font-size: 11px;
-  font-family: var(--font);
-  background: var(--input-bg, rgba(0,0,0,0.25));
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text);
-  padding: 2px 4px;
-  width: 100%;
-  min-width: 0;
-}
-
-.bs-detail-value {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--accent, #61afef);
-  text-align: center;
-}
-
-.bs-detail-input {
-  font-size: 11px;
-  font-family: var(--font);
-  background: var(--input-bg, rgba(0,0,0,0.25));
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text);
-  padding: 2px 4px;
-  width: 100%;
-  min-width: 0;
-}
-
-.bs-detail-loop {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.bs-detail-loop input[type="checkbox"] {
-  margin: 0;
-}
-
-.bs-detail-delete {
-  font-size: 11px;
-  font-family: var(--font);
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 3px;
-  line-height: 1;
-  text-align: center;
-}
-
-.bs-detail-delete:hover {
-  color: #e06c75;
-  border-color: rgba(224, 108, 117, 0.4);
-  background: rgba(224, 108, 117, 0.08);
-}
-
-/* State props: blend space info */
-.anim-bs-state-info {
-  padding: 6px 0;
-}
-
-.anim-bs-state-info-header {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-bottom: 4px;
-}
-
-.anim-bs-state-ranges {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.anim-bs-state-range-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--text-dim);
-  padding: 2px 0;
-}
-
-.anim-bs-range-values {
-  font-family: var(--font-mono, monospace);
-  color: var(--text);
-  font-size: 10px;
-}
-
-.anim-bs-range-anim {
-  color: var(--accent, #61afef);
-  font-size: 10px;
 }
 
 /* ---- Danger button (delete) ---- */

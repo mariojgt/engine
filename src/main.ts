@@ -48,6 +48,16 @@ async function main() {
         <div class="toolbar-dropdown-item" id="menu-save"><span>Save</span><span class="shortcut">Ctrl+S</span></div>
       </div>
     </div>
+    <div class="toolbar-dropdown" id="window-menu">
+      <button class="toolbar-btn" id="btn-window">Window ▾</button>
+      <div class="toolbar-dropdown-content" id="window-dropdown">
+        <div class="toolbar-dropdown-item" id="menu-dock-all">Dock All Panels</div>
+        <div class="toolbar-dropdown-item" id="menu-reset-layout">Reset Layout</div>
+        <div class="toolbar-dropdown-divider"></div>
+        <div class="toolbar-dropdown-item disabled" id="menu-detached-header" style="opacity:0.5;pointer-events:none;font-style:italic;">Detached Panels</div>
+        <div id="detached-panels-list"></div>
+      </div>
+    </div>
     <div class="toolbar-separator"></div>
     <button class="toolbar-btn play" id="btn-play">▶ Play</button>
     <button class="toolbar-btn stop" id="btn-stop" style="display:none">■ Stop</button>
@@ -206,6 +216,7 @@ async function main() {
 
   document.addEventListener('click', () => {
     fileDropdown.classList.remove('show');
+    windowDropdown.classList.remove('show');
   });
 
   document.getElementById('menu-new-project')!.addEventListener('click', async () => {
@@ -284,6 +295,65 @@ async function main() {
       }
     }
   });
+
+  // --- Window menu dropdown ---
+  const windowBtn = document.getElementById('btn-window')!;
+  const windowDropdown = document.getElementById('window-dropdown')!;
+  const detachedListEl = document.getElementById('detached-panels-list')!;
+  const dockingMgr = editor.getDockingManager();
+
+  windowBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    windowDropdown.classList.toggle('show');
+    fileDropdown.classList.remove('show');
+    _refreshDetachedList();
+  });
+
+  // Close Window dropdown when another dropdown opens
+  fileBtn.addEventListener('click', () => {
+    windowDropdown.classList.remove('show');
+  });
+
+  document.getElementById('menu-dock-all')!.addEventListener('click', () => {
+    windowDropdown.classList.remove('show');
+    dockingMgr.dockAll();
+  });
+
+  document.getElementById('menu-reset-layout')!.addEventListener('click', () => {
+    windowDropdown.classList.remove('show');
+    // Dock all floating panels first, then let user refresh if needed
+    dockingMgr.dockAll();
+  });
+
+  function _refreshDetachedList() {
+    detachedListEl.innerHTML = '';
+    const panels = dockingMgr.getDetachedPanels();
+    if (panels.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'toolbar-dropdown-item disabled';
+      empty.style.opacity = '0.4';
+      empty.style.pointerEvents = 'none';
+      empty.style.fontStyle = 'italic';
+      empty.textContent = 'No detached panels';
+      detachedListEl.appendChild(empty);
+      return;
+    }
+    for (const info of panels) {
+      const item = document.createElement('div');
+      item.className = 'toolbar-dropdown-item';
+      const modeIcon = info.mode === 'floating' ? '⊞' : '⧉';
+      item.innerHTML = `<span>${modeIcon} ${info.title}</span><span class="shortcut" style="font-size:10px;opacity:0.6;">Dock</span>`;
+      item.addEventListener('click', () => {
+        windowDropdown.classList.remove('show');
+        const panel = editor.getDockviewApi().getPanel(info.panelId);
+        if (panel) dockingMgr.dockPanel(panel);
+      });
+      detachedListEl.appendChild(item);
+    }
+  }
+
+  // Keep the list updated when panels are docked/undocked
+  dockingMgr.onChange(() => _refreshDetachedList());
 
   // --- Toolbar button handlers ---
   const playBtn = document.getElementById('btn-play')!;
