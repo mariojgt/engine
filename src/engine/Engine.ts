@@ -297,6 +297,14 @@ export class Engine {
       go.characterController = null;
       go.aiController = null;
       go.controller = null;
+
+      // Dispose AnimationInstance(s) so their event-graph scripts are properly reset
+      const instances = (go as any)._animationInstances as AnimationInstance[] | undefined;
+      if (instances) {
+        for (const inst of instances) {
+          inst.dispose();
+        }
+      }
     }
 
     // Destroy UI overlay
@@ -333,6 +341,8 @@ export class Engine {
       this._elapsedTime += dt;
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
+        // Skip destroyed actors and actors with tick disabled
+        if (go.isDestroyed || !go.__tickEnabled) continue;
         for (const script of go.scripts) {
           const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
           script.tick(ctx);
@@ -340,6 +350,7 @@ export class Engine {
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
+        if (go.isDestroyed) continue;
         const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
         script.tick(ctx);
       }
@@ -387,7 +398,7 @@ export class Engine {
     }
 
     // Step physics
-    this.physics.step(this.scene);
+    this.physics.step(this.scene, dt);
 
     // Notify update listeners
     for (const cb of this._onUpdate) cb(dt);

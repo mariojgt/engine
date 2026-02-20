@@ -489,12 +489,41 @@ export class Scene {
     this._emitChanged();
   }
 
+  clear(): void {
+    // Restore any runtime destroyed actors so they can be properly disposed
+    this.restoreRuntimeDestroyedActors();
+    
+    while (this.gameObjects.length > 0) {
+      this.removeGameObject(this.gameObjects[0]);
+    }
+    
+    this._runtimeDestroyedGOs = [];
+    this.selectedObject = null;
+    this._emitChanged();
+  }
+
   removeGameObject(go: GameObject): void {
     this.threeScene.remove(go.mesh);
     this.gameObjects = this.gameObjects.filter((o) => o.id !== go.id);
     if (this.selectedObject === go) {
       this.selectObject(null);
     }
+    
+    // Properly dispose of Three.js resources to prevent memory leaks
+    go.mesh.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) {
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => m.dispose());
+          } else {
+            mesh.material.dispose();
+          }
+        }
+      }
+    });
+
     this._emitChanged();
   }
 
@@ -553,6 +582,7 @@ export class Scene {
     }
 
     // Backup for restoration when play stops
+    go.isDestroyed = true;
     this._runtimeDestroyedGOs.push(go);
 
     console.log(`[Scene] destroyActor: destroyed "${go.name}" (id=${go.id})`);
@@ -566,6 +596,7 @@ export class Scene {
   restoreRuntimeDestroyedActors(): void {
     if (this._runtimeDestroyedGOs.length === 0) return;
     for (const go of this._runtimeDestroyedGOs) {
+      go.isDestroyed = false;
       // Re-add mesh to Three.js scene
       this.threeScene.add(go.mesh);
       // Re-add to gameObjects array

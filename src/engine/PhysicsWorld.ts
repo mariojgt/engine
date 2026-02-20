@@ -565,7 +565,9 @@ export class PhysicsWorld {
 
     const fixedDt = this.settings.fixedTimestep;
     const maxSub = this.settings.maxSubsteps;
-    const useDt = dt ?? fixedDt;
+    
+    // Clamp dt to avoid spiral of death (e.g. max 0.1s)
+    const useDt = Math.min(dt ?? fixedDt, 0.1);
 
     this._accumulator += useDt;
 
@@ -604,6 +606,11 @@ export class PhysicsWorld {
 
       this._accumulator -= fixedDt;
       substeps++;
+    }
+
+    // If we hit maxSubsteps, we are lagging hard. Discard the remaining accumulator to prevent permanent desync.
+    if (substeps >= maxSub) {
+      this._accumulator = 0;
     }
 
     // Ensure collider transforms are propagated

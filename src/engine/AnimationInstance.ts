@@ -806,9 +806,18 @@ export class AnimationInstance {
   /** Clean up — stop all actions */
   dispose(): void {
     for (const action of this._currentActions) {
-      action.stop();
+      if (action) action.stop();
     }
     this._currentActions = [];
+    this._transitionFromActions = [];
+    this._transitionToActions = [];
+    this._transitioning = false;
+
+    // Stop the event graph script so beginPlay guard resets on re-use
+    if (this._eventScript) {
+      this._eventScript.reset();
+      this._eventScriptStarted = false;
+    }
   }
 
   // ---- Helpers ----

@@ -71,6 +71,9 @@ export class GameObject {
   /** Whether tick is enabled for this actor (Set Actor Tick Enabled node) */
   public __tickEnabled: boolean = true;
 
+  /** True if this actor has been destroyed at runtime */
+  public isDestroyed: boolean = false;
+
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;
     this.name = name;

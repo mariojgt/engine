@@ -62,10 +62,15 @@ export interface CameraStateJSON {
 }
 
 export interface SceneJSON {
+  /** Schema version — bump when breaking changes are made to the format */
+  schemaVersion?: number;
   name: string;
   gameObjects: GameObjectJSON[];
   camera?: CameraStateJSON;
 }
+
+/** Current scene schema version. Increment when making breaking format changes. */
+export const SCENE_SCHEMA_VERSION = 1;
 
 // ---- Helpers ----
 
@@ -262,6 +267,7 @@ export function serializeScene(
   console.log(`[SceneSerializer] Serialized ${gameObjects.length} objects for scene "${sceneName}"`);
 
   return {
+    schemaVersion: SCENE_SCHEMA_VERSION,
     name: sceneName,
     gameObjects,
     camera: cameraState,
@@ -278,10 +284,15 @@ export function deserializeScene(
 ): void {
   console.log(`[SceneSerializer] Deserializing scene "${data.name}" — ${data.gameObjects.length} objects to restore`);
 
-  // Clear existing game objects
-  while (scene.gameObjects.length > 0) {
-    scene.removeGameObject(scene.gameObjects[0]);
+  // Log schema version mismatch warnings for future migration support
+  if (data.schemaVersion && data.schemaVersion !== SCENE_SCHEMA_VERSION) {
+    console.warn(`[SceneSerializer] Schema version mismatch: file=${data.schemaVersion} engine=${SCENE_SCHEMA_VERSION}. Some fields may not load correctly.`);
+  } else if (!data.schemaVersion) {
+    console.log(`[SceneSerializer] Scene file has no schemaVersion (pre-versioning format). Treating as v1.`);
   }
+
+  // Clear existing game objects
+  scene.clear();
   console.log(`[SceneSerializer] Scene cleared, now restoring objects...`);
 
   for (const goData of data.gameObjects) {

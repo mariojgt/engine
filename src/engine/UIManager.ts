@@ -198,7 +198,9 @@ export class UIManager {
     }
     this._overlay = null;
     this._uiOnlyMode = false;
-    _handleCounter = 0;
+    // Do NOT reset _handleCounter to 0 — handles must be globally unique across
+    // play sessions to prevent stale blueprint code from addressing wrong instances
+    // if setTimeout/Delay nodes fire after a stop/restart.
   }
 
   // ── Blueprint API ─────────────────────────────────────────
