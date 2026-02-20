@@ -79,7 +79,7 @@ export interface BlendSpace2D {
 // ---- State Machine Types ----
 
 /** What drives an animation state's output */
-export type AnimStateOutputType = 'singleAnimation' | 'blendSpace1D' | 'blendSpace2D';
+export type AnimStateOutputType = 'singleAnimation' | 'blendSpace1D' | 'blendSpace2D' | 'spriteAnimation';
 
 /** A single state in the animation state machine */
 export interface AnimStateData {
@@ -116,6 +116,16 @@ export interface AnimStateData {
   syncGroup?: string;
   /** Sync role within group */
   syncRole?: 'leader' | 'follower';
+
+  // ── 2D Sprite Animation fields ──
+  /** For 'spriteAnimation': sprite sheet asset ID */
+  spriteSheetId?: string;
+  /** For 'spriteAnimation': animation name within the sprite sheet */
+  spriteAnimationName?: string;
+  /** For 'spriteAnimation': playback FPS override (0 = use sheet default) */
+  spriteAnimFPS?: number;
+  /** For 'spriteAnimation': whether to loop the sprite animation */
+  spriteAnimLoop?: boolean;
 }
 
 /** A transition between two states */
@@ -211,6 +221,12 @@ export interface AnimBlueprintJSON {
   compiledCode?: string;
   /** Serialized Rete node graph for the event graph editor */
   blueprintGraphNodeData?: any;
+
+  // ── 2D AnimBP mode ──
+  /** Whether this AnimBP targets 2D sprite animations instead of 3D skeletal */
+  is2D?: boolean;
+  /** When is2D=true: the sprite sheet ID this AnimBP drives */
+  targetSpriteSheetId?: string;
 }
 
 // ---- Default Helpers ----
@@ -236,6 +252,10 @@ export function defaultAnimState(name: string, x = 0, y = 0): AnimStateData {
     overrideAnimationName: '',
     syncGroup: '',
     syncRole: 'leader',
+    spriteSheetId: '',
+    spriteAnimationName: '',
+    spriteAnimFPS: 0,
+    spriteAnimLoop: true,
   };
 }
 

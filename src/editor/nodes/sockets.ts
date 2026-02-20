@@ -90,6 +90,12 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Timer':         '#009688',
   'World':         '#795548',
   'Player':        '#607D8B',
+  // 2D categories
+  'Animation 2D':  '#FF8F00',
+  'Movement 2D':   '#43A047',
+  'Physics 2D':    '#EF6C00',
+  'Camera 2D':     '#5C6BC0',
+  'Tilemap':       '#8D6E63',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -121,6 +127,12 @@ export function getCategoryIcon(cat: string): string {
     case 'Timer':         return '⏱';
     case 'World':         return '◎';
     case 'Player':        return '▶';
+    // 2D categories
+    case 'Animation 2D':  return '▷';
+    case 'Movement 2D':   return '↔';
+    case 'Physics 2D':    return '◐';
+    case 'Camera 2D':     return '◱';
+    case 'Tilemap':       return '▦';
     default:              return '●';
   }
 }

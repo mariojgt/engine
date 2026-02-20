@@ -568,3 +568,111 @@ export {
   LineTraceByChannelNode, SphereTraceByChannelNode, BoxTraceNode,
   BreakHitResultNode,
 } from './collision/TraceNodes';
+
+// ── Sprite / Animation 2D Nodes ─────────────────────────────
+export {
+  PlayAnimation2DNode,
+  StopAnimation2DNode,
+  SetSpriteFrameNode,
+  SetAnimVariable2DNode,
+  GetAnimVariable2DNode,
+  OnAnimationEvent2DNode,
+  OnAnimationFinished2DNode,
+  IsAnimationPlaying2DNode,
+  GetCurrentAnimation2DNode,
+  SetSpriteFlipNode,
+  SetSpriteColorNode,
+  SetSpriteOpacityNode,
+  SetSortingLayerNode,
+  GetSortingLayerNode,
+} from './sprite/SpriteNodes';
+
+// ── Physics 2D Nodes ────────────────────────────────────────
+export {
+  LineTrace2DNode,
+  BoxOverlap2DNode,
+  CircleOverlap2DNode,
+  SetSimulatePhysics2DNode,
+  AddForce2DNode,
+  AddImpulse2DNode,
+  SetVelocity2DNode,
+  GetVelocity2DNode,
+  SetGravityScale2DNode,
+  AddTorque2DNode,
+  SetBodyType2DNode,
+  GetBodyType2DNode,
+  LockRotation2DNode,
+  SetLinearDamping2DNode,
+  OnCollisionBegin2DNode,
+  OnCollisionEnd2DNode,
+  OnTriggerBegin2DNode,
+  OnTriggerEnd2DNode,
+} from './physics2d/Physics2DNodes';
+
+// ── Camera 2D Nodes ─────────────────────────────────────────
+export {
+  SetCameraFollowTarget2DNode,
+  ClearCameraFollow2DNode,
+  SetCameraZoom2DNode,
+  GetCameraZoom2DNode,
+  CameraShake2DNode,
+  SetCameraPosition2DNode,
+  GetCameraPosition2DNode,
+  ScreenToWorld2DNode,
+  WorldToScreen2DNode,
+  SetCameraBounds2DNode,
+  ClearCameraBounds2DNode,
+  SetCameraDeadZone2DNode,
+} from './camera2d/Camera2DNodes';
+
+// ── Character Movement 2D Nodes ─────────────────────────────
+export {
+  AddMovementInput2DNode,
+  Jump2DNode,
+  StopJump2DNode,
+  LaunchCharacter2DNode,
+  SetMaxWalkSpeed2DNode,
+  GetMaxWalkSpeed2DNode,
+  IsGrounded2DNode,
+  IsJumping2DNode,
+  IsFalling2DNode,
+  GetCharacterVelocity2DNode,
+  AddCharacterImpulse2DNode,
+  StopMovement2DNode,
+  SetJumpHeight2DNode,
+  SetMaxJumps2DNode,
+  GetJumpsRemaining2DNode,
+  SetGravityMultiplier2DNode,
+  FlipSpriteDirection2DNode,
+  SetAirControl2DNode,
+} from './character2d/Character2DNodes';
+
+// ── Tilemap Nodes ───────────────────────────────────────────
+export {
+  GetTileAtLocationNode,
+  SetTileAtLocationNode,
+  ClearTileAtLocationNode,
+  HasTileAtLocationNode,
+  WorldToTileNode,
+  TileToWorldNode,
+  GetTilemapSizeNode,
+  FillTilesNode,
+  ClearTileLayerNode,
+  RebuildTilemapCollisionNode,
+} from './tilemap/TilemapNodes';
+
+// ── Animation 2D (AnimBP) Nodes ─────────────────────────────
+export {
+  AnimUpdate2DEventNode,
+  GetAnimOwner2DNode,
+  SetState2DNode,
+  GetCurrentState2DNode,
+  StateTransition2DNode,
+  OnStateEnter2DNode,
+  OnStateExit2DNode,
+  SetAnimFloat2DNode,
+  GetAnimFloat2DNode,
+  SetAnimBool2DNode,
+  GetAnimBool2DNode,
+  SetPlaybackSpeed2DNode,
+} from './animation2d/Animation2DNodes';

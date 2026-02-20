@@ -54,6 +54,15 @@ export interface GameObjectJSON {
   controllerBlueprintId?: string;
   /** Gameplay tags */
   tags?: string[];
+  // ── 2D-specific fields ──
+  /** Sorting layer name (for 2D actors) */
+  sortingLayer?: string;
+  /** Order within sorting layer */
+  orderInLayer?: number;
+  /** Sprite sheet asset ID */
+  spriteSheetId?: string;
+  /** Default sprite name */
+  defaultSprite?: string;
 }
 
 export interface CameraStateJSON {
@@ -67,6 +76,10 @@ export interface SceneJSON {
   name: string;
   gameObjects: GameObjectJSON[];
   camera?: CameraStateJSON;
+  /** Scene mode — '2D' or '3D' (default: '3D') */
+  sceneMode?: '2D' | '3D';
+  /** 2D scene configuration (only when sceneMode === '2D') */
+  scene2DConfig?: any;
 }
 
 /** Current scene schema version. Increment when making breaking format changes. */

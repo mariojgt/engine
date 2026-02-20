@@ -1792,6 +1792,18 @@ export class ActorAssetBrowser {
       });
     }
 
+    // ── 2D Assets ──
+    this._addMenuSeparator(menu);
+    const twoDHeader = document.createElement('div');
+    twoDHeader.className = 'context-menu-header';
+    twoDHeader.textContent = '2D ASSETS';
+    menu.appendChild(twoDHeader);
+
+    this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4fc3f7') + ' Sprite Actor', () => this._createNewAsset('spriteActor'));
+    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, '#66bb6a') + ' Character Pawn 2D', () => this._createNewAsset('characterPawn2D'));
+    this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#8d6e63') + ' Tilemap Actor', () => this._createNewAsset('tilemapActor'));
+    this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#7e57c2') + ' Parallax Layer', () => this._createNewAsset('parallaxLayer'));
+
     // ── Import ──
     this._addMenuSeparator(menu);
     const impHeader = document.createElement('div');
@@ -2351,12 +2363,20 @@ export class ActorAssetBrowser {
       characterPawn: 'BP_CharacterPawn',
       playerController: 'BP_PlayerController',
       aiController: 'BP_AIController',
+      spriteActor: 'BP_SpriteActor',
+      characterPawn2D: 'BP_CharacterPawn2D',
+      tilemapActor: 'BP_TilemapActor',
+      parallaxLayer: 'BP_ParallaxLayer',
     };
     const titles: Record<string, string> = {
       actor: 'New Actor Asset',
       characterPawn: 'New Character Pawn',
       playerController: 'New Player Controller',
       aiController: 'New AI Controller',
+      spriteActor: 'New Sprite Actor',
+      characterPawn2D: 'New Character Pawn 2D',
+      tilemapActor: 'New Tilemap Actor',
+      parallaxLayer: 'New Parallax Layer',
     };
     const defaultName = defaultNames[actorType] || 'BP_NewActor';
     const title = titles[actorType] || 'New Actor Asset';

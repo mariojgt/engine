@@ -4,6 +4,8 @@ import type { GameObject } from '../engine/GameObject';
 import type { CameraStateJSON } from './SceneSerializer';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import { DirectionalLightActor } from './scene/SceneActors';
+import type { Camera2D } from '../engine/Camera2D';
+import type { Scene2DManager } from './Scene2DManager';
 
 /* Viewport sub-systems */
 import { ViewportCameraController } from './viewport/ViewportCameraController';
@@ -62,6 +64,10 @@ export class ViewportPanel {
 
   /* Remove old grid created by Scene constructor */
   private _oldGridRemoved = false;
+
+  /* 2D mode state */
+  private _scene2DManager: Scene2DManager | null = null;
+  private _is2DMode = false;
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -649,6 +655,12 @@ export class ViewportPanel {
     const deltaTime = (now - this._lastFrameTime) / 1000;
     this._lastFrameTime = now;
 
+    // 2D mode → render with orthographic Camera2D
+    if (this._is2DMode && this._scene2DManager && !this._playCamera) {
+      this._render2D(deltaTime);
+      return;
+    }
+
     // Play mode → simple render
     if (this._playCamera) {
       if (this._renderer) {
@@ -758,6 +770,7 @@ export class ViewportPanel {
     this._camera.updateProjectionMatrix();
     if (this._renderer) this._renderer.setSize(w, h);
     if (this._selectionManager) this._selectionManager.resize(w, h);
+    if (this._scene2DManager) this._scene2DManager.camera2D.resize(w, h);
   }
 
   /* ====================================================================
@@ -859,6 +872,44 @@ export class ViewportPanel {
     if (this._cameraController) {
       this._cameraController.applyCameraState(state);
     }
+  }
+
+  /* ==================================================================
+   *  2D MODE
+   * ================================================================== */
+
+  /** Switch viewport into or out of 2D mode. */
+  set2DMode(enabled: boolean, scene2DManager?: Scene2DManager): void {
+    this._is2DMode = enabled;
+    this._scene2DManager = enabled && scene2DManager ? scene2DManager : null;
+
+    if (enabled && this._scene2DManager) {
+      // Disable 3D camera controller and gizmo during 2D mode
+      this._cameraController.setEnabled(false);
+      this._gizmo.detach();
+
+      // Resize the 2D camera to match viewport
+      const w = this.container.clientWidth || 800;
+      const h = this.container.clientHeight || 600;
+      this._scene2DManager.camera2D.resize(w, h);
+    } else {
+      // Restore 3D camera controller
+      this._cameraController.setEnabled(true);
+    }
+  }
+
+  /** Render 2D scene using Camera2D orthographic camera */
+  private _render2D(deltaTime: number): void {
+    if (!this._renderer || !this._scene2DManager) return;
+
+    // Update 2D manager (camera follow, physics step, etc.)
+    this._scene2DManager.update(deltaTime);
+
+    // Render with Camera2D's orthographic camera
+    this._renderer.render(
+      this._engine.scene.threeScene,
+      this._scene2DManager.camera2D.camera,
+    );
   }
 
   dispose(): void {

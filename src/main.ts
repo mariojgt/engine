@@ -196,6 +196,19 @@ async function main() {
     sceneNameEl.textContent = `🎬 ${name}`;
   };
 
+  // Listen for 2D/3D scene mode detection on scene load
+  projectManager.onSceneModeDetected = async (mode: '2D' | '3D') => {
+    if (mode === '2D') {
+      await editor.scene2DManager.switchTo2D(engine.scene.threeScene, editorContainer);
+      editor.switchSceneMode('2D');
+      console.log('[Editor] Switched to 2D mode');
+    } else {
+      editor.scene2DManager.switchTo3D(engine.scene.threeScene);
+      editor.switchSceneMode('3D');
+      console.log('[Editor] Switched to 3D mode');
+    }
+  };
+
   // Wire save handler for blueprint editor Compile/Save buttons
   editor.setSaveHandler(async () => {
     if (projectManager.isProjectOpen) {
@@ -244,12 +257,25 @@ async function main() {
   document.getElementById('menu-new-scene')!.addEventListener('click', async () => {
     fileDropdown.classList.remove('show');
     if (!projectManager.isProjectOpen) return;
+
+    // Ask for scene mode (2D or 3D)
+    const sceneMode = await showSceneModeDialog(app);
+    if (!sceneMode) return;
+
     const name = await showSceneNameDialog(app, 'New Scene', 'Enter a name for the new scene:');
     if (!name) return;
-    const ok = await projectManager.createScene(name);
+    const ok = await projectManager.createScene(name, sceneMode as '2D' | '3D');
     if (ok) {
+      // If 2D mode, initialize the Scene2DManager
+      if (sceneMode === '2D') {
+        await editor.scene2DManager.switchTo2D(engine.scene.threeScene, editorContainer);
+        editor.switchSceneMode('2D');
+      } else {
+        editor.scene2DManager.switchTo3D(engine.scene.threeScene);
+        editor.switchSceneMode('3D');
+      }
       updateProjectName();
-      projectNameEl.textContent = `🎬 Scene created!`;
+      projectNameEl.textContent = `🎬 Scene created! (${sceneMode})`;
       setTimeout(updateProjectName, 1500);
     }
   });
@@ -683,6 +709,127 @@ async function main() {
 
 // ============================================================
 //  Scene Name Dialog — prompts user for a scene name
+// ============================================================
+
+// ============================================================
+//  Scene Mode Dialog — ask user for 2D or 3D
+// ============================================================
+
+function showSceneModeDialog(parentEl: HTMLElement): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'scene-dialog-overlay';
+
+    overlay.innerHTML = `
+      <div class="scene-dialog" style="max-width:420px;">
+        <div class="scene-dialog-title">New Scene</div>
+        <label class="scene-dialog-label">Choose scene mode:</label>
+        <div style="display:flex;gap:12px;margin:12px 0;">
+          <button class="scene-dialog-btn confirm mode-btn" data-mode="3D" style="flex:1;padding:18px 0;font-size:16px;">
+            🧊 3D
+          </button>
+          <button class="scene-dialog-btn confirm mode-btn" data-mode="2D" style="flex:1;padding:18px 0;font-size:16px;">
+            🎨 2D
+          </button>
+        </div>
+        <div class="template-section" style="display:none;margin-top:8px;">
+          <label class="scene-dialog-label" style="margin-bottom:6px;">2D Template:</label>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <label class="template-option" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid #333;background:#1a1a2e;">
+              <input type="radio" name="template2d" value="blank" checked style="accent-color:#4fc3f7;" />
+              <div><strong>Blank 2D</strong><br/><span style="color:#888;font-size:11px;">Empty scene with grid</span></div>
+            </label>
+            <label class="template-option" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid #333;background:#1a1a2e;">
+              <input type="radio" name="template2d" value="platformer" style="accent-color:#4fc3f7;" />
+              <div><strong>Platformer</strong><br/><span style="color:#888;font-size:11px;">Side-scroll with gravity &amp; parallax</span></div>
+            </label>
+            <label class="template-option" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid #333;background:#1a1a2e;">
+              <input type="radio" name="template2d" value="topdown" style="accent-color:#4fc3f7;" />
+              <div><strong>Top-Down</strong><br/><span style="color:#888;font-size:11px;">Overhead view, no gravity (RPG/action)</span></div>
+            </label>
+          </div>
+        </div>
+        <div class="scene-dialog-actions">
+          <button class="scene-dialog-btn cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    parentEl.appendChild(overlay);
+
+    const templateSection = overlay.querySelector('.template-section') as HTMLElement;
+    let selectedMode: string | null = null;
+
+    const close = (value: string | null) => {
+      overlay.remove();
+      resolve(value);
+    };
+
+    overlay.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = (btn as HTMLElement).dataset.mode ?? null;
+        if (mode === '2D') {
+          // Show template selection, highlight the button
+          selectedMode = '2D';
+          templateSection.style.display = 'block';
+          overlay.querySelectorAll('.mode-btn').forEach(b => {
+            (b as HTMLElement).style.opacity = b === btn ? '1' : '0.4';
+          });
+        } else {
+          // 3D selected — resolve immediately
+          close('3D');
+        }
+      });
+    });
+
+    // Clicking a template option also confirms 2D choice
+    overlay.querySelectorAll('.template-option').forEach(opt => {
+      opt.addEventListener('dblclick', () => {
+        if (selectedMode === '2D') close('2D');
+      });
+    });
+
+    // Add a "Create" button that appears once 2D is selected
+    const actionsDiv = overlay.querySelector('.scene-dialog-actions')!;
+    const createBtn = document.createElement('button');
+    createBtn.className = 'scene-dialog-btn confirm';
+    createBtn.textContent = 'Create 2D Scene';
+    createBtn.style.display = 'none';
+    actionsDiv.insertBefore(createBtn, actionsDiv.firstChild);
+
+    // Observer: show create button once 2D is selected
+    const observer = new MutationObserver(() => {
+      if (templateSection.style.display !== 'none') {
+        createBtn.style.display = '';
+      }
+    });
+    observer.observe(templateSection, { attributes: true, attributeFilter: ['style'] });
+
+    // Also show it immediately on mode-btn click
+    overlay.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if ((btn as HTMLElement).dataset.mode === '2D') {
+          createBtn.style.display = '';
+        }
+      });
+    });
+
+    createBtn.addEventListener('click', () => close('2D'));
+
+    overlay.querySelector('.cancel')!.addEventListener('click', () => close(null));
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close(null);
+    });
+
+    overlay.addEventListener('keydown', (e: Event) => {
+      if ((e as KeyboardEvent).key === 'Escape') close(null);
+    });
+  });
+}
+
+// ============================================================
+//  Scene Name Dialog — used for New / Duplicate scene
 // ============================================================
 
 function showSceneNameDialog(

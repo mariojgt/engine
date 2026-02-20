@@ -14,7 +14,8 @@ import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig
 import type { ControllerType } from '../engine/Controller';
 
 // ---- Actor type ----
-export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController';
+export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController'
+  | 'spriteActor' | 'characterPawn2D' | 'tilemapActor' | 'parallaxLayer';
 
 // ---- Light component configuration ----
 
@@ -183,7 +184,8 @@ export function defaultPhysicsConfig(): PhysicsConfig {
 export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
-  type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh';
+  type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh'
+    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -213,6 +215,26 @@ export interface ActorComponentData {
   skeletalMesh?: SkeletalMeshConfig;
   /** Per-slot material overrides: maps slot index (as string) → MaterialAssetJSON.assetId */
   materialOverrides?: Record<string, string>;
+  // ── 2D-specific fields ──
+  /** Sprite sheet asset ID (for type='spriteRenderer') */
+  spriteSheetId?: string;
+  /** Default sprite name (for type='spriteRenderer') */
+  defaultSprite?: string;
+  /** Sorting layer name (for 2D actors) */
+  sortingLayer?: string;
+  /** Order within sorting layer */
+  orderInLayer?: number;
+  /** 2D collider shape (for type='collider2d') */
+  collider2dShape?: 'box' | 'circle' | 'capsule';
+  /** 2D collider dimensions */
+  collider2dSize?: { width: number; height: number };
+  collider2dRadius?: number;
+  /** 2D rigid body type (for type='rigidbody2d') */
+  rigidbody2dType?: 'dynamic' | 'static' | 'kinematic';
+  /** Tilemap asset ID (for type='tilemap') */
+  tilemapAssetId?: string;
+  /** Tileset asset ID (for type='tilemap') */
+  tilesetAssetId?: string;
 }
 
 /** Configuration for skeletal mesh components */
@@ -270,6 +292,19 @@ export interface ActorAssetJSON {
   controllerBlueprintId?: string;
   /** Per-slot material overrides for the root mesh: maps slot index (as string) → MaterialAssetJSON.assetId */
   rootMaterialOverrides?: Record<string, string>;
+  // ── 2D-specific fields ──
+  /** Scene mode this actor was designed for */
+  sceneMode?: '2D' | '3D';
+  /** Sprite sheet ID for 2D actors */
+  spriteSheetId?: string;
+  /** Default sprite name for 2D actors */
+  defaultSprite?: string;
+  /** Sorting layer for 2D actors */
+  sortingLayer?: string;
+  /** Order in sorting layer */
+  orderInLayer?: number;
+  /** Character movement 2D configuration */
+  characterMovement2DConfig?: any;
   /** Created timestamp */
   createdAt: number;
   /** Last modified timestamp */

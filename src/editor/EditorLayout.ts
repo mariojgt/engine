@@ -36,6 +36,12 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { ClassHierarchyPanel } from './ClassHierarchyPanel';
 import { InheritanceDialogsUI } from './InheritanceDialogsUI';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
+import { Scene2DManager, type SceneMode } from './Scene2DManager';
+import { SortingLayersPanel } from './SortingLayersPanel';
+import { SpriteSheetEditorPanel } from './SpriteSheetEditorPanel';
+import { SpriteAnimationEditorPanel } from './SpriteAnimationEditorPanel';
+import { TileEditorPanel } from './TileEditorPanel';
+import { CharacterPad2DPanel } from './CharacterPad2DPanel';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -104,6 +110,17 @@ export class EditorLayout {
   /** Inheritance system instance */
   public inheritance: ClassInheritanceSystem;
 
+  /** 2D Scene Manager — orchestrates 2D mode, camera, physics, assets */
+  public scene2DManager: Scene2DManager;
+
+  /* 2D editor panels */
+  private _sortingLayersPanel: SortingLayersPanel | null = null;
+  private _spriteSheetPanel: SpriteSheetEditorPanel | null = null;
+  private _spriteAnimPanel: SpriteAnimationEditorPanel | null = null;
+  private _tileEditorPanel: TileEditorPanel | null = null;
+  private _charPad2DPanel: CharacterPad2DPanel | null = null;
+  private _current2DMode: SceneMode = '3D';
+
   /** Shared actor asset manager — stores all actor blueprints in memory */
   public assetManager: ActorAssetManager;
 
@@ -119,6 +136,9 @@ export class EditorLayout {
     this.inheritance = ClassInheritanceSystem.instance;
     this.inheritance.setActorManager(this.assetManager);
     this.inheritance.setDialogs(new InheritanceDialogsUI());
+
+    // Initialize 2D Scene Manager
+    this.scene2DManager = new Scene2DManager();
 
     // Listen for cross-panel navigation events (fired by editor info bars)
     document.addEventListener('open-actor-editor', ((e: CustomEvent) => {
@@ -1010,4 +1030,158 @@ export class EditorLayout {
   getDockviewApi(): DockviewApi {
     return this._api;
   }
+
+  /* ==================================================================
+   *  2D MODE — panel management & viewport switching
+   * ================================================================== */
+
+  /** Switch between 2D and 3D scene modes. Opens/closes 2D-specific panels. */
+  switchSceneMode(mode: SceneMode): void {
+    if (mode === this._current2DMode) return;
+    this._current2DMode = mode;
+
+    if (mode === '2D') {
+      this._open2DPanels();
+      // Switch viewport to 2D rendering
+      if (this._viewport) {
+        this._viewport.set2DMode(true, this.scene2DManager);
+      }
+      // Update viewport title
+      try {
+        const vp = this._api.getPanel('viewport');
+        if (vp) vp.setTitle('2D Viewport');
+      } catch (_e) {}
+    } else {
+      this._close2DPanels();
+      // Switch viewport back to 3D rendering
+      if (this._viewport) {
+        this._viewport.set2DMode(false);
+      }
+      try {
+        const vp = this._api.getPanel('viewport');
+        if (vp) vp.setTitle('3D Viewport');
+      } catch (_e) {}
+    }
+  }
+
+  /** Open all 2D-specific panels as tabs in the Properties group */
+  private _open2DPanels(): void {
+    // Sorting Layers panel (tab alongside Properties)
+    try {
+      this._api.addPanel({
+        id: 'sorting-layers-2d',
+        title: '🗂 Sorting Layers',
+        component: 'default',
+        position: { referencePanel: 'properties' },
+      });
+      this._initSortingLayersPanel('sorting-layers-2d');
+    } catch (_e) {}
+
+    // Sprite Sheet editor (tab below viewport, in content area)
+    try {
+      this._api.addPanel({
+        id: 'sprite-sheet-editor-2d',
+        title: '🖼 Sprite Sheets',
+        component: 'default',
+        position: { referencePanel: 'asset-browser' },
+      });
+      this._initSpriteSheetPanel('sprite-sheet-editor-2d');
+    } catch (_e) {}
+
+    // Sprite Animation editor (tab alongside sprite sheets)
+    try {
+      this._api.addPanel({
+        id: 'sprite-anim-editor-2d',
+        title: '▷ Sprite Animation',
+        component: 'default',
+        position: { referencePanel: 'sprite-sheet-editor-2d' },
+      });
+      this._initSpriteAnimPanel('sprite-anim-editor-2d');
+    } catch (_e) {}
+
+    // Tile Editor (tab alongside sprite sheets)
+    try {
+      this._api.addPanel({
+        id: 'tile-editor-2d',
+        title: '▦ Tile Editor',
+        component: 'default',
+        position: { referencePanel: 'sprite-sheet-editor-2d' },
+      });
+      this._initTileEditorPanel('tile-editor-2d');
+    } catch (_e) {}
+
+    // Character 2D Pad (tab alongside Properties)
+    try {
+      this._api.addPanel({
+        id: 'character-pad-2d',
+        title: '🏃 Character 2D',
+        component: 'default',
+        position: { referencePanel: 'properties' },
+      });
+      this._initCharacterPad2DPanel('character-pad-2d');
+    } catch (_e) {}
+  }
+
+  /** Close all 2D-specific panels */
+  private _close2DPanels(): void {
+    const ids2D = [
+      'sorting-layers-2d',
+      'sprite-sheet-editor-2d',
+      'sprite-anim-editor-2d',
+      'tile-editor-2d',
+      'character-pad-2d',
+    ];
+    for (const id of ids2D) {
+      try {
+        const panel = this._api.getPanel(id);
+        if (panel) this._api.removePanel(panel);
+      } catch (_e) {}
+    }
+    this._sortingLayersPanel = null;
+    this._spriteSheetPanel = null;
+    this._spriteAnimPanel = null;
+    this._tileEditorPanel = null;
+    this._charPad2DPanel = null;
+  }
+
+  private _initSortingLayersPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._sortingLayersPanel = new SortingLayersPanel(
+      el,
+      this.scene2DManager.sortingLayers,
+    );
+  }
+
+  private _initSpriteSheetPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._spriteSheetPanel = new SpriteSheetEditorPanel(el, this.scene2DManager);
+  }
+
+  private _initSpriteAnimPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._spriteAnimPanel = new SpriteAnimationEditorPanel(el, this.scene2DManager);
+  }
+
+  private _initTileEditorPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._tileEditorPanel = new TileEditorPanel(el, this.scene2DManager);
+  }
+
+  private _initCharacterPad2DPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._charPad2DPanel = new CharacterPad2DPanel(el);
+  }
+
+  /** Get the current scene mode */
+  getSceneMode(): SceneMode { return this._current2DMode; }
 }

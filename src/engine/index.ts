@@ -12,3 +12,12 @@ export { CharacterMovementComponent } from './CharacterMovementComponent';
 export { FloatingPawnMovement, defaultFloatingPawnConfig, type FloatingPawnConfig } from './FloatingPawnMovement';
 export { AnimationInstance } from './AnimationInstance';
 export { UIManager, type RuntimeWidgetBlueprint, type RuntimeWidgetNode } from './UIManager';
+
+// ── 2D Engine Exports ───────────────────────────────────────
+export { Physics2DWorld, type Physics2DSettings, type BodyEntry2D } from './Physics2DWorld';
+export { Camera2D, type Camera2DSettings } from './Camera2D';
+export { SpriteRenderer, SpriteAnimator, type SpriteSheetAsset, type SpriteData, type SpriteAnimationDef, type SpriteAnimEvent } from './SpriteRenderer';
+export { CharacterMovement2D, type CharacterMovement2DProperties } from './CharacterMovement2D';
+export { SortingLayerManager, DEFAULT_SORTING_LAYERS, type SortingLayerData } from './SortingLayers';
+export { TilemapCollisionBuilder, type TilesetAsset, type TilemapAsset, type TilemapLayer } from './TilemapData';
+export { SpriteActor, type SpriteActorConfig } from './SpriteActor';

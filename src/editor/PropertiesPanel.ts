@@ -754,6 +754,64 @@ export class PropertiesPanel {
 
     // ---- Visual Material Assignment ----
     this._bodyEl.appendChild(this._buildMaterialSection(go));
+
+    // ---- 2D Sprite Properties (shown when actorType is a 2D type) ----
+    const actorType = (go as any).actorType as string | undefined;
+    const is2D = actorType === 'spriteActor' || actorType === 'characterPawn2D'
+      || actorType === 'tilemapActor' || actorType === 'parallaxLayer'
+      || go.mesh?.userData?.__is2D;
+
+    if (is2D) {
+      this._bodyEl.appendChild(this._build2DPropertiesSection(go));
+    }
+  }
+
+  /** Build 2D-specific properties for sprite actors */
+  private _build2DPropertiesSection(go: GameObject): HTMLElement {
+    const container = document.createElement('div');
+    const ud = go.mesh?.userData ?? {};
+
+    // Sprite section
+    const spriteRows: HTMLElement[] = [];
+    spriteRows.push(this._createTextRow('Sorting Layer', ud.__sortingLayer ?? 'Default', (v) => {
+      if (go.mesh) go.mesh.userData.__sortingLayer = v;
+    }));
+    spriteRows.push(this._createNumberRow('Order in Layer', ud.__orderInLayer ?? 0, -1000, 1000, 1, (v) => {
+      if (go.mesh) go.mesh.userData.__orderInLayer = v;
+    }));
+    spriteRows.push(this._createCheckboxRow('Flip X', ud.__flipX ?? false, (v) => {
+      if (go.mesh) go.mesh.userData.__flipX = v;
+    }));
+    spriteRows.push(this._createCheckboxRow('Flip Y', ud.__flipY ?? false, (v) => {
+      if (go.mesh) go.mesh.userData.__flipY = v;
+    }));
+    container.appendChild(this._createGroup('Sprite 2D', spriteRows));
+
+    // 2D Physics section
+    const phys2DRows: HTMLElement[] = [];
+    phys2DRows.push(this._createSelectRow('Body Type 2D', ud.__bodyType2D ?? 'Dynamic', [
+      { label: 'Dynamic', value: 'Dynamic' },
+      { label: 'Static', value: 'Static' },
+      { label: 'Kinematic', value: 'Kinematic' },
+    ], (v: string) => {
+      if (go.mesh) go.mesh.userData.__bodyType2D = v;
+    }));
+    phys2DRows.push(this._createSelectRow('Collider 2D', ud.__collider2DShape ?? 'Box', [
+      { label: 'Box', value: 'Box' },
+      { label: 'Circle', value: 'Circle' },
+      { label: 'Capsule', value: 'Capsule' },
+    ], (v: string) => {
+      if (go.mesh) go.mesh.userData.__collider2DShape = v;
+    }));
+    phys2DRows.push(this._createNumberRow('Gravity Scale 2D', ud.__gravityScale2D ?? 1, -10, 10, 0.1, (v) => {
+      if (go.mesh) go.mesh.userData.__gravityScale2D = v;
+    }));
+    phys2DRows.push(this._createCheckboxRow('Lock Rotation 2D', ud.__lockRotation2D ?? false, (v) => {
+      if (go.mesh) go.mesh.userData.__lockRotation2D = v;
+    }));
+    container.appendChild(this._createGroup('Physics 2D', phys2DRows));
+
+    return container;
   }
 
   /** Build visual material assignment section for a game object */

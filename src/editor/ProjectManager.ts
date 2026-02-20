@@ -117,6 +117,8 @@ export class ProjectManager {
   public applyCameraState: ((state: CameraStateJSON) => void) | null = null;
   /** Callback fired when the active scene changes (name) */
   public onSceneChanged: ((sceneName: string) => void) | null = null;
+  /** Callback fired when a scene's mode is known after loading */
+  public onSceneModeDetected: ((mode: '2D' | '3D') => void) | null = null;
 
   get isProjectOpen(): boolean {
     return this._projectPath !== null;
@@ -493,6 +495,10 @@ export class ProjectManager {
 
     deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
     console.log(`[ProjectManager] Scene deserialized — engine now has ${this._engine.scene.gameObjects.length} game objects`);
+
+    // Notify scene mode (2D or 3D)
+    const mode = sceneData.sceneMode ?? '3D';
+    this.onSceneModeDetected?.(mode);
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {
@@ -1391,7 +1397,7 @@ export class ProjectManager {
    * Saves the current scene first so nothing is lost.
    * Returns true on success.
    */
-  async createScene(name: string): Promise<boolean> {
+  async createScene(name: string, sceneMode: '2D' | '3D' = '3D'): Promise<boolean> {
     if (!this._projectPath || !this._meta) return false;
 
     // Sanitise scene name
@@ -1414,6 +1420,7 @@ export class ProjectManager {
       const newScene: SceneJSON = {
         name: safeName,
         gameObjects: [],
+        sceneMode,
       };
       await fsWrite(filePath, JSON.stringify(newScene, null, 2));
 

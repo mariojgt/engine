@@ -14,10 +14,12 @@ import { UIManager } from './UIManager';
 import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
 import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { GameInstance } from './GameInstance';
+import type { Physics2DWorld } from './Physics2DWorld';
 
 export class Engine {
   public scene: Scene;
   public physics: PhysicsWorld;
+  public physics2D: Physics2DWorld | null = null;
   public input: InputManager;
   public characterControllers: CharacterControllerManager = new CharacterControllerManager();
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
