@@ -14,7 +14,10 @@ export const DEFAULT_SORTING_LAYERS: SortingLayerData[] = [
   { name: 'Ground', z: 10, visible: true, locked: false },
   { name: 'Default', z: 20, visible: true, locked: false },
   { name: 'Characters', z: 30, visible: true, locked: false },
+  { name: 'Projectiles', z: 40, visible: true, locked: false },
+  { name: 'Effects', z: 50, visible: true, locked: false },
   { name: 'UI', z: 90, visible: true, locked: false },
+  { name: 'Overlay', z: 100, visible: true, locked: false },
 ];
 
 export class SortingLayerManager {

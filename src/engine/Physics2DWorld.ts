@@ -88,22 +88,86 @@ export class Physics2DWorld {
       actor.group.position.x = pos.x;
       actor.group.position.y = pos.y;
       actor.group.rotation.z = rigidBody.rotation();
-      // Also update transform2D if present
+      // Update transform2D if present
       if (actor.transform2D) {
         actor.transform2D.position.x = pos.x;
         actor.transform2D.position.y = pos.y;
-        actor.transform2D.rotation = rigidBody.rotation();
+        actor.transform2D.rotation = rigidBody.rotation() * (180 / Math.PI);
+      }
+      // Update ground check for RigidBody2D components
+      if (actor.getComponent) {
+        const rb2dComp = actor.getComponent('RigidBody2D');
+        if (rb2dComp) {
+          rb2dComp._isGroundedByPhysics = this._checkActorGrounded(rigidBody);
+          rb2dComp.isGrounded = rb2dComp._isGroundedByPhysics;
+        }
       }
     });
   }
 
+  /** Check if a body is grounded by casting a short ray downward */
+  private _checkActorGrounded(rigidBody: any): boolean {
+    if (!this.world || !this._rapier) return false;
+    const pos = rigidBody.translation();
+    // Cast a very short ray downward from the body's position
+    const origin = new this._rapier.Vector2(pos.x, pos.y);
+    const dir = new this._rapier.Vector2(0, -1);
+    const ray = new this._rapier.Ray(origin, dir);
+    const maxToi = 0.15; // small distance below feet
+    const hit = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, rigidBody);
+    return hit !== null;
+  }
+
   processEvents(): void {
     if (!this.eventQueue) return;
+
     this.eventQueue.drainCollisionEvents((handle1: number, handle2: number, started: boolean) => {
-      // TODO: dispatch overlap/hit events to actors
+      // Resolve collider handles to actors
+      const collider1 = this.world?.getCollider(handle1);
+      const collider2 = this.world?.getCollider(handle2);
+      if (!collider1 || !collider2) return;
+
+      const rb1 = collider1.parent();
+      const rb2 = collider2.parent();
+      if (!rb1 || !rb2) return;
+
+      const entry1 = this.bodyMap.get(rb1.handle);
+      const entry2 = this.bodyMap.get(rb2.handle);
+
+      const isTrigger1 = collider1.isSensor();
+      const isTrigger2 = collider2.isSensor();
+      const isTrigger = isTrigger1 || isTrigger2;
+
+      if (entry1?.actor?.emit && entry2?.actor) {
+        const eventType = isTrigger
+          ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
+          : (started ? 'collisionBegin2D' : 'collisionEnd2D');
+        entry1.actor.emit(eventType, { otherActor: entry2.actor, otherName: entry2.actor.name });
+      }
+      if (entry2?.actor?.emit && entry1?.actor) {
+        const eventType = isTrigger
+          ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
+          : (started ? 'collisionBegin2D' : 'collisionEnd2D');
+        entry2.actor.emit(eventType, { otherActor: entry1.actor, otherName: entry1.actor.name });
+      }
     });
-    this.eventQueue.drainContactForceEvents((_event: any) => {
-      // TODO: dispatch contact force events
+
+    this.eventQueue.drainContactForceEvents((event: any) => {
+      // Contact force events — dispatch to actors for damage/impact calculations
+      const collider1 = this.world?.getCollider(event.collider1());
+      const collider2 = this.world?.getCollider(event.collider2());
+      if (!collider1 || !collider2) return;
+      const rb1 = collider1.parent();
+      const rb2 = collider2.parent();
+      if (!rb1 || !rb2) return;
+      const entry1 = this.bodyMap.get(rb1.handle);
+      const entry2 = this.bodyMap.get(rb2.handle);
+      if (entry1?.actor?.emit) {
+        entry1.actor.emit('contactForce2D', { otherActor: entry2?.actor, maxForce: event.maxForceMagnitude() });
+      }
+      if (entry2?.actor?.emit) {
+        entry2.actor.emit('contactForce2D', { otherActor: entry1?.actor, maxForce: event.maxForceMagnitude() });
+      }
     });
   }
 
@@ -127,7 +191,7 @@ export class Physics2DWorld {
     const rigidBody = this.world.createRigidBody(rbDesc);
 
     if (options.freezeRotation) {
-      rigidBody.setEnabledRotations(false, true);
+      rigidBody.lockRotations(true, true);
     }
 
     const entry: BodyEntry2D = { rigidBody, actor, colliders: [] };
@@ -243,16 +307,27 @@ export class Physics2DWorld {
     if (maxToi < 0.0001) return { hit: false };
     const dir = new this._rapier.Vector2(dx / maxToi, dy / maxToi);
     const ray = new this._rapier.Ray(origin, dir);
+
+    // castRay returns { collider, toi } or null
     const hit = this.world.castRay(ray, maxToi, true);
     if (hit) {
-      const point = ray.pointAt(hit.timeOfImpact);
-      const normal = hit.normal;
+      const toi = hit.toi;
+      const hitPoint = { x: startX + dir.x * toi, y: startY + dir.y * toi };
+      // Get the normal at the hit point
+      const hitCollider = hit.collider;
+      let normal = { x: 0, y: 1 };
+      if (hitCollider) {
+        const normalResult = hitCollider.castRayAndGetNormal(ray, maxToi, true);
+        if (normalResult && normalResult.normal) {
+          normal = { x: normalResult.normal.x, y: normalResult.normal.y };
+        }
+      }
       return {
         hit: true,
-        point: { x: point.x, y: point.y },
-        normal: normal ? { x: normal.x, y: normal.y } : { x: 0, y: 1 },
-        distance: hit.timeOfImpact,
-        handle: hit.collider?.handle,
+        point: hitPoint,
+        normal,
+        distance: toi,
+        handle: hitCollider?.handle,
       };
     }
     return { hit: false };

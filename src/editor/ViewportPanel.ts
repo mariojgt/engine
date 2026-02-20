@@ -6,6 +6,7 @@ import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import { DirectionalLightActor } from './scene/SceneActors';
 import type { Camera2D } from '../engine/Camera2D';
 import type { Scene2DManager } from './Scene2DManager';
+import type { TileEditorPanel, TileTool } from './TileEditorPanel';
 
 /* Viewport sub-systems */
 import { ViewportCameraController } from './viewport/ViewportCameraController';
@@ -68,6 +69,12 @@ export class ViewportPanel {
   /* 2D mode state */
   private _scene2DManager: Scene2DManager | null = null;
   private _is2DMode = false;
+
+  /* Tile painting state */
+  private _tileEditorPanel: TileEditorPanel | null = null;
+  private _isTilePainting = false;
+  private _tilePaintMouseDown = false;
+  private _tilePaintStartWorld: { x: number; y: number } | null = null;
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -307,6 +314,20 @@ export class ViewportPanel {
     // Hide context menu on any click
     this._contextMenu.hide();
 
+    // ── 2D Tile painting mode ──
+    if (this._is2DMode && this._tileEditorPanel && e.button === 0 && !e.altKey) {
+      const tool = this._tileEditorPanel.activeTool;
+      if (tool === 'paint' || tool === 'erase' || tool === 'fill' || tool === 'line' || tool === 'rect' || tool === 'pick') {
+        this._tilePaintMouseDown = true;
+        this._isTilePainting = true;
+        console.log('[Viewport] Tile paint mousedown — tool=%s', tool);
+        this._handleTilePaintEvent(e, tool);
+        return;
+      }
+    } else if (e.button === 0 && !e.altKey) {
+      console.log('[Viewport] Left-click NOT entering tile paint — is2D=%s panel=%s', this._is2DMode, !!this._tileEditorPanel);
+    }
+
     // ── Route through the input state machine ──
     // The InputManager determines whether this event should go to the
     // gizmo, camera, or selection system — they are mutually exclusive.
@@ -326,12 +347,33 @@ export class ViewportPanel {
   private _onMouseMove(e: MouseEvent): void {
     if (this._playCamera) return;
 
+    // ── 2D Tile painting continuous stroke ──
+    if (this._tilePaintMouseDown && this._tileEditorPanel && this._is2DMode) {
+      const tool = this._tileEditorPanel.activeTool;
+      if (tool === 'paint' || tool === 'erase') {
+        this._handleTilePaintEvent(e, tool);
+        return;
+      }
+    }
+
     // ── Route through the input state machine ──
     this._inputManager.onPointerMove(e);
   }
 
   private _onMouseUp(e: MouseEvent): void {
     if (this._playCamera) return;
+
+    // ── End tile painting ──
+    if (this._tilePaintMouseDown) {
+      // For rect/line tools, apply the operation on mouse-up
+      this._finishTilePaintGesture(e);
+      this._tilePaintMouseDown = false;
+      this._isTilePainting = false;
+      // Let the InputManager know the pointer is up so it doesn't
+      // get stuck in a stale dragging state
+      this._inputManager.onPointerUp(e);
+      return;
+    }
 
     // Right-click with no drag → show context menu
     if (e.button === 2 && this._wasNavigating) {
@@ -770,7 +812,7 @@ export class ViewportPanel {
     this._camera.updateProjectionMatrix();
     if (this._renderer) this._renderer.setSize(w, h);
     if (this._selectionManager) this._selectionManager.resize(w, h);
-    if (this._scene2DManager) this._scene2DManager.camera2D.resize(w, h);
+    if (this._scene2DManager?.camera2D) this._scene2DManager.camera2D.resize(w, h);
   }
 
   /* ====================================================================
@@ -888,28 +930,124 @@ export class ViewportPanel {
       this._cameraController.setEnabled(false);
       this._gizmo.detach();
 
+      // Point Camera2D coordinate conversion at the viewport canvas
+      if (this._renderer && this._scene2DManager.camera2D) {
+        this._scene2DManager.camera2D.setReferenceElement(this._renderer.domElement);
+      }
+
       // Resize the 2D camera to match viewport
       const w = this.container.clientWidth || 800;
       const h = this.container.clientHeight || 600;
-      this._scene2DManager.camera2D.resize(w, h);
+      this._scene2DManager.camera2D?.resize(w, h);
     } else {
       // Restore 3D camera controller
       this._cameraController.setEnabled(true);
     }
   }
 
+  /** Set the tile editor panel for 2D tile painting integration */
+  setTileEditorPanel(panel: TileEditorPanel | null): void {
+    this._tileEditorPanel = panel;
+  }
+
+  /** Convert a mouse event to 2D world coordinates */
+  private _screenToWorld2D(e: MouseEvent): { x: number; y: number } {
+    const cam = this._scene2DManager!.camera2D!.camera;
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+
+    const rect = this._renderer!.domElement.getBoundingClientRect();
+    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    const v = new THREE.Vector3(ndcX, ndcY, 0);
+    v.unproject(cam);
+    return { x: v.x, y: v.y };
+  }
+
+  /** Convert a mouse event to 2D world coordinates and invoke the tile tool */
+  private _handleTilePaintEvent(e: MouseEvent, tool: TileTool): void {
+    if (!this._scene2DManager?.camera2D || !this._tileEditorPanel || !this._renderer) {
+      console.warn('[TilePaint] Aborted: scene2D=%s camera2D=%s panel=%s renderer=%s',
+        !!this._scene2DManager, !!this._scene2DManager?.camera2D, !!this._tileEditorPanel, !!this._renderer);
+      return;
+    }
+
+    const worldPos = this._screenToWorld2D(e);
+    console.log(`[TilePaint] tool=${tool} world=(${worldPos.x.toFixed(3)}, ${worldPos.y.toFixed(3)})`);
+
+    switch (tool) {
+      case 'paint':
+      case 'erase':
+        this._tileEditorPanel.paintAt(worldPos.x, worldPos.y);
+        break;
+      case 'fill':
+        this._tileEditorPanel.fillAt(worldPos.x, worldPos.y);
+        break;
+      case 'rect':
+      case 'line':
+        // Store start position on mousedown; the operation is applied on mouseup
+        if (!this._tilePaintStartWorld) {
+          this._tilePaintStartWorld = worldPos;
+        }
+        break;
+      case 'pick':
+        this._tileEditorPanel.pickAt(worldPos.x, worldPos.y);
+        break;
+    }
+  }
+
+  /** Finish a rect/line tile gesture on mouse-up */
+  private _finishTilePaintGesture(e: MouseEvent): void {
+    if (!this._tilePaintStartWorld || !this._scene2DManager?.camera2D || !this._tileEditorPanel || !this._renderer) {
+      this._tilePaintStartWorld = null;
+      return;
+    }
+
+    const endWorld = this._screenToWorld2D(e);
+    const tool = this._tileEditorPanel.activeTool;
+
+    if (tool === 'rect') {
+      this._tileEditorPanel.paintRect(
+        this._tilePaintStartWorld.x, this._tilePaintStartWorld.y,
+        endWorld.x, endWorld.y,
+      );
+    } else if (tool === 'line') {
+      this._tileEditorPanel.paintLine(
+        this._tilePaintStartWorld.x, this._tilePaintStartWorld.y,
+        endWorld.x, endWorld.y,
+      );
+    }
+
+    this._tilePaintStartWorld = null;
+  }
+
   /** Render 2D scene using Camera2D orthographic camera */
   private _render2D(deltaTime: number): void {
-    if (!this._renderer || !this._scene2DManager) return;
+    if (!this._renderer || !this._scene2DManager || !this._scene2DManager.camera2D) return;
 
     // Update 2D manager (camera follow, physics step, etc.)
     this._scene2DManager.update(deltaTime);
+
+    // Disable 3D post-processing effects for flat 2D tile rendering
+    const savedToneMapping = this._renderer.toneMapping;
+    const savedExposure = this._renderer.toneMappingExposure;
+    const savedColorSpace = this._renderer.outputColorSpace;
+    this._renderer.toneMapping = THREE.NoToneMapping;
+    this._renderer.toneMappingExposure = 1.0;
+    // 2D mode renders directly (no EffectComposer / GammaCorrectionShader),
+    // so the renderer must encode sRGB itself — otherwise tiles appear too dark.
+    this._renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     // Render with Camera2D's orthographic camera
     this._renderer.render(
       this._engine.scene.threeScene,
       this._scene2DManager.camera2D.camera,
     );
+
+    // Restore 3D settings
+    this._renderer.toneMapping = savedToneMapping;
+    this._renderer.toneMappingExposure = savedExposure;
+    this._renderer.outputColorSpace = savedColorSpace;
   }
 
   dispose(): void {

@@ -58,14 +58,25 @@ export class SpriteActor {
   public scripts: any[] = [];
   public tags: string[] = [];
   public visible: boolean = true;
+  public pixelsPerUnit = 100;
 
   // Physics2DWorld syncToThreeJS expects actor.group
   public group: THREE.Group;
 
-  // Transform shorthand
-  private _position = { x: 0, y: 0 };
-  private _rotation = 0; // degrees
-  private _scale = { x: 1, y: 1 };
+  // transform2D — used by Camera2D follow system and scene serialization
+  public transform2D = {
+    position: { x: 0, y: 0 },
+    rotation: 0,
+    scale: { x: 1, y: 1 },
+    sortingLayer: 'Default',
+    orderInLayer: 0,
+  };
+
+  // Component-style access map for inter-component lookups
+  private _components = new Map<string, any>();
+
+  // Event emitter — used by SpriteAnimator frame events
+  private _eventListeners = new Map<string, Set<(...args: any[]) => void>>();
 
   constructor(config: SpriteActorConfig) {
     this.name = config.name;
@@ -85,51 +96,93 @@ export class SpriteActor {
     this.mesh.name = config.name;
     this.group.add(this.mesh);
 
+    // Register sprite renderer as a component
+    this._components.set('SpriteRenderer', this.spriteRenderer);
+
     // Apply initial transform
     if (config.position) {
-      this._position = { ...config.position };
+      this.transform2D.position = { ...config.position };
       this.group.position.set(config.position.x, config.position.y, 0);
     }
     if (config.scale) {
-      this._scale = { ...config.scale };
+      this.transform2D.scale = { ...config.scale };
       this.group.scale.set(config.scale.x, config.scale.y, 1);
     }
     if (config.rotation !== undefined) {
-      this._rotation = config.rotation;
+      this.transform2D.rotation = config.rotation;
       this.group.rotation.z = (config.rotation * Math.PI) / 180;
+    }
+
+    this.transform2D.sortingLayer = this.sortingLayer;
+    this.transform2D.orderInLayer = this.orderInLayer;
+  }
+
+  // ---- Component access (used by CharacterMovement2D, SpriteAnimator, etc.) ----
+
+  getComponent(name: string): any {
+    return this._components.get(name) ?? null;
+  }
+
+  setComponent(name: string, component: any): void {
+    this._components.set(name, component);
+  }
+
+  // ---- Event emitter (used by SpriteAnimator frame events) ----
+
+  on(event: string, cb: (...args: any[]) => void): void {
+    if (!this._eventListeners.has(event)) this._eventListeners.set(event, new Set());
+    this._eventListeners.get(event)!.add(cb);
+  }
+
+  off(event: string, cb: (...args: any[]) => void): void {
+    this._eventListeners.get(event)?.delete(cb);
+  }
+
+  emit(event: string, ...args: any[]): void {
+    const listeners = this._eventListeners.get(event);
+    if (listeners) {
+      for (const cb of listeners) cb(...args);
     }
   }
 
-  // ---- Position ----
-  get x(): number { return this._position.x; }
-  set x(v: number) { this._position.x = v; this.mesh.position.x = v; }
+  // ---- Position (updates group, NOT mesh — mesh is child of group) ----
+  get x(): number { return this.transform2D.position.x; }
+  set x(v: number) {
+    this.transform2D.position.x = v;
+    this.group.position.x = v;
+  }
 
-  get y(): number { return this._position.y; }
-  set y(v: number) { this._position.y = v; this.mesh.position.y = v; }
+  get y(): number { return this.transform2D.position.y; }
+  set y(v: number) {
+    this.transform2D.position.y = v;
+    this.group.position.y = v;
+  }
 
   setPosition(x: number, y: number): void {
-    this.x = x;
-    this.y = y;
+    this.transform2D.position.x = x;
+    this.transform2D.position.y = y;
+    this.group.position.set(x, y, this.group.position.z);
   }
 
   // ---- Rotation ----
-  get rotation(): number { return this._rotation; }
+  get rotation(): number { return this.transform2D.rotation; }
   set rotation(deg: number) {
-    this._rotation = deg;
-    this.mesh.rotation.z = (deg * Math.PI) / 180;
+    this.transform2D.rotation = deg;
+    this.group.rotation.z = (deg * Math.PI) / 180;
   }
 
   // ---- Scale ----
-  get scaleX(): number { return this._scale.x; }
-  set scaleX(v: number) { this._scale.x = v; this.mesh.scale.x = v; }
+  get scaleX(): number { return this.transform2D.scale.x; }
+  set scaleX(v: number) { this.transform2D.scale.x = v; this.group.scale.x = v; }
 
-  get scaleY(): number { return this._scale.y; }
-  set scaleY(v: number) { this._scale.y = v; this.mesh.scale.y = v; }
+  get scaleY(): number { return this.transform2D.scale.y; }
+  set scaleY(v: number) { this.transform2D.scale.y = v; this.group.scale.y = v; }
 
   // ---- Sprite Sheet ----
 
   setSpriteSheet(sheet: SpriteSheetAsset): void {
     this.spriteRenderer.spriteSheet = sheet;
+    this.spriteRenderer.pixelsPerUnit = this.pixelsPerUnit;
     if (sheet.texture) {
       this.spriteRenderer.setTexture(sheet.texture);
     }
@@ -148,9 +201,18 @@ export class SpriteActor {
   initAnimator(animations: SpriteAnimationDef[], defaultAnim?: string): void {
     if (!this.spriteRenderer) return;
     this.animator = new SpriteAnimator(this.spriteRenderer);
+    this._components.set('SpriteAnimator', this.animator);
     if (this.spriteRenderer.spriteSheet) {
       this.animator.setSpriteSheet(this.spriteRenderer.spriteSheet);
     }
+    // Wire animation events to the actor event emitter
+    this.animator.onAnimEvent((eventName: string) => {
+      this.emit('animEvent_' + eventName);
+    });
+    this.animator.onAnimFinished((animName: string) => {
+      this.emit('animFinished_' + animName);
+      this.emit('animFinished');
+    });
     if (defaultAnim) {
       this.animator.play(defaultAnim);
     }
@@ -171,7 +233,7 @@ export class SpriteActor {
   attachPhysicsBody(physics: Physics2DWorld, config: SpriteActorConfig): void {
     if (!config.physicsBodyType) return;
 
-    const pos = this._position;
+    const pos = this.transform2D.position;
     const bodyType = config.physicsBodyType;
 
     let rigidBody: any;
@@ -200,6 +262,21 @@ export class SpriteActor {
     }
 
     this.physicsBody = physics.bodyMap.get(rigidBody.handle) ?? null;
+
+    // Register as a component so CharacterMovement2D can find it via getComponent('RigidBody2D')
+    if (this.physicsBody) {
+      this._components.set('RigidBody2D', {
+        rigidBody,
+        isGrounded: false,
+        _groundCheckTimer: 0,
+        // Sync position back to Rapier (used when setting position programmatically)
+        syncToRapier: () => {
+          if (rigidBody) {
+            rigidBody.setTranslation({ x: this.transform2D.position.x, y: this.transform2D.position.y }, true);
+          }
+        },
+      });
+    }
   }
 
   // ---- Per-frame sync ----
@@ -209,21 +286,58 @@ export class SpriteActor {
     const rb = this.physicsBody.rigidBody;
     if (!rb) return;
     const t = rb.translation();
-    this._position.x = t.x;
-    this._position.y = t.y;
-    this.mesh.position.x = t.x;
-    this.mesh.position.y = t.y;
-    this._rotation = rb.rotation() * (180 / Math.PI);
-    this.mesh.rotation.z = rb.rotation();
+    // Update transform2D (canonical source of truth)
+    this.transform2D.position.x = t.x;
+    this.transform2D.position.y = t.y;
+    this.transform2D.rotation = rb.rotation() * (180 / Math.PI);
+    // Update group (Three.js visual)
+    this.group.position.x = t.x;
+    this.group.position.y = t.y;
+    this.group.rotation.z = rb.rotation();
   }
 
   update(deltaTime: number): void {
     // Sync physics → transform
     this.syncFromPhysics();
-    // Update animation
+
+    // Update ground check for RigidBody2D component
+    this._updateGroundCheck();
+
+    // Update character movement
+    if (this.characterMovement2D) {
+      this.characterMovement2D.update(deltaTime);
+    }
+
+    // Sync auto-variables from physics to animation
     if (this.animator) {
+      this.animator.syncAutoVariables(this);
       this.animator.update(deltaTime);
     }
+  }
+
+  /** Raycast downward to check if character is standing on ground */
+  private _updateGroundCheck(): void {
+    const rb2dComp = this._components.get('RigidBody2D');
+    if (!rb2dComp?.rigidBody) return;
+
+    // Simple ground check: cast a short ray downward from the actor's position
+    const pos = rb2dComp.rigidBody.translation();
+    const colliders = this.physicsBody?.colliders;
+    if (!colliders || colliders.length === 0) return;
+
+    // Get the bottom of the collider (approximate)
+    const halfH = 0.05; // small raycast distance below feet
+    // Use the physics world's ground check if available
+    rb2dComp.isGrounded = this._checkGroundedViaContacts(rb2dComp.rigidBody);
+  }
+
+  /** Check if any contact normal points upward (ground contact) */
+  private _checkGroundedViaContacts(rigidBody: any): boolean {
+    // Iterate over contact pairs — if any contact normal has Y > 0.5, we're grounded
+    // This is a simplified check; a proper implementation would use the physics world
+    // For now, we rely on the physics world's contact iteration
+    const rb2dComp = this._components.get('RigidBody2D');
+    return rb2dComp?._isGroundedByPhysics ?? false;
   }
 
   // ---- Serialization ----
@@ -235,12 +349,14 @@ export class SpriteActor {
       actorType: this.actorType,
       sortingLayer: this.sortingLayer,
       orderInLayer: this.orderInLayer,
-      position: { ...this._position },
-      scale: { ...this._scale },
-      rotation: this._rotation,
+      position: { ...this.transform2D.position },
+      scale: { ...this.transform2D.scale },
+      rotation: this.transform2D.rotation,
       visible: this.visible,
       blueprintId: this.blueprintId,
       animBlueprintId: this.animBlueprintId,
+      pixelsPerUnit: this.pixelsPerUnit,
+      spriteSheetId: this.spriteRenderer.spriteSheet?.assetId ?? null,
       tags: [...this.tags],
     };
   }
@@ -255,6 +371,8 @@ export class SpriteActor {
     this.animator = null;
     this.physicsBody = null;
     this.characterMovement2D = null;
+    this._components.clear();
+    this._eventListeners.clear();
     this.scripts = [];
   }
 }

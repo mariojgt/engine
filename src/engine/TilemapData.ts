@@ -16,6 +16,8 @@ export interface TilesetAsset {
   pixelsPerUnit: number;
   tiles: TileDefData[];
   image?: HTMLImageElement;
+  /** Base-64 data URL of the source image — persisted so tilesets survive save/load */
+  imageDataUrl?: string;
 }
 
 export interface TileDefData {
@@ -59,6 +61,43 @@ export function createDefaultTilemap(name: string, tilesetId: string): TilemapAs
   };
 }
 
+/**
+ * Create a TilesetAsset from an already-loaded HTMLImageElement.
+ * Generates TileDefData entries for every tile in the grid.
+ */
+export function createTilesetFromImage(
+  name: string,
+  image: HTMLImageElement,
+  tileWidth: number,
+  tileHeight: number,
+  ppu = 100,
+): TilesetAsset {
+  const columns = Math.floor(image.naturalWidth / tileWidth);
+  const rows = Math.floor(image.naturalHeight / tileHeight);
+  const totalTiles = columns * rows;
+
+  const tiles: TileDefData[] = [];
+  for (let i = 0; i < totalTiles; i++) {
+    tiles.push({ tileId: i, tags: [], collision: 'none' });
+  }
+
+  return {
+    assetId: `tileset-${Date.now().toString(36)}`,
+    assetType: 'tileset',
+    assetName: name,
+    sourceTexture: name,
+    textureWidth: image.naturalWidth,
+    textureHeight: image.naturalHeight,
+    tileWidth,
+    tileHeight,
+    columns,
+    rows,
+    pixelsPerUnit: ppu,
+    tiles,
+    image,
+  };
+}
+
 // ============================================================
 //  TilemapCollisionBuilder — Greedy rect merge for fewest
 //  possible Rapier2D static bodies.
@@ -99,7 +138,7 @@ export class TilemapCollisionBuilder {
     for (const key of Object.keys(tiles)) {
       const [x, y] = key.split(',').map(Number);
       const tileId = tiles[key];
-      const tileDef = tileset.tiles[tileId];
+      const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
       if (!tileDef || tileDef.collision === 'none') continue;
       const idx = (y - minY) * w + (x - minX);
       solid[idx] = true;

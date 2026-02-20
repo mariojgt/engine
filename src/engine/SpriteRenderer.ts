@@ -30,6 +30,8 @@ export interface SpriteSheetAsset {
   // Runtime loaded texture
   image?: HTMLImageElement;
   texture?: THREE.Texture;
+  /** Base-64 data URL of the source image — persisted so sprite sheets survive save/load */
+  imageDataUrl?: string;
 }
 
 export interface SpriteAnimationDef {

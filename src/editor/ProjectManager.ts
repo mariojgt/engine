@@ -118,7 +118,13 @@ export class ProjectManager {
   /** Callback fired when the active scene changes (name) */
   public onSceneChanged: ((sceneName: string) => void) | null = null;
   /** Callback fired when a scene's mode is known after loading */
-  public onSceneModeDetected: ((mode: '2D' | '3D') => void) | null = null;
+  public onSceneModeDetected: ((mode: '2D' | '3D') => void | Promise<void>) | null = null;
+  /** Callback to obtain the current scene mode from the editor */
+  public getSceneMode: (() => '2D' | '3D') | null = null;
+  /** Callback to obtain serialized 2D scene data (tilemaps, tilesets, config) */
+  public getScene2DData: (() => any) | null = null;
+  /** Callback to restore 2D scene data after deserialization */
+  public setScene2DData: ((data: any) => void) | null = null;
 
   get isProjectOpen(): boolean {
     return this._projectPath !== null;
@@ -465,9 +471,21 @@ export class ProjectManager {
       camera,
     );
 
+    // Persist 2D/3D scene mode so it survives save/load
+    const currentMode = this.getSceneMode?.() ?? '3D';
+    sceneData.sceneMode = currentMode;
+
+    // Persist 2D scene data (tilemaps, tilesets, sprite sheets, config)
+    if (currentMode === '2D') {
+      const scene2DData = this.getScene2DData?.();
+      if (scene2DData) {
+        sceneData.scene2DConfig = scene2DData;
+      }
+    }
+
     const scenePath = `${this._projectPath}/${SCENES_DIR}/${sceneName}.json`;
     const json = JSON.stringify(sceneData, null, 2);
-    console.log(`[ProjectManager]   ✓ scene "${sceneName}" (${sceneData.gameObjects.length} objects, ${json.length} bytes, camera: ${!!camera})`);
+    console.log(`[ProjectManager]   ✓ scene "${sceneName}" (${sceneData.gameObjects.length} objects, ${json.length} bytes, camera: ${!!camera}, mode: ${currentMode}, has2DConfig: ${!!sceneData.scene2DConfig}, tilesets: ${sceneData.scene2DConfig?.tilesets?.length ?? 0}, tilemaps: ${sceneData.scene2DConfig?.tilemaps?.length ?? 0})`);
 
     await fsWrite(scenePath, json);
   }
@@ -496,9 +514,20 @@ export class ProjectManager {
     deserializeScene(this._engine.scene, sceneData, this._assetManager, this._meshManager ?? undefined);
     console.log(`[ProjectManager] Scene deserialized — engine now has ${this._engine.scene.gameObjects.length} game objects`);
 
-    // Notify scene mode (2D or 3D)
+    // Restore 2D scene data (tilemaps, tilesets, sprite sheets, config) before mode switch
     const mode = sceneData.sceneMode ?? '3D';
-    this.onSceneModeDetected?.(mode);
+    console.log(`[ProjectManager]   Scene mode: ${mode}, has scene2DConfig: ${!!sceneData.scene2DConfig}, has setScene2DData: ${!!this.setScene2DData}`);
+    if (sceneData.scene2DConfig) {
+      console.log(`[ProjectManager]   scene2DConfig: tilesets=${sceneData.scene2DConfig.tilesets?.length ?? 0}, tilemaps=${sceneData.scene2DConfig.tilemaps?.length ?? 0}, spriteSheets=${sceneData.scene2DConfig.spriteSheets?.length ?? 0}`);
+    }
+    if (mode === '2D' && sceneData.scene2DConfig && this.setScene2DData) {
+      this.setScene2DData(sceneData.scene2DConfig);
+      console.log('[ProjectManager]   2D scene data restored');
+    }
+
+    // Notify scene mode (2D or 3D) — MUST be awaited so panels are created
+    // before the load function completes
+    await this.onSceneModeDetected?.(mode);
 
     // Apply camera state if available
     if (sceneData.camera && this.applyCameraState) {

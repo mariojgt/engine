@@ -156,11 +156,17 @@ async function main() {
   projectManager.getCameraState = () => editor.getCameraState();
   projectManager.applyCameraState = (state) => editor.applyCameraState(state);
 
+  // Wire 2D scene mode callbacks so scene mode survives save/load
+  projectManager.getSceneMode = () => editor.getSceneMode();
+  projectManager.getScene2DData = () => editor.scene2DManager.toJSON();
+  projectManager.setScene2DData = (data: any) => editor.scene2DManager.fromJSON(data);
+
   // Wire composition manager so environment actors (lights, sky, fog, etc.) are saved/loaded
   projectManager.setCompositionManager(editor.composition);
 
   // Wire auto-save: mark dirty when scene or assets change
   engine.scene.onChanged(() => projectManager.markDirty());
+  editor.scene2DManager.onChange(() => projectManager.markDirty());
   editor.assetManager.onChanged(() => projectManager.markDirty());
   structManager.onChanged(() => projectManager.markDirty());
   meshManager.onChanged(() => projectManager.markDirty());
@@ -596,7 +602,7 @@ async function main() {
 
       // Serialize scene before play starts
       console.log('[Editor] Creating isolated scene backup...');
-      prePlaySceneState = serializeScene(engine.scene);
+      prePlaySceneState = serializeScene(engine.scene, projectManager.activeSceneName || 'Untitled');
 
       engine.physics.play(engine.scene);
       const canvas = editor.getCanvas();
@@ -657,7 +663,9 @@ async function main() {
       if (sceneWasRestored) {
         (engine.scene as any)._runtimeDestroyedGOs = [];
       } else {
-        engine.scene.restoreRuntimeDestroyedActors();
+        if (typeof (engine.scene as any).restoreRuntimeDestroyedActors === 'function') {
+          (engine.scene as any).restoreRuntimeDestroyedActors();
+        }
         // Remove runtime-spawned actors
         const spawnedAtRuntime = engine.scene.gameObjects.filter(go => !prePlayGameObjectIds.has(go.id));
         for (const go of spawnedAtRuntime) {

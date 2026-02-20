@@ -42,6 +42,7 @@ import { SpriteSheetEditorPanel } from './SpriteSheetEditorPanel';
 import { SpriteAnimationEditorPanel } from './SpriteAnimationEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
 import { CharacterPad2DPanel } from './CharacterPad2DPanel';
+import { TilemapRenderer } from './TilemapRenderer';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -118,6 +119,7 @@ export class EditorLayout {
   private _spriteSheetPanel: SpriteSheetEditorPanel | null = null;
   private _spriteAnimPanel: SpriteAnimationEditorPanel | null = null;
   private _tileEditorPanel: TileEditorPanel | null = null;
+  private _tilemapRenderer: TilemapRenderer | null = null;
   private _charPad2DPanel: CharacterPad2DPanel | null = null;
   private _current2DMode: SceneMode = '3D';
 
@@ -1141,6 +1143,13 @@ export class EditorLayout {
     this._spriteSheetPanel = null;
     this._spriteAnimPanel = null;
     this._tileEditorPanel = null;
+    // Disconnect tile editor from viewport
+    if (this._viewport) this._viewport.setTileEditorPanel(null);
+    // Dispose tilemap renderer
+    if (this._tilemapRenderer) {
+      this._tilemapRenderer.dispose();
+      this._tilemapRenderer = null;
+    }
     this._charPad2DPanel = null;
   }
 
@@ -1173,6 +1182,105 @@ export class EditorLayout {
     if (!renderer) return;
     const el = renderer.element;
     this._tileEditorPanel = new TileEditorPanel(el, this.scene2DManager);
+
+    // ── Wire tilemap/tileset data from Scene2DManager ──
+    const sm = this.scene2DManager;
+
+    // Feed current data
+    this._tileEditorPanel.setTilesets(Array.from(sm.tilesets.values()));
+    this._tileEditorPanel.setTilemaps(Array.from(sm.tilemaps.values()));
+    this._tileEditorPanel.setScene2DManager(sm);
+
+    // Connect physics world if available
+    if (sm.physics2D) {
+      this._tileEditorPanel.setPhysics2DWorld(sm.physics2D);
+    }
+
+    // Create tilemap renderer (adds THREE.js meshes to scene)
+    this._tilemapRenderer = new TilemapRenderer(sm.root2D);
+
+    // If a tilemap is already selected, set it up in the renderer
+    const activeTm = this._tileEditorPanel.activeTilemap;
+    if (activeTm) {
+      let ts = sm.tilesets.get(activeTm.tilesetId) ?? null;
+      // Fallback: use the panel's activeTileset which may still have the image
+      if ((!ts || !ts.image) && this._tileEditorPanel.activeTileset?.assetId === activeTm.tilesetId) {
+        const panelTs = this._tileEditorPanel.activeTileset;
+        if (panelTs?.image) {
+          ts = panelTs;
+          sm.tilesets.set(ts.assetId, ts);
+        }
+      }
+      this._tilemapRenderer.setTilemap(activeTm, ts);
+    }
+
+    // When tilemap data changes (layer added, tiles modified, etc.)  → persist / update
+    this._tileEditorPanel.onTilemapChanged((tilemap) => {
+      if (this._tilemapRenderer) {
+        let ts = sm.tilesets.get(tilemap.tilesetId) ?? null;
+        // If the SM tileset lost its image (e.g. after serialization round-trip),
+        // prefer the panel's activeTileset which retains the HTMLImageElement
+        if ((!ts || !ts.image) && this._tileEditorPanel) {
+          const panelTs = this._tileEditorPanel.activeTileset;
+          if (panelTs && panelTs.assetId === tilemap.tilesetId && panelTs.image) {
+            ts = panelTs;
+            // Restore the image-bearing tileset back into SM so future lookups work
+            sm.tilesets.set(ts.assetId, ts);
+          }
+        }
+        this._tilemapRenderer.setTilemap(tilemap, ts);
+      }
+    });
+
+    // When a specific layer is painted → rebuild only that layer for perf
+    this._tileEditorPanel.onLayerPainted((layerId) => {
+      if (this._tilemapRenderer) {
+        this._tilemapRenderer.rebuildLayer(layerId);
+      }
+    });
+
+    // When pixel-perfect mode is toggled → rebuild all layers with new PPU
+    this._tileEditorPanel.onPixelPerfectChanged((_enabled, _tileset) => {
+      // The PPU may have changed — need a full rebuild so tile geometry
+      // uses the correct world-unit sizes.
+      if (this._tilemapRenderer && this._tileEditorPanel) {
+        const tm = this._tileEditorPanel.activeTilemap;
+        if (tm) {
+          let ts = sm.tilesets.get(tm.tilesetId) ?? null;
+          if ((!ts || !ts.image) && this._tileEditorPanel.activeTileset?.image) {
+            ts = this._tileEditorPanel.activeTileset;
+            sm.tilesets.set(ts!.assetId, ts!);
+          }
+          this._tilemapRenderer.setTilemap(tm, ts);
+        }
+      }
+    });
+
+    // Listen for Scene2DManager changes (new tilemaps / tilesets added externally)
+    sm.onChange(() => {
+      if (this._tileEditorPanel) {
+        this._tileEditorPanel.setTilesets(Array.from(sm.tilesets.values()));
+        this._tileEditorPanel.setTilemaps(Array.from(sm.tilemaps.values()));
+        if (sm.physics2D) this._tileEditorPanel.setPhysics2DWorld(sm.physics2D);
+
+        // Rebuild tilemap renderer when tileset images become available
+        // (e.g. after fromJSON restores data URLs → images load asynchronously)
+        if (this._tilemapRenderer) {
+          const tm = this._tileEditorPanel.activeTilemap;
+          if (tm) {
+            const ts = sm.tilesets.get(tm.tilesetId) ?? null;
+            if (ts?.image) {
+              this._tilemapRenderer.setTilemap(tm, ts);
+            }
+          }
+        }
+      }
+    });
+
+    // Connect tile editor to viewport for painting
+    if (this._viewport) {
+      this._viewport.setTileEditorPanel(this._tileEditorPanel);
+    }
   }
 
   private _initCharacterPad2DPanel(panelId: string): void {

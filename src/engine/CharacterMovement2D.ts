@@ -3,8 +3,6 @@
 //  movement with coyote time, jump buffering, jump cut, air control.
 // ============================================================
 
-import * as THREE from 'three';
-
 export interface CharacterMovement2DProperties {
   moveSpeed: number;       // px/s
   runSpeed: number;        // px/s
@@ -102,14 +100,13 @@ export class CharacterMovement2D {
 
     const ppu = this._getPPU();
     const targetSpeed = direction * ((isRunning ? this.properties.runSpeed : this.properties.moveSpeed) / ppu);
-    const accel = (this.properties.acceleration / ppu) * (this.isGrounded ? 1.0 : this.properties.airControl);
+    const accelRate = (this.isGrounded ? this.properties.acceleration : this.properties.acceleration * this.properties.airControl) / ppu;
     const vel = rb.linvel();
 
-    const newVelX = THREE.MathUtils.lerp(
-      vel.x,
-      targetSpeed,
-      Math.min(1, (accel * deltaTime) / Math.max(1, Math.abs(targetSpeed) / ppu))
-    );
+    // Approach target velocity at accelRate per second
+    const speedDiff = targetSpeed - vel.x;
+    const change = Math.sign(speedDiff) * Math.min(Math.abs(speedDiff), accelRate * deltaTime);
+    const newVelX = vel.x + change;
     rb.setLinvel({ x: newVelX, y: vel.y }, true);
 
     // Flip sprite
@@ -118,6 +115,20 @@ export class CharacterMovement2D {
       const sr = this.actor?.getComponent?.('SpriteRenderer');
       sr?.setFlipX?.(!this.facingRight);
     }
+  }
+
+  /** Apply deceleration when no horizontal input is applied */
+  decelerate(deltaTime: number): void {
+    const rb = this._getRigidBody();
+    if (!rb) return;
+
+    const ppu = this._getPPU();
+    const decelRate = (this.isGrounded ? this.properties.deceleration : this.properties.deceleration * this.properties.airControl) / ppu;
+    const vel = rb.linvel();
+
+    // Decelerate toward zero
+    const newVelX = vel.x - Math.sign(vel.x) * Math.min(Math.abs(vel.x), decelRate * deltaTime);
+    rb.setLinvel({ x: newVelX, y: vel.y }, true);
   }
 
   jump(): void {

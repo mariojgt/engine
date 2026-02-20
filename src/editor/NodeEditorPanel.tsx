@@ -313,14 +313,7 @@ import {
   GetGameInstanceNode,
   GetGameInstanceVariableNode,
   SetGameInstanceVariableNode,
-  CallGameInstanceFunctionNode,
-  CallGameInstanceEventNode,
   GameInstanceVarNameControl,
-  GIBPSelectControl,
-  GIVariableSelectorControl,
-  GIFunctionSelectorControl,
-  GIEventSelectorControl,
-  DestroyActorNode,
   TextureSelectControl,
   GetTextureIDNode,
   FindTextureByNameNode,
@@ -335,7 +328,6 @@ import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
 import type { StructureAssetManager } from './StructureAsset';
 import type { WidgetBlueprintManager } from './WidgetBlueprintData';
-import type { GameInstanceBlueprintManager } from './GameInstanceData';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
@@ -384,12 +376,13 @@ export function setWidgetBPManager(mgr: WidgetBlueprintManager): void {
 
 // ============================================================
 //  Module-level reference to GameInstanceBlueprintManager
+//  (set once at startup so GI variable dropdowns can populate)
 // ============================================================
-let _giMgr: GameInstanceBlueprintManager | null = null;
+let _gameInstanceBPMgr: any = null;
 
-/** Call once at startup to wire Game Instance data into the node editor */
-export function setGameInstanceBPManager(mgr: GameInstanceBlueprintManager): void {
-  _giMgr = mgr;
+/** Call once at startup to wire game-instance blueprint data into the node editor */
+export function setGameInstanceBPManager(mgr: any): void {
+  _gameInstanceBPMgr = mgr;
 }
 
 // ============================================================
@@ -450,8 +443,7 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof GetOwnerNode || node instanceof GetAnimInstanceNode ||
       node instanceof CallActorFunctionNode ||
       node instanceof GetGameInstanceNode || node instanceof GetGameInstanceVariableNode ||
-      node instanceof SetGameInstanceVariableNode ||
-      node instanceof CallGameInstanceFunctionNode || node instanceof CallGameInstanceEventNode) return 'Casting';
+      node instanceof SetGameInstanceVariableNode) return 'Casting';
   // Animation BP nodes
   if (node instanceof AnimUpdateEventNode) return 'Events';
   if (node instanceof TryGetPawnOwnerNode || node instanceof SetAnimVarNode ||
@@ -964,14 +956,13 @@ function resolveValue(
     return `(__gameInstance || null)`;
   }
   if (node instanceof GetGameInstanceVariableNode) {
-    const n = node as GetGameInstanceVariableNode;
-    const varName = JSON.stringify(n.getVariableName());
+    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+    const varName = JSON.stringify(ctrl?.value ?? '');
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof SetGameInstanceVariableNode) {
-    // Set is an exec node, but if wired as value (read-back) expose the var
-    const n = node as SetGameInstanceVariableNode;
-    const varName = JSON.stringify(n.getVariableName());
+    const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+    const varName = JSON.stringify(ctrl?.value ?? '');
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof GetOwnerNode) {
@@ -1188,6 +1179,153 @@ function resolveValue(
       const widgetHandle = wS ? resolveValue(wS.nid, wS.ok, nodeMap, inputSrc, bp) : '""';
       const varName = JSON.stringify(n.getVariableName());
       return `(__uiManager ? __uiManager.getWidgetVariable(${widgetHandle}, ${varName}) : undefined)`;
+    }
+
+    // ── 2D Physics getters ────────────────────────────────────
+    case 'Get Velocity 2D': {
+      if (outputKey === 'x') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().x : 0)';
+      if (outputKey === 'y') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().y : 0)';
+      if (outputKey === 'speed') return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return 0; var _v = _rb.rigidBody.linvel(); return Math.sqrt(_v.x*_v.x + _v.y*_v.y); }())';
+      return '0';
+    }
+    case 'Get Body Type 2D': {
+      return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return "static"; if (_rb.rigidBody.isDynamic()) return "dynamic"; if (_rb.rigidBody.isKinematic()) return "kinematic"; return "static"; }())';
+    }
+
+    // ── 2D Character getters ────────────────────────────────
+    case 'Is Grounded 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").isGrounded : false)';
+    }
+    case 'Is Jumping 2D': {
+      return '(function(){ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (!_cm) return false; var _rb = gameObject.getComponent("RigidBody2D"); return _rb && _rb.rigidBody.linvel().y > 0.01 && !_cm.isGrounded; }())';
+    }
+    case 'Is Falling 2D': {
+      return '(function(){ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (!_cm) return false; var _rb = gameObject.getComponent("RigidBody2D"); return _rb && _rb.rigidBody.linvel().y < -0.01 && !_cm.isGrounded; }())';
+    }
+    case 'Get Character Velocity 2D': {
+      if (outputKey === 'x') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().x : 0)';
+      if (outputKey === 'y') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().y : 0)';
+      if (outputKey === 'speed') return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return 0; var _v = _rb.rigidBody.linvel(); return Math.sqrt(_v.x*_v.x + _v.y*_v.y); }())';
+      return '0';
+    }
+    case 'Get Max Walk Speed 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.moveSpeed : 0)';
+    }
+    case 'Get Jumps Remaining 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").jumpsRemaining : 0)';
+    }
+
+    // ── 2D Camera getters ───────────────────────────────────
+    case 'Get Camera Zoom 2D': {
+      return '(__engine && __engine.physics2D ? (__engine.scene2DManager ? __engine.scene2DManager.camera2D.zoom : 1) : 1)';
+    }
+    case 'Get Camera Position 2D': {
+      if (outputKey === 'x') return '(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.camera.position.x : 0)';
+      if (outputKey === 'y') return '(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.camera.position.y : 0)';
+      return '0';
+    }
+    case 'Screen To World 2D': {
+      const sxS = inputSrc.get(`${nodeId}.screenX`);
+      const syS = inputSrc.get(`${nodeId}.screenY`);
+      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0';
+      const sy = syS ? rv(syS.nid, syS.ok) : '0';
+      if (outputKey === 'worldX') return `(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.screenToWorld(${sx}, ${sy}).x : 0)`;
+      if (outputKey === 'worldY') return `(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.screenToWorld(${sx}, ${sy}).y : 0)`;
+      return '0';
+    }
+    case 'World To Screen 2D': {
+      const wxS = inputSrc.get(`${nodeId}.worldX`);
+      const wyS = inputSrc.get(`${nodeId}.worldY`);
+      const wx = wxS ? rv(wxS.nid, wxS.ok) : '0';
+      const wy = wyS ? rv(wyS.nid, wyS.ok) : '0';
+      if (outputKey === 'screenX') return `(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.worldToScreen(${wx}, ${wy}).x : 0)`;
+      if (outputKey === 'screenY') return `(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.worldToScreen(${wx}, ${wy}).y : 0)`;
+      return '0';
+    }
+
+    // ── 2D Sprite / Animation getters ───────────────────────
+    case 'Get Anim Variable 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const varName = vnS ? rv(vnS.nid, vnS.ok) : '""';
+      return `(gameObject.getComponent && gameObject.getComponent("SpriteAnimator") ? (gameObject.getComponent("SpriteAnimator").variables ? gameObject.getComponent("SpriteAnimator").variables.get(${varName}) : 0) : 0)`;
+    }
+    case 'Is Animation Playing 2D': {
+      const anS = inputSrc.get(`${nodeId}.animName`);
+      const animName = anS ? rv(anS.nid, anS.ok) : '""';
+      return `(gameObject.getComponent && gameObject.getComponent("SpriteAnimator") ? gameObject.getComponent("SpriteAnimator").currentAnimation === ${animName} : false)`;
+    }
+    case 'Get Current Animation 2D': {
+      if (outputKey === 'animName') return '(gameObject.getComponent && gameObject.getComponent("SpriteAnimator") ? gameObject.getComponent("SpriteAnimator").currentAnimation || "" : "")';
+      if (outputKey === 'frame') return '(gameObject.getComponent && gameObject.getComponent("SpriteAnimator") ? gameObject.getComponent("SpriteAnimator").currentFrame || 0 : 0)';
+      if (outputKey === 'progress') return '(gameObject.getComponent && gameObject.getComponent("SpriteAnimator") ? gameObject.getComponent("SpriteAnimator").progress || 0 : 0)';
+      return '0';
+    }
+    case 'Get Sorting Layer': {
+      if (outputKey === 'layerName') return '(gameObject.sortingLayer || "Default")';
+      if (outputKey === 'orderInLayer') return '(gameObject.orderInLayer || 0)';
+      return '""';
+    }
+    case 'Get Anim Float 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const varName = vnS ? rv(vnS.nid, vnS.ok) : '""';
+      return `(gameObject._animationInstances && gameObject._animationInstances[0] ? (gameObject._animationInstances[0].variables.get(${varName}) || 0) : 0)`;
+    }
+    case 'Get Anim Bool 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const varName = vnS ? rv(vnS.nid, vnS.ok) : '""';
+      return `(!!(gameObject._animationInstances && gameObject._animationInstances[0] ? gameObject._animationInstances[0].variables.get(${varName}) : false))`;
+    }
+    case 'Get Anim State 2D': {
+      return '(gameObject._animationInstances && gameObject._animationInstances[0] ? gameObject._animationInstances[0].currentState || "" : "")';
+    }
+    case 'Get Anim Owner 2D': {
+      return '(gameObject.name || "")';
+    }
+
+    // ── 2D Tilemap getters ──────────────────────────────────
+    case 'Get Tile At Location': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const lS = inputSrc.get(`${nodeId}.layer`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"';
+      if (outputKey === 'tileId') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return -1; var _tm = Array.from(_sm.tilemaps.values())[0]; if (!_tm) return -1; var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); if (!_l) return -1; return _l.tiles[${x}+","+${y}] != null ? _l.tiles[${x}+","+${y}] : -1; }())`;
+      if (outputKey === 'exists') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return false; var _tm = Array.from(_sm.tilemaps.values())[0]; if (!_tm) return false; var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); return _l ? _l.tiles[${x}+","+${y}] != null : false; }())`;
+      return '-1';
+    }
+    case 'Has Tile At Location': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const lS = inputSrc.get(`${nodeId}.layer`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"';
+      return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return false; var _tm = Array.from(_sm.tilemaps.values())[0]; if (!_tm) return false; var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); return _l ? _l.tiles[${x}+","+${y}] != null : false; }())`;
+    }
+    case 'World To Tile': {
+      const wxS = inputSrc.get(`${nodeId}.worldX`);
+      const wyS = inputSrc.get(`${nodeId}.worldY`);
+      const wx = wxS ? rv(wxS.nid, wxS.ok) : '0';
+      const wy = wyS ? rv(wyS.nid, wyS.ok) : '0';
+      if (outputKey === 'gridX') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; if (!_ts) return 0; return Math.floor(${wx} / (_ts.tileWidth / _ts.pixelsPerUnit)); }())`;
+      if (outputKey === 'gridY') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; if (!_ts) return 0; return Math.floor(${wy} / (_ts.tileHeight / _ts.pixelsPerUnit)); }())`;
+      return '0';
+    }
+    case 'Tile To World': {
+      const gxS = inputSrc.get(`${nodeId}.gridX`);
+      const gyS = inputSrc.get(`${nodeId}.gridY`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gy = gyS ? rv(gyS.nid, gyS.ok) : '0';
+      if (outputKey === 'worldX') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; if (!_ts) return 0; return (${gx} + 0.5) * (_ts.tileWidth / _ts.pixelsPerUnit); }())`;
+      if (outputKey === 'worldY') return `(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; if (!_ts) return 0; return (${gy} + 0.5) * (_ts.tileHeight / _ts.pixelsPerUnit); }())`;
+      return '0';
+    }
+    case 'Get Tilemap Size': {
+      if (outputKey === 'width') return '(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; return _ts ? _ts.columns : 0; }())';
+      if (outputKey === 'height') return '(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; return _ts ? _ts.rows : 0; }())';
+      if (outputKey === 'tileSize') return '(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; return _ts ? _ts.tileWidth : 0; }())';
+      return '0';
     }
 
     default: return '0';
@@ -2209,48 +2347,362 @@ function genAction(
       break;
     }
     case 'Get Game Instance Variable': {
+      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+      const varName = JSON.stringify(ctrl?.value ?? '');
       // Pure node — value resolved inline via rv()
       break;
     }
     case 'Set Game Instance Variable': {
-      const n = node as SetGameInstanceVariableNode;
-      const varName = JSON.stringify(n.getVariableName());
+      const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
+      const varName = JSON.stringify(ctrl?.value ?? '');
       const valSrc = inputSrc.get(`${nodeId}.value`);
       const val = valSrc ? rv(valSrc.nid, valSrc.ok) : 'undefined';
       lines.push(`if (__gameInstance) { __gameInstance.setVariable(${varName}, ${val}); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Call Game Instance Function': {
-      const n = node as CallGameInstanceFunctionNode;
-      const funcName = JSON.stringify(n.getFunctionName());
-      const params: string[] = [];
-      for (const inp of n.functionInputs) {
-        const src = inputSrc.get(`${nodeId}.in_${inp.name}`);
-        params.push(src ? rv(src.nid, src.ok) : 'undefined');
-      }
-      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
-      lines.push(`if (__gameInstance) { __gameInstance.callFunction(${funcName}${paramsStr}); }`);
+
+    // ══════════════════════════════════════════════════════════
+    //  2D PHYSICS ACTION NODES
+    // ══════════════════════════════════════════════════════════
+    case 'Line Trace 2D': {
+      const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`);
+      const exS = inputSrc.get(`${nodeId}.endX`); const eyS = inputSrc.get(`${nodeId}.endY`);
+      const sx = sxS ? rv(sxS.nid, sxS.ok) : '0'; const sy = syS ? rv(syS.nid, syS.ok) : '0';
+      const ex = exS ? rv(exS.nid, exS.ok) : '0'; const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
+      const hitVar = `__lt2d_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')}`;
+      lines.push(`var ${hitVar} = (__engine && __engine.physics2D) ? __engine.physics2D.lineTrace(${sx}, ${sy}, ${ex}, ${ey}) : { hit: false };`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Call Game Instance Event': {
-      const n = node as CallGameInstanceEventNode;
-      const eventName = JSON.stringify(n.getEventName());
-      const params: string[] = [];
-      for (const p of n.eventParams) {
-        const src = inputSrc.get(`${nodeId}.param_${p.name}`);
-        params.push(src ? rv(src.nid, src.ok) : 'undefined');
-      }
-      const paramsStr = params.length > 0 ? ', ' + params.join(', ') : '';
-      lines.push(`if (__gameInstance) { __gameInstance.callEvent(${eventName}${paramsStr}); }`);
+    case 'Box Overlap 2D': {
+      const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
+      const hwS = inputSrc.get(`${nodeId}.halfW`); const hhS = inputSrc.get(`${nodeId}.halfH`);
+      lines.push(`/* Box Overlap 2D — placeholder: Rapier2D intersection test */`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Destroy Actor': {
-      const targetSrc = inputSrc.get(`${nodeId}.target`);
-      const target = targetSrc ? rv(targetSrc.nid, targetSrc.ok) : 'gameObject';
-      lines.push(`(function() { var __da_target = ${target}; if (__da_target && __scene) { __scene.destroyActor(__da_target); } })();`);
+    case 'Circle Overlap 2D': {
+      const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
+      const rS = inputSrc.get(`${nodeId}.radius`);
+      lines.push(`/* Circle Overlap 2D — placeholder: Rapier2D intersection test */`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Simulate Physics 2D': {
+      const eS = inputSrc.get(`${nodeId}.enable`);
+      const enable = eS ? rv(eS.nid, eS.ok) : 'true';
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { if (${enable}) { _rb.rigidBody.setBodyType(1, true); } else { _rb.rigidBody.setBodyType(0, true); } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Force 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.addForce({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Impulse 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.applyImpulse({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Velocity 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setLinvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Gravity Scale 2D': {
+      const sS = inputSrc.get(`${nodeId}.scale`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setGravityScale(${sS ? rv(sS.nid, sS.ok) : '1'}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Torque 2D': {
+      const tS = inputSrc.get(`${nodeId}.torque`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.addTorque(${tS ? rv(tS.nid, tS.ok) : '0'}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Lock Rotation 2D': {
+      const lS = inputSrc.get(`${nodeId}.lock`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.lockRotations(${lS ? rv(lS.nid, lS.ok) : 'true'}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Linear Damping 2D': {
+      const dS = inputSrc.get(`${nodeId}.damping`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setLinearDamping(${dS ? rv(dS.nid, dS.ok) : '0'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Body Type 2D': {
+      const tS = inputSrc.get(`${nodeId}.type`);
+      const t = tS ? rv(tS.nid, tS.ok) : '"dynamic"';
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { var _bt = ${t}; if (_bt === "dynamic") _rb.rigidBody.setBodyType(1, true); else if (_bt === "kinematic") _rb.rigidBody.setBodyType(2, true); else _rb.rigidBody.setBodyType(0, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  2D CHARACTER MOVEMENT ACTION NODES
+    // ══════════════════════════════════════════════════════════
+    case 'Add Movement Input 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      const scS = inputSrc.get(`${nodeId}.scale`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0'; const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const scale = scS ? rv(scS.nid, scS.ok) : '1';
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.moveHorizontal((${x}) * (${scale}), deltaTime); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Jump 2D': {
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.jump(); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Stop Jump 2D': {
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.stopJump(); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Launch Character 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { var _ppu = gameObject.pixelsPerUnit || 100; _rb.rigidBody.setLinvel({x:${xS ? rv(xS.nid, xS.ok) : '0'}/_ppu, y:${yS ? rv(yS.nid, yS.ok) : '0'}/_ppu}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Max Walk Speed 2D': {
+      const sS = inputSrc.get(`${nodeId}.speed`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.moveSpeed = ${sS ? rv(sS.nid, sS.ok) : '300'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Character Impulse 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.applyImpulse({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Stop Movement 2D': {
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setLinvel({x:0, y:_rb.rigidBody.linvel().y}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Jump Height 2D': {
+      const hS = inputSrc.get(`${nodeId}.height`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.jumpForce = ${hS ? rv(hS.nid, hS.ok) : '600'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Max Jumps 2D': {
+      const cS = inputSrc.get(`${nodeId}.count`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.maxJumps = ${cS ? rv(cS.nid, cS.ok) : '2'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Gravity Multiplier 2D': {
+      const mS = inputSrc.get(`${nodeId}.multiplier`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.gravityScale = ${mS ? rv(mS.nid, mS.ok) : '1'}; } var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setGravityScale(${mS ? rv(mS.nid, mS.ok) : '1'}, true); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Flip Sprite Direction 2D': {
+      const fS = inputSrc.get(`${nodeId}.faceRight`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.facingRight = ${fS ? rv(fS.nid, fS.ok) : 'true'}; } var _sr = gameObject.getComponent && gameObject.getComponent("SpriteRenderer"); if (_sr && _sr.setFlipX) { _sr.setFlipX(!(${fS ? rv(fS.nid, fS.ok) : 'true'})); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Air Control 2D': {
+      const aS = inputSrc.get(`${nodeId}.airControl`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.airControl = ${aS ? rv(aS.nid, aS.ok) : '0.8'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  2D CAMERA ACTION NODES
+    // ══════════════════════════════════════════════════════════
+    case 'Set Camera Follow Target 2D': {
+      const tnS = inputSrc.get(`${nodeId}.targetName`);
+      const smS = inputSrc.get(`${nodeId}.smoothing`);
+      const targetName = tnS ? rv(tnS.nid, tnS.ok) : '""';
+      const smoothing = smS ? rv(smS.nid, smS.ok) : '0.1';
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { var _tgo = __scene && __scene.gameObjects.find(function(g) { return g.name === ${targetName}; }); if (_tgo) { _cam.followTarget = _tgo; _cam.followSmoothing = ${smoothing}; } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Camera Follow 2D': {
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.followTarget = null; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera Zoom 2D': {
+      const zS = inputSrc.get(`${nodeId}.zoom`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.setZoom(${zS ? rv(zS.nid, zS.ok) : '1'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Camera Shake 2D': {
+      const iS = inputSrc.get(`${nodeId}.intensity`);
+      const dS = inputSrc.get(`${nodeId}.duration`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.shake(${iS ? rv(iS.nid, iS.ok) : '5'}, ${dS ? rv(dS.nid, dS.ok) : '0.3'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera Position 2D': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam && _cam.camera) { _cam.camera.position.x = ${xS ? rv(xS.nid, xS.ok) : '0'}; _cam.camera.position.y = ${yS ? rv(yS.nid, yS.ok) : '0'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera Bounds 2D': {
+      const mnxS = inputSrc.get(`${nodeId}.minX`); const mnyS = inputSrc.get(`${nodeId}.minY`);
+      const mxxS = inputSrc.get(`${nodeId}.maxX`); const mxyS = inputSrc.get(`${nodeId}.maxY`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.bounds = { minX: ${mnxS ? rv(mnxS.nid, mnxS.ok) : '-Infinity'}, minY: ${mnyS ? rv(mnyS.nid, mnyS.ok) : '-Infinity'}, maxX: ${mxxS ? rv(mxxS.nid, mxxS.ok) : 'Infinity'}, maxY: ${mxyS ? rv(mxyS.nid, mxyS.ok) : 'Infinity'} }; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Camera Bounds 2D': {
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.bounds = null; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera Dead Zone 2D': {
+      const wS = inputSrc.get(`${nodeId}.width`); const hS = inputSrc.get(`${nodeId}.height`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.deadZone = { width: ${wS ? rv(wS.nid, wS.ok) : '0.1'}, height: ${hS ? rv(hS.nid, hS.ok) : '0.1'} }; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  2D SPRITE / ANIMATION ACTION NODES
+    // ══════════════════════════════════════════════════════════
+    case 'Play Animation 2D': {
+      const anS = inputSrc.get(`${nodeId}.animName`);
+      const loopS = inputSrc.get(`${nodeId}.loop`);
+      const spS = inputSrc.get(`${nodeId}.speed`);
+      const animName = anS ? rv(anS.nid, anS.ok) : '""';
+      lines.push(`{ var _sa = gameObject.getComponent && gameObject.getComponent("SpriteAnimator"); if (_sa && _sa.play) { _sa.play(${animName}, ${loopS ? rv(loopS.nid, loopS.ok) : 'true'}, ${spS ? rv(spS.nid, spS.ok) : '1'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Stop Animation 2D': {
+      lines.push(`{ var _sa = gameObject.getComponent && gameObject.getComponent("SpriteAnimator"); if (_sa && _sa.stop) { _sa.stop(); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sprite Frame': {
+      const snS = inputSrc.get(`${nodeId}.spriteName`);
+      lines.push(`{ var _sr = gameObject.getComponent && gameObject.getComponent("SpriteRenderer"); if (_sr && _sr.setFrame) { _sr.setFrame(${snS ? rv(snS.nid, snS.ok) : '0'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Anim Variable 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const vS = inputSrc.get(`${nodeId}.value`);
+      lines.push(`{ var _sa = gameObject.getComponent && gameObject.getComponent("SpriteAnimator"); if (_sa && _sa.variables) { _sa.variables.set(${vnS ? rv(vnS.nid, vnS.ok) : '""'}, ${vS ? rv(vS.nid, vS.ok) : '0'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sprite Flip': {
+      const fxS = inputSrc.get(`${nodeId}.flipX`); const fyS = inputSrc.get(`${nodeId}.flipY`);
+      lines.push(`{ var _sr = gameObject.getComponent && gameObject.getComponent("SpriteRenderer"); if (_sr) { if (_sr.setFlipX) _sr.setFlipX(${fxS ? rv(fxS.nid, fxS.ok) : 'false'}); if (_sr.setFlipY) _sr.setFlipY(${fyS ? rv(fyS.nid, fyS.ok) : 'false'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sprite Color': {
+      const rS = inputSrc.get(`${nodeId}.r`); const gS = inputSrc.get(`${nodeId}.g`);
+      const bS = inputSrc.get(`${nodeId}.b`); const aS = inputSrc.get(`${nodeId}.a`);
+      lines.push(`{ var _sr = gameObject.getComponent && gameObject.getComponent("SpriteRenderer"); if (_sr && _sr.mesh && _sr.mesh.material) { _sr.mesh.material.color.setRGB(${rS ? rv(rS.nid, rS.ok) : '1'}, ${gS ? rv(gS.nid, gS.ok) : '1'}, ${bS ? rv(bS.nid, bS.ok) : '1'}); _sr.mesh.material.opacity = ${aS ? rv(aS.nid, aS.ok) : '1'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sprite Opacity': {
+      const oS = inputSrc.get(`${nodeId}.opacity`);
+      lines.push(`{ var _sr = gameObject.getComponent && gameObject.getComponent("SpriteRenderer"); if (_sr && _sr.mesh && _sr.mesh.material) { _sr.mesh.material.opacity = ${oS ? rv(oS.nid, oS.ok) : '1'}; _sr.mesh.material.transparent = true; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sorting Layer': {
+      const lnS = inputSrc.get(`${nodeId}.layerName`);
+      const oiS = inputSrc.get(`${nodeId}.orderInLayer`);
+      lines.push(`{ gameObject.sortingLayer = ${lnS ? rv(lnS.nid, lnS.ok) : '"Default"'}; gameObject.orderInLayer = ${oiS ? rv(oiS.nid, oiS.ok) : '0'}; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Playback Speed 2D': {
+      const sS = inputSrc.get(`${nodeId}.speed`);
+      lines.push(`{ var _sa = gameObject.getComponent && gameObject.getComponent("SpriteAnimator"); if (_sa) { _sa.playbackSpeed = ${sS ? rv(sS.nid, sS.ok) : '1'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── 2D Anim Blueprint nodes ─────────────────────────────
+    case 'Set Anim State 2D': {
+      const snS = inputSrc.get(`${nodeId}.stateName`);
+      lines.push(`{ var _ai = __animInstance || (gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai && _ai.setState) { _ai.setState(${snS ? rv(snS.nid, snS.ok) : '""'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Anim Float 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const vS = inputSrc.get(`${nodeId}.value`);
+      lines.push(`{ var _ai = __animInstance || (gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${vnS ? rv(vnS.nid, vnS.ok) : '""'}, ${vS ? rv(vS.nid, vS.ok) : '0'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Anim Bool 2D': {
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const vS = inputSrc.get(`${nodeId}.value`);
+      lines.push(`{ var _ai = __animInstance || (gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${vnS ? rv(vnS.nid, vnS.ok) : '""'}, ${vS ? rv(vS.nid, vS.ok) : 'false'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  2D TILEMAP ACTION NODES
+    // ══════════════════════════════════════════════════════════
+    case 'Set Tile At Location': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      const lS = inputSrc.get(`${nodeId}.layer`); const tS = inputSrc.get(`${nodeId}.tileId`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0'; const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"'; const tileId = tS ? rv(tS.nid, tS.ok) : '0';
+      lines.push(`{ var _sm = __engine && __engine.scene2DManager; if (_sm) { var _tm = Array.from(_sm.tilemaps.values())[0]; if (_tm) { var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); if (_l) { _l.tiles[${x}+","+${y}] = ${tileId}; } } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Tile At Location': {
+      const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
+      const lS = inputSrc.get(`${nodeId}.layer`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0'; const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"';
+      lines.push(`{ var _sm = __engine && __engine.scene2DManager; if (_sm) { var _tm = Array.from(_sm.tilemaps.values())[0]; if (_tm) { var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); if (_l) { delete _l.tiles[${x}+","+${y}]; } } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Fill Tiles': {
+      const fxS = inputSrc.get(`${nodeId}.fromX`); const fyS = inputSrc.get(`${nodeId}.fromY`);
+      const txS = inputSrc.get(`${nodeId}.toX`); const tyS = inputSrc.get(`${nodeId}.toY`);
+      const lS = inputSrc.get(`${nodeId}.layer`); const tS = inputSrc.get(`${nodeId}.tileId`);
+      const fx = fxS ? rv(fxS.nid, fxS.ok) : '0'; const fy = fyS ? rv(fyS.nid, fyS.ok) : '0';
+      const tx = txS ? rv(txS.nid, txS.ok) : '0'; const ty = tyS ? rv(tyS.nid, tyS.ok) : '0';
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"'; const tileId = tS ? rv(tS.nid, tS.ok) : '0';
+      lines.push(`{ var _sm = __engine && __engine.scene2DManager; if (_sm) { var _tm = Array.from(_sm.tilemaps.values())[0]; if (_tm) { var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); if (_l) { for (var _fx = Math.min(${fx},${tx}); _fx <= Math.max(${fx},${tx}); _fx++) for (var _fy = Math.min(${fy},${ty}); _fy <= Math.max(${fy},${ty}); _fy++) _l.tiles[_fx+","+_fy] = ${tileId}; } } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Tile Layer': {
+      const lS = inputSrc.get(`${nodeId}.layer`);
+      const layer = lS ? rv(lS.nid, lS.ok) : '"Ground"';
+      lines.push(`{ var _sm = __engine && __engine.scene2DManager; if (_sm) { var _tm = Array.from(_sm.tilemaps.values())[0]; if (_tm) { var _l = _tm.layers.find(function(l){ return l.name === ${layer}; }); if (_l) { _l.tiles = {}; } } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Rebuild Tilemap Collision': {
+      lines.push(`{ /* Rebuild tilemap collision — handled by editor on scene save */ }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2267,7 +2719,6 @@ function generateFullCode(
   functionEditors: Map<string, NodeEditor<Schemes>>,
   isWidgetBlueprint: boolean = false,
   isAnimBlueprint: boolean = false,
-  isGameInstanceBlueprint: boolean = false,
 ): string {
   _isAnimBlueprint = isAnimBlueprint;
   const parts: string[] = [];
@@ -2330,7 +2781,7 @@ function generateFullCode(
 
   const bpEvts = nodes.filter(n => n.label === 'Event BeginPlay');
   for (const ev of bpEvts) beginPlayCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
-  const tkEvts = nodes.filter(n => n.label === 'Event Tick' || n.label === 'Anim Update Event');
+  const tkEvts = nodes.filter(n => n.label === 'Event Tick' || n.label === 'Anim Update Event' || n.label === 'Anim Update 2D');
   for (const ev of tkEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
   const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
   for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
@@ -2385,6 +2836,61 @@ function generateFullCode(
 
     // Cleanup in onDestroy
     onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
+  }
+
+  // ── 2D Collision / Trigger / Animation event nodes ──────────
+  const collBegin2D = nodes.filter(n => n.label === 'On Collision Begin 2D');
+  const collEnd2D = nodes.filter(n => n.label === 'On Collision End 2D');
+  const trigBegin2D = nodes.filter(n => n.label === 'On Trigger Begin 2D');
+  const trigEnd2D = nodes.filter(n => n.label === 'On Trigger End 2D');
+  const animEvent2D = nodes.filter(n => n.label === 'On Animation Event 2D');
+  const animFinished2D = nodes.filter(n => n.label === 'On Animation Finished 2D');
+  const has2DEvents = collBegin2D.length > 0 || collEnd2D.length > 0 || trigBegin2D.length > 0 || trigEnd2D.length > 0 || animEvent2D.length > 0 || animFinished2D.length > 0;
+
+  if (has2DEvents) {
+    // Register listeners via SpriteActor.on()
+    for (const n of collBegin2D) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionBegin2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+      }
+    }
+    for (const n of collEnd2D) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionEnd2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+      }
+    }
+    for (const n of trigBegin2D) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerBegin2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+      }
+    }
+    for (const n of trigEnd2D) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerEnd2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+      }
+    }
+    for (const n of animEvent2D) {
+      const evNameCtrl = n.controls['eventNameCtrl'] as any;
+      const evNameStr = evNameCtrl?.value ?? '';
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        if (evNameStr) {
+          beginPlayCode.push(`if (gameObject.on) { gameObject.on('animEvent_${evNameStr}', function(__evt) { var __animName = __evt && __evt.animName || ''; var __frame = __evt && __evt.frame || 0; ${body.join(' ')} }); }`);
+        } else {
+          beginPlayCode.push(`if (gameObject.on) { gameObject.on('animEvent', function(__evt) { var __animName = __evt && __evt.animName || ''; var __frame = __evt && __evt.frame || 0; ${body.join(' ')} }); }`);
+        }
+      }
+    }
+    for (const n of animFinished2D) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('animFinished', function(__evt) { var __animName = __evt && __evt.animName || ''; ${body.join(' ')} }); }`);
+      }
+    }
   }
 
   // ── Collision / Trigger event nodes ─────────────────────────
@@ -2593,30 +3099,6 @@ function generateFullCode(
   // NOT on the pawn's _scriptVars. The AnimBP can read the pawn's variables
   // via CastTo → GetActorVariable (which reads pawn._scriptVars correctly).
   if (isAnimBlueprint) {
-    const sections: string[] = [];
-    if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
-    if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
-    if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
-    if (sections.length) parts.push(sections.join('\n'));
-  }
-
-  // For Game Instance Blueprints: Register functions, events, and sync
-  // variables on __gameInstance so other blueprints can call them
-  // via CallGameInstanceFunction / CallGameInstanceEvent nodes.
-  if (isGameInstanceBlueprint) {
-    // Register compiled functions on the __gameInstance
-    for (const fn of bp.functions) {
-      beginPlayCode.push(`if (__gameInstance && __gameInstance.__registerFunction) __gameInstance.__registerFunction(${JSON.stringify(fn.name)}, __fn_${sanitizeName(fn.name)});`);
-    }
-    // Register custom events on the __gameInstance
-    for (const evt of bp.customEvents) {
-      beginPlayCode.push(`if (__gameInstance && __gameInstance.__registerEvent) __gameInstance.__registerEvent(${JSON.stringify(sanitizeName(evt.name))}, __custom_evt_${sanitizeName(evt.name)});`);
-    }
-    // Sync initial variable values to __gameInstance.variables
-    for (const v of bp.variables) {
-      beginPlayCode.push(`if (__gameInstance) __gameInstance.variables[${JSON.stringify(v.name)}] = __var_${sanitizeName(v.name)};`);
-    }
-
     const sections: string[] = [];
     if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
     if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
@@ -4286,7 +4768,6 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetAnimInstanceNode) return 'GetAnimInstanceNode';
   if (node instanceof PureCastNode) return 'PureCastNode';
   if (node instanceof CallActorFunctionNode) return 'CallActorFunctionNode';
-  if (node instanceof DestroyActorNode) return 'DestroyActorNode';
   // Animation BP nodes
   if (node instanceof AnimUpdateEventNode) return 'AnimUpdateEventNode';
   if (node instanceof TryGetPawnOwnerNode) return 'TryGetPawnOwnerNode';
@@ -4333,8 +4814,6 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetGameInstanceNode) return 'GetGameInstanceNode';
   if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
   if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
-  if (node instanceof CallGameInstanceFunctionNode) return 'CallGameInstanceFunctionNode';
-  if (node instanceof CallGameInstanceEventNode) return 'CallGameInstanceEventNode';
 
   return 'Unknown';
 }
@@ -4509,34 +4988,9 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     const sceneCtrl = node.controls['scene'] as SceneSelectControl;
     if (sceneCtrl) data.sceneName = sceneCtrl.value;
   }
-  if (node instanceof GetGameInstanceVariableNode) {
-    const n = node as GetGameInstanceVariableNode;
-    data.giBPId = n.giBPId;
-    data.giBPName = n.giBPName;
-    data.variableName = n.getVariableName();
-    data.selectedVarType = n.selectedVarType;
-  }
-  if (node instanceof SetGameInstanceVariableNode) {
-    const n = node as SetGameInstanceVariableNode;
-    data.giBPId = n.giBPId;
-    data.giBPName = n.giBPName;
-    data.variableName = n.getVariableName();
-    data.selectedVarType = n.selectedVarType;
-  }
-  if (node instanceof CallGameInstanceFunctionNode) {
-    const n = node as CallGameInstanceFunctionNode;
-    data.giBPId = n.giBPId;
-    data.giBPName = n.giBPName;
-    data.giFunctionName = n.getFunctionName();
-    data.giFunctionInputs = n.functionInputs;
-    data.giFunctionOutputs = n.functionOutputs;
-  }
-  if (node instanceof CallGameInstanceEventNode) {
-    const n = node as CallGameInstanceEventNode;
-    data.giBPId = n.giBPId;
-    data.giBPName = n.giBPName;
-    data.giEventName = n.getEventName();
-    data.giEventParams = n.eventParams;
+  if (node instanceof GetGameInstanceVariableNode || node instanceof SetGameInstanceVariableNode) {
+    const varCtrl = node.controls['varName'] as GameInstanceVarNameControl;
+    if (varCtrl) data.varName = varCtrl.value;
   }
   if (node instanceof CallWidgetFunctionNode) {
     const n = node as CallWidgetFunctionNode;
@@ -4881,7 +5335,6 @@ function createNodeFromData(
     case 'GetActorVariableNode':            return new GetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
     case 'SetActorVariableNode':            return new SetActorVariableNode(d.varName || 'Unknown', d.varType || 'Float', d.targetActorId || '');
     case 'GetOwnerNode':                    return new GetOwnerNode();
-    case 'DestroyActorNode':                return new DestroyActorNode();
     case 'GetAnimInstanceNode':             return new GetAnimInstanceNode();
     case 'PureCastNode':                    return new PureCastNode(d.targetClassId || '', d.targetClassName || 'Unknown');
     case 'CallActorFunctionNode': {
@@ -5165,65 +5618,13 @@ function createNodeFromData(
     }
     case 'GetGameInstanceNode':              return new GetGameInstanceNode();
     case 'GetGameInstanceVariableNode': {
-      const n = new GetGameInstanceVariableNode(d.giBPId || '', d.giBPName || '(none)', d.variableName || d.varName || '');
-      // Restore typed output pin
-      if (d.selectedVarType && d.selectedVarType !== 'String') {
-        n.rebuildOutputPin(d.selectedVarType);
-      }
-      // Populate available variables from GI blueprint
-      if (d.giBPId && _giMgr) {
-        const giBP = _giMgr.getAsset(d.giBPId);
-        if (giBP && n.variableControl) {
-          n.variableControl.setAvailableVariables(
-            (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type })),
-          );
-        }
-      }
+      const n = new GetGameInstanceVariableNode();
+      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
       return n;
     }
     case 'SetGameInstanceVariableNode': {
-      const n = new SetGameInstanceVariableNode(d.giBPId || '', d.giBPName || '(none)', d.variableName || d.varName || '');
-      if (d.selectedVarType && d.selectedVarType !== 'String') {
-        n.rebuildValuePin(d.selectedVarType);
-      }
-      if (d.giBPId && _giMgr) {
-        const giBP = _giMgr.getAsset(d.giBPId);
-        if (giBP && n.variableControl) {
-          n.variableControl.setAvailableVariables(
-            (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type })),
-          );
-        }
-      }
-      return n;
-    }
-    case 'CallGameInstanceFunctionNode': {
-      const n = new CallGameInstanceFunctionNode(
-        d.giBPId || '', d.giBPName || '(none)',
-        d.giFunctionName || '', d.giFunctionInputs || [], d.giFunctionOutputs || [],
-      );
-      if (d.giBPId && _giMgr) {
-        const giBP = _giMgr.getAsset(d.giBPId);
-        if (giBP && n.functionControl) {
-          n.functionControl.setAvailableFunctions(
-            (giBP.blueprintData.functions || []).map((f: any) => ({ name: f.name, inputs: f.inputs || [], outputs: f.outputs || [] })),
-          );
-        }
-      }
-      return n;
-    }
-    case 'CallGameInstanceEventNode': {
-      const n = new CallGameInstanceEventNode(
-        d.giBPId || '', d.giBPName || '(none)',
-        d.giEventName || '', d.giEventParams || [],
-      );
-      if (d.giBPId && _giMgr) {
-        const giBP = _giMgr.getAsset(d.giBPId);
-        if (giBP && n.eventControl) {
-          n.eventControl.setAvailableEvents(
-            (giBP.blueprintData.customEvents || []).map((e: any) => ({ name: e.name, params: e.params || [] })),
-          );
-        }
-      }
+      const n = new SetGameInstanceVariableNode();
+      if (d.varName) (n.controls['varName'] as GameInstanceVarNameControl)?.setValue(d.varName);
       return n;
     }
 
@@ -5511,7 +5912,6 @@ async function createGraphEditor(
             );
           };
         }
-        // ── Legacy GameInstanceVarNameControl (kept for old graphs) ──
         if (data.payload instanceof GameInstanceVarNameControl) {
           const ctrl = data.payload as GameInstanceVarNameControl;
           return (_props: any) => {
@@ -5535,287 +5935,6 @@ async function createGraphEditor(
                 minWidth: 100,
               },
             });
-          };
-        }
-
-        // ── GI Blueprint Select Control (searchable dropdown) ──────
-        if (data.payload instanceof GIBPSelectControl) {
-          const ctrl = data.payload as GIBPSelectControl;
-          return (_props: any) => {
-            const [search, setSearch] = React.useState('');
-            const [open, setOpen] = React.useState(false);
-            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
-            const containerRef = React.useRef<HTMLDivElement>(null);
-
-            const items: { id: string; name: string }[] = [];
-            if (_giMgr) {
-              for (const asset of _giMgr.assets) {
-                items.push({ id: asset.id, name: asset.name });
-              }
-            }
-            const filtered = search
-              ? items.filter(w => w.name.toLowerCase().includes(search.toLowerCase()))
-              : items;
-
-            React.useEffect(() => {
-              if (!open) return;
-              const handler = (e: MouseEvent) => {
-                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-                  setOpen(false);
-                  setSearch('');
-                }
-              };
-              document.addEventListener('mousedown', handler, true);
-              return () => document.removeEventListener('mousedown', handler, true);
-            }, [open]);
-
-            const dropdownStyle: any = {
-              position: 'absolute', top: '100%', left: 0, right: 0,
-              maxHeight: 160, overflowY: 'auto',
-              background: '#1a1a2e', border: '1px solid #ff9800',
-              borderRadius: '0 0 4px 4px', zIndex: 9999,
-            };
-
-            return React.createElement('div', {
-              ref: containerRef,
-              style: { position: 'relative', width: '100%', minWidth: 140 },
-              onPointerDown: (e: any) => e.stopPropagation(),
-            },
-              React.createElement('div', {
-                onClick: () => setOpen(!open),
-                style: {
-                  width: '100%', padding: '4px 6px',
-                  background: '#1e1e2e',
-                  color: selected === '(none)' ? '#888' : '#ffcc80',
-                  border: open ? '1px solid #ff9800' : '1px solid #3a3a5c',
-                  borderRadius: open ? '4px 4px 0 0' : 4,
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  boxSizing: 'border-box' as const,
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  userSelect: 'none' as const,
-                },
-              },
-                React.createElement('span', {
-                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
-                }, selected),
-                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
-              ),
-              open && React.createElement('div', { style: dropdownStyle },
-                React.createElement('input', {
-                  type: 'text', placeholder: 'Search Game Instances...',
-                  value: search, autoFocus: true,
-                  onChange: (e: any) => setSearch(e.target.value),
-                  onPointerDown: (e: any) => e.stopPropagation(),
-                  onKeyDown: (e: any) => e.stopPropagation(),
-                  style: {
-                    width: '100%', padding: '5px 8px',
-                    background: '#141422', color: '#e0e0e0',
-                    border: 'none', borderBottom: '1px solid #333',
-                    fontSize: 11, outline: 'none', boxSizing: 'border-box' as const,
-                  },
-                }),
-                React.createElement('div', {
-                  onClick: () => {
-                    ctrl.setValue('', '(none)');
-                    setSelected('(none)');
-                    setOpen(false); setSearch('');
-                    const parentNode = (ctrl as any)._parentNode;
-                    if (parentNode) {
-                      parentNode.giBPId = '';
-                      parentNode.giBPName = '(none)';
-                      if (parentNode.variableControl) parentNode.variableControl.setAvailableVariables([]);
-                      if (parentNode.functionControl) parentNode.functionControl.setAvailableFunctions([]);
-                      if (parentNode.eventControl) parentNode.eventControl.setAvailableEvents([]);
-                    }
-                  },
-                  style: { padding: '5px 8px', fontSize: 11, color: '#888', fontStyle: 'italic' as const, cursor: 'pointer', borderBottom: '1px solid #222' },
-                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a3a'; },
-                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
-                }, '(none)'),
-                ...filtered.map(w =>
-                  React.createElement('div', {
-                    key: w.id,
-                    onClick: () => {
-                      ctrl.setValue(w.id, w.name);
-                      setSelected(w.name);
-                      setOpen(false); setSearch('');
-                      const parentNode = (ctrl as any)._parentNode;
-                      if (parentNode) {
-                        parentNode.giBPId = w.id;
-                        parentNode.giBPName = w.name;
-                        // Populate child selectors from GI blueprint data
-                        if (_giMgr) {
-                          const giBP = _giMgr.getAsset(w.id);
-                          if (giBP) {
-                            if (parentNode.variableControl) {
-                              const vars = (giBP.blueprintData.variables || []).map((v: any) => ({ name: v.name, type: v.type }));
-                              parentNode.variableControl.setAvailableVariables(vars);
-                            }
-                            if (parentNode.functionControl) {
-                              const fns = (giBP.blueprintData.functions || []).map((f: any) => ({ name: f.name, inputs: f.inputs || [], outputs: f.outputs || [] }));
-                              parentNode.functionControl.setAvailableFunctions(fns);
-                            }
-                            if (parentNode.eventControl) {
-                              const evts = (giBP.blueprintData.customEvents || []).map((e: any) => ({ name: e.name, params: e.params || [] }));
-                              parentNode.eventControl.setAvailableEvents(evts);
-                            }
-                          }
-                        }
-                      }
-                    },
-                    style: {
-                      padding: '5px 8px', fontSize: 11,
-                      color: w.id === ctrl.value ? '#ff9800' : '#e0e0e0',
-                      fontWeight: w.id === ctrl.value ? 700 : 400,
-                      cursor: 'pointer',
-                    },
-                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a3a'; },
-                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
-                  },
-                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, '🎮'),
-                    w.name,
-                  ),
-                ),
-                filtered.length === 0 && items.length > 0 &&
-                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching Game Instances'),
-                items.length === 0 &&
-                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No Game Instance blueprints yet'),
-              ),
-            );
-          };
-        }
-
-        // ── GI Variable Selector Control ──────────────────────────
-        if (data.payload instanceof GIVariableSelectorControl) {
-          const ctrl = data.payload as GIVariableSelectorControl;
-          return (_props: any) => {
-            const [, forceUpdate] = React.useState(0);
-            React.useEffect(() => {
-              const id = setInterval(() => forceUpdate(c => c + 1), 100);
-              return () => clearInterval(id);
-            }, []);
-
-            const variables = ctrl.availableVariables || [];
-            return React.createElement('select', {
-              value: ctrl.value,
-              onChange: (e: any) => {
-                const newValue = e.target.value;
-                ctrl.setValue(newValue);
-                // Rebuild typed pin on the parent node
-                const parentNode = (ctrl as any)._parentNode;
-                const selVar = variables.find((v: any) => v.name === newValue);
-                if (parentNode && selVar) {
-                  const varType = selVar.type as any;
-                  if (parentNode instanceof GetGameInstanceVariableNode) {
-                    parentNode.rebuildOutputPin(varType);
-                    area.update('node', parentNode.id);
-                  } else if (parentNode instanceof SetGameInstanceVariableNode) {
-                    parentNode.rebuildValuePin(varType);
-                    area.update('node', parentNode.id);
-                  }
-                }
-                forceUpdate(c => c + 1);
-              },
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%', padding: '3px 6px',
-                background: '#1e1e2e', color: '#81c784',
-                border: '1px solid #3a3a5c', borderRadius: 4,
-                fontSize: 11, cursor: 'pointer', outline: 'none',
-              },
-            },
-              React.createElement('option', { value: '' }, '(select variable)'),
-              ...variables.map((v: any) =>
-                React.createElement('option', { key: v.name, value: v.name }, `${v.name} (${v.type})`),
-              ),
-            );
-          };
-        }
-
-        // ── GI Function Selector Control ──────────────────────────
-        if (data.payload instanceof GIFunctionSelectorControl) {
-          const ctrl = data.payload as GIFunctionSelectorControl;
-          return (_props: any) => {
-            const [, forceUpdate] = React.useState(0);
-            React.useEffect(() => {
-              const id = setInterval(() => forceUpdate(c => c + 1), 100);
-              return () => clearInterval(id);
-            }, []);
-
-            const functions = ctrl.availableFunctions || [];
-            return React.createElement('select', {
-              value: ctrl.value,
-              onChange: (e: any) => {
-                ctrl.setValue(e.target.value);
-                // Rebuild dynamic pins on the parent node
-                const parentNode = (ctrl as any)._parentNode;
-                if (parentNode && parentNode.rebuildPins) {
-                  const selectedFunc = functions.find((f: any) => f.name === e.target.value);
-                  if (selectedFunc) {
-                    parentNode.rebuildPins(selectedFunc.inputs || [], selectedFunc.outputs || []);
-                  } else {
-                    parentNode.rebuildPins([], []);
-                  }
-                  area.update('node', parentNode.id);
-                }
-                forceUpdate(c => c + 1);
-              },
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%', padding: '3px 6px',
-                background: '#1e1e2e', color: '#64b5f6',
-                border: '1px solid #3a3a5c', borderRadius: 4,
-                fontSize: 11, cursor: 'pointer', outline: 'none',
-              },
-            },
-              React.createElement('option', { value: '' }, '(select function)'),
-              ...functions.map((f: any) =>
-                React.createElement('option', { key: f.name, value: f.name }, f.name),
-              ),
-            );
-          };
-        }
-
-        // ── GI Event Selector Control ─────────────────────────────
-        if (data.payload instanceof GIEventSelectorControl) {
-          const ctrl = data.payload as GIEventSelectorControl;
-          return (_props: any) => {
-            const [, forceUpdate] = React.useState(0);
-            React.useEffect(() => {
-              const id = setInterval(() => forceUpdate(c => c + 1), 100);
-              return () => clearInterval(id);
-            }, []);
-
-            const events = ctrl.availableEvents || [];
-            return React.createElement('select', {
-              value: ctrl.value,
-              onChange: (e: any) => {
-                ctrl.setValue(e.target.value);
-                const parentNode = (ctrl as any)._parentNode;
-                if (parentNode && parentNode.rebuildPins) {
-                  const selectedEvt = events.find((ev: any) => ev.name === e.target.value);
-                  if (selectedEvt) {
-                    parentNode.rebuildPins(selectedEvt.params || []);
-                  } else {
-                    parentNode.rebuildPins([]);
-                  }
-                  area.update('node', parentNode.id);
-                }
-                forceUpdate(c => c + 1);
-              },
-              onPointerDown: (e: any) => e.stopPropagation(),
-              style: {
-                width: '100%', padding: '3px 6px',
-                background: '#1e1e2e', color: '#ce93d8',
-                border: '1px solid #3a3a5c', borderRadius: 4,
-                fontSize: 11, cursor: 'pointer', outline: 'none',
-              },
-            },
-              React.createElement('option', { value: '' }, '(select event)'),
-              ...events.map((ev: any) =>
-                React.createElement('option', { key: ev.name, value: ev.name }, ev.name),
-              ),
-            );
           };
         }
         if (data.payload instanceof WidgetBPSelectControl) {
@@ -7531,10 +7650,9 @@ interface NodeEditorViewProps {
   rootMeshType?: string;
   widgetList?: Array<{ name: string; type: string }>;
   isAnimBlueprint?: boolean;
-  isGameInstanceBlueprint?: boolean;
 }
 
-function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAnimBlueprint, isGameInstanceBlueprint }: NodeEditorViewProps) {
+function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAnimBlueprint }: NodeEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -7636,7 +7754,7 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAn
         return;
       }
       console.log('[NodeEditor] Compiling widget blueprint event graph...');
-      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList, !!isAnimBlueprint, !!isGameInstanceBlueprint);
+      const code = generateFullCode(evData.editor, bp, functionEditors, !!widgetList, !!isAnimBlueprint);
       console.log('[NodeEditor] Generated code length:', code.length, 'characters');
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
       gameObject.scripts[0].code = code;
@@ -8067,7 +8185,6 @@ export function mountNodeEditorForAsset(
   rootMeshType?: string,
   widgetList?: Array<{ name: string; type: string }>,
   isAnimBlueprint?: boolean,
-  isGameInstanceBlueprint?: boolean,
 ): () => void {
   // Create a virtual GameObject that shares the asset's blueprint data
   const dummyMesh = new THREE.Mesh(
@@ -8107,7 +8224,6 @@ export function mountNodeEditorForAsset(
     rootMeshType: rootMeshType,
     widgetList: widgetList,
     isAnimBlueprint: isAnimBlueprint,
-    isGameInstanceBlueprint: isGameInstanceBlueprint,
   }));
   return () => root.unmount();
 }

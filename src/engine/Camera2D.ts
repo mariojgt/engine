@@ -30,12 +30,34 @@ export class Camera2D {
   private _shakeTimer = 0;
   private _shakeOffset = { x: 0, y: 0 };
 
+  // ── Public accessors for blueprint nodes ──
+  get followTarget(): any { return this._followTarget; }
+  set followTarget(v: any) { this._followTarget = v; }
+  get followSmoothing(): number { return this._followSmoothing; }
+  set followSmoothing(v: number) { this._followSmoothing = v; }
+  get deadZone(): { x?: number; y?: number; width?: number; height?: number } { return this._followDeadZone; }
+  set deadZone(v: { x?: number; y?: number; width?: number; height?: number } | null) {
+    this._followDeadZone = v ? { x: v.width ?? v.x ?? 0, y: v.height ?? v.y ?? 0 } : { x: 0, y: 0 };
+  }
+  get bounds(): { minX: number; minY: number; maxX: number; maxY: number } | null { return this._followBounds; }
+  set bounds(v: { minX: number; minY: number; maxX: number; maxY: number } | null) { this._followBounds = v; }
+
+  // Pixel-perfect mode
+  private _pixelPerfect = false;
+  /** Allowed zoom steps in pixel-perfect mode: 1 tile-pixel = N screen-pixels */
+  private static readonly PP_ZOOM_STEPS = [0.25, 0.5, 1, 2, 3, 4, 5, 6, 8, 10];
+
   // Pan state
   private _isPanning = false;
   private _panStart = { x: 0, y: 0 };
   private _camStartPos = { x: 0, y: 0 };
 
   private _domElement: HTMLElement | null = null;
+  /** Reference element used for coordinate conversions (may differ from _domElement for events) */
+  private _refElement: HTMLElement | null = null;
+  /** Last known container dimensions from resize() */
+  private _containerWidth = 0;
+  private _containerHeight = 0;
   private _boundHandlers: {
     mousedown?: (e: MouseEvent) => void;
     mousemove?: (e: MouseEvent) => void;
@@ -60,29 +82,33 @@ export class Camera2D {
   // ---- View calculations ----
 
   private _viewSize() {
-    const w = (this.referenceWidth / this.pixelsPerUnit) / this.zoom;
-    const h = (this.referenceHeight / this.pixelsPerUnit) / this.zoom;
+    const cw = this._containerWidth || this.referenceWidth;
+    const ch = this._containerHeight || this.referenceHeight;
+    const w = (cw / this.pixelsPerUnit) / this.zoom;
+    const h = (ch / this.pixelsPerUnit) / this.zoom;
     return { w, h };
   }
 
   resize(containerWidth: number, containerHeight: number): void {
-    const aspect = containerWidth / containerHeight;
-    const refAspect = this.referenceWidth / this.referenceHeight;
-    let w: number, h: number;
-
-    if (aspect > refAspect) {
-      h = (this.referenceHeight / this.pixelsPerUnit) / this.zoom;
-      w = h * aspect;
-    } else {
-      w = (this.referenceWidth / this.pixelsPerUnit) / this.zoom;
-      h = w / aspect;
-    }
+    this._containerWidth = containerWidth;
+    this._containerHeight = containerHeight;
+    // Use actual viewport dimensions so 1 tile pixel = 1 screen pixel at zoom 1
+    const w = (containerWidth / this.pixelsPerUnit) / this.zoom;
+    const h = (containerHeight / this.pixelsPerUnit) / this.zoom;
 
     this.camera.left = -w / 2;
     this.camera.right = w / 2;
     this.camera.top = h / 2;
     this.camera.bottom = -h / 2;
     this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Set the DOM element used for coordinate conversions (screenToWorld / worldToScreen).
+   * Call this when the Camera2D's event binding element differs from the actual rendering canvas.
+   */
+  setReferenceElement(el: HTMLElement): void {
+    this._refElement = el;
   }
 
   // ---- Zoom ----
@@ -99,9 +125,25 @@ export class Camera2D {
 
   zoomTowardCursor(zoomDelta: number, screenX: number, screenY: number): void {
     const worldBefore = this.screenToWorld(screenX, screenY);
-    this.setZoom(this.zoom * (1 + zoomDelta));
-    const worldAfter = this.screenToWorld(screenX, screenY);
 
+    if (this._pixelPerfect) {
+      // Step to the next/previous pixel-perfect zoom level
+      const steps = Camera2D.PP_ZOOM_STEPS;
+      const idx = steps.indexOf(this.zoom);
+      let nextIdx = idx;
+      if (zoomDelta > 0 && idx < steps.length - 1) nextIdx = idx + 1;
+      else if (zoomDelta < 0 && idx > 0) nextIdx = idx - 1;
+      else if (idx === -1) {
+        // Current zoom isn't on a step — snap to nearest
+        this._snapZoomToNearestStep();
+        return;
+      }
+      this.setZoom(steps[nextIdx]);
+    } else {
+      this.setZoom(this.zoom * (1 + zoomDelta));
+    }
+
+    const worldAfter = this.screenToWorld(screenX, screenY);
     this.camera.position.x += worldBefore.x - worldAfter.x;
     this.camera.position.y += worldBefore.y - worldAfter.y;
   }
@@ -112,10 +154,51 @@ export class Camera2D {
     this.camera.position.y = 0;
   }
 
+  // ---- Pixel-perfect mode ----
+
+  get pixelPerfect(): boolean { return this._pixelPerfect; }
+
+  /**
+   * Enable / disable pixel-perfect mode.
+   * When enabled, zoom is constrained to integer multiples so that
+   * 1 tile pixel maps to exactly N screen pixels (no sub-pixel blurring).
+   */
+  setPixelPerfect(enabled: boolean): void {
+    this._pixelPerfect = enabled;
+    if (enabled) {
+      this._snapZoomToNearestStep();
+    }
+  }
+
+  /**
+   * Dynamically change the camera's pixels-per-unit then recompute
+   * the orthographic frustum so the view stays consistent.
+   */
+  setPixelsPerUnit(ppu: number): void {
+    this.pixelsPerUnit = Math.max(1, ppu);
+    // Recalculate frustum with current container dimensions
+    if (this._containerWidth > 0 && this._containerHeight > 0) {
+      this.resize(this._containerWidth, this._containerHeight);
+    }
+  }
+
+  /** Snap the current zoom to the nearest pixel-perfect step */
+  private _snapZoomToNearestStep(): void {
+    const steps = Camera2D.PP_ZOOM_STEPS;
+    let best = steps[0];
+    let bestDist = Math.abs(this.zoom - best);
+    for (const s of steps) {
+      const d = Math.abs(this.zoom - s);
+      if (d < bestDist) { best = s; bestDist = d; }
+    }
+    this.setZoom(best);
+  }
+
   // ---- Coordinate conversion ----
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
-    if (!this._domElement) {
+    const el = this._refElement ?? this._domElement;
+    if (!el) {
       const v = new THREE.Vector3(
         (sx / window.innerWidth) * 2 - 1,
         -((sy / window.innerHeight) * 2 - 1),
@@ -125,7 +208,7 @@ export class Camera2D {
       return { x: v.x, y: v.y };
     }
 
-    const rect = this._domElement.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
     const ndcX = ((sx - rect.left) / rect.width) * 2 - 1;
     const ndcY = -(((sy - rect.top) / rect.height) * 2 - 1);
     const v = new THREE.Vector3(ndcX, ndcY, 0);
@@ -136,8 +219,9 @@ export class Camera2D {
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
     const v = new THREE.Vector3(wx, wy, 0);
     v.project(this.camera);
-    if (this._domElement) {
-      const rect = this._domElement.getBoundingClientRect();
+    const el = this._refElement ?? this._domElement;
+    if (el) {
+      const rect = el.getBoundingClientRect();
       return {
         x: ((v.x + 1) / 2) * rect.width + rect.left,
         y: ((-v.y + 1) / 2) * rect.height + rect.top,
@@ -180,15 +264,19 @@ export class Camera2D {
   // ---- Update (call each frame) ----
 
   update(deltaTime: number = 1 / 60): void {
+    // Remove previous frame's shake offset FIRST to get the true base position
+    this.camera.position.x -= this._shakeOffset.x;
+    this.camera.position.y -= this._shakeOffset.y;
+
     // Follow target
     if (this._followTarget) {
       let targetX: number, targetY: number;
-      if (this._followTarget.group) {
-        targetX = this._followTarget.group.position.x;
-        targetY = this._followTarget.group.position.y;
-      } else if (this._followTarget.transform2D) {
+      if (this._followTarget.transform2D) {
         targetX = this._followTarget.transform2D.position.x;
         targetY = this._followTarget.transform2D.position.y;
+      } else if (this._followTarget.group) {
+        targetX = this._followTarget.group.position.x;
+        targetY = this._followTarget.group.position.y;
       } else {
         targetX = this.camera.position.x;
         targetY = this.camera.position.y;
@@ -213,10 +301,10 @@ export class Camera2D {
       this.camera.position.y = Math.max(b.minY + h / 2, Math.min(b.maxY - h / 2, this.camera.position.y));
     }
 
-    // Shake
+    // Compute shake offset for this frame
     if (this._shakeTimer < this._shakeDuration) {
       this._shakeTimer += deltaTime;
-      const t = 1 - this._shakeTimer / this._shakeDuration;
+      const t = Math.max(0, 1 - this._shakeTimer / this._shakeDuration);
       this._shakeOffset.x = (Math.random() * 2 - 1) * this._shakeIntensity * t;
       this._shakeOffset.y = (Math.random() * 2 - 1) * this._shakeIntensity * t;
     } else {
@@ -224,7 +312,7 @@ export class Camera2D {
       this._shakeOffset.y = 0;
     }
 
-    // Apply shake (position is already set by follow or pan)
+    // Apply shake offset to the final camera position
     this.camera.position.x += this._shakeOffset.x;
     this.camera.position.y += this._shakeOffset.y;
   }
@@ -246,7 +334,8 @@ export class Camera2D {
 
     const onMouseMove = (e: MouseEvent) => {
       if (!this._isPanning) return;
-      const rect = domElement.getBoundingClientRect();
+      const el = this._refElement ?? domElement;
+      const rect = el.getBoundingClientRect();
       const viewW = (this.camera.right - this.camera.left);
       const viewH = (this.camera.top - this.camera.bottom);
       const dx = ((e.clientX - this._panStart.x) / rect.width) * viewW;
