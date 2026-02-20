@@ -14,11 +14,15 @@ import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
+import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 
 async function main() {
   const app = document.getElementById('app')!;
   app.innerHTML = '';
+
+  // Scene state backup for play mode isolation
+  let prePlaySceneState: SceneJSON | null = null;
 
   // Create engine
   const engine = new Engine();
@@ -494,6 +498,10 @@ async function main() {
       // ── In-editor play mode (for browser/non-Tauri) ──
       console.log('[Editor] Starting in-editor play mode (not in Tauri)');
 
+      // Serialize scene before play starts
+      console.log('[Editor] Creating isolated scene backup...');
+      prePlaySceneState = serializeScene(engine.scene);
+
       engine.physics.play(engine.scene);
       const canvas = editor.getCanvas();
       engine.onPlayStarted(canvas ?? undefined);
@@ -540,75 +548,25 @@ async function main() {
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 
-    // ── Restore the original scene ──
-    // If a Load Scene node changed the scene at runtime, we must fully
-    // reload the pre-play scene from disk. Otherwise, per-GO transform
-    // restore is sufficient.
-    const sceneWasRestored = await projectManager.restorePrePlayScene();
-
-    if (sceneWasRestored) {
-      // Full scene reload from disk — clear any stale destroyed-actor backups
-      (engine.scene as any)._runtimeDestroyedGOs = [];
-      console.log('[Editor] Pre-play scene restored from disk after runtime scene change');
+    // ── Restore the filtered original scene ──
+    if (prePlaySceneState) {
+      console.log('[Editor] Restoring isolated scene state...');
+      deserializeScene(engine.scene, prePlaySceneState, editor.assetManager, meshManager);
+      prePlaySceneState = null;
     } else {
-      // ── Restore actors destroyed at runtime so the scene returns to pre-play state ──
-      engine.scene.restoreRuntimeDestroyedActors();
-
-      // ── Remove actors that were spawned at runtime (not in the pre-play set) ──
-      const spawnedAtRuntime = engine.scene.gameObjects.filter(go => !prePlayGameObjectIds.has(go.id));
-      for (const go of spawnedAtRuntime) {
-        engine.scene.removeGameObject(go);
-      }
-
-      // ── Restore FULL saved state (in-place, no scene change happened) ──
-      for (const go of engine.scene.gameObjects) {
-        // Position, rotation, scale
-        if ((go as any)._savedPos) go.mesh.position.copy((go as any)._savedPos);
-        if ((go as any)._savedRot) go.mesh.rotation.copy((go as any)._savedRot);
-        if ((go as any)._savedScl) go.mesh.scale.copy((go as any)._savedScl);
-
-        // Name
-        if ((go as any)._savedName !== undefined) go.name = (go as any)._savedName;
-
-        // Restore mesh visibility (character pawn may have hidden it)
-        if ((go as any)._savedVisible !== undefined) go.mesh.visible = (go as any)._savedVisible;
-
-        // Physics config
-        if ((go as any)._savedPhysicsCfg !== undefined) {
-          go.physicsConfig = (go as any)._savedPhysicsCfg;
+      // Fallback relative restoration
+      console.warn('[Editor] No pre-play state found, attempting partial restore...');
+      const sceneWasRestored = await projectManager.restorePrePlayScene();
+      
+      if (sceneWasRestored) {
+        (engine.scene as any)._runtimeDestroyedGOs = [];
+      } else {
+        engine.scene.restoreRuntimeDestroyedActors();
+        // Remove runtime-spawned actors
+        const spawnedAtRuntime = engine.scene.gameObjects.filter(go => !prePlayGameObjectIds.has(go.id));
+        for (const go of spawnedAtRuntime) {
+          engine.scene.removeGameObject(go);
         }
-
-        // Child mesh transforms
-        const childSnaps = (go as any)._savedChildren as Array<{ pos: any; rot: any; scl: any }> | undefined;
-        if (childSnaps) {
-          for (let i = 0; i < Math.min(childSnaps.length, go.mesh.children.length); i++) {
-            go.mesh.children[i].position.copy(childSnaps[i].pos);
-            go.mesh.children[i].rotation.copy(childSnaps[i].rot);
-            go.mesh.children[i].scale.copy(childSnaps[i].scl);
-          }
-        }
-
-        // Clean up snapshot data
-        delete (go as any)._savedPos;
-        delete (go as any)._savedRot;
-        delete (go as any)._savedScl;
-        delete (go as any)._savedName;
-        delete (go as any)._savedVisible;
-        delete (go as any)._savedPhysicsCfg;
-        delete (go as any)._savedChildren;
-      }
-    }
-
-    // Re-sync from assets so the editor-side state is authoritative
-    for (const go of engine.scene.gameObjects) {
-      if (!go.actorAssetId) continue;
-      const asset = editor.assetManager.getAsset(go.actorAssetId);
-      if (!asset) continue;
-      // Re-apply compiled code so next Play uses latest
-      if (asset.compiledCode) {
-        if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
-        go.scripts[0].code = asset.compiledCode;
-        go.scripts[0].compile();
       }
     }
 

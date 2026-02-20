@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Component } from './Component';
 import type { ScriptComponent } from './ScriptComponent';
 import { BlueprintData } from '../editor/BlueprintData';
 import type { PhysicsConfig, ActorType } from '../editor/ActorAsset';
@@ -12,6 +13,7 @@ export class GameObject {
   public name: string;
   public mesh: THREE.Mesh;
   public scripts: ScriptComponent[] = [];
+  public components: Component[] = [];
   public rigidBody: any = null; // Rapier rigid body (set by physics system)
   public collider: any = null;
   public hasPhysics: boolean = false;
@@ -71,15 +73,28 @@ export class GameObject {
   /** Whether tick is enabled for this actor (Set Actor Tick Enabled node) */
   public __tickEnabled: boolean = true;
 
-  /** True if this actor has been destroyed at runtime */
-  public isDestroyed: boolean = false;
-
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;
     this.name = name;
     this.mesh = mesh;
   }
+  public addComponent<T extends Component>(component: T): T {
+    this.components.push(component);
+    component.onAttach(this);
+    return component;
+  }
 
+  public getComponent<T extends Component>(type: { new(...args: any[]): T }): T | null {
+    return (this.components.find(c => c instanceof type) as T) || null;
+  }
+
+  public removeComponent(component: Component): void {
+    const index = this.components.indexOf(component);
+    if (index !== -1) {
+      component.onDetach();
+      this.components.splice(index, 1);
+    }
+  }
   get position(): THREE.Vector3 {
     return this.mesh.position;
   }
