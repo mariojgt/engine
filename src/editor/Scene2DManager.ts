@@ -363,30 +363,35 @@ export class Scene2DManager {
 
     // ── FIX: Hide the source 3D GameObject mesh so the original cube/sphere
     //   is not rendered on top of the 2D sprite actor during play mode.
-    //   The orthographic Camera2D renders the full threeScene, so any visible
-    //   3D mesh in the scene will appear on screen unless hidden.
     if (go.mesh) {
       this._hiddenGoMeshes.push({ mesh: go.mesh, wasVisible: go.mesh.visible });
       go.mesh.visible = false;
     }
 
     // Use the game object's position (map 3D → 2D: x stays, y from 3D-y)
-    const pos = go.mesh?.position ?? { x: 0, y: 0 };
+    const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
     const scl = go.mesh?.scale ?? { x: 1, y: 1 };
     const baseW = 0.8;
     const baseH = 1.0;
     const w = baseW * Math.abs(scl.x);
     const h = baseH * Math.abs(scl.y);
 
-    // ── FIX: freezeRotation must be in the SpriteActorConfig so that
-    //   attachPhysicsBody() passes it to RigidBodyDesc on creation.
-    //   The previous code omitted it, then called lockRotations() as a
-    //   patch — but the descriptor flag is what guarantees locked rotation
-    //   from the very first physics step.
+    // ── Safe spawn position ──
+    // Place the pawn above the highest solid tile so it falls onto the map
+    // rather than spawning inside it. We scan all tilemaps for the highest
+    // tile Y (in world units) and add the pawn's half-height as margin.
+    let spawnX = rawPos.x;
+    let spawnY = rawPos.y;
+    const topY = this._getTopMostTileWorldY();
+    if (topY !== null) {
+      // topY is the top edge of the highest tile — spawn half-height + small gap above it
+      spawnY = topY + h / 2 + 0.05;
+    }
+
     const config: SpriteActorConfig = {
       name: go.name,
       actorType: 'characterPawn2D',
-      position: { x: pos.x, y: pos.y },
+      position: { x: spawnX, y: spawnY },
       physicsBodyType: 'dynamic',
       colliderShape: 'box',
       colliderSize: { width: w, height: h },
@@ -396,24 +401,16 @@ export class Scene2DManager {
     };
 
     const actor = new SpriteActor(config);
-    actor.id = go.id; // link to the GameObject id
+    actor.id = go.id;
 
-    // ── FIX: SpriteActor constructor already creates a mesh via SpriteRenderer
-    //   and adds it to actor.group.  Do NOT add a second PlaneGeometry here —
-    //   two coplanar meshes cause z-fighting which makes the pawn flicker white.
-    //   Instead configure the existing SpriteRenderer mesh as a blue placeholder
-    //   so it is visible until a real sprite sheet is assigned.
     actor.spriteRenderer.material.color.setHex(0x4488ff);
     actor.spriteRenderer.material.transparent = false;
-    // Resize the SpriteRenderer geometry to match the collider dimensions
     actor.spriteRenderer.geometry.dispose();
     actor.spriteRenderer.geometry = new THREE.PlaneGeometry(w, h);
     actor.mesh.geometry = actor.spriteRenderer.geometry;
 
-    // Add the actor's group to the 2D root so it renders
     this.root2D.add(actor.group);
 
-    // Attach Rapier2D physics body with CCD to prevent tunneling through thin tile colliders
     const gravityScale = movementConfig?.gravityScale ?? 1.0;
     actor.attachPhysicsBody(this.physics2D, {
       ...config,
@@ -421,26 +418,53 @@ export class Scene2DManager {
       ccdEnabled: true,
     });
 
-    // Apply gravity scale (cannot be part of initial descriptor, must be set on the body)
     const rbComp = actor.getComponent('RigidBody2D');
     if (rbComp?.rigidBody) {
       rbComp.rigidBody.setGravityScale(gravityScale, true);
     }
 
-    // Create CharacterMovement2D and attach
     const props = { ...defaultCharacterMovement2DProps(), ...movementConfig };
     const cm2d = new CharacterMovement2D(props);
     cm2d.attach(actor);
     actor.characterMovement2D = cm2d;
 
-    // Register on the GameObject so compiled blueprint code can find them
-    // via gameObject.getComponent("CharacterMovement2D")
     go._runtimeComponents.set('CharacterMovement2D', cm2d);
     go._runtimeComponents.set('RigidBody2D', rbComp);
 
     this.spriteActors.push(actor);
-    console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${pos.x}, ${pos.y}) size (${w.toFixed(2)}, ${h.toFixed(2)})`);
+    console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${spawnX.toFixed(3)}, ${spawnY.toFixed(3)}) size (${w.toFixed(2)}, ${h.toFixed(2)}) [topY=${topY?.toFixed(3) ?? 'n/a'}]`);
     return actor;
+  }
+
+  /**
+   * Scan all tilemaps and return the world-Y of the TOP edge of the
+   * highest solid tile across all layers.  Returns null if no solid
+   * tiles are found (caller falls back to the GO's raw 3D Y).
+   */
+  private _getTopMostTileWorldY(): number | null {
+    let maxWorldY: number | null = null;
+    for (const tilemap of this.tilemaps.values()) {
+      const tileset = this.tilesets.get(tilemap.tilesetId);
+      if (!tileset) continue;
+      const ppu = tileset.pixelsPerUnit || 100;
+      const tileH = tileset.tileHeight / ppu;
+      for (const layer of tilemap.layers) {
+        for (const key of Object.keys(layer.tiles)) {
+          const tileId = layer.tiles[key];
+          // Determine if this tile is solid
+          const solid = layer.hasCollision || (() => {
+            const td = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
+            return td ? td.collision !== 'none' : false;
+          })();
+          if (!solid) continue;
+          const [, cy] = key.split(',').map(Number);
+          // Top edge of this tile in world units
+          const topEdge = (cy + 1) * tileH;
+          if (maxWorldY === null || topEdge > maxWorldY) maxWorldY = topEdge;
+        }
+      }
+    }
+    return maxWorldY;
   }
 
   /** Start 2D play mode.

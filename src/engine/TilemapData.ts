@@ -191,19 +191,29 @@ export class TilemapCollisionBuilder {
 
   rebuild(layer: TilemapLayer, physics2DWorld: any, tileset: TilesetAsset): void {
     physics2DWorld.removeLayerBodies(layer.layerId);
-    if (!layer.hasCollision) {
-      console.log('[TilemapCollisionBuilder] Layer "%s" — hasCollision=false, skipping', layer.name);
+
+    // Determine collision mode:
+    //   layer.hasCollision = true  → every placed tile is solid (forceFullCollision)
+    //   layer.hasCollision = false → only tiles whose TileDefData.collision !== 'none' get bodies
+    //     This allows per-tile 'full' collision to work on any layer, including Background.
+    //     Previously an early return here meant the Background layer ALWAYS produced zero
+    //     Rapier bodies, making per-tile collision flags completely invisible to the engine.
+    const forceAll = layer.hasCollision;
+    const merged = this.mergeRects(layer.tiles, tileset, forceAll);
+
+    if (merged.length === 0) {
+      // Only log a warning when there are tiles but none ended up solid
+      if (Object.keys(layer.tiles).length > 0) {
+        console.log('[TilemapCollisionBuilder] Layer "%s" — 0 solid rects (hasCollision=%s, tiles=%d). ' +
+          'Set layer hasCollision ON or set individual tile collision to \'full\' in the tile palette.',
+          layer.name, layer.hasCollision, Object.keys(layer.tiles).length);
+      }
       return;
     }
 
-    // Pass forceFullCollision=true: every tile on a collision-enabled layer is solid.
-    // This respects the layer-level flag without permanently mutating TileDefData
-    // on the tileset asset (which would corrupt per-tile collision rules).
-    const merged = this.mergeRects(layer.tiles, tileset, /* forceFullCollision */ true);
     const ppu = tileset.pixelsPerUnit || 100;
-
-    console.log('[TilemapCollisionBuilder] Layer "%s" — merged %d rects from %d tiles (ppu=%d, tileW=%d, tileH=%d)',
-      layer.name, merged.length, Object.keys(layer.tiles).length, ppu, tileset.tileWidth, tileset.tileHeight);
+    console.log('[TilemapCollisionBuilder] Layer "%s" — merged %d rects from %d tiles (forceAll=%s, ppu=%d, tileW=%d, tileH=%d)',
+      layer.name, merged.length, Object.keys(layer.tiles).length, forceAll, ppu, tileset.tileWidth, tileset.tileHeight);
 
     for (const rect of merged) {
       const w = rect.cols * (tileset.tileWidth / ppu);
@@ -211,17 +221,6 @@ export class TilemapCollisionBuilder {
       const cx = rect.x * (tileset.tileWidth / ppu) + w / 2;
       const cy = rect.y * (tileset.tileHeight / ppu) + h / 2;
       physics2DWorld.addStaticBox(layer.layerId, cx, cy, w, h);
-    }
-
-    if (merged.length === 0) {
-      console.warn('[TilemapCollisionBuilder] Layer "%s" — 0 merged rects! Checking tile defs...', layer.name);
-      // Debug: check first few tiles to see collision state
-      const keys = Object.keys(layer.tiles).slice(0, 5);
-      for (const key of keys) {
-        const tid = layer.tiles[key];
-        const td = tileset.tiles.find(t => t.tileId === tid) ?? tileset.tiles[tid];
-        console.warn('  tile key=%s tileId=%s tileDef=%s collision=%s', key, tid, !!td, td?.collision);
-      }
     }
   }
 }
