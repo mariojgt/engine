@@ -452,6 +452,7 @@ export class Scene2DManager {
 
     go._runtimeComponents.set('CharacterMovement2D', cm2d);
     go._runtimeComponents.set('RigidBody2D', rbComp);
+    go._runtimeComponents.set('SpriteRenderer', actor.getComponent('SpriteRenderer'));
 
     this.spriteActors.push(actor);
 

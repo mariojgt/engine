@@ -645,6 +645,8 @@ export {
   SetGravityMultiplier2DNode,
   FlipSpriteDirection2DNode,
   SetAirControl2DNode,
+  GetSpriteFacingDirection2DNode,
+  GetCharacterSpeed2DNode,
 } from './character2d/Character2DNodes';
 
 // ── Tilemap Nodes ───────────────────────────────────────────

@@ -230,3 +230,26 @@ export class SetAirControl2DNode extends ClassicPreset.Node {
   }
 }
 registerNode('Set Air Control 2D', 'Movement 2D', () => new SetAirControl2DNode());
+
+// ================================================================
+//  Get Sprite Facing Direction 2D
+// ================================================================
+export class GetSpriteFacingDirection2DNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Sprite Facing Direction 2D');
+    this.addOutput('faceRight', new ClassicPreset.Output(boolSocket, 'Face Right'));
+  }
+}
+registerNode('Get Sprite Facing Direction 2D', 'Movement 2D', () => new GetSpriteFacingDirection2DNode());
+
+// ================================================================
+//  Get Character Speed 2D
+// ================================================================
+export class GetCharacterSpeed2DNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Character Speed 2D');
+    this.addOutput('speed', new ClassicPreset.Output(numSocket, 'Speed'));
+    this.addOutput('horizontalSpeed', new ClassicPreset.Output(numSocket, 'Horizontal Speed'));
+  }
+}
+registerNode('Get Character Speed 2D', 'Movement 2D', () => new GetCharacterSpeed2DNode());

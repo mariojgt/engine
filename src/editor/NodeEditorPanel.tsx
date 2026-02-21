@@ -340,6 +340,8 @@ import {
   SetGravityMultiplier2DNode,
   FlipSpriteDirection2DNode,
   SetAirControl2DNode,
+  GetSpriteFacingDirection2DNode,
+  GetCharacterSpeed2DNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -1232,6 +1234,13 @@ function resolveValue(
     }
     case 'Get Jumps Remaining 2D': {
       return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").jumpsRemaining : 0)';
+    }
+    case 'Get Sprite Facing Direction 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? !!gameObject.getComponent("CharacterMovement2D").facingRight : true)';
+    }
+    case 'Get Character Speed 2D': {
+      if (outputKey === 'horizontalSpeed') return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return 0; return Math.abs(_rb.rigidBody.linvel().x); }())';
+      return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return 0; var _v = _rb.rigidBody.linvel(); return Math.sqrt(_v.x*_v.x + _v.y*_v.y); }())';
     }
 
     // ── 2D Camera getters ───────────────────────────────────
@@ -4853,6 +4862,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SetGravityMultiplier2DNode) return 'SetGravityMultiplier2DNode';
   if (node instanceof FlipSpriteDirection2DNode) return 'FlipSpriteDirection2DNode';
   if (node instanceof SetAirControl2DNode) return 'SetAirControl2DNode';
+  if (node instanceof GetSpriteFacingDirection2DNode) return 'GetSpriteFacingDirection2DNode';
+  if (node instanceof GetCharacterSpeed2DNode) return 'GetCharacterSpeed2DNode';
 
   return 'Unknown';
 }
@@ -5720,6 +5731,8 @@ function createNodeFromData(
     case 'SetGravityMultiplier2DNode':       return new SetGravityMultiplier2DNode();
     case 'FlipSpriteDirection2DNode':        return new FlipSpriteDirection2DNode();
     case 'SetAirControl2DNode':              return new SetAirControl2DNode();
+    case 'GetSpriteFacingDirection2DNode':   return new GetSpriteFacingDirection2DNode();
+    case 'GetCharacterSpeed2DNode':          return new GetCharacterSpeed2DNode();
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
