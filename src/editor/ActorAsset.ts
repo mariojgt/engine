@@ -336,6 +336,9 @@ export class ActorAsset {
   /** Character Pawn configuration (only when actorType === 'characterPawn') */
   public characterPawnConfig: CharacterPawnConfig | null = null;
 
+  /** Character Movement 2D configuration (only when actorType === 'characterPawn2D') */
+  public characterMovement2DConfig: any = null;
+
   /**
    * Which controller class this pawn uses at play time.
    * 'PlayerController' (default for characterPawn), 'AIController', or 'None'.
@@ -401,6 +404,7 @@ export class ActorAsset {
       ),
       compiledCode: this.compiledCode,
       characterPawnConfig: this.characterPawnConfig ? structuredClone(this.characterPawnConfig) : undefined,
+      characterMovement2DConfig: this.characterMovement2DConfig ? structuredClone(this.characterMovement2DConfig) : undefined,
       controllerClass: this.controllerClass,
       controllerBlueprintId: this.controllerBlueprintId || undefined,
       createdAt: this.createdAt,
@@ -436,6 +440,9 @@ export class ActorAsset {
             ? { ...defaultCameraModeSettings(), ...json.characterPawnConfig.cameraSettings }
             : defaultCameraModeSettings(),
         }
+      : null;
+    asset.characterMovement2DConfig = json.characterMovement2DConfig
+      ? structuredClone(json.characterMovement2DConfig)
       : null;
     asset.rootPhysics = json.rootPhysics ? { ...defaultPhysicsConfig(), ...json.rootPhysics } : defaultPhysicsConfig();
     asset.components = (json.components || []).map(c => ({
@@ -495,7 +502,7 @@ export class ActorAssetManager {
     return this._assets.get(id);
   }
 
-  createAsset(name: string, actorType: ActorType = 'actor'): ActorAsset {
+  createAsset(name: string, actorType: ActorType = 'actor', preset2D?: 'platformer' | 'topdown' | 'blank'): ActorAsset {
     const asset = new ActorAsset(name);
     asset.actorType = actorType;
     if (actorType === 'characterPawn') {
@@ -617,6 +624,163 @@ export class ActorAssetManager {
           connections: [],
         },
       };
+    }
+    // ── Character Pawn 2D — preset-based blueprint graphs ──
+    if (actorType === 'characterPawn2D') {
+      asset.rootMeshType = 'none';
+
+      // Default 2D components: sprite renderer, rigidbody, collider, character movement
+      const spriteId = 'comp_sprite_' + Date.now().toString(36);
+      const rb2dId = 'comp_rb2d_' + Date.now().toString(36);
+      const col2dId = 'comp_col2d_' + Date.now().toString(36);
+      const cm2dId = 'comp_cm2d_' + Date.now().toString(36);
+      asset.components = [
+        {
+          id: spriteId,
+          type: 'spriteRenderer' as any,
+          meshType: 'cube',
+          name: 'SpriteRenderer',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+        {
+          id: rb2dId,
+          type: 'rigidbody2d' as any,
+          meshType: 'cube',
+          name: 'RigidBody2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          rigidbody2dType: 'dynamic',
+        },
+        {
+          id: col2dId,
+          type: 'collider2d' as any,
+          meshType: 'cube',
+          name: 'BoxCollider2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          collider2dShape: 'box',
+          collider2dSize: { width: 0.8, height: 1.0 },
+        },
+        {
+          id: cm2dId,
+          type: 'characterMovement2d' as any,
+          meshType: 'cube',
+          name: 'CharacterMovement2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+      ];
+
+      if (preset2D === 'platformer') {
+        // Platformer: horizontal movement (A/D), jump (Space), gravity enabled, flip sprite
+        asset.blueprintData.eventGraph = {
+          nodeData: {
+            nodes: [
+              // Core events
+              { id: 'p_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+              { id: 'p_tick',      type: 'EventTickNode',      position: { x: 80, y: 220 }, data: {} },
+
+              // Horizontal movement
+              { id: 'p_move',     type: 'AddMovementInput2DNode', position: { x: 520, y: 220 }, data: {} },
+              { id: 'p_axis_lr',  type: 'InputAxisNode',          position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
+
+              // Jump
+              { id: 'p_jump_key',  type: 'InputKeyEventNode',  position: { x: 80, y: 560 }, data: { selectedKey: 'Space' } },
+              { id: 'p_jump',      type: 'Jump2DNode',         position: { x: 460, y: 540 }, data: {} },
+              { id: 'p_stopjump',  type: 'StopJump2DNode',     position: { x: 460, y: 640 }, data: {} },
+
+              // Flip sprite to face movement direction
+              { id: 'p_flip',     type: 'FlipSpriteDirection2DNode', position: { x: 820, y: 220 }, data: {} },
+            ],
+            connections: [
+              // Tick → AddMovementInput2D → FlipSpriteDirection2D
+              { id: 'pc1', source: 'p_tick',     sourceOutput: 'exec',     target: 'p_move',     targetInput: 'exec' },
+              { id: 'pc2', source: 'p_move',     sourceOutput: 'exec',     target: 'p_flip',     targetInput: 'exec' },
+              // InputAxis D/A → X
+              { id: 'pc3', source: 'p_axis_lr',  sourceOutput: 'value',    target: 'p_move',     targetInput: 'x' },
+              // Space pressed → Jump 2D
+              { id: 'pc4', source: 'p_jump_key', sourceOutput: 'pressed',  target: 'p_jump',     targetInput: 'exec' },
+              // Space released → Stop Jump 2D
+              { id: 'pc5', source: 'p_jump_key', sourceOutput: 'released', target: 'p_stopjump', targetInput: 'exec' },
+            ],
+          },
+        };
+
+        // Platformer physics defaults
+        asset.characterMovement2DConfig = {
+          moveSpeed: 300,
+          jumpForce: 600,
+          maxJumps: 2,
+          gravityScale: 1.0,
+          airControl: 0.8,
+          coyoteTime: 0.1,
+          jumpBufferTime: 0.1,
+          maxFallSpeed: -1200,
+          jumpCut: true,
+          freezeRotation: true,
+        };
+
+      } else if (preset2D === 'topdown') {
+        // Top-down: 4-directional movement (WASD), no gravity, no jump
+        asset.blueprintData.eventGraph = {
+          nodeData: {
+            nodes: [
+              // Core events
+              { id: 'td_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+              { id: 'td_tick',      type: 'EventTickNode',      position: { x: 80, y: 220 }, data: {} },
+
+              // 4-directional movement
+              { id: 'td_move',     type: 'AddMovementInput2DNode', position: { x: 520, y: 220 }, data: {} },
+              { id: 'td_axis_lr',  type: 'InputAxisNode',          position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
+              { id: 'td_axis_ud',  type: 'InputAxisNode',          position: { x: 200, y: 530 }, data: { positiveKey: 'W', negativeKey: 'S' } },
+
+              // Disable gravity on begin play
+              { id: 'td_setgrav', type: 'SetGravityMultiplier2DNode', position: { x: 400, y: 40 }, data: {} },
+            ],
+            connections: [
+              // BeginPlay → SetGravityMultiplier2D (set to 0)
+              { id: 'tc1', source: 'td_beginplay', sourceOutput: 'exec',  target: 'td_setgrav', targetInput: 'exec' },
+              // Tick → AddMovementInput2D
+              { id: 'tc2', source: 'td_tick',      sourceOutput: 'exec',  target: 'td_move',    targetInput: 'exec' },
+              // InputAxis D/A → X
+              { id: 'tc3', source: 'td_axis_lr',   sourceOutput: 'value', target: 'td_move',    targetInput: 'x' },
+              // InputAxis W/S → Y
+              { id: 'tc4', source: 'td_axis_ud',   sourceOutput: 'value', target: 'td_move',    targetInput: 'y' },
+            ],
+          },
+        };
+
+        // Top-down physics defaults: no gravity
+        asset.characterMovement2DConfig = {
+          moveSpeed: 300,
+          jumpForce: 0,
+          maxJumps: 0,
+          gravityScale: 0.0,
+          airControl: 1.0,
+          coyoteTime: 0,
+          jumpBufferTime: 0,
+          maxFallSpeed: 0,
+          jumpCut: false,
+          freezeRotation: true,
+        };
+
+      } else {
+        // Blank: just BeginPlay + Tick
+        asset.blueprintData.eventGraph = {
+          nodeData: {
+            nodes: [
+              { id: 'b_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
+              { id: 'b_tick',      type: 'EventTickNode',      position: { x: 80, y: 220 }, data: {} },
+            ],
+            connections: [],
+          },
+        };
+      }
     }
     this._assets.set(asset.id, asset);
     this._emitChanged();

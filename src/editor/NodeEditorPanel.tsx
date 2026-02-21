@@ -321,6 +321,25 @@ import {
   LoadTextureNode,
   SetImageTextureNode,
   SetButtonTextureNode,
+  // Character Movement 2D Nodes
+  AddMovementInput2DNode,
+  Jump2DNode,
+  StopJump2DNode,
+  LaunchCharacter2DNode,
+  SetMaxWalkSpeed2DNode,
+  GetMaxWalkSpeed2DNode,
+  IsGrounded2DNode,
+  IsJumping2DNode,
+  IsFalling2DNode,
+  GetCharacterVelocity2DNode,
+  AddCharacterImpulse2DNode,
+  StopMovement2DNode,
+  SetJumpHeight2DNode,
+  SetMaxJumps2DNode,
+  GetJumpsRemaining2DNode,
+  SetGravityMultiplier2DNode,
+  FlipSpriteDirection2DNode,
+  SetAirControl2DNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -4815,6 +4834,26 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetGameInstanceVariableNode) return 'GetGameInstanceVariableNode';
   if (node instanceof SetGameInstanceVariableNode) return 'SetGameInstanceVariableNode';
 
+  // Character Movement 2D nodes
+  if (node instanceof AddMovementInput2DNode) return 'AddMovementInput2DNode';
+  if (node instanceof Jump2DNode) return 'Jump2DNode';
+  if (node instanceof StopJump2DNode) return 'StopJump2DNode';
+  if (node instanceof LaunchCharacter2DNode) return 'LaunchCharacter2DNode';
+  if (node instanceof SetMaxWalkSpeed2DNode) return 'SetMaxWalkSpeed2DNode';
+  if (node instanceof GetMaxWalkSpeed2DNode) return 'GetMaxWalkSpeed2DNode';
+  if (node instanceof IsGrounded2DNode) return 'IsGrounded2DNode';
+  if (node instanceof IsJumping2DNode) return 'IsJumping2DNode';
+  if (node instanceof IsFalling2DNode) return 'IsFalling2DNode';
+  if (node instanceof GetCharacterVelocity2DNode) return 'GetCharacterVelocity2DNode';
+  if (node instanceof AddCharacterImpulse2DNode) return 'AddCharacterImpulse2DNode';
+  if (node instanceof StopMovement2DNode) return 'StopMovement2DNode';
+  if (node instanceof SetJumpHeight2DNode) return 'SetJumpHeight2DNode';
+  if (node instanceof SetMaxJumps2DNode) return 'SetMaxJumps2DNode';
+  if (node instanceof GetJumpsRemaining2DNode) return 'GetJumpsRemaining2DNode';
+  if (node instanceof SetGravityMultiplier2DNode) return 'SetGravityMultiplier2DNode';
+  if (node instanceof FlipSpriteDirection2DNode) return 'FlipSpriteDirection2DNode';
+  if (node instanceof SetAirControl2DNode) return 'SetAirControl2DNode';
+
   return 'Unknown';
 }
 
@@ -5661,6 +5700,26 @@ function createNodeFromData(
       }
       return n;
     }
+
+    // Character Movement 2D nodes
+    case 'AddMovementInput2DNode':           return new AddMovementInput2DNode();
+    case 'Jump2DNode':                       return new Jump2DNode();
+    case 'StopJump2DNode':                   return new StopJump2DNode();
+    case 'LaunchCharacter2DNode':            return new LaunchCharacter2DNode();
+    case 'SetMaxWalkSpeed2DNode':            return new SetMaxWalkSpeed2DNode();
+    case 'GetMaxWalkSpeed2DNode':            return new GetMaxWalkSpeed2DNode();
+    case 'IsGrounded2DNode':                 return new IsGrounded2DNode();
+    case 'IsJumping2DNode':                  return new IsJumping2DNode();
+    case 'IsFalling2DNode':                  return new IsFalling2DNode();
+    case 'GetCharacterVelocity2DNode':       return new GetCharacterVelocity2DNode();
+    case 'AddCharacterImpulse2DNode':        return new AddCharacterImpulse2DNode();
+    case 'StopMovement2DNode':               return new StopMovement2DNode();
+    case 'SetJumpHeight2DNode':              return new SetJumpHeight2DNode();
+    case 'SetMaxJumps2DNode':                return new SetMaxJumps2DNode();
+    case 'GetJumpsRemaining2DNode':          return new GetJumpsRemaining2DNode();
+    case 'SetGravityMultiplier2DNode':       return new SetGravityMultiplier2DNode();
+    case 'FlipSpriteDirection2DNode':        return new FlipSpriteDirection2DNode();
+    case 'SetAirControl2DNode':              return new SetAirControl2DNode();
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);

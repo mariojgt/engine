@@ -33,6 +33,10 @@ export interface SpriteActorConfig {
   colliderRadius?: number;
   /** Is trigger (sensor) */
   isTrigger?: boolean;
+  /** Enable continuous collision detection (prevents tunneling) */
+  ccdEnabled?: boolean;
+  /** Lock rotation */
+  freezeRotation?: boolean;
   /** Actor type identifier */
   actorType?: string;
   /** Blueprint asset IDs */
@@ -238,14 +242,20 @@ export class SpriteActor {
 
     let rigidBody: any;
     if (bodyType === 'dynamic') {
-      rigidBody = physics.addDynamicBody(this, pos.x, pos.y);
+      rigidBody = physics.addDynamicBody(this, pos.x, pos.y, {
+        ccdEnabled: config.ccdEnabled ?? false,
+        freezeRotation: config.freezeRotation ?? false,
+      });
     } else if (bodyType === 'kinematic') {
       rigidBody = physics.addKinematicBody(this, pos.x, pos.y);
     } else {
       rigidBody = physics.addStaticBody(pos.x, pos.y);
     }
 
-    if (!rigidBody) return;
+    if (!rigidBody) {
+      console.warn('[SpriteActor] attachPhysicsBody failed to create rigidBody! type=%s pos=(%s,%s)', bodyType, pos.x, pos.y);
+      return;
+    }
 
     // Add collider
     if (config.colliderShape === 'circle') {

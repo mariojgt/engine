@@ -166,6 +166,15 @@ export class TransformGizmoSystem {
     }
   }
 
+  /**
+   * Swap the camera used by the TransformControls.
+   * Used when switching between 3D (perspective) and 2D (orthographic) modes.
+   */
+  setCamera(camera: THREE.Camera): void {
+    this._camera = camera as any;
+    this.controls.camera = camera;
+  }
+
   detach(): void {
     this._cleanupPivot();
     this.controls.detach();

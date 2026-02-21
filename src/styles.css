@@ -6612,6 +6612,62 @@ html, body, #app {
   background: #2563eb;
 }
 
+/* ── Character Pawn 2D Preset Dialog ── */
+.cb-preset-subtitle {
+  font-size: 12px;
+  color: var(--color-text-secondary, #a1a1aa);
+  margin-bottom: 16px;
+}
+
+.cb-preset-cards {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cb-preset-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  background: var(--color-bg-inset, #141416);
+  border: 2px solid var(--color-border, #2a2a2d);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  text-align: center;
+}
+
+.cb-preset-card:hover {
+  border-color: var(--color-blue, #3b82f6);
+  background: rgba(59,130,246,0.08);
+  transform: translateY(-1px);
+}
+
+.cb-preset-card.selected {
+  border-color: var(--color-blue, #3b82f6);
+  background: rgba(59,130,246,0.14);
+}
+
+.cb-preset-card-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.cb-preset-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #fafafa);
+}
+
+.cb-preset-card-desc {
+  font-size: 11px;
+  color: var(--color-text-secondary, #a1a1aa);
+  line-height: 1.35;
+}
+
 /* ============================================================
    2D Editor Panels — Sorting Layers, Sprite Sheet, Animation,
    Tile Editor, Character 2D

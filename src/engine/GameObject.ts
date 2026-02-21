@@ -67,6 +67,9 @@ export class GameObject {
   /** Tags for gameplay tagging (Actor Has Tag, Add Tag, Remove Tag nodes) */
   public tags: string[] = [];
 
+  /** String-keyed runtime component map (used by 2D systems: CharacterMovement2D, RigidBody2D) */
+  public _runtimeComponents = new Map<string, any>();
+
   /** Owner game object — set when spawned by another actor */
   public owner: GameObject | null = null;
 
@@ -84,7 +87,11 @@ export class GameObject {
     return component;
   }
 
-  public getComponent<T extends Component>(type: { new(...args: any[]): T }): T | null {
+  public getComponent<T extends Component>(type: { new(...args: any[]): T } | string): T | any | null {
+    // String-based lookup for runtime 2D components (CharacterMovement2D, RigidBody2D, etc.)
+    if (typeof type === 'string') {
+      return this._runtimeComponents.get(type) ?? null;
+    }
     return (this.components.find(c => c instanceof type) as T) || null;
   }
 

@@ -28,6 +28,13 @@ export class TileEditorPanel {
   private _palCtx: CanvasRenderingContext2D;
   private _palZoom = 2;
 
+  /** Whether the tile editor panel is currently visible (active tab in dockview) */
+  get isVisible(): boolean {
+    // Dockview hides inactive tabs via display:none on the .dv-view ancestor.
+    // offsetParent is null when the element (or an ancestor) has display:none.
+    return this._container.offsetParent !== null;
+  }
+
   // Collision builder
   private _collisionBuilder = new TilemapCollisionBuilder();
   private _collisionRebuildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -383,15 +390,24 @@ export class TileEditorPanel {
       zSpan.style.cssText = 'opacity:0.5;font-size:10px;';
       row.appendChild(zSpan);
 
-      // Collision badge
-      if (layer.hasCollision) {
-        const colBadge = document.createElement('span');
-        colBadge.textContent = '🔲';
-        colBadge.title = 'Has collision';
-        colBadge.style.cssText = 'font-size:10px;cursor:pointer;';
-        colBadge.onclick = (e) => { e.stopPropagation(); layer.hasCollision = false; this._renderLayerList(); this._scheduleCollisionRebuild(layer); };
-        row.appendChild(colBadge);
-      }
+      // Collision toggle (always visible so users can enable/disable)
+      const colBtn = document.createElement('button');
+      colBtn.textContent = layer.hasCollision ? '🔲' : '▫️';
+      colBtn.title = layer.hasCollision ? 'Collision ON – click to disable' : 'Collision OFF – click to enable';
+      colBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:11px;padding:1px;';
+      colBtn.onclick = (e) => {
+        e.stopPropagation();
+        layer.hasCollision = !layer.hasCollision;
+        // When enabling collision, default all tiles with 'none' to 'full'
+        if (layer.hasCollision && this._activeTileset) {
+          for (const td of this._activeTileset.tiles) {
+            if (td.collision === 'none') td.collision = 'full';
+          }
+        }
+        this._renderLayerList();
+        this._scheduleCollisionRebuild(layer);
+      };
+      row.appendChild(colBtn);
 
       this._layerListEl.appendChild(row);
     }
@@ -437,7 +453,31 @@ export class TileEditorPanel {
     const row = Math.floor(this._selectedTileId / ts.columns);
     this._tileInfoEl.innerHTML = `Selected: tile ${this._selectedTileId} (${col},${row})`;
     if (tileDef) {
-      this._tileInfoEl.innerHTML += ` | Tags: ${tileDef.tags.join(', ') || 'none'} | Collision: ${tileDef.collision}`;
+      this._tileInfoEl.innerHTML += ` | Tags: ${tileDef.tags.join(', ') || 'none'}`;
+      // Per-tile collision dropdown
+      const colLabel = document.createElement('span');
+      colLabel.textContent = ' | Collision: ';
+      this._tileInfoEl.appendChild(colLabel);
+      const sel = document.createElement('select');
+      sel.style.cssText = 'font-size:10px;background:#313244;color:#cdd6f4;border:1px solid #585b70;border-radius:3px;padding:1px 2px;';
+      for (const opt of ['none', 'full', 'top', 'bottom', 'left', 'right'] as const) {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent = opt;
+        if (tileDef.collision === opt) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => {
+        tileDef.collision = sel.value as any;
+        // Rebuild collision for active layers that have collision enabled
+        if (this._activeTilemap) {
+          for (const layer of this._activeTilemap.layers) {
+            if (layer.hasCollision) this._scheduleCollisionRebuild(layer);
+          }
+        }
+        this._emitChanged();
+      };
+      this._tileInfoEl.appendChild(sel);
     }
   }
 

@@ -180,10 +180,16 @@ export class TilemapCollisionBuilder {
 
   rebuild(layer: TilemapLayer, physics2DWorld: any, tileset: TilesetAsset): void {
     physics2DWorld.removeLayerBodies(layer.layerId);
-    if (!layer.hasCollision) return;
+    if (!layer.hasCollision) {
+      console.log('[TilemapCollisionBuilder] Layer "%s" — hasCollision=false, skipping', layer.name);
+      return;
+    }
 
     const merged = this.mergeRects(layer.tiles, tileset);
     const ppu = tileset.pixelsPerUnit || 100;
+
+    console.log('[TilemapCollisionBuilder] Layer "%s" — merged %d rects from %d tiles (ppu=%d, tileW=%d, tileH=%d)',
+      layer.name, merged.length, Object.keys(layer.tiles).length, ppu, tileset.tileWidth, tileset.tileHeight);
 
     for (const rect of merged) {
       const w = rect.cols * (tileset.tileWidth / ppu);
@@ -191,6 +197,17 @@ export class TilemapCollisionBuilder {
       const cx = rect.x * (tileset.tileWidth / ppu) + w / 2;
       const cy = rect.y * (tileset.tileHeight / ppu) + h / 2;
       physics2DWorld.addStaticBox(layer.layerId, cx, cy, w, h);
+    }
+
+    if (merged.length === 0) {
+      console.warn('[TilemapCollisionBuilder] Layer "%s" — 0 merged rects! Checking tile defs...', layer.name);
+      // Debug: check first few tiles to see collision state
+      const keys = Object.keys(layer.tiles).slice(0, 5);
+      for (const key of keys) {
+        const tid = layer.tiles[key];
+        const td = tileset.tiles.find(t => t.tileId === tid) ?? tileset.tiles[tid];
+        console.warn('  tile key=%s tileId=%s tileDef=%s collision=%s', key, tid, !!td, td?.collision);
+      }
     }
   }
 }

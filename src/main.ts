@@ -604,14 +604,65 @@ async function main() {
       console.log('[Editor] Creating isolated scene backup...');
       prePlaySceneState = serializeScene(engine.scene, projectManager.activeSceneName || 'Untitled');
 
-      engine.physics.play(engine.scene);
-      const canvas = editor.getCanvas();
-      engine.onPlayStarted(canvas ?? undefined);
+      const is2DMode = editor.getSceneMode() === '2D';
 
-      const pawnCam = engine.characterControllers.getActiveCamera()
-        ?? engine.spectatorControllers.getActiveCamera();
-      if (pawnCam) {
-        editor.setPlayCamera(pawnCam);
+      if (is2DMode) {
+        // ── 2D Play Mode ──
+        console.log('[Editor] 2D play mode — spawning 2D actors');
+
+        // Enable 3D physics isPlaying so the script tick loop runs
+        engine.physics.play(engine.scene);
+        const canvas = editor.getCanvas();
+        engine.onPlayStarted(canvas ?? undefined);
+
+        // Also start 2D physics
+        editor.scene2DManager.startPlay();
+
+        // Spawn SpriteActors for all characterPawn2D game objects
+        let firstPawnActor: any = null;
+        for (const go of engine.scene.gameObjects) {
+          if (go.actorType === 'characterPawn2D') {
+            const movConfig = (() => {
+              if (!go.actorAssetId) return undefined;
+              const asset = editor.assetManager.getAsset(go.actorAssetId);
+              return asset?.characterMovement2DConfig ?? undefined;
+            })();
+            const actor = editor.scene2DManager.spawnCharacterPawn2D(go, movConfig);
+            if (actor && !firstPawnActor) firstPawnActor = actor;
+          }
+        }
+
+        // Camera follows the first character pawn
+        if (firstPawnActor && editor.scene2DManager.camera2D) {
+          editor.scene2DManager.camera2D.follow(firstPawnActor, 0.15, { x: 0.5, y: 0.5 });
+        }
+
+        // Log final physics world stats for debugging
+        if (editor.scene2DManager.physics2D) {
+          const stats = editor.scene2DManager.physics2D.getWorldStats();
+          console.log('[Editor] 2D Play — Rapier world stats: bodies=%d (dynamic=%d, fixed=%d), colliders=%d',
+            stats.bodies, stats.dynamicBodies, stats.fixedBodies, stats.colliders);
+          if (stats.fixedBodies === 0) {
+            console.warn('[Editor] ⚠ NO FIXED (TILE) BODIES in Rapier world! Tile collision will not work.');
+          }
+          if (stats.colliders === 0) {
+            console.warn('[Editor] ⚠ NO COLLIDERS in Rapier world! Nothing will collide.');
+          }
+        }
+
+        // Don't set a 3D _playCamera — let 2D render continue
+        editor.set2DPlayMode(true);
+      } else {
+        // ── 3D Play Mode ──
+        engine.physics.play(engine.scene);
+        const canvas = editor.getCanvas();
+        engine.onPlayStarted(canvas ?? undefined);
+
+        const pawnCam = engine.characterControllers.getActiveCamera()
+          ?? engine.spectatorControllers.getActiveCamera();
+        if (pawnCam) {
+          editor.setPlayCamera(pawnCam);
+        }
       }
 
       engine.scene.setTriggerHelpersVisible(false);
@@ -640,6 +691,18 @@ async function main() {
     engine.onPlayStopped();
     engine.physics.stop(engine.scene);
 
+    // Stop 2D play mode (cleans up sprite actors, physics, camera follow)
+    let was2DPlaying = false;
+    if (editor.scene2DManager.isPlaying) {
+      was2DPlaying = true;
+      // Clean runtime component refs from game objects so they don't leak
+      for (const go of engine.scene.gameObjects) {
+        go._runtimeComponents.clear();
+      }
+      editor.scene2DManager.stopPlay();
+      editor.set2DPlayMode(false);
+    }
+
     // Restore editor camera
     editor.setPlayCamera(null);
 
@@ -651,7 +714,13 @@ async function main() {
     setTimeout(() => outputLog.hide(), 500);
 
     // ── Restore the filtered original scene ──
-    if (prePlaySceneState) {
+    // In 2D mode the original GameObjects are untouched (only sprite actors
+    // were added to root2D and already cleaned up), so skip deserializing
+    // which would call scene.clear() and destroy tilesets / 2D state.
+    if (was2DPlaying) {
+      console.log('[Editor] 2D play stopped — skipping 3D scene restore (2D state preserved)');
+      prePlaySceneState = null;
+    } else if (prePlaySceneState) {
       console.log('[Editor] Restoring isolated scene state...');
       deserializeScene(engine.scene, prePlaySceneState, editor.assetManager, meshManager);
       prePlaySceneState = null;

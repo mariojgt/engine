@@ -76,6 +76,9 @@ export class ViewportPanel {
   private _tilePaintMouseDown = false;
   private _tilePaintStartWorld: { x: number; y: number } | null = null;
 
+  /* 2D play mode — blocks editing while keeping 2D render active */
+  private _isPlaying2D = false;
+
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
     this._engine = engine;
@@ -309,13 +312,13 @@ export class ViewportPanel {
    * ==================================================================== */
 
   private _onMouseDown(e: MouseEvent): void {
-    if (this._playCamera) return; // No editing during play
+    if (this._playCamera || this._isPlaying2D) return; // No editing during play
 
     // Hide context menu on any click
     this._contextMenu.hide();
 
-    // ── 2D Tile painting mode ──
-    if (this._is2DMode && this._tileEditorPanel && e.button === 0 && !e.altKey) {
+    // ── 2D Tile painting mode (only when tileset tab is visible) ──
+    if (this._is2DMode && this._tileEditorPanel && this._tileEditorPanel.isVisible && e.button === 0 && !e.altKey) {
       const tool = this._tileEditorPanel.activeTool;
       if (tool === 'paint' || tool === 'erase' || tool === 'fill' || tool === 'line' || tool === 'rect' || tool === 'pick') {
         this._tilePaintMouseDown = true;
@@ -345,9 +348,7 @@ export class ViewportPanel {
   }
 
   private _onMouseMove(e: MouseEvent): void {
-    if (this._playCamera) return;
-
-    // ── 2D Tile painting continuous stroke ──
+    if (this._playCamera || this._isPlaying2D) return;
     if (this._tilePaintMouseDown && this._tileEditorPanel && this._is2DMode) {
       const tool = this._tileEditorPanel.activeTool;
       if (tool === 'paint' || tool === 'erase') {
@@ -361,7 +362,7 @@ export class ViewportPanel {
   }
 
   private _onMouseUp(e: MouseEvent): void {
-    if (this._playCamera) return;
+    if (this._playCamera || this._isPlaying2D) return;
 
     // ── End tile painting ──
     if (this._tilePaintMouseDown) {
@@ -391,7 +392,7 @@ export class ViewportPanel {
   }
 
   private _onKeyDown(e: KeyboardEvent): void {
-    if (this._playCamera) return;
+    if (this._playCamera || this._isPlaying2D) return;
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -697,7 +698,7 @@ export class ViewportPanel {
     const deltaTime = (now - this._lastFrameTime) / 1000;
     this._lastFrameTime = now;
 
-    // 2D mode → render with orthographic Camera2D
+    // 2D mode → render with orthographic Camera2D (editor & play)
     if (this._is2DMode && this._scene2DManager && !this._playCamera) {
       this._render2D(deltaTime);
       return;
@@ -926,9 +927,16 @@ export class ViewportPanel {
     this._scene2DManager = enabled && scene2DManager ? scene2DManager : null;
 
     if (enabled && this._scene2DManager) {
-      // Disable 3D camera controller and gizmo during 2D mode
+      // Disable 3D camera controller during 2D mode
       this._cameraController.setEnabled(false);
-      this._gizmo.detach();
+
+      // Swap gizmo & selection cameras to the 2D orthographic camera
+      // so that transform handles and click-select work in 2D space.
+      const cam2D = this._scene2DManager.camera2D?.camera;
+      if (cam2D) {
+        this._gizmo.setCamera(cam2D);
+        this._selectionManager.setCamera(cam2D);
+      }
 
       // Point Camera2D coordinate conversion at the viewport canvas
       if (this._renderer && this._scene2DManager.camera2D) {
@@ -940,14 +948,31 @@ export class ViewportPanel {
       const h = this.container.clientHeight || 600;
       this._scene2DManager.camera2D?.resize(w, h);
     } else {
-      // Restore 3D camera controller
+      // Restore 3D camera controller and 3D camera references
       this._cameraController.setEnabled(true);
+      this._gizmo.setCamera(this._camera);
+      this._selectionManager.setCamera(null);
     }
   }
 
   /** Set the tile editor panel for 2D tile painting integration */
   setTileEditorPanel(panel: TileEditorPanel | null): void {
     this._tileEditorPanel = panel;
+  }
+
+  /** Enable/disable 2D play mode (blocks editing, keeps 2D rendering active) */
+  set2DPlayMode(playing: boolean): void {
+    this._isPlaying2D = playing;
+    if (playing) {
+      this._cameraController.setEnabled(false);
+      this._gizmo.detach();
+    } else {
+      // When stopping play while still in 2D mode, keep 3D orbit disabled
+      // and leave the gizmo using the 2D camera (already set by set2DMode).
+      if (!this._is2DMode) {
+        this._cameraController.setEnabled(true);
+      }
+    }
   }
 
   /** Convert a mouse event to 2D world coordinates */

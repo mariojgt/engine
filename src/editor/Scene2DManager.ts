@@ -11,6 +11,9 @@ import { Physics2DDebugDraw } from '../engine/Physics2DDebugDraw';
 import { SortingLayerManager, DEFAULT_SORTING_LAYERS, type SortingLayerData } from '../engine/SortingLayers';
 import type { SpriteSheetAsset } from '../engine/SpriteRenderer';
 import type { TilesetAsset, TilemapAsset } from '../engine/TilemapData';
+import { TilemapCollisionBuilder } from '../engine/TilemapData';
+import { SpriteActor, type SpriteActorConfig } from '../engine/SpriteActor';
+import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/CharacterMovement2D';
 
 export type SceneMode = '2D' | '3D';
 
@@ -60,6 +63,10 @@ export class Scene2DManager {
   public spriteSheets = new Map<string, SpriteSheetAsset>();
   public tilesets = new Map<string, TilesetAsset>();
   public tilemaps = new Map<string, TilemapAsset>();
+
+  // Runtime 2D actors (created during play mode)
+  public spriteActors: SpriteActor[] = [];
+  public isPlaying = false;
 
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
@@ -328,7 +335,171 @@ export class Scene2DManager {
     if (!this.is2D) return;
     this.camera2D?.update(deltaTime);
     this.physics2D?.step(deltaTime);
+    // Update runtime 2D actors (physics sync, character movement, animations)
+    if (this.isPlaying) {
+      for (const actor of this.spriteActors) {
+        actor.update(deltaTime);
+      }
+    }
     this.debugDraw.update(deltaTime);
+  }
+
+  // ---- 2D Play mode ----
+
+  /**
+   * Spawn a SpriteActor from a character pawn 2D game object and
+   * attach physics body + CharacterMovement2D.
+   * Returns the created SpriteActor, or null on failure.
+   */
+  spawnCharacterPawn2D(
+    go: any, /* GameObject */
+    movementConfig?: any,
+  ): SpriteActor | null {
+    if (!this.physics2D) return null;
+
+    // Use the game object's position (map 3D → 2D: x stays, y from 3D-y)
+    const pos = go.mesh?.position ?? { x: 0, y: 0 };
+    const scl = go.mesh?.scale ?? { x: 1, y: 1 };
+    const baseW = 0.8;
+    const baseH = 1.0;
+    const w = baseW * Math.abs(scl.x);
+    const h = baseH * Math.abs(scl.y);
+    const config: SpriteActorConfig = {
+      name: go.name,
+      actorType: 'characterPawn2D',
+      position: { x: pos.x, y: pos.y },
+      physicsBodyType: 'dynamic',
+      colliderShape: 'box',
+      colliderSize: { width: w, height: h },
+      characterMovement2D: true,
+      blueprintId: go.actorAssetId ?? undefined,
+    };
+
+    const actor = new SpriteActor(config);
+    actor.id = go.id; // link to the GameObject id
+
+    // Add the actor's group to the 2D root so it renders
+    this.root2D.add(actor.group);
+
+    // Attach Rapier2D physics body with CCD to prevent tunneling through thin tile colliders
+    const gravityScale = movementConfig?.gravityScale ?? 1.0;
+    actor.attachPhysicsBody(this.physics2D, {
+      ...config,
+      physicsBodyType: 'dynamic',
+      ccdEnabled: true,
+    });
+
+    // Override gravity scale on the rigid body
+    const rbComp = actor.getComponent('RigidBody2D');
+    if (rbComp?.rigidBody) {
+      rbComp.rigidBody.setGravityScale(gravityScale, true);
+      rbComp.rigidBody.setCcdEnabled(true);
+      if (movementConfig?.freezeRotation !== false) {
+        rbComp.rigidBody.lockRotations(true, true);
+      }
+    }
+
+    // Create CharacterMovement2D and attach
+    const props = { ...defaultCharacterMovement2DProps(), ...movementConfig };
+    const cm2d = new CharacterMovement2D(props);
+    cm2d.attach(actor);
+    actor.characterMovement2D = cm2d;
+
+    // Register on the GameObject so compiled blueprint code can find them
+    // via gameObject.getComponent("CharacterMovement2D")
+    go._runtimeComponents.set('CharacterMovement2D', cm2d);
+    go._runtimeComponents.set('RigidBody2D', rbComp);
+
+    // Create a simple colored sprite for the pawn (placeholder)
+    const geometry = new THREE.PlaneGeometry(w, h);
+    const material = new THREE.MeshBasicMaterial({ color: 0x4488ff, side: THREE.DoubleSide });
+    const placeholder = new THREE.Mesh(geometry, material);
+    placeholder.name = go.name + '_placeholder';
+    actor.group.add(placeholder);
+
+    this.spriteActors.push(actor);
+    console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${pos.x}, ${pos.y}) size (${w.toFixed(2)}, ${h.toFixed(2)})`);
+    return actor;
+  }
+
+  /** Start 2D play mode */
+  startPlay(): void {
+    this.isPlaying = true;
+    // Rebuild tilemap collision bodies so they're guaranteed to exist
+    this.rebuildAllTileCollision();
+    this.physics2D?.play();
+  }
+
+  /**
+   * Rebuild Rapier2D static collision bodies for every tilemap layer
+   * that has `hasCollision === true`.  Called automatically at play start
+   * so collision is always up-to-date even after save/load.
+   */
+  rebuildAllTileCollision(): void {
+    if (!this.physics2D) {
+      console.warn('[Scene2DManager] rebuildAllTileCollision — no physics2D!');
+      return;
+    }
+    if (!this.physics2D.world) {
+      console.warn('[Scene2DManager] rebuildAllTileCollision — physics2D has no Rapier world!');
+      return;
+    }
+    const builder = new TilemapCollisionBuilder();
+    let totalBodies = 0;
+    console.log('[Scene2DManager] rebuildAllTileCollision — tilemaps=%d, tilesets=%d, worldExists=%s',
+      this.tilemaps.size, this.tilesets.size, !!this.physics2D.world);
+    for (const [tmId, tilemap] of this.tilemaps) {
+      const tileset = this.tilesets.get(tilemap.tilesetId);
+      if (!tileset) {
+        console.warn('[Scene2DManager] Tilemap "%s" references tilesetId="%s" but tileset not found! Available:', tilemap.assetName, tilemap.tilesetId, [...this.tilesets.keys()]);
+        continue;
+      }
+      console.log('[Scene2DManager]   tileset "%s" tiles.length=%d tileWidth=%d tileHeight=%d ppu=%d',
+        tileset.assetName, tileset.tiles?.length ?? 0, tileset.tileWidth, tileset.tileHeight, tileset.pixelsPerUnit);
+      if (!tileset.tiles || tileset.tiles.length === 0) {
+        console.warn('[Scene2DManager] Tileset "%s" has NO tile definitions! Collision will not work.', tileset.assetName);
+      }
+      for (const layer of tilemap.layers) {
+        const tileCount = Object.keys(layer.tiles).length;
+        // If the layer has collision enabled, ensure all tileDefs are 'full'
+        // so the collision builder actually creates bodies for them.
+        if (layer.hasCollision && tileCount > 0) {
+          let forcedCount = 0;
+          for (const td of tileset.tiles) {
+            if (td.collision === 'none') { td.collision = 'full'; forcedCount++; }
+          }
+          if (forcedCount > 0) {
+            console.log('[Scene2DManager]   Forced %d/%d tileDefs from "none" to "full"', forcedCount, tileset.tiles.length);
+          }
+        }
+        builder.rebuild(layer, this.physics2D, tileset);
+        const layerBodies = (this.physics2D as any)._layerBodies?.get(layer.layerId);
+        const bodyCount = layerBodies?.length ?? 0;
+        totalBodies += bodyCount;
+        console.log('[Scene2DManager]   layer "%s" hasCollision=%s tiles=%d → bodies=%d',
+          layer.name, layer.hasCollision, tileCount, bodyCount);
+      }
+    }
+    const stats = this.physics2D.getWorldStats();
+    console.log('[Scene2DManager] Rebuilt tile collision — total static bodies: %d | World stats: bodies=%d, dynamic=%d, fixed=%d, colliders=%d',
+      totalBodies, stats.bodies, stats.dynamicBodies, stats.fixedBodies, stats.colliders);
+  }
+
+  /** Stop 2D play mode and clean up all runtime actors */
+  stopPlay(): void {
+    this.isPlaying = false;
+    this.physics2D?.stop();
+    this.camera2D?.stopFollow();
+
+    // Remove sprite actor groups from scene
+    for (const actor of this.spriteActors) {
+      this.root2D.remove(actor.group);
+      actor.dispose(this.physics2D ?? undefined);
+    }
+    this.spriteActors = [];
+
+    // Clear runtime physics bodies
+    // (Physics2DWorld.stop() resets accumulator; bodies persist until cleanup)
   }
 
   togglePhysicsDebug(): void {

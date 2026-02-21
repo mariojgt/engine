@@ -1004,6 +1004,11 @@ export class EditorLayout {
     if (this._viewport) this._viewport.setPlayCamera(cam);
   }
 
+  /** Enable / disable 2D play mode (blocks editing, keeps 2D render active) */
+  set2DPlayMode(playing: boolean): void {
+    if (this._viewport) this._viewport.set2DPlayMode(playing);
+  }
+
   /** Switch to the Class Hierarchy tab */
   private _showClassHierarchyPanel(): void {
     try {

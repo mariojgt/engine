@@ -118,6 +118,19 @@ export class Physics2DWorld {
     return hit !== null;
   }
 
+  /** Diagnostic: count all rigid bodies and colliders in the Rapier world */
+  getWorldStats(): { bodies: number; dynamicBodies: number; fixedBodies: number; colliders: number } {
+    if (!this.world) return { bodies: 0, dynamicBodies: 0, fixedBodies: 0, colliders: 0 };
+    let bodies = 0, dynamicBodies = 0, fixedBodies = 0, colliders = 0;
+    this.world.forEachRigidBody((rb: any) => {
+      bodies++;
+      if (rb.isDynamic()) dynamicBodies++;
+      if (rb.isFixed()) fixedBodies++;
+    });
+    this.world.forEachCollider(() => { colliders++; });
+    return { bodies, dynamicBodies, fixedBodies, colliders };
+  }
+
   processEvents(): void {
     if (!this.eventQueue) return;
 
@@ -273,9 +286,19 @@ export class Physics2DWorld {
   // ---- Tilemap helper: static box for merged collision rects ----
 
   addStaticBox(layerId: string, cx: number, cy: number, w: number, h: number): void {
-    if (!this.world || !this._rapier) return;
+    if (!this.world || !this._rapier) {
+      console.warn('[Physics2DWorld] addStaticBox skipped — world=%s rapier=%s', !!this.world, !!this._rapier);
+      return;
+    }
     const rb = this.addStaticBody(cx, cy);
+    if (!rb) {
+      console.warn('[Physics2DWorld] addStaticBox — addStaticBody returned null at (%s,%s)', cx, cy);
+      return;
+    }
     const col = this.addBoxCollider(rb, w / 2, h / 2);
+    if (!col) {
+      console.warn('[Physics2DWorld] addStaticBox — addBoxCollider returned null for (%s,%s) half=(%s,%s)', cx, cy, w/2, h/2);
+    }
     if (!this._layerBodies.has(layerId)) this._layerBodies.set(layerId, []);
     this._layerBodies.get(layerId)!.push(rb);
   }

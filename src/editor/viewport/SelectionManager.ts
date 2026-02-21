@@ -26,6 +26,7 @@ export type SelectionEvent = 'selectionChanged';
 export class SelectionManager {
   private _scene: THREE.Scene;
   private _camera: THREE.PerspectiveCamera;
+  private _camera3D: THREE.PerspectiveCamera; // original 3D camera for restore
   private _renderer: THREE.WebGLRenderer;
   private _domElement: HTMLElement;
 
@@ -105,6 +106,8 @@ export class SelectionManager {
     this._domElement = renderer.domElement;
     this._findGameObjectRoot = findGameObjectRoot;
     this._getSelectableObjects = getSelectableObjects;
+    // Store original 3D camera for restoration
+    this._camera3D = camera;
 
     // Box select element — UE5-style blue selection rectangle
     this._boxEl = document.createElement('div');
@@ -487,12 +490,13 @@ export class SelectionManager {
     return this._selected.has(obj);
   }
 
-  /** Swap the active camera used by the composer (for play mode) */
-  setCamera(camera: THREE.PerspectiveCamera): void {
-    this._camera = camera;
-    this._renderPass.camera = camera;
-    this._outlineSelected.renderCamera = camera;
-    this._outlineHover.renderCamera = camera;
+  /** Swap the active camera used by the composer and raycaster.
+   *  Pass `null` to restore the original 3D camera. */
+  setCamera(camera: THREE.Camera | null): void {
+    this._camera = (camera ?? this._camera3D) as any;
+    this._renderPass.camera = this._camera;
+    this._outlineSelected.renderCamera = this._camera;
+    this._outlineHover.renderCamera = this._camera;
   }
 
   /** Resize composer buffers */

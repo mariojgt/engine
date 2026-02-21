@@ -2358,6 +2358,14 @@ export class ActorAssetBrowser {
   // ============================================================
 
   private async _createNewAsset(actorType: ActorType = 'actor'): Promise<void> {
+    // For Character Pawn 2D, show a preset selection dialog first
+    let preset2D: 'platformer' | 'topdown' | 'blank' | undefined;
+    if (actorType === 'characterPawn2D') {
+      const choice = await this._showPresetDialog();
+      if (!choice) return;               // user cancelled
+      preset2D = choice;
+    }
+
     const defaultNames: Record<string, string> = {
       actor: 'BP_NewActor',
       characterPawn: 'BP_CharacterPawn',
@@ -2382,10 +2390,114 @@ export class ActorAssetBrowser {
     const title = titles[actorType] || 'New Actor Asset';
     const name = await this._showNameDialog(title, defaultName);
     if (!name) return;
-    const asset = this._manager.createAsset(name, actorType);
+    const asset = this._manager.createAsset(name, actorType, preset2D);
     this._folderManager.setAssetLocation(asset.id, 'actor', this._currentFolderId);
     this._selectedIds.clear();
     this._selectedIds.add(asset.id);
+  }
+
+  // ============================================================
+  //  Character Pawn 2D Preset Dialog
+  // ============================================================
+
+  private _showPresetDialog(): Promise<'platformer' | 'topdown' | 'blank' | null> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'cb-dialog-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'cb-dialog';
+      dialog.style.minWidth = '520px';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'cb-dialog-title';
+      titleEl.textContent = 'Create Character Pawn 2D';
+
+      const subtitle = document.createElement('div');
+      subtitle.className = 'cb-preset-subtitle';
+      subtitle.textContent = 'Choose a preset to start with. This will set up physics and blueprint nodes for you.';
+
+      // ── Preset cards ──
+      const cards = document.createElement('div');
+      cards.className = 'cb-preset-cards';
+
+      type Preset = { key: 'platformer' | 'topdown' | 'blank'; icon: string; title: string; desc: string };
+      const presets: Preset[] = [
+        { key: 'platformer', icon: '🏃', title: 'Platformer', desc: 'Side-scrolling movement with gravity, jump, and left/right controls.' },
+        { key: 'topdown',    icon: '🎯', title: 'Top-Down',   desc: '4-directional movement with no gravity. WASD controls.' },
+        { key: 'blank',      icon: '📄', title: 'Blank',      desc: 'Empty blueprint with just BeginPlay and Tick events.' },
+      ];
+
+      let selected: Preset['key'] = 'platformer';
+
+      const cardEls: HTMLElement[] = [];
+      for (const preset of presets) {
+        const card = document.createElement('div');
+        card.className = 'cb-preset-card' + (preset.key === selected ? ' selected' : '');
+
+        const icon = document.createElement('div');
+        icon.className = 'cb-preset-card-icon';
+        icon.textContent = preset.icon;
+
+        const ti = document.createElement('div');
+        ti.className = 'cb-preset-card-title';
+        ti.textContent = preset.title;
+
+        const de = document.createElement('div');
+        de.className = 'cb-preset-card-desc';
+        de.textContent = preset.desc;
+
+        card.append(icon, ti, de);
+        card.addEventListener('click', () => {
+          selected = preset.key;
+          cardEls.forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+        });
+
+        // Double-click to confirm immediately
+        card.addEventListener('dblclick', () => {
+          selected = preset.key;
+          finish(selected);
+        });
+
+        cards.appendChild(card);
+        cardEls.push(card);
+      }
+
+      // ── Buttons ──
+      const buttons = document.createElement('div');
+      buttons.className = 'cb-dialog-buttons';
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancel';
+      btnCancel.className = 'cb-dialog-btn';
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = 'Create';
+      btnOk.className = 'cb-dialog-btn cb-dialog-btn-primary';
+
+      buttons.append(btnCancel, btnOk);
+      dialog.append(titleEl, subtitle, cards, buttons);
+      overlay.appendChild(dialog);
+
+      const finish = (value: Preset['key'] | null) => {
+        overlay.remove();
+        resolve(value);
+      };
+
+      btnOk.addEventListener('click', () => finish(selected));
+      btnCancel.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') finish(null);
+        if (e.key === 'Enter') finish(selected);
+      });
+
+      document.body.appendChild(overlay);
+      // Focus overlay so keyboard events work immediately
+      overlay.tabIndex = -1;
+      overlay.focus();
+    });
   }
 
   // ============================================================
