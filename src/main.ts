@@ -167,6 +167,17 @@ async function main() {
   // Wire auto-save: mark dirty when scene or assets change
   engine.scene.onChanged(() => projectManager.markDirty());
   editor.scene2DManager.onChange(() => projectManager.markDirty());
+  // Refresh edit-mode sprite previews whenever 2D scene data changes (debounced 300 ms)
+  let _editPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+  editor.scene2DManager.onChange(() => {
+    if (_editPreviewTimer) clearTimeout(_editPreviewTimer);
+    _editPreviewTimer = setTimeout(() => {
+      _editPreviewTimer = null;
+      if (!editor.scene2DManager.isPlaying && editor.scene2DManager.sceneMode === '2D') {
+        editor.scene2DManager.setupEditPreviews(engine.scene.gameObjects, editor.assetManager);
+      }
+    }, 300);
+  });
   editor.assetManager.onChanged(() => projectManager.markDirty());
   structManager.onChanged(() => projectManager.markDirty());
   meshManager.onChanged(() => projectManager.markDirty());
@@ -208,6 +219,8 @@ async function main() {
       await editor.scene2DManager.switchTo2D(engine.scene.threeScene, editorContainer);
       editor.switchSceneMode('2D');
       console.log('[Editor] Switched to 2D mode');
+      // Spawn edit-mode sprite previews so 2D pawns show their sprite instead of a black box
+      editor.scene2DManager.setupEditPreviews(engine.scene.gameObjects, editor.assetManager);
     } else {
       editor.scene2DManager.switchTo3D(engine.scene.threeScene);
       editor.switchSceneMode('3D');
@@ -627,7 +640,7 @@ async function main() {
               const asset = editor.assetManager.getAsset(go.actorAssetId);
               return asset?.characterMovement2DConfig ?? undefined;
             })();
-            const actor = editor.scene2DManager.spawnCharacterPawn2D(go, movConfig);
+            const actor = editor.scene2DManager.spawnCharacterPawn2D(go, movConfig, editor.assetManager, editor.animBPManager);
             if (actor && !firstPawnActor) firstPawnActor = actor;
           }
         }
@@ -720,6 +733,8 @@ async function main() {
     if (was2DPlaying) {
       console.log('[Editor] 2D play stopped — skipping 3D scene restore (2D state preserved)');
       prePlaySceneState = null;
+      // Re-spawn edit-mode sprite previews now that play actors are gone
+      editor.scene2DManager.setupEditPreviews(engine.scene.gameObjects, editor.assetManager);
     } else if (prePlaySceneState) {
       console.log('[Editor] Restoring isolated scene state...');
       deserializeScene(engine.scene, prePlaySceneState, editor.assetManager, meshManager);

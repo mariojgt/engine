@@ -68,9 +68,19 @@ export class Scene2DManager {
   public spriteActors: SpriteActor[] = [];
   public isPlaying = false;
 
+  // Edit-mode sprite preview actors — lightweight SpriteActors without physics
+  // that visualise characterPawn2D/spriteActor game objects in the editor.
+  private _editPreviewActors = new Map<string, SpriteActor>();
+  /** Meshes hidden by setupEditPreviews so we can restore them in clearEditPreviews */
+  private _editPreviewHiddenMeshes = new Map<string, any>();
+
   // Track 3D GO meshes that were hidden when their 2D pawn was spawned
   // so they can be made visible again when play stops.
   private _hiddenGoMeshes: Array<{ mesh: any; wasVisible: boolean }> = [];
+
+  // Runtime AnimBP state machine: maps each SpriteActor to its current state
+  // and the AnimBP asset so transitions can be evaluated each frame.
+  private _actorAnimBPStates = new Map<SpriteActor, { currentStateId: string; abp: any }>();
 
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
@@ -343,6 +353,8 @@ export class Scene2DManager {
     if (this.isPlaying) {
       for (const actor of this.spriteActors) {
         actor.update(deltaTime);
+        // Evaluate AnimBP state machine transitions using synced variables
+        this._evalAnimBPTransitions(actor);
       }
     }
     this.debugDraw.update(deltaTime);
@@ -358,6 +370,8 @@ export class Scene2DManager {
   spawnCharacterPawn2D(
     go: any, /* GameObject */
     movementConfig?: any,
+    assetManager?: any,
+    animBPManager?: any,
   ): SpriteActor | null {
     if (!this.physics2D) return null;
 
@@ -370,11 +384,13 @@ export class Scene2DManager {
 
     // Use the game object's position (map 3D → 2D: x stays, y from 3D-y)
     const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
-    const scl = go.mesh?.scale ?? { x: 1, y: 1 };
-    const baseW = 0.8;
-    const baseH = 1.0;
-    const w = baseW * Math.abs(scl.x);
-    const h = baseH * Math.abs(scl.y);
+
+    // ── Collider size: read from the actor asset's collider2d component if available ──
+    // assetManager is passed from play mode; falls back to sensible defaults.
+    const _actorAssetForSize = assetManager?.getAsset?.(go.actorAssetId);
+    const _collider2dComp    = _actorAssetForSize?.components?.find((c: any) => c.type === 'collider2d');
+    const w = _collider2dComp?.collider2dSize?.width  ?? 0.8;
+    const h = _collider2dComp?.collider2dSize?.height ?? 1.0;
 
     // ── Safe spawn position ──
     // Place the pawn above the highest solid tile so it falls onto the map
@@ -403,11 +419,11 @@ export class Scene2DManager {
     const actor = new SpriteActor(config);
     actor.id = go.id;
 
-    actor.spriteRenderer.material.color.setHex(0x4488ff);
-    actor.spriteRenderer.material.transparent = false;
-    actor.spriteRenderer.geometry.dispose();
-    actor.spriteRenderer.geometry = new THREE.PlaneGeometry(w, h);
-    actor.mesh.geometry = actor.spriteRenderer.geometry;
+    // Start with a transparent white placeholder (correct sprite will be loaded below).
+    // Keep the default PlaneGeometry(1,1) — SpriteRenderer.setSprite() resizes via
+    // mesh.scale, so replacing the geometry would double-scale the visual.
+    actor.spriteRenderer.material.color.setHex(0xffffff);
+    actor.spriteRenderer.material.transparent = true;
 
     this.root2D.add(actor.group);
 
@@ -432,6 +448,70 @@ export class Scene2DManager {
     go._runtimeComponents.set('RigidBody2D', rbComp);
 
     this.spriteActors.push(actor);
+
+    // ── Load sprite sheet + wire animation blueprint asynchronously ──
+    // Runs after physics body is attached so the actor is already in the scene.
+    (async () => {
+      const actorAsset = assetManager?.getAsset?.(go.actorAssetId);
+      const sprComp = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
+      const sheetId: string | undefined = sprComp?.spriteSheetId;
+      const sheet = sheetId ? this.spriteSheets.get(sheetId) : null;
+      if (!sheet) return;
+
+      // Ensure the image is decoded before building a Three.js Texture
+      if (!sheet.image || !(sheet.image as HTMLImageElement).complete || (sheet.image as HTMLImageElement).naturalWidth === 0) {
+        if (sheet.imageDataUrl) {
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => { sheet.image = img; resolve(); };
+            img.onerror = () => resolve();
+            img.src = sheet.imageDataUrl!;
+          });
+        }
+      }
+
+      // Build THREE.Texture from image if not already present.
+      // flipY must be FALSE — SpriteRenderer.setSprite() UV math expects image-space Y
+      // (v = 1 - y/texH), which only works correctly when the texture is NOT flipped by WebGL.
+      if (sheet.image && !sheet.texture) {
+        const tex = new THREE.Texture(sheet.image as HTMLImageElement);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.flipY = false;   // ← must match UV math in SpriteRenderer.setSprite
+        tex.needsUpdate = true;
+        sheet.texture = tex;
+      }
+
+      // Assign sheet + texture to the actor's SpriteRenderer
+      actor.setSpriteSheet(sheet);
+
+      // Resolve the entry animation from the assigned AnimBP (if any)
+      const abpId: string | undefined = sprComp?.animBlueprint2dId;
+      const abp = abpId
+        ? (animBPManager?.assets ?? []).find((a: any) => a.id === abpId)
+        : null;
+
+      if (sheet.animations && sheet.animations.length > 0) {
+        const entryState = abp?.stateMachine?.states?.find(
+          (s: any) => s.id === abp.stateMachine.entryStateId,
+        );
+        const defaultAnim: string | undefined =
+          entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
+        actor.initAnimator(sheet.animations, defaultAnim);
+        if (abp) {
+          actor.animBlueprintId = abp.id;
+          // Register actor for per-frame AnimBP state machine evaluation
+          if (abp.stateMachine?.entryStateId) {
+            this._actorAnimBPStates.set(actor, {
+              currentStateId: abp.stateMachine.entryStateId,
+              abp,
+            });
+          }
+        }
+      }
+    })();
+
     console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${spawnX.toFixed(3)}, ${spawnY.toFixed(3)}) size (${w.toFixed(2)}, ${h.toFixed(2)}) [topY=${topY?.toFixed(3) ?? 'n/a'}]`);
     return actor;
   }
@@ -474,6 +554,8 @@ export class Scene2DManager {
    *  would cause WASM panics in syncToThreeJS on the second play).
    */
   async startPlay(): Promise<void> {
+    // Remove edit-mode sprite previews before spawning real actors
+    this.clearEditPreviews();
     // ── Reinitialise physics world for a clean session ──
     // init() frees the old Rapier world (releasing WASM memory), creates a
     // fresh one, and clears bodyMap + layerBodies.  The _rapier module itself
@@ -539,6 +621,182 @@ export class Scene2DManager {
       totalBodies, stats.bodies, stats.dynamicBodies, stats.fixedBodies, stats.colliders);
   }
 
+  // ---- Edit-mode sprite previews ----
+
+  /**
+   * Remove all existing edit-mode preview actors from root2D and restore
+   * any hidden 3D meshes so they are visible again in edit mode.
+   */
+  clearEditPreviews(): void {
+    for (const [, actor] of this._editPreviewActors) {
+      this.root2D.remove(actor.group);
+      actor.dispose(undefined);
+    }
+    this._editPreviewActors.clear();
+
+    // Restore 3D mesh visibility so spawnCharacterPawn2D records the correct
+    // wasVisible=true when it re-hides them at play start.
+    for (const [, mesh] of this._editPreviewHiddenMeshes) {
+      mesh.visible = true;
+    }
+    this._editPreviewHiddenMeshes.clear();
+  }
+
+  /**
+   * Create lightweight SpriteActors (no physics) for every characterPawn2D /
+   * spriteActor game object so the editor 2D viewport shows the sprite instead
+   * of the black 3D mesh box.  Safe to call repeatedly — clears old previews first.
+   */
+  setupEditPreviews(gameObjects: any[], assetManager?: any): void {
+    if (this.isPlaying) return; // real actors are used during play
+    this.clearEditPreviews();
+
+    for (const go of gameObjects) {
+      if (go.actorType !== 'characterPawn2D' && go.actorType !== 'spriteActor') continue;
+
+      // Hide the 3D mesh that would otherwise appear as a black box
+      if (go.mesh) {
+        go.mesh.visible = false;
+        this._editPreviewHiddenMeshes.set(go.id, go.mesh);
+      }
+
+      const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
+
+      const actor = new SpriteActor({
+        name: go.name + '__editPreview',
+        actorType: 'spriteActor',
+        position: { x: rawPos.x, y: rawPos.y },
+      });
+      actor.spriteRenderer.material.color.setHex(0xffffff);
+      actor.spriteRenderer.material.transparent = true;
+      this.root2D.add(actor.group);
+      this._editPreviewActors.set(go.id, actor);
+
+      // Load the sprite sheet and show the first / default sprite asynchronously
+      (async () => {
+        const actorAsset = assetManager?.getAsset?.(go.actorAssetId);
+        const sprComp = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
+        const sheetId: string | undefined = sprComp?.spriteSheetId;
+        const sheet = sheetId ? this.spriteSheets.get(sheetId) : null;
+        if (!sheet) return;
+
+        // Decode image if needed
+        if (!sheet.image || !(sheet.image as HTMLImageElement).complete || (sheet.image as HTMLImageElement).naturalWidth === 0) {
+          if (sheet.imageDataUrl) {
+            await new Promise<void>((resolve) => {
+              const img = new Image();
+              img.onload = () => { sheet.image = img; resolve(); };
+              img.onerror = () => resolve();
+              img.src = sheet.imageDataUrl!;
+            });
+          }
+        }
+
+        // Build texture (flipY=false so UV math is consistent with play mode)
+        if (sheet.image && !sheet.texture) {
+          const tex = new THREE.Texture(sheet.image as HTMLImageElement);
+          tex.magFilter = THREE.NearestFilter;
+          tex.minFilter = THREE.NearestFilter;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.flipY = false;
+          tex.needsUpdate = true;
+          sheet.texture = tex;
+        }
+
+        // Don't apply to a stale actor (may have been cleared by stopPlay / clearEditPreviews)
+        if (!this._editPreviewActors.has(go.id)) return;
+
+        actor.setSpriteSheet(sheet);
+
+        const spriteData = sprComp?.defaultSprite
+          ? sheet.sprites.find((s: any) => s.name === sprComp.defaultSprite || s.spriteId === sprComp.defaultSprite)
+          : sheet.sprites[0];
+        if (spriteData && sheet.texture) {
+          actor.spriteRenderer.setSprite(spriteData, sheet.texture);
+        }
+      })();
+    }
+  }
+
+  // ---- AnimBP runtime state machine evaluator ----
+
+  /** Evaluate AnimBP transitions for one actor and switch animation if a rule fires. */
+  private _evalAnimBPTransitions(actor: SpriteActor): void {
+    const entry = this._actorAnimBPStates.get(actor);
+    if (!entry) return;
+    const { abp } = entry;
+    const sm = abp?.stateMachine;
+    if (!sm) return;
+    const animator = actor.animator;
+    if (!animator) return;
+    const vars = animator.variables ?? {};
+
+    // Collect eligible transitions: from current state OR Any-State (*), sorted by priority
+    const transitions: any[] = (sm.transitions ?? [])
+      .filter((t: any) => t.fromStateId === entry.currentStateId || t.fromStateId === '*')
+      .sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0));
+
+    for (const t of transitions) {
+      // Skip self-transitions
+      if (t.toStateId === entry.currentStateId) continue;
+
+      const hasRules = t.rules && t.rules.length > 0;
+      if (!hasRules) {
+        // No rules: only fire when the current (non-looping) animation finishes
+        if (animator.currentAnim?.loop) continue;
+        if (animator.isPlaying) continue;
+      } else {
+        if (!this._evalAnimBPTransition(t, vars)) continue;
+      }
+
+      // Transition fires — look up target state
+      const targetState = sm.states.find((s: any) => s.id === t.toStateId);
+      if (!targetState) continue;
+      const newAnimName: string | undefined = targetState.spriteAnimationName;
+      if (!newAnimName) continue;
+
+      entry.currentStateId = t.toStateId;
+      animator.play(newAnimName);
+      return; // fire one transition per frame
+    }
+  }
+
+  private _evalAnimBPTransition(t: any, vars: Record<string, any>): boolean {
+    const groups: any[] = t.rules ?? [];
+    if (groups.length === 0) return true;
+    const logic: string = t.ruleLogic ?? 'AND';
+    if (logic === 'AND') return groups.every((g: any) => this._evalAnimBPRuleGroup(g, vars));
+    return groups.some((g: any) => this._evalAnimBPRuleGroup(g, vars));
+  }
+
+  private _evalAnimBPRuleGroup(group: any, vars: Record<string, any>): boolean {
+    const rules: any[] = group.rules ?? [];
+    if (rules.length === 0) return true;
+    if (group.op === 'AND') return rules.every((r: any) => this._evalAnimBPRule(r, vars));
+    return rules.some((r: any) => this._evalAnimBPRule(r, vars));
+  }
+
+  private _evalAnimBPRule(rule: any, vars: Record<string, any>): boolean {
+    if (rule.kind === 'expr') {
+      try {
+        // eslint-disable-next-line no-new-func
+        return !!new Function('vars', `with(vars){return!!(${rule.expr})}`)(vars);
+      } catch { return false; }
+    }
+    const val = vars[rule.varName];
+    const cmp = rule.value;
+    switch (rule.op) {
+      case '==':       return val == cmp;  // loose: bool vs number
+      case '!=':       return val != cmp;
+      case '>':        return val > cmp;
+      case '<':        return val < cmp;
+      case '>=':       return val >= cmp;
+      case '<=':       return val <= cmp;
+      case 'contains': return String(val).includes(String(cmp));
+      default:         return false;
+    }
+  }
+
   /** Stop 2D play mode and clean up all runtime actors */
   stopPlay(): void {
     this.isPlaying = false;
@@ -551,6 +809,7 @@ export class Scene2DManager {
       actor.dispose(this.physics2D ?? undefined);
     }
     this.spriteActors = [];
+    this._actorAnimBPStates.clear();
 
     // Restore 3D GO meshes that were hidden when their 2D pawns were spawned
     for (const entry of this._hiddenGoMeshes) {

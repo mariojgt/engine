@@ -591,6 +591,8 @@ export class EditorLayout {
     if (this._animBPManager) {
       this._actorEditor.setAnimBPManager(this._animBPManager);
     }
+    // Wire up Scene2DManager for 2D sprite sheet / anim blueprint pickers
+    this._actorEditor.setScene2DManager(this.scene2DManager);
   }
 
   /** Wire up the StructureAssetManager for the content browser and editors */
@@ -637,6 +639,11 @@ export class EditorLayout {
         }
       });
     }
+  }
+
+  /** Read-only access for play mode to pass the manager to Scene2DManager */
+  get animBPManager(): AnimBlueprintManager | null {
+    return this._animBPManager;
   }
 
   /** Wire up the WidgetBlueprintManager for the content browser */

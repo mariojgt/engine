@@ -19,6 +19,8 @@ import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig
 import type { CameraMode, SpringArmConfig, CameraComponentConfig } from '../engine/CharacterPawnData';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
+import { TextureLibrary } from './TextureLibrary';
+import type { Scene2DManager } from './Scene2DManager';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -31,6 +33,7 @@ export class ActorEditorPanel {
   private _assetManager: ActorAssetManager | null;
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
+  private _scene2DManager: Scene2DManager | null = null;
   private _onCompile: (code: string) => void;
   private _onAssetChanged: () => void;
   private _onSave: (() => void) | null;
@@ -50,6 +53,8 @@ export class ActorEditorPanel {
   private _preview: ActorPreviewViewport | null = null;
   private _componentsListEl: HTMLElement | null = null;
   private _componentPropsEl: HTMLElement | null = null;
+  /** Refresh the 2D canvas preview — set in _build2DPreview, called by property pickers */
+  private _refreshPreview: (() => void) | null = null;
   private _selectedComponentId: string | null = null; // null | '__root__' | comp.id
 
   // Event Graph tab
@@ -86,6 +91,11 @@ export class ActorEditorPanel {
   /** Wire up AnimBlueprintManager for animation blueprint picker on skeletal meshes */
   setAnimBPManager(mgr: AnimBlueprintManager): void {
     this._animBPManager = mgr;
+  }
+
+  /** Wire up Scene2DManager for 2D sprite sheet / anim blueprint pickers */
+  setScene2DManager(mgr: Scene2DManager): void {
+    this._scene2DManager = mgr;
   }
 
   /** Mark the blueprint as needing recompilation (called externally when graph changes) */
@@ -374,23 +384,31 @@ export class ActorEditorPanel {
       this._showAddComponentMenu(e as MouseEvent);
     });
 
-    // Right panel: Mini viewport
+    // Right panel: Mini viewport (2D or 3D depending on actor type)
     const rightPanel = document.createElement('div');
     rightPanel.className = 'actor-preview-area';
     wrap.appendChild(rightPanel);
 
-    this._preview = new ActorPreviewViewport(rightPanel, this._asset);
-    this._preview.onSelectionChanged = (sel) => {
-      if (!sel) {
-        this._selectedComponentId = null;
-      } else if (sel.type === 'root') {
-        this._selectedComponentId = '__root__';
-      } else {
-        this._selectedComponentId = sel.id;
-      }
-      this._refreshComponentsList();
-      this._refreshComponentProps();
-    };
+    const is2DActor = this._asset.actorType === 'spriteActor'
+      || this._asset.actorType === 'characterPawn2D'
+      || this._asset.actorType === 'parallaxLayer';
+
+    if (is2DActor) {
+      this._build2DPreview(rightPanel);
+    } else {
+      this._preview = new ActorPreviewViewport(rightPanel, this._asset);
+      this._preview.onSelectionChanged = (sel) => {
+        if (!sel) {
+          this._selectedComponentId = null;
+        } else if (sel.type === 'root') {
+          this._selectedComponentId = '__root__';
+        } else {
+          this._selectedComponentId = sel.id;
+        }
+        this._refreshComponentsList();
+        this._refreshComponentProps();
+      };
+    }
 
     this._refreshComponentsList();
     this._refreshComponentProps();
@@ -447,6 +465,196 @@ export class ActorEditorPanel {
     wrap.appendChild(tip);
   }
 
+  // ---- 2D canvas preview for sprite/character2D actors ----
+
+  private _build2DPreview(container: HTMLElement): void {
+    Object.assign(container.style, {
+      background: '#0a0a14',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const sprComp = this._asset.components.find(c => c.type === 'spriteRenderer');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 220;
+    canvas.height = 220;
+    canvas.style.cssText = 'border:1px solid #2a2a42;border-radius:5px;image-rendering:pixelated;flex-shrink:0;';
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+
+    // Tracks last sprite render so the collider overlay uses the matching scale/ppu.
+    let _lastDrawScale = 0;
+    let _lastDrawPpu = 64;
+
+    const drawChecker = () => {
+      const s = 10;
+      for (let y = 0; y < canvas.height; y += s) {
+        for (let x = 0; x < canvas.width; x += s) {
+          ctx.fillStyle = (Math.floor(x / s) + Math.floor(y / s)) % 2 === 0 ? '#1a1a22' : '#111118';
+          ctx.fillRect(x, y, s, s);
+        }
+      }
+    };
+
+    const drawSprite = (img: HTMLImageElement, sx: number, sy: number, sw: number, sh: number) => {
+      drawChecker();
+      const scale = Math.min((canvas.width * 0.85) / sw, (canvas.height * 0.85) / sh);
+      _lastDrawScale = scale;
+      const dw = sw * scale;
+      const dh = sh * scale;
+      ctx.drawImage(img, sx, sy, sw, sh, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+    };
+
+    // Draw the collider2d component as a green dashed shape overlay on top of the sprite.
+    const drawColliderOverlay = () => {
+      if (_lastDrawScale === 0) return;
+      const col = this._asset.components.find(c => c.type === 'collider2d');
+      if (!col) return;
+
+      const ppu   = _lastDrawPpu;
+      const scale = _lastDrawScale;
+      const cx = canvas.width  / 2;
+      const cy = canvas.height / 2;
+      const shape: string = col.collider2dShape ?? 'box';
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,230,100,0.9)';
+      ctx.fillStyle   = 'rgba(0,230,100,0.08)';
+      ctx.lineWidth   = 1.5;
+      ctx.setLineDash([4, 3]);
+
+      if (shape === 'circle') {
+        const r = (col.collider2dRadius ?? 0.5) * ppu * scale;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else if (shape === 'capsule') {
+        const hw = ((col.collider2dSize?.width  ?? 0.8) / 2) * ppu * scale;
+        const hh = ((col.collider2dSize?.height ?? 1.0) / 2) * ppu * scale;
+        const r = hw;
+        const bodyH = Math.max(0, hh - r);
+        ctx.beginPath();
+        ctx.moveTo(cx - hw, cy - bodyH);
+        ctx.arc(cx, cy - bodyH, r, Math.PI, 0);
+        ctx.lineTo(cx + hw, cy + bodyH);
+        ctx.arc(cx, cy + bodyH, r, 0, Math.PI);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        // box
+        const hw = ((col.collider2dSize?.width  ?? 0.8) / 2) * ppu * scale;
+        const hh = ((col.collider2dSize?.height ?? 1.0) / 2) * ppu * scale;
+        ctx.beginPath();
+        ctx.rect(cx - hw, cy - hh, hw * 2, hh * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Size label in top-left corner
+      ctx.setLineDash([]);
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(0,230,100,0.85)';
+      const label = shape === 'circle'
+        ? `r=${(col.collider2dRadius ?? 0.5).toFixed(2)}`
+        : `${(col.collider2dSize?.width ?? 0.8).toFixed(2)}×${(col.collider2dSize?.height ?? 1.0).toFixed(2)}`;
+      ctx.fillText(label, 4, 4);
+      ctx.restore();
+    };
+
+    const showMessage = (lines: string[], color = '#3a3a52') => {
+      drawChecker();
+      ctx.fillStyle = color;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      lines.forEach((line, i) => {
+        ctx.fillText(line, canvas.width / 2, canvas.height / 2 + (i - (lines.length - 1) / 2) * 18);
+      });
+    };
+
+    const loadPreview = () => {
+      if (!sprComp) {
+        showMessage(['No SpriteRenderer component', 'Add one from the Components tree']);
+        return;
+      }
+      if (!sprComp.spriteSheetId) {
+        showMessage(['Select SpriteRenderer →', 'assign a Sprite Sheet']);
+        return;
+      }
+
+      const sheet = this._scene2DManager?.spriteSheets.get(sprComp.spriteSheetId);
+      if (!sheet) {
+        const tex = TextureLibrary.instance?.getAsset(sprComp.spriteSheetId);
+        if (tex?.storedData) {
+          const img = new Image();
+          img.onload = () => drawSprite(img, 0, 0, img.naturalWidth, img.naturalHeight);
+          img.src = tex.storedData;
+        } else {
+          showMessage(['Sprite sheet not loaded'], '#e8a838');
+        }
+        return;
+      }
+
+      const renderWithImage = (img: HTMLImageElement) => {
+        _lastDrawPpu = sheet.pixelsPerUnit ?? 64;
+        const sprite = sprComp!.defaultSprite
+          ? sheet.sprites.find(s => s.name === sprComp!.defaultSprite || s.spriteId === sprComp!.defaultSprite)
+          : sheet.sprites[0];
+        if (sprite) {
+          drawSprite(img, sprite.x, sprite.y, sprite.width, sprite.height);
+        } else {
+          drawSprite(img, 0, 0, sheet.textureWidth, sheet.textureHeight);
+        }
+        drawColliderOverlay();
+      };
+
+      if (sheet.image?.complete && sheet.image.naturalWidth > 0) {
+        renderWithImage(sheet.image);
+      } else if (sheet.imageDataUrl) {
+        const img = new Image();
+        img.onload = () => { sheet.image = img; renderWithImage(img); };
+        img.src = sheet.imageDataUrl;
+      } else {
+        showMessage(['Image not loaded'], '#e8a838');
+      }
+    };
+
+    // Expose so property pickers can trigger a re-draw after changing the sprite sheet
+    this._refreshPreview = loadPreview;
+
+    loadPreview();
+    container.appendChild(canvas);
+
+    // Actor type label
+    const typeLabel = document.createElement('div');
+    typeLabel.style.cssText = 'font-size:11px;color:#64748b;text-align:center;line-height:1.5;max-width:220px;';
+    const typeName = this._asset.actorType === 'characterPawn2D' ? '2D Character Pawn'
+      : this._asset.actorType === 'spriteActor' ? '2D Sprite Actor'
+      : '2D Parallax Layer';
+    typeLabel.innerHTML = `<b style="color:#94a3b8">${typeName}</b><br>Select a component below to configure it`;
+    container.appendChild(typeLabel);
+
+    // Refresh button
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'toolbar-btn';
+    refreshBtn.style.marginTop = '4px';
+    refreshBtn.textContent = '↺ Refresh Preview';
+    refreshBtn.addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      loadPreview();
+    });
+    container.appendChild(refreshBtn);
+  }
+
   private _disposeViewportTab(): void {
     if (this._preview) {
       this._preview.dispose();
@@ -482,6 +690,11 @@ export class ActorEditorPanel {
         : comp.type === 'characterMovement' ? '🏃'
         : comp.type === 'springArm' ? '🎯'
         : comp.type === 'capsule' ? '🔵'
+        : comp.type === 'spriteRenderer' ? '🖼'
+        : comp.type === 'rigidbody2d' ? '⚙'
+        : comp.type === 'collider2d' ? '▭'
+        : comp.type === 'characterMovement2d' ? '🏃'
+        : comp.type === 'tilemap' ? '🗺'
         : '🔹';
       const indent = comp.parentId ? true : false;
       const item = this._makeComponentItem(comp.name, comp.id, icon);
@@ -1216,6 +1429,217 @@ export class ActorEditorPanel {
         if (this._preview) this._preview.updateComponentTransform(comp.id);
         this._onAssetChanged();
       }));
+    } else if (comp.type === 'spriteRenderer') {
+      // ---- Sprite Renderer component properties ----
+      const sprHeader = document.createElement('div');
+      sprHeader.className = 'prop-section-title';
+      sprHeader.textContent = '🖼 Sprite';
+      container.appendChild(sprHeader);
+
+      // Build sheet options from Scene2DManager + TextureLibrary 'Sprite'
+      type SheetOpt = { id: string; name: string };
+      const sheetOptions: SheetOpt[] = [];
+      if (this._scene2DManager) {
+        for (const [id, sheet] of this._scene2DManager.spriteSheets) {
+          sheetOptions.push({ id, name: sheet.assetName });
+        }
+      }
+      const existingSourceTexIds = new Set(
+        this._scene2DManager
+          ? Array.from(this._scene2DManager.spriteSheets.values()).map(s => s.sourceTexture)
+          : [],
+      );
+      const texLib = TextureLibrary.instance;
+      if (texLib) {
+        for (const tex of texLib.getTexturesByCategory('Sprite')) {
+          if (!existingSourceTexIds.has(tex.assetId)) {
+            sheetOptions.push({ id: tex.assetId, name: tex.assetName + ' ↑' });
+          }
+        }
+      }
+
+      const sheetDisplayOptions = ['(None)', ...sheetOptions.map(s => s.name)];
+      const currentSheet = comp.spriteSheetId
+        ? (sheetOptions.find(s => s.id === comp.spriteSheetId)?.name ?? '(None)')
+        : '(None)';
+
+      container.appendChild(this._makeDropdownRow('Sprite Sheet', currentSheet, sheetDisplayOptions, (v) => {
+        if (v === '(None)') {
+          comp.spriteSheetId = undefined;
+          comp.defaultSprite = undefined;
+        } else {
+          const sel = sheetOptions.find(s => s.name === v);
+          if (sel) comp.spriteSheetId = sel.id;
+        }
+        this._asset.touch();
+        this._refreshComponentProps();
+        this._refreshPreview?.();
+        this._onAssetChanged();
+      }));
+
+      // Default Sprite picker
+      if (comp.spriteSheetId && this._scene2DManager) {
+        const sheet = this._scene2DManager.spriteSheets.get(comp.spriteSheetId);
+        if (sheet && sheet.sprites.length > 0) {
+          const spriteOpts = ['(First)', ...sheet.sprites.map(s => s.name)];
+          const currentSpr = comp.defaultSprite || '(First)';
+          container.appendChild(this._makeDropdownRow('Default Sprite', currentSpr, spriteOpts, (v) => {
+            comp.defaultSprite = v === '(First)' ? undefined : v;
+            this._asset.touch();
+            this._refreshPreview?.();
+            this._onAssetChanged();
+          }));
+        }
+      }
+
+      // Flip
+      container.appendChild(this._makeCheckboxRow('Flip X', !!(comp as any).flipX, (v) => {
+        (comp as any).flipX = v;
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+      container.appendChild(this._makeCheckboxRow('Flip Y', !!(comp as any).flipY, (v) => {
+        (comp as any).flipY = v;
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+
+      // Sorting
+      container.appendChild(this._makeDropdownRow('Sorting Layer', comp.sortingLayer ?? 'Default',
+        ['Default', 'Background', 'Foreground', 'UI'], (v) => {
+          comp.sortingLayer = v;
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+      container.appendChild(this._makeNumberRow('Order In Layer', comp.orderInLayer ?? 0, 1, -100, 100, (v) => {
+        comp.orderInLayer = Math.round(v);
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+
+      // ---- 2D Animation Blueprint picker ----
+      const abp2dHeader = document.createElement('div');
+      abp2dHeader.className = 'prop-section-title';
+      abp2dHeader.textContent = '🎬 2D Animation Blueprint';
+      container.appendChild(abp2dHeader);
+
+      if (this._animBPManager) {
+        const abp2dAssets = this._animBPManager.assets.filter(a => a.is2D);
+        const abp2dOptions = ['(None)', ...abp2dAssets.map(a => a.name)];
+        const currentBP2D = comp.animBlueprint2dId
+          ? (abp2dAssets.find(a => a.id === comp.animBlueprint2dId)?.name ?? '(None)')
+          : '(None)';
+
+        container.appendChild(this._makeDropdownRow('Anim BP 2D', currentBP2D, abp2dOptions, (v) => {
+          if (v === '(None)') {
+            comp.animBlueprint2dId = undefined;
+          } else {
+            const abp = abp2dAssets.find(a => a.name === v);
+            if (abp) {
+              comp.animBlueprint2dId = abp.id;
+              // Auto-assign target sprite sheet if the BP doesn't have one yet
+              if (!abp.targetSpriteSheetId && comp.spriteSheetId) {
+                abp.targetSpriteSheetId = comp.spriteSheetId;
+                abp.touch();
+                this._animBPManager?.notifyAssetChanged(abp.id);
+              }
+            }
+          }
+          this._asset.touch();
+          this._refreshComponentProps();
+          this._onAssetChanged();
+        }));
+
+        if (comp.animBlueprint2dId) {
+          const abp = abp2dAssets.find(a => a.id === comp.animBlueprint2dId);
+          if (abp) {
+            const info = document.createElement('div');
+            info.style.cssText = 'font-size:10px;color:var(--text-dim);padding:4px 12px;line-height:1.5;';
+            info.innerHTML = `States: <b>${abp.stateMachine.states.length}</b> &middot; Transitions: <b>${abp.stateMachine.transitions.length}</b>`;
+            container.appendChild(info);
+
+            const openBtn = document.createElement('button');
+            openBtn.className = 'toolbar-btn';
+            openBtn.style.margin = '4px 10px';
+            openBtn.textContent = '🎬 Open AnimBP 2D Editor';
+            openBtn.addEventListener('click', () => {
+              document.dispatchEvent(new CustomEvent('open-animblueprint-2d', { detail: { assetId: abp.id } }));
+            });
+            container.appendChild(openBtn);
+
+            if (!abp.targetSpriteSheetId) {
+              const warn = document.createElement('div');
+              warn.style.cssText = 'font-size:10px;color:#e8a838;padding:2px 12px;line-height:1.4;';
+              warn.textContent = '⚠ Anim BP has no target sprite sheet — set it in the AnimBP 2D editor.';
+              container.appendChild(warn);
+            }
+          }
+        } else if (abp2dAssets.length === 0) {
+          const hint = document.createElement('div');
+          hint.style.cssText = 'font-size:10px;color:#64748b;padding:2px 12px;line-height:1.4;';
+          hint.textContent = 'No 2D animation blueprints found. Create one in the Content Browser → right-click → Create → Animation Blueprint (2D).';
+          container.appendChild(hint);
+        }
+      }
+
+    } else if (comp.type === 'rigidbody2d') {
+      // ---- RigidBody 2D ----
+      const rbHeader = document.createElement('div');
+      rbHeader.className = 'prop-section-title';
+      rbHeader.textContent = '⚙ Rigidbody 2D';
+      container.appendChild(rbHeader);
+      container.appendChild(this._makeDropdownRow('Body Type',
+        comp.rigidbody2dType ?? 'dynamic', ['dynamic', 'static', 'kinematic'], (v) => {
+          comp.rigidbody2dType = v as 'dynamic' | 'static' | 'kinematic';
+          this._asset.touch();
+          this._onAssetChanged();
+        }));
+
+    } else if (comp.type === 'collider2d') {
+      // ---- Collider 2D ----
+      const colHeader = document.createElement('div');
+      colHeader.className = 'prop-section-title';
+      colHeader.textContent = '▭ Collider 2D';
+      container.appendChild(colHeader);
+      container.appendChild(this._makeDropdownRow('Shape',
+        comp.collider2dShape ?? 'box', ['box', 'circle', 'capsule'], (v) => {
+          comp.collider2dShape = v as 'box' | 'circle' | 'capsule';
+          this._asset.touch();
+          this._refreshComponentProps();
+          this._onAssetChanged();
+          this._refreshPreview?.();
+        }));
+      if ((comp.collider2dShape ?? 'box') === 'circle') {
+        if (comp.collider2dRadius === undefined) comp.collider2dRadius = 0.5;
+        container.appendChild(this._makeNumberRow('Radius', comp.collider2dRadius, 0.05, 0.05, 20, (v) => {
+          comp.collider2dRadius = v;
+          this._asset.touch();
+          this._onAssetChanged();
+          this._refreshPreview?.();
+        }));
+      } else {
+        if (!comp.collider2dSize) comp.collider2dSize = { width: 0.8, height: 1.0 };
+        container.appendChild(this._makeNumberRow('Width', comp.collider2dSize.width, 0.05, 0.05, 20, (v) => {
+          comp.collider2dSize!.width = v;
+          this._asset.touch();
+          this._onAssetChanged();
+          this._refreshPreview?.();
+        }));
+        container.appendChild(this._makeNumberRow('Height', comp.collider2dSize.height, 0.05, 0.05, 20, (v) => {
+          comp.collider2dSize!.height = v;
+          this._asset.touch();
+          this._onAssetChanged();
+          this._refreshPreview?.();
+        }));
+      }
+
+    } else if (comp.type === 'characterMovement2d') {
+      // ---- Character Movement 2D ----
+      const info = document.createElement('div');
+      info.style.cssText = 'color:#888;font-size:11px;padding:6px 0;line-height:1.5;';
+      info.textContent = '2D movement speed, jump force and physics are configured via the Character Pad 2D settings.';
+      container.appendChild(info);
+
     } else {
       // ---- Mesh component properties (Static Mesh or Primitive) ----
 

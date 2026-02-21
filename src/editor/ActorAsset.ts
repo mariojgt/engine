@@ -224,6 +224,12 @@ export interface ActorComponentData {
   sortingLayer?: string;
   /** Order within sorting layer */
   orderInLayer?: number;
+  /** Flip sprite horizontally (for type='spriteRenderer') */
+  flipX?: boolean;
+  /** Flip sprite vertically (for type='spriteRenderer') */
+  flipY?: boolean;
+  /** 2D Animation Blueprint asset ID (for type='spriteRenderer') */
+  animBlueprint2dId?: string;
   /** 2D collider shape (for type='collider2d') */
   collider2dShape?: 'box' | 'circle' | 'capsule';
   /** 2D collider dimensions */

@@ -1287,7 +1287,7 @@ export class AnimBlueprint2DEditorPanel {
       inp.max = '100';
       inp.title = 'Playback speed multiplier (1 = normal, 2 = double speed)';
       inp.placeholder = '1.0';
-      inp.value = String(state.spriteAnimFPS ?? 1);
+      inp.value = String(state.spriteAnimFPS || 1);
       inp.addEventListener('change', () => {
         state.spriteAnimFPS = parseFloat(inp.value) || 1;
         this._asset.touch();
@@ -1619,7 +1619,7 @@ export class AnimBlueprint2DEditorPanel {
     const infoCol = document.createElement('div');
     infoCol.style.cssText = 'flex:1;font-size:11px;color:#94a3b8;line-height:1.6;';
 
-    const playRate = state.spriteAnimFPS ?? 1;
+    const playRate = state.spriteAnimFPS || 1;
     const fps = anim.fps * playRate;
     infoCol.innerHTML = `
       <div><span style="color:#64748b">Anim:</span> <b>${anim.animName}</b></div>
@@ -1707,8 +1707,14 @@ export class AnimBlueprint2DEditorPanel {
 
     container.appendChild(sec);
 
-    // Draw first frame immediately
-    this._drawPreviewFrame(sheet, anim, 0);
+    // Draw first frame immediately — load image from dataUrl if not yet decoded
+    if (sheet.image && sheet.image.complete && sheet.image.naturalWidth > 0) {
+      this._drawPreviewFrame(sheet, anim, 0);
+    } else if (sheet.imageDataUrl) {
+      const img = new Image();
+      img.onload = () => { sheet.image = img; this._drawPreviewFrame(sheet, anim, 0); };
+      img.src = sheet.imageDataUrl;
+    }
   }
 
   private _drawPreviewFrame(sheet: SpriteSheetAsset, anim: SpriteAnimationDef, frameIndex: number): void {
@@ -1736,37 +1742,60 @@ export class AnimBlueprint2DEditorPanel {
 
   private _startPreview(sheet: SpriteSheetAsset, anim: SpriteAnimationDef, state: AnimStateData, scrub: HTMLInputElement, label: HTMLElement): void {
     this._stopPreview();
-    if (!sheet.image || anim.frames.length === 0) return;
-    this._previewIsPlaying = true;
-    this._previewLastTime = performance.now();
-    this._previewTimer = 0;
+    if (anim.frames.length === 0) return;
 
-    const playRate = state.spriteAnimFPS ?? 1;
-    const fps = anim.fps * playRate;
-    const loop = state.spriteAnimLoop ?? anim.loop;
+    const doStart = () => {
+      // Reset to frame 0 so play always starts from the beginning
+      this._previewFrameIndex = 0;
+      this._previewIsPlaying = true;
+      this._previewLastTime = performance.now();
+      this._previewTimer = 0;
+      // Restore context settings that canvas.width reset may have cleared
+      this._previewCtx.imageSmoothingEnabled = false;
 
-    const tick = (ts: number) => {
-      if (!this._previewIsPlaying) return;
-      const dt = (ts - this._previewLastTime) / 1000;
-      this._previewLastTime = ts;
-      this._previewTimer += dt;
+      const playRate = Math.max(0.01, state.spriteAnimFPS || 1);
+      const fps = Math.max(1, anim.fps * playRate);
+      const loop = state.spriteAnimLoop ?? anim.loop;
 
-      const frameDur = 1 / Math.max(1, fps);
-      while (this._previewTimer >= frameDur) {
-        this._previewTimer -= frameDur;
-        this._previewFrameIndex++;
-        if (this._previewFrameIndex >= anim.frames.length) {
-          if (loop) this._previewFrameIndex = 0;
-          else { this._previewFrameIndex = anim.frames.length - 1; this._stopPreview(); return; }
+      const tick = (ts: number) => {
+        if (!this._previewIsPlaying) return;
+        const dt = (ts - this._previewLastTime) / 1000;
+        this._previewLastTime = ts;
+        this._previewTimer += dt;
+
+        const frameDur = 1 / Math.max(1, fps);
+        while (this._previewTimer >= frameDur) {
+          this._previewTimer -= frameDur;
+          this._previewFrameIndex++;
+          if (this._previewFrameIndex >= anim.frames.length) {
+            if (loop) this._previewFrameIndex = 0;
+            else { this._previewFrameIndex = anim.frames.length - 1; this._stopPreview(); return; }
+          }
         }
-      }
-      scrub.value = String(this._previewFrameIndex);
-      label.textContent = `${this._previewFrameIndex + 1}/${anim.frames.length}`;
-      this._drawPreviewFrame(sheet, anim, this._previewFrameIndex);
+        scrub.value = String(this._previewFrameIndex);
+        label.textContent = `${this._previewFrameIndex + 1}/${anim.frames.length}`;
+        this._drawPreviewFrame(sheet, anim, this._previewFrameIndex);
+        this._previewAnimId = requestAnimationFrame(tick);
+      };
+
       this._previewAnimId = requestAnimationFrame(tick);
     };
 
-    this._previewAnimId = requestAnimationFrame(tick);
+    // If image is already loaded, start immediately
+    if (sheet.image && sheet.image.complete && sheet.image.naturalWidth > 0) {
+      doStart();
+    } else if (sheet.imageDataUrl) {
+      // Load image from the persisted data URL then start playback
+      const img = new Image();
+      img.onload = () => {
+        sheet.image = img;
+        // Draw the first frame so the canvas isn't blank while we promote the loop
+        this._drawPreviewFrame(sheet, anim, this._previewFrameIndex);
+        doStart();
+      };
+      img.onerror = () => console.warn('[AnimBP2D] Failed to load preview image from imageDataUrl');
+      img.src = sheet.imageDataUrl;
+    }
   }
 
   private _stopPreview(): void {
