@@ -385,10 +385,13 @@ export class Scene2DManager {
     // Use the game object's position (map 3D → 2D: x stays, y from 3D-y)
     const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
 
-    // ── Collider size: read from the actor asset's collider2d component if available ──
-    // assetManager is passed from play mode; falls back to sensible defaults.
+    // ── Read all relevant component data from the actor asset upfront ──
     const _actorAssetForSize = assetManager?.getAsset?.(go.actorAssetId);
     const _collider2dComp    = _actorAssetForSize?.components?.find((c: any) => c.type === 'collider2d');
+    const _sprRendComp       = _actorAssetForSize?.components?.find((c: any) => c.type === 'spriteRenderer');
+
+    const colliderShape: 'box' | 'circle' | 'capsule' =
+      (_collider2dComp?.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule';
     const w = _collider2dComp?.collider2dSize?.width  ?? 0.8;
     const h = _collider2dComp?.collider2dSize?.height ?? 1.0;
 
@@ -409,8 +412,11 @@ export class Scene2DManager {
       actorType: 'characterPawn2D',
       position: { x: spawnX, y: spawnY },
       physicsBodyType: 'dynamic',
-      colliderShape: 'box',
+      colliderShape,
       colliderSize: { width: w, height: h },
+      colliderRadius: _collider2dComp?.collider2dRadius,
+      sortingLayer: _sprRendComp?.sortingLayer ?? 'Default',
+      orderInLayer: _sprRendComp?.orderInLayer ?? 0,
       freezeRotation: movementConfig?.freezeRotation !== false, // default true
       characterMovement2D: true,
       blueprintId: go.actorAssetId ?? undefined,
@@ -485,6 +491,13 @@ export class Scene2DManager {
 
       // Assign sheet + texture to the actor's SpriteRenderer
       actor.setSpriteSheet(sheet);
+
+      // Apply sprite-renderer component settings
+      if (_sprRendComp?.flipX) actor.spriteRenderer.flipX = true;
+      if (_sprRendComp?.flipY) actor.spriteRenderer.flipY = true;
+      actor.sortingLayer  = _sprRendComp?.sortingLayer  ?? 'Default';
+      actor.orderInLayer  = _sprRendComp?.orderInLayer  ?? 0;
+      actor.applySorting(this.sortingLayers);
 
       // Resolve the entry animation from the assigned AnimBP (if any)
       const abpId: string | undefined = sprComp?.animBlueprint2dId;

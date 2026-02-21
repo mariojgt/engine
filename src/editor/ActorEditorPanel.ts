@@ -96,6 +96,8 @@ export class ActorEditorPanel {
   /** Wire up Scene2DManager for 2D sprite sheet / anim blueprint pickers */
   setScene2DManager(mgr: Scene2DManager): void {
     this._scene2DManager = mgr;
+    // Re-render the 2D preview now that sprite sheets are available
+    this._refreshPreview?.();
   }
 
   /** Mark the blueprint as needing recompilation (called externally when graph changes) */
@@ -483,9 +485,18 @@ export class ActorEditorPanel {
     const canvas = document.createElement('canvas');
     canvas.width = 220;
     canvas.height = 220;
-    canvas.style.cssText = 'border:1px solid #2a2a42;border-radius:5px;image-rendering:pixelated;flex-shrink:0;';
+    canvas.style.cssText = 'border:1px solid #2a2a42;border-radius:5px;image-rendering:pixelated;flex-shrink:0;cursor:grab;';
     const ctx = canvas.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
+
+    // Zoom / pan state
+    let zoom = 1.0;
+    let panX = 0, panY = 0;
+    let _dragActive = false, _dragLastX = 0, _dragLastY = 0;
+
+    // Last sprite render args — needed so zoom/pan can redraw without re-fetching the image
+    let _lastImg: HTMLImageElement | null = null;
+    let _lastSx = 0, _lastSy = 0, _lastSw = 0, _lastSh = 0;
 
     // Tracks last sprite render so the collider overlay uses the matching scale/ppu.
     let _lastDrawScale = 0;
@@ -502,12 +513,16 @@ export class ActorEditorPanel {
     };
 
     const drawSprite = (img: HTMLImageElement, sx: number, sy: number, sw: number, sh: number) => {
+      _lastImg = img; _lastSx = sx; _lastSy = sy; _lastSw = sw; _lastSh = sh;
       drawChecker();
-      const scale = Math.min((canvas.width * 0.85) / sw, (canvas.height * 0.85) / sh);
-      _lastDrawScale = scale;
-      const dw = sw * scale;
-      const dh = sh * scale;
-      ctx.drawImage(img, sx, sy, sw, sh, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+      const baseScale = Math.min((canvas.width * 0.85) / sw, (canvas.height * 0.85) / sh);
+      _lastDrawScale = baseScale * zoom;
+      const dw = sw * _lastDrawScale;
+      const dh = sh * _lastDrawScale;
+      ctx.drawImage(img, sx, sy, sw, sh,
+        (canvas.width - dw) / 2 + panX,
+        (canvas.height - dh) / 2 + panY,
+        dw, dh);
     };
 
     // Draw the collider2d component as a green dashed shape overlay on top of the sprite.
@@ -518,8 +533,8 @@ export class ActorEditorPanel {
 
       const ppu   = _lastDrawPpu;
       const scale = _lastDrawScale;
-      const cx = canvas.width  / 2;
-      const cy = canvas.height / 2;
+      const cx = canvas.width  / 2 + panX;
+      const cy = canvas.height / 2 + panY;
       const shape: string = col.collider2dShape ?? 'box';
 
       ctx.save();
@@ -569,6 +584,41 @@ export class ActorEditorPanel {
       ctx.fillText(label, 4, 4);
       ctx.restore();
     };
+
+    // Zoom + pan interaction
+    const redraw = () => {
+      if (_lastImg) { drawSprite(_lastImg, _lastSx, _lastSy, _lastSw, _lastSh); drawColliderOverlay(); }
+    };
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // Zoom toward cursor position
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const my = (e.clientY - rect.top)  * (canvas.height / rect.height);
+      const prevZoom = zoom;
+      zoom = Math.max(0.2, Math.min(10, zoom * (e.deltaY > 0 ? 0.85 : 1 / 0.85)));
+      panX = mx + (panX - mx) * (zoom / prevZoom);
+      panY = my + (panY - my) * (zoom / prevZoom);
+      redraw();
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', (e) => {
+      _dragActive = true; _dragLastX = e.clientX; _dragLastY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (!_dragActive) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleCSS = canvas.width / rect.width;
+      panX += (e.clientX - _dragLastX) * scaleCSS;
+      panY += (e.clientY - _dragLastY) * scaleCSS;
+      _dragLastX = e.clientX; _dragLastY = e.clientY;
+      redraw();
+    });
+    canvas.addEventListener('mouseup',    () => { _dragActive = false; canvas.style.cursor = 'grab'; });
+    canvas.addEventListener('mouseleave', () => { _dragActive = false; });
+    canvas.addEventListener('dblclick',   () => { zoom = 1; panX = panY = 0; redraw(); });
 
     const showMessage = (lines: string[], color = '#3a3a52') => {
       drawChecker();
@@ -640,7 +690,8 @@ export class ActorEditorPanel {
     const typeName = this._asset.actorType === 'characterPawn2D' ? '2D Character Pawn'
       : this._asset.actorType === 'spriteActor' ? '2D Sprite Actor'
       : '2D Parallax Layer';
-    typeLabel.innerHTML = `<b style="color:#94a3b8">${typeName}</b><br>Select a component below to configure it`;
+    typeLabel.innerHTML = `<b style="color:#94a3b8">${typeName}</b><br>` +
+      `<span style="font-size:10px;color:#475569">Scroll to zoom · Drag to pan · Dblclick to reset</span>`;
     container.appendChild(typeLabel);
 
     // Refresh button
@@ -649,6 +700,7 @@ export class ActorEditorPanel {
     refreshBtn.style.marginTop = '4px';
     refreshBtn.textContent = '↺ Refresh Preview';
     refreshBtn.addEventListener('click', () => {
+      zoom = 1; panX = 0; panY = 0;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       loadPreview();
     });
