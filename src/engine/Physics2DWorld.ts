@@ -45,12 +45,27 @@ export class Physics2DWorld {
     const gy = settings.gravity?.y ?? -980;
     this.pixelsPerUnit = settings.pixelsPerUnit ?? 100;
 
+    // Free the old Rapier world before creating a new one.
+    // Without this, every play session leaks the previous world's WASM memory,
+    // and any stale rigid-body handles still in bodyMap would cause WASM panics
+    // when syncToThreeJS() tries to call .isDynamic() on them.
+    if (this.world) {
+      try { this.world.free(); } catch (_) { /* ignore if already freed */ }
+      this.world = null;
+    }
+    if (this.eventQueue) {
+      try { this.eventQueue.free(); } catch (_) { /* ignore */ }
+      this.eventQueue = null;
+    }
+
     this.world = new this._rapier.World(
       new this._rapier.Vector2(gx / this.pixelsPerUnit, gy / this.pixelsPerUnit)
     );
     this.eventQueue = new this._rapier.EventQueue(true);
     this._initialized = true;
     this._accumulator = 0;
+    // Clear ALL maps — every entry from the previous play session is now invalid
+    // because the Rapier world (and all its handles) was just replaced.
     this.bodyMap.clear();
     this._layerBodies.clear();
   }
@@ -87,6 +102,7 @@ export class Physics2DWorld {
       const pos = rigidBody.translation();
       actor.group.position.x = pos.x;
       actor.group.position.y = pos.y;
+      actor.group.position.z = 0; // LOCK to 2D plane — prevent Z drift from any source
       actor.group.rotation.z = rigidBody.rotation();
       // Update transform2D if present
       if (actor.transform2D) {
@@ -105,16 +121,35 @@ export class Physics2DWorld {
     });
   }
 
-  /** Check if a body is grounded by casting a short ray downward */
+  /** Check if a body is grounded by casting a ray from the centre downward past its feet.
+   *  We derive the correct cast distance from the body's first tracked collider so the
+   *  ray always extends to (collider bottom + skin) regardless of character size.
+   */
   private _checkActorGrounded(rigidBody: any): boolean {
     if (!this.world || !this._rapier) return false;
     const pos = rigidBody.translation();
-    // Cast a very short ray downward from the body's position
+
+    // Determine cast length: half-height of the first collider + a small ground-detection skin.
+    // Without this the ray (from the body CENTRE) would stop before reaching the character's
+    // own feet and therefore never detect a tile floor beneath them.
+    let maxToi = 0.6; // safe fallback — covers characters up to ~1.1 units tall
+    const entry = this.bodyMap.get(rigidBody.handle);
+    if (entry && entry.colliders.length > 0) {
+      try {
+        const col = entry.colliders[0];
+        // Cuboid collider exposes halfExtents(); capsule exposes halfHeight()
+        if (typeof col.halfExtents === 'function') {
+          maxToi = col.halfExtents().y + 0.08;
+        } else if (typeof col.halfHeight === 'function') {
+          maxToi = col.halfHeight() + col.radius() + 0.08;
+        }
+      } catch (_e) { /* fall through to default */ }
+    }
+
     const origin = new this._rapier.Vector2(pos.x, pos.y);
-    const dir = new this._rapier.Vector2(0, -1);
-    const ray = new this._rapier.Ray(origin, dir);
-    const maxToi = 0.15; // small distance below feet
-    const hit = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, rigidBody);
+    const dir    = new this._rapier.Vector2(0, -1);
+    const ray    = new this._rapier.Ray(origin, dir);
+    const hit    = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, rigidBody);
     return hit !== null;
   }
 
@@ -239,12 +274,17 @@ export class Physics2DWorld {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.cuboid(halfW, halfH)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.3);
+      .setRestitution(options.restitution ?? 0.1); // reduced from 0.3 — prevents unnatural bouncing on landing
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
     }
-    return this.world.createCollider(desc, rigidBody);
+    const collider = this.world.createCollider(desc, rigidBody);
+    // Track the collider in the body's BodyEntry so _checkActorGrounded can
+    // read the half-extents and produce a correctly-sized ground-check ray.
+    const entry = this.bodyMap.get(rigidBody.handle);
+    if (entry) entry.colliders.push(collider);
+    return collider;
   }
 
   addCircleCollider(rigidBody: any, radius: number, options: {
@@ -257,12 +297,15 @@ export class Physics2DWorld {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.ball(radius)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.3);
+      .setRestitution(options.restitution ?? 0.1);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
     }
-    return this.world.createCollider(desc, rigidBody);
+    const collider = this.world.createCollider(desc, rigidBody);
+    const entry = this.bodyMap.get(rigidBody.handle);
+    if (entry) entry.colliders.push(collider);
+    return collider;
   }
 
   addCapsuleCollider(rigidBody: any, halfHeight: number, radius: number, options: {
@@ -275,12 +318,15 @@ export class Physics2DWorld {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.capsule(halfHeight, radius)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.3);
+      .setRestitution(options.restitution ?? 0.1);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
     }
-    return this.world.createCollider(desc, rigidBody);
+    const collider = this.world.createCollider(desc, rigidBody);
+    const entry = this.bodyMap.get(rigidBody.handle);
+    if (entry) entry.colliders.push(collider);
+    return collider;
   }
 
   // ---- Tilemap helper: static box for merged collision rects ----

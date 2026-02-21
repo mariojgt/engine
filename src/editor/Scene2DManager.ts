@@ -68,6 +68,10 @@ export class Scene2DManager {
   public spriteActors: SpriteActor[] = [];
   public isPlaying = false;
 
+  // Track 3D GO meshes that were hidden when their 2D pawn was spawned
+  // so they can be made visible again when play stops.
+  private _hiddenGoMeshes: Array<{ mesh: any; wasVisible: boolean }> = [];
+
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
 
@@ -357,6 +361,15 @@ export class Scene2DManager {
   ): SpriteActor | null {
     if (!this.physics2D) return null;
 
+    // ── FIX: Hide the source 3D GameObject mesh so the original cube/sphere
+    //   is not rendered on top of the 2D sprite actor during play mode.
+    //   The orthographic Camera2D renders the full threeScene, so any visible
+    //   3D mesh in the scene will appear on screen unless hidden.
+    if (go.mesh) {
+      this._hiddenGoMeshes.push({ mesh: go.mesh, wasVisible: go.mesh.visible });
+      go.mesh.visible = false;
+    }
+
     // Use the game object's position (map 3D → 2D: x stays, y from 3D-y)
     const pos = go.mesh?.position ?? { x: 0, y: 0 };
     const scl = go.mesh?.scale ?? { x: 1, y: 1 };
@@ -364,6 +377,12 @@ export class Scene2DManager {
     const baseH = 1.0;
     const w = baseW * Math.abs(scl.x);
     const h = baseH * Math.abs(scl.y);
+
+    // ── FIX: freezeRotation must be in the SpriteActorConfig so that
+    //   attachPhysicsBody() passes it to RigidBodyDesc on creation.
+    //   The previous code omitted it, then called lockRotations() as a
+    //   patch — but the descriptor flag is what guarantees locked rotation
+    //   from the very first physics step.
     const config: SpriteActorConfig = {
       name: go.name,
       actorType: 'characterPawn2D',
@@ -371,12 +390,25 @@ export class Scene2DManager {
       physicsBodyType: 'dynamic',
       colliderShape: 'box',
       colliderSize: { width: w, height: h },
+      freezeRotation: movementConfig?.freezeRotation !== false, // default true
       characterMovement2D: true,
       blueprintId: go.actorAssetId ?? undefined,
     };
 
     const actor = new SpriteActor(config);
     actor.id = go.id; // link to the GameObject id
+
+    // ── FIX: SpriteActor constructor already creates a mesh via SpriteRenderer
+    //   and adds it to actor.group.  Do NOT add a second PlaneGeometry here —
+    //   two coplanar meshes cause z-fighting which makes the pawn flicker white.
+    //   Instead configure the existing SpriteRenderer mesh as a blue placeholder
+    //   so it is visible until a real sprite sheet is assigned.
+    actor.spriteRenderer.material.color.setHex(0x4488ff);
+    actor.spriteRenderer.material.transparent = false;
+    // Resize the SpriteRenderer geometry to match the collider dimensions
+    actor.spriteRenderer.geometry.dispose();
+    actor.spriteRenderer.geometry = new THREE.PlaneGeometry(w, h);
+    actor.mesh.geometry = actor.spriteRenderer.geometry;
 
     // Add the actor's group to the 2D root so it renders
     this.root2D.add(actor.group);
@@ -389,14 +421,10 @@ export class Scene2DManager {
       ccdEnabled: true,
     });
 
-    // Override gravity scale on the rigid body
+    // Apply gravity scale (cannot be part of initial descriptor, must be set on the body)
     const rbComp = actor.getComponent('RigidBody2D');
     if (rbComp?.rigidBody) {
       rbComp.rigidBody.setGravityScale(gravityScale, true);
-      rbComp.rigidBody.setCcdEnabled(true);
-      if (movementConfig?.freezeRotation !== false) {
-        rbComp.rigidBody.lockRotations(true, true);
-      }
     }
 
     // Create CharacterMovement2D and attach
@@ -410,22 +438,31 @@ export class Scene2DManager {
     go._runtimeComponents.set('CharacterMovement2D', cm2d);
     go._runtimeComponents.set('RigidBody2D', rbComp);
 
-    // Create a simple colored sprite for the pawn (placeholder)
-    const geometry = new THREE.PlaneGeometry(w, h);
-    const material = new THREE.MeshBasicMaterial({ color: 0x4488ff, side: THREE.DoubleSide });
-    const placeholder = new THREE.Mesh(geometry, material);
-    placeholder.name = go.name + '_placeholder';
-    actor.group.add(placeholder);
-
     this.spriteActors.push(actor);
     console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${pos.x}, ${pos.y}) size (${w.toFixed(2)}, ${h.toFixed(2)})`);
     return actor;
   }
 
-  /** Start 2D play mode */
-  startPlay(): void {
+  /** Start 2D play mode.
+   *  Async because it reinitialises the Rapier2D world before every play
+   *  session. This gives a completely clean physics state and eliminates
+   *  stale rigid-body handles in bodyMap from the previous session (which
+   *  would cause WASM panics in syncToThreeJS on the second play).
+   */
+  async startPlay(): Promise<void> {
+    // ── Reinitialise physics world for a clean session ──
+    // init() frees the old Rapier world (releasing WASM memory), creates a
+    // fresh one, and clears bodyMap + layerBodies.  The _rapier module itself
+    // is cached after the first import so this is synchronous after the first play.
+    if (this.physics2D && this.config) {
+      await this.physics2D.init({
+        gravity: this.config.worldSettings.gravity,
+        pixelsPerUnit: this.config.worldSettings.pixelsPerUnit,
+      });
+    }
+
     this.isPlaying = true;
-    // Rebuild tilemap collision bodies so they're guaranteed to exist
+    // Rebuild tilemap collision bodies into the fresh world
     this.rebuildAllTileCollision();
     this.physics2D?.play();
   }
@@ -461,17 +498,10 @@ export class Scene2DManager {
       }
       for (const layer of tilemap.layers) {
         const tileCount = Object.keys(layer.tiles).length;
-        // If the layer has collision enabled, ensure all tileDefs are 'full'
-        // so the collision builder actually creates bodies for them.
-        if (layer.hasCollision && tileCount > 0) {
-          let forcedCount = 0;
-          for (const td of tileset.tiles) {
-            if (td.collision === 'none') { td.collision = 'full'; forcedCount++; }
-          }
-          if (forcedCount > 0) {
-            console.log('[Scene2DManager]   Forced %d/%d tileDefs from "none" to "full"', forcedCount, tileset.tiles.length);
-          }
-        }
+        // TilemapCollisionBuilder.rebuild() now passes forceFullCollision=true
+        // for layers where hasCollision is set, so we no longer need to mutate
+        // TileDefData.collision here — doing so was a destructive side-effect
+        // that corrupted per-tile collision rules across the whole tileset.
         builder.rebuild(layer, this.physics2D, tileset);
         const layerBodies = (this.physics2D as any)._layerBodies?.get(layer.layerId);
         const bodyCount = layerBodies?.length ?? 0;
@@ -497,6 +527,12 @@ export class Scene2DManager {
       actor.dispose(this.physics2D ?? undefined);
     }
     this.spriteActors = [];
+
+    // Restore 3D GO meshes that were hidden when their 2D pawns were spawned
+    for (const entry of this._hiddenGoMeshes) {
+      entry.mesh.visible = entry.wasVisible;
+    }
+    this._hiddenGoMeshes = [];
 
     // Clear runtime physics bodies
     // (Physics2DWorld.stop() resets accumulator; bodies persist until cleanup)

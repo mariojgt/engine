@@ -165,7 +165,10 @@ export class SpriteActor {
   setPosition(x: number, y: number): void {
     this.transform2D.position.x = x;
     this.transform2D.position.y = y;
-    this.group.position.set(x, y, this.group.position.z);
+    // Always enforce Z=0 — 2D actors must stay locked in the XY plane.
+    // Using this.group.position.z here would preserve any drift that
+    // accumulated from sorting layers, editor operations, or prior 3D state.
+    this.group.position.set(x, y, 0);
   }
 
   // ---- Rotation ----
@@ -301,8 +304,12 @@ export class SpriteActor {
     this.transform2D.position.y = t.y;
     this.transform2D.rotation = rb.rotation() * (180 / Math.PI);
     // Update group (Three.js visual)
+    // Z is always forced to 0 — Rapier2D only simulates X/Y and must
+    // never allow the group to drift onto the Z-axis (which would pull
+    // the sprite out of the orthographic camera's visible XY plane).
     this.group.position.x = t.x;
     this.group.position.y = t.y;
+    this.group.position.z = 0;
     this.group.rotation.z = rb.rotation();
   }
 

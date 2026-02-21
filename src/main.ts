@@ -615,8 +615,8 @@ async function main() {
         const canvas = editor.getCanvas();
         engine.onPlayStarted(canvas ?? undefined);
 
-        // Also start 2D physics
-        editor.scene2DManager.startPlay();
+        // Also start 2D physics (async — reinitialises Rapier world for clean state)
+        await editor.scene2DManager.startPlay();
 
         // Spawn SpriteActors for all characterPawn2D game objects
         let firstPawnActor: any = null;

@@ -398,12 +398,11 @@ export class TileEditorPanel {
       colBtn.onclick = (e) => {
         e.stopPropagation();
         layer.hasCollision = !layer.hasCollision;
-        // When enabling collision, default all tiles with 'none' to 'full'
-        if (layer.hasCollision && this._activeTileset) {
-          for (const td of this._activeTileset.tiles) {
-            if (td.collision === 'none') td.collision = 'full';
-          }
-        }
+        // NOTE: Do NOT mutate TileDefData.collision here.
+        // TilemapCollisionBuilder.rebuild() uses forceFullCollision=true whenever
+        // layer.hasCollision is set, so all placed tiles are treated as solid
+        // regardless of their individual TileDefData.collision value.
+        // Mutating every tileDef would corrupt per-tile rules (one-way platforms etc.)
         this._renderLayerList();
         this._scheduleCollisionRebuild(layer);
       };

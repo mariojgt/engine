@@ -114,8 +114,13 @@ export class TilemapCollisionBuilder {
   /**
    * Greedy rectangle merge: scans tiles left→right, top→bottom,
    * extends rectangles greedily to minimize collider count.
+   *
+   * @param forceFullCollision  When true, every tile in the layer is treated
+   *   as solid regardless of its TileDefData.collision value.  Pass this when
+   *   the layer's hasCollision flag is true — it avoids the need to mutate
+   *   every TileDefData in the tileset just to make physics work.
    */
-  mergeRects(tiles: Record<string, number>, tileset: TilesetAsset): MergedRect[] {
+  mergeRects(tiles: Record<string, number>, tileset: TilesetAsset, forceFullCollision = false): MergedRect[] {
     const result: MergedRect[] = [];
     if (Object.keys(tiles).length === 0) return result;
 
@@ -138,8 +143,14 @@ export class TilemapCollisionBuilder {
     for (const key of Object.keys(tiles)) {
       const [x, y] = key.split(',').map(Number);
       const tileId = tiles[key];
-      const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
-      if (!tileDef || tileDef.collision === 'none') continue;
+      // When forceFullCollision is true (layer.hasCollision = true) every placed
+      // tile is solid — no need to look up per-tile collision flags.
+      // When false we respect individual TileDefData settings (used for
+      // mixed-collision tilesets, one-way platforms, etc.).
+      if (!forceFullCollision) {
+        const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
+        if (!tileDef || tileDef.collision === 'none') continue;
+      }
       const idx = (y - minY) * w + (x - minX);
       solid[idx] = true;
     }
@@ -185,7 +196,10 @@ export class TilemapCollisionBuilder {
       return;
     }
 
-    const merged = this.mergeRects(layer.tiles, tileset);
+    // Pass forceFullCollision=true: every tile on a collision-enabled layer is solid.
+    // This respects the layer-level flag without permanently mutating TileDefData
+    // on the tileset asset (which would corrupt per-tile collision rules).
+    const merged = this.mergeRects(layer.tiles, tileset, /* forceFullCollision */ true);
     const ppu = tileset.pixelsPerUnit || 100;
 
     console.log('[TilemapCollisionBuilder] Layer "%s" — merged %d rects from %d tiles (ppu=%d, tileW=%d, tileH=%d)',
