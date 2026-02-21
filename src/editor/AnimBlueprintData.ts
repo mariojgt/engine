@@ -76,10 +76,37 @@ export interface BlendSpace2D {
   samples: BlendSpaceSample2D[];
 }
 
+// ---- 2D Sprite Blend Space Types ----
+
+/** A single sample point in a 2D-sprite 1D blend space */
+export interface BlendSprite1DSample {
+  id: string;
+  spriteSheetId: string;
+  spriteAnimationName: string;
+  rangeMin: number;
+  rangeMax: number;
+  playRate: number;
+  loop: boolean;
+}
+
+/** 1D Blend Space for 2D sprite animations — maps a variable value to sprite animations */
+export interface BlendSprite1D {
+  id: string;
+  name: string;
+  /** Axis label (e.g. "Speed") */
+  axisLabel: string;
+  axisMin: number;
+  axisMax: number;
+  /** Event Graph variable that drives this blend space */
+  drivingVariable: string;
+  blendMargin: number;
+  samples: BlendSprite1DSample[];
+}
+
 // ---- State Machine Types ----
 
 /** What drives an animation state's output */
-export type AnimStateOutputType = 'singleAnimation' | 'blendSpace1D' | 'blendSpace2D' | 'spriteAnimation';
+export type AnimStateOutputType = 'singleAnimation' | 'blendSpace1D' | 'blendSpace2D' | 'spriteAnimation' | 'blendSprite1D';
 
 /** A single state in the animation state machine */
 export interface AnimStateData {
@@ -126,6 +153,12 @@ export interface AnimStateData {
   spriteAnimFPS?: number;
   /** For 'spriteAnimation': whether to loop the sprite animation */
   spriteAnimLoop?: boolean;
+
+  // ── 2D Blend Space fields ──
+  /** For 'blendSprite1D': sprite blend space ID (references asset.blendSprites1D) */
+  blendSprite1DId?: string;
+  /** For 'blendSprite1D': event graph variable that drives the axis */
+  blendSpriteAxisVar?: string;
 }
 
 /** A transition between two states */
@@ -227,6 +260,8 @@ export interface AnimBlueprintJSON {
   is2D?: boolean;
   /** When is2D=true: the sprite sheet ID this AnimBP drives */
   targetSpriteSheetId?: string;
+  /** 2D sprite 1D blend spaces (only used when is2D=true) */
+  blendSprites1D?: BlendSprite1D[];
 }
 
 // ---- Default Helpers ----
@@ -256,6 +291,8 @@ export function defaultAnimState(name: string, x = 0, y = 0): AnimStateData {
     spriteAnimationName: '',
     spriteAnimFPS: 0,
     spriteAnimLoop: true,
+    blendSprite1DId: '',
+    blendSpriteAxisVar: '',
   };
 }
 
@@ -318,6 +355,7 @@ export class AnimBlueprintAsset {
   public stateMachine: AnimStateMachineData;
   public blendSpaces1D: BlendSpace1D[];
   public blendSpaces2D: BlendSpace2D[];
+  public blendSprites1D: BlendSprite1D[];
   public eventGraph: BlueprintGraphData | null;
 
   /** BlueprintData for the event graph Rete editor (variables, functions, graph data) */
@@ -349,6 +387,7 @@ export class AnimBlueprintAsset {
 
     this.blendSpaces1D = [];
     this.blendSpaces2D = [];
+    this.blendSprites1D = [];
     this.eventGraph = null;
 
     // Create BlueprintData for the event graph Rete editor
@@ -372,6 +411,7 @@ export class AnimBlueprintAsset {
       stateMachine: structuredClone(this.stateMachine),
       blendSpaces1D: structuredClone(this.blendSpaces1D),
       blendSpaces2D: structuredClone(this.blendSpaces2D),
+      blendSprites1D: structuredClone(this.blendSprites1D),
       eventVariables: [],
       eventGraph: this.eventGraph ? structuredClone(this.eventGraph) : null,
       compiledCode: this.compiledCode,
@@ -393,6 +433,7 @@ export class AnimBlueprintAsset {
     };
     asset.blendSpaces1D = json.blendSpaces1D ?? [];
     asset.blendSpaces2D = json.blendSpaces2D ?? [];
+    asset.blendSprites1D = json.blendSprites1D ?? [];
     asset.eventGraph = json.eventGraph ?? null;
     asset.compiledCode = (json as any).compiledCode ?? '';
     asset.is2D = json.is2D ?? false;

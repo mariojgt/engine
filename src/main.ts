@@ -192,6 +192,10 @@ async function main() {
     outputLog.log(value);
   };
 
+  // Wire the same print function into the 2D Scene Manager so that
+  // Print String nodes inside AnimBP 2D Event Graphs appear in the Output Log.
+  editor.scene2DManager.printFn = engine.onPrint;
+
   // Wire UIManager to use the same print function for widget blueprint Print String nodes
   engine.uiManager.setPrintFunction(engine.onPrint);
 

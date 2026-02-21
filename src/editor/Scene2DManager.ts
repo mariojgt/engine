@@ -14,6 +14,7 @@ import type { TilesetAsset, TilemapAsset } from '../engine/TilemapData';
 import { TilemapCollisionBuilder } from '../engine/TilemapData';
 import { SpriteActor, type SpriteActorConfig } from '../engine/SpriteActor';
 import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/CharacterMovement2D';
+import { ScriptComponent } from '../engine/ScriptComponent';
 
 export type SceneMode = '2D' | '3D';
 
@@ -81,6 +82,10 @@ export class Scene2DManager {
   // Runtime AnimBP state machine: maps each SpriteActor to its current state
   // and the AnimBP asset so transitions can be evaluated each frame.
   private _actorAnimBPStates = new Map<SpriteActor, { currentStateId: string; abp: any }>();
+  /** Per-actor compiled event graph script + run state for 2D AnimBP event graph execution */
+  private _actorEventScripts = new Map<SpriteActor, { script: ScriptComponent | null; started: boolean; elapsed: number }>();
+  /** Print function for 2D AnimBP event graphs — wire from editor Output Log so Print String nodes appear there */
+  public printFn: ((v: any) => void) | null = null;
 
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
@@ -353,6 +358,9 @@ export class Scene2DManager {
     if (this.isPlaying) {
       for (const actor of this.spriteActors) {
         actor.update(deltaTime);
+        // Sync physics-derived variables and run the AnimBP 2D event graph
+        // (BeginPlay + Tick nodes, Set/Get Anim Var, etc.)
+        this._syncAnimBPVars(actor, deltaTime);
         // Evaluate AnimBP state machine transitions using synced variables
         this._evalAnimBPTransitions(actor);
       }
@@ -449,6 +457,8 @@ export class Scene2DManager {
     const cm2d = new CharacterMovement2D(props);
     cm2d.attach(actor);
     actor.characterMovement2D = cm2d;
+    // Also register in actor._components so getComponent('CharacterMovement2D') works from event graph codegen
+    actor.setComponent('CharacterMovement2D', cm2d);
 
     go._runtimeComponents.set('CharacterMovement2D', cm2d);
     go._runtimeComponents.set('RigidBody2D', rbComp);
@@ -456,14 +466,53 @@ export class Scene2DManager {
 
     this.spriteActors.push(actor);
 
-    // ── Load sprite sheet + wire animation blueprint asynchronously ──
-    // Runs after physics body is attached so the actor is already in the scene.
+    // ── Wire Animation Blueprint SYNCHRONOUSLY ──────────────────────────────
+    // This MUST happen before the async sprite-sheet block below so that
+    // _syncAnimBPVars() fires from the very first update frame regardless of
+    // whether the image has finished decoding.
+    //
+    // Previously the ABP was only registered inside the async block, guarded
+    // behind `if (!sheet) return` and `if (sheet.animations.length > 0)`.
+    // Both guards silently killed the registration when the sprite sheet
+    // wasn't yet loaded or had no animations, meaning the Event Graph never
+    // ran and all variables (speed, isInAir, …) stayed at default.
+    {
+      const abpId: string | undefined = _sprRendComp?.animBlueprint2dId;
+      const abp = abpId
+        ? (animBPManager?.assets ?? []).find((a: any) => a.id === abpId)
+        : null;
+
+      if (abp) {
+        actor.animBlueprintId = abp.id;
+        // FIX: Register the ABP regardless of whether an entryStateId exists so
+        // that the Event Graph (BeginPlay / Tick nodes) always runs even when the
+        // state machine has no states.  The state-machine evaluator handles an
+        // empty currentStateId gracefully — it just finds no transitions to fire.
+        this._actorAnimBPStates.set(actor, {
+          currentStateId: abp.stateMachine?.entryStateId ?? '',
+          abp,
+        });
+        console.log(`[Scene2DManager] AnimBP 2D "${abp.name}" registered for "${go.name}" [entryState="${abp.stateMachine?.entryStateId ?? '(none)'}"] [hasCompiledCode=${!!abp.compiledCode}]`);
+        if (!abp.compiledCode) {
+          console.warn(`[Scene2DManager] AnimBP 2D "${abp.name}" has no compiled code — open the AnimBP 2D editor, add your nodes (BeginPlay / Tick), press "Compile Graph", then save the project.`);
+        }
+      } else if (abpId) {
+        console.warn(`[Scene2DManager] AnimBP ID "${abpId}" not found in manager for actor "${go.name}" — make sure the project is saved and reloaded.`);
+      }
+    }
+
+    // ── Load sprite sheet asynchronously ────────────────────────────────────
+    // Only responsible for visual setup (texture, sprites, animator init).
+    // ABP state registration is already done synchronously above.
     (async () => {
       const actorAsset = assetManager?.getAsset?.(go.actorAssetId);
       const sprComp = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
       const sheetId: string | undefined = sprComp?.spriteSheetId;
       const sheet = sheetId ? this.spriteSheets.get(sheetId) : null;
-      if (!sheet) return;
+      if (!sheet) {
+        if (sheetId) console.warn(`[Scene2DManager] Sprite sheet "${sheetId}" not found for actor "${go.name}" — visuals will not render.`);
+        return;
+      }
 
       // Ensure the image is decoded before building a Three.js Texture
       if (!sheet.image || !(sheet.image as HTMLImageElement).complete || (sheet.image as HTMLImageElement).naturalWidth === 0) {
@@ -500,29 +549,20 @@ export class Scene2DManager {
       actor.orderInLayer  = _sprRendComp?.orderInLayer  ?? 0;
       actor.applySorting(this.sortingLayers);
 
-      // Resolve the entry animation from the assigned AnimBP (if any)
-      const abpId: string | undefined = sprComp?.animBlueprint2dId;
-      const abp = abpId
-        ? (animBPManager?.assets ?? []).find((a: any) => a.id === abpId)
-        : null;
-
+      // Init animator with all available animations.
+      // Use the ABP entry state's spriteAnimationName as the default clip so
+      // the first frame shows the correct animation immediately.
       if (sheet.animations && sheet.animations.length > 0) {
-        const entryState = abp?.stateMachine?.states?.find(
-          (s: any) => s.id === abp.stateMachine.entryStateId,
+        // Re-resolve ABP from the already-registered state (avoids a second manager lookup)
+        const registeredEntry = this._actorAnimBPStates.get(actor);
+        const abpForAnim = registeredEntry?.abp ?? null;
+
+        const entryState = abpForAnim?.stateMachine?.states?.find(
+          (s: any) => s.id === abpForAnim.stateMachine.entryStateId,
         );
         const defaultAnim: string | undefined =
           entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
         actor.initAnimator(sheet.animations, defaultAnim);
-        if (abp) {
-          actor.animBlueprintId = abp.id;
-          // Register actor for per-frame AnimBP state machine evaluation
-          if (abp.stateMachine?.entryStateId) {
-            this._actorAnimBPStates.set(actor, {
-              currentStateId: abp.stateMachine.entryStateId,
-              abp,
-            });
-          }
-        }
       }
     })();
 
@@ -735,6 +775,190 @@ export class Scene2DManager {
   // ---- AnimBP runtime state machine evaluator ----
 
   /** Evaluate AnimBP transitions for one actor and switch animation if a rule fires. */
+  /**
+   * Auto-populate animator.variables with physics/character state so AnimBP
+   * blend spaces and transition rules can read speed, isGrounded, etc. without
+   * requiring manual event-graph wiring.
+   */
+  private _syncAnimBPVars(actor: SpriteActor, deltaTime = 0): void {
+    const animator = actor.animator; // may be null until sprite sheet async-loads — do NOT bail early
+
+    // ── Step 1: Ensure a per-actor variable store exists ─────────────────────
+    // We keep variables on actor.__animVars so the event graph can read/write
+    // them even before the SpriteAnimator is created (which happens async, after
+    // the sprite sheet finishes loading).  Once the animator IS created we keep
+    // both in sync so transitions driven by animator.variables still work.
+    const actorAsAny = actor as any;
+    if (!actorAsAny.__animVars) {
+      // Bootstrap default physics-driven variables
+      actorAsAny.__animVars = {
+        speed: 0,
+        velocityX: 0,
+        velocityY: 0,
+        isGrounded: false,
+        isJumping: false,
+        isFalling: false,
+        facingRight: true,
+      };
+      // Also copy any blueprint-declared variable defaults so Set/Get Anim Var
+      // nodes can read them on the very first tick (before the user sets them).
+      const entryForVars = this._actorAnimBPStates.get(actor);
+      const abpForVars = entryForVars?.abp;
+      if (abpForVars?.blueprintData?.variables) {
+        for (const v of abpForVars.blueprintData.variables as any[]) {
+          const key: string = v.name;
+          if (!(key in actorAsAny.__animVars)) {
+            let def: any = v.defaultValue ?? null;
+            if (v.type === 'Float')   def = typeof def === 'number' ? def : 0;
+            if (v.type === 'Boolean') def = def === true || def === 'true';
+            actorAsAny.__animVars[key] = def;
+          }
+        }
+      }
+    }
+
+    // ── Step 2: Sync physics-driven variables into __animVars ────────────────
+    const cm = actor.characterMovement2D;
+    if (animator) {
+      // Prefer the animator's built-in sync (reads RigidBody2D linvel)
+      animator.syncAutoVariables(actor);
+      // Mirror into our shared store so event-graph reads are consistent
+      actorAsAny.__animVars['speed']      = animator.variables['speed']      ?? 0;
+      actorAsAny.__animVars['velocityX']  = animator.variables['velocityX']  ?? 0;
+      actorAsAny.__animVars['velocityY']  = animator.variables['velocityY']  ?? 0;
+      actorAsAny.__animVars['isGrounded'] = animator.variables['isGrounded'] ?? false;
+      actorAsAny.__animVars['isJumping']  = animator.variables['isJumping']  ?? false;
+      actorAsAny.__animVars['isFalling']  = animator.variables['isFalling']  ?? false;
+    } else {
+      // No animator yet — read physics directly
+      const rb = actor.getComponent('RigidBody2D');
+      if (rb?.rigidBody) {
+        const vel = rb.rigidBody.linvel();
+        actorAsAny.__animVars['speed']      = Math.abs(vel.x);
+        actorAsAny.__animVars['velocityX']  = vel.x;
+        actorAsAny.__animVars['velocityY']  = vel.y;
+        actorAsAny.__animVars['isGrounded'] = rb.isGrounded ?? false;
+        actorAsAny.__animVars['isJumping']  = vel.y >  0.01 && !(rb.isGrounded ?? false);
+        actorAsAny.__animVars['isFalling']  = vel.y < -0.01 && !(rb.isGrounded ?? false);
+      }
+    }
+
+    // Override with CharacterMovement2D values (more accurate than raw physics)
+    if (cm) {
+      const rb = actor.getComponent('RigidBody2D');
+      const vy = rb?.rigidBody?.linvel()?.y ?? 0;
+      actorAsAny.__animVars['isGrounded']  = cm.isGrounded;
+      actorAsAny.__animVars['isJumping']   = !cm.isGrounded && vy > 0.01;
+      actorAsAny.__animVars['isFalling']   = !cm.isGrounded && vy < -0.01;
+      actorAsAny.__animVars['facingRight'] = cm.facingRight;
+      if (animator) {
+        animator.variables['isGrounded']  = cm.isGrounded;
+        animator.variables['isJumping']   = !cm.isGrounded && vy > 0.01;
+        animator.variables['isFalling']   = !cm.isGrounded && vy < -0.01;
+        animator.variables['facingRight'] = cm.facingRight;
+      }
+    }
+
+    // ── Step 3: Execute the compiled AnimBP 2D event graph ───────────────────
+    // The varShim bridges __animInstance.variables.set/get to __animVars so
+    // Set/Get Anim Var nodes always work — even before animator is created.
+    // When the animator is present we also write through to animator.variables
+    // so the transition system (which reads animator.variables) sees the values.
+    const entry = this._actorAnimBPStates.get(actor);
+    const abp = entry?.abp;
+    if (!entry) {
+      // ABP not registered for this actor — nothing to run
+      return;
+    }
+    if (!abp?.compiledCode) {
+      // ABP has no compiled event-graph code yet; warn once per actor to avoid log spam
+      const actorAny = actor as any;
+      if (!actorAny.__warnedNoAnimBPCode) {
+        actorAny.__warnedNoAnimBPCode = true;
+        console.warn(`[AnimBP2D] "${actor.name}" → AnimBP "${abp?.name ?? '(unknown)'}" has no compiled code.`,
+          'Open the AnimBP editor → Event Graph tab → add BeginPlay/Tick nodes → press "Compile Graph" → save the project.');
+      }
+      return;
+    }
+
+    let ev = this._actorEventScripts.get(actor);
+    if (!ev) {
+      const sc = new ScriptComponent();
+      sc.code = abp.compiledCode;
+      const ok = sc.compile();
+      ev = { script: ok ? sc : null, started: false, elapsed: 0 };
+      this._actorEventScripts.set(actor, ev);
+      if (!ok) console.warn('[Scene2DManager] Failed to compile AnimBP2D event graph for', abp.name);
+    }
+    if (!ev.script) return;
+
+    // varShim reads/writes __animVars and also mirrors into animator.variables when present
+    const vars: Record<string, any> = actorAsAny.__animVars;
+    const varShim = {
+      get: (k: string) => vars[k],
+      set: (k: string, v: any) => {
+        vars[k] = v;
+        if (animator) animator.variables[k] = v; // keep animator in sync for transition rules
+      },
+      has: (k: string) => k in vars,
+    };
+
+    // ── Shim controller / characterController / actorAssetId on the SpriteActor ──
+    // In 2D, the SpriteActor IS the pawn — there is no separate AController object.
+    // Blueprint nodes like "Get Controller", "Get Pawn", and "Cast To <Class>" expect
+    // these properties on `gameObject`, so we attach lightweight shims.
+    if (!actorAsAny.__2dControllerShim) {
+      actorAsAny.__2dControllerShim = {
+        controllerType: 'PlayerController',
+        getPawn:        () => ({ gameObject: actor }),
+        isPossessing:   () => true,
+      };
+    }
+    if (actorAsAny.controller          == null) actorAsAny.controller          = actorAsAny.__2dControllerShim;
+    if (actorAsAny.characterController == null) actorAsAny.characterController = { gameObject: actor };
+    if (actorAsAny.actorAssetId        == null && actorAsAny.blueprintId) {
+      actorAsAny.actorAssetId = actorAsAny.blueprintId;
+    }
+
+    // ── Scene shim so "Get Actor By Name" / "Get Player Pawn" can find 2D actors ──
+    const self = this;
+    const sceneShim = {
+      get gameObjects() { return self.spriteActors as any[]; },
+      findById: (id: number) => self.spriteActors.find(a => (a as any).id === id) ?? null,
+    };
+
+    const ctx = {
+      gameObject:   actor as any,
+      deltaTime,
+      elapsedTime:  ev.elapsed,
+      // Use the wired-in printFn so output appears in the editor Output Log.
+      // Falls back to console.log if not yet wired (e.g. preview mode).
+      print:        this.printFn ?? ((v: any) => console.log('[AnimBP2D]', v)),
+      physics:      null,
+      scene:        sceneShim,
+      animInstance: { variables: varShim, asset: abp },
+      engine:       null,
+      gameInstance: null,
+    };
+
+    if (!ev.started) {
+      console.log(`[AnimBP2D] ▶ BeginPlay firing for "${actor.name}" (ABP: "${abp.name}")`);
+      ev.script.beginPlay(ctx);
+      ev.started = true;
+    }
+    ev.script.tick(ctx);
+    ev.elapsed += deltaTime;
+
+    // ── Step 4: Mirror any vars the event-graph just wrote back into animator ──
+    // The transition evaluator reads animator.variables directly so we always
+    // need them in sync after the event graph runs.
+    if (animator) {
+      for (const k of Object.keys(vars)) {
+        animator.variables[k] = vars[k];
+      }
+    }
+  }
+
   private _evalAnimBPTransitions(actor: SpriteActor): void {
     const entry = this._actorAnimBPStates.get(actor);
     if (!entry) return;
@@ -743,7 +967,10 @@ export class Scene2DManager {
     if (!sm) return;
     const animator = actor.animator;
     if (!animator) return;
-    const vars = animator.variables ?? {};
+    // Use the shared __animVars store (written by the event graph) so transition
+    // rules see values set by Set Anim Var nodes.  Fall back to animator.variables
+    // if __animVars hasn't been initialised yet (should not happen in practice).
+    const vars: Record<string, any> = (actor as any).__animVars ?? animator.variables ?? {};
 
     // Collect eligible transitions: from current state OR Any-State (*), sorted by priority
     const transitions: any[] = (sm.transitions ?? [])
@@ -766,12 +993,58 @@ export class Scene2DManager {
       // Transition fires — look up target state
       const targetState = sm.states.find((s: any) => s.id === t.toStateId);
       if (!targetState) continue;
-      const newAnimName: string | undefined = targetState.spriteAnimationName;
-      if (!newAnimName) continue;
 
       entry.currentStateId = t.toStateId;
-      animator.play(newAnimName);
+
+      // Play the right animation for the target state
+      if (targetState.outputType === 'blendSprite1D') {
+        this._applyBlendSprite1DState(targetState, abp, vars, animator);
+      } else {
+        const newAnimName: string | undefined = targetState.spriteAnimationName;
+        if (newAnimName) animator.play(newAnimName);
+      }
       return; // fire one transition per frame
+    }
+
+    // ── Continuous blend space update ──
+    // If the current state is a blendSprite1D, re-evaluate every frame so the
+    // animation updates as the driving variable changes (e.g. speed 0→600).
+    const currentState = sm.states.find((s: any) => s.id === entry.currentStateId);
+    if (currentState?.outputType === 'blendSprite1D') {
+      this._applyBlendSprite1DState(currentState, abp, vars, animator);
+    }
+  }
+
+  /** Evaluate a blendSprite1D state and play the matching animation on the animator */
+  private _applyBlendSprite1DState(state: any, abp: any, vars: Record<string, any>, animator: any): void {
+    const blendSprites1D: any[] = abp.blendSprites1D ?? [];
+    const bs = blendSprites1D.find((b: any) => b.id === state.blendSprite1DId);
+    if (!bs || !bs.samples?.length) {
+      // Fallback: play spriteAnimationName if set
+      if (state.spriteAnimationName) animator.play(state.spriteAnimationName);
+      return;
+    }
+
+    const drivingVar = state.blendSpriteAxisVar || bs.drivingVariable;
+    const axisValue: number = typeof vars[drivingVar] === 'number' ? vars[drivingVar] : 0;
+
+    // Find the sample whose range contains axisValue; or the closest one
+    const sorted = [...bs.samples].sort((a: any, b: any) => a.rangeMin - b.rangeMin);
+    let best = sorted.find((s: any) => axisValue >= s.rangeMin && axisValue <= s.rangeMax);
+    if (!best) {
+      // Closest by range midpoint
+      best = sorted.reduce((prev: any, cur: any) => {
+        const prevMid = (prev.rangeMin + prev.rangeMax) / 2;
+        const curMid = (cur.rangeMin + cur.rangeMax) / 2;
+        return Math.abs(axisValue - curMid) < Math.abs(axisValue - prevMid) ? cur : prev;
+      });
+    }
+
+    if (!best?.spriteAnimationName) return;
+
+    // Only switch animation if it changed (avoids restarting same clip every frame)
+    if (animator.currentAnim?.animName !== best.spriteAnimationName) {
+      animator.play(best.spriteAnimationName);
     }
   }
 
@@ -824,6 +1097,7 @@ export class Scene2DManager {
     }
     this.spriteActors = [];
     this._actorAnimBPStates.clear();
+    this._actorEventScripts.clear();
 
     // Restore 3D GO meshes that were hidden when their 2D pawns were spawned
     for (const entry of this._hiddenGoMeshes) {

@@ -16,10 +16,13 @@ import type {
   AnimTransitionRuleGroup,
   AnimTransitionRule,
   TransitionBlendProfile,
+  BlendSprite1D,
+  BlendSprite1DSample,
 } from './AnimBlueprintData';
 import {
   defaultAnimState,
   defaultTransition,
+  animUid,
 } from './AnimBlueprintData';
 import type { BlueprintVariable, VarType } from './BlueprintData';
 import type { SpriteSheetAsset, SpriteAnimationDef } from '../engine/SpriteRenderer';
@@ -30,7 +33,7 @@ import type { Scene2DManager } from './Scene2DManager';
 import { SpriteAnimationEditor } from './SpriteAnimationEditor';
 import type { SavedAnimationRef } from './SpriteAnimationEditor';
 
-type EditorTab2D = 'animGraph' | 'eventGraph' | 'sprites';
+type EditorTab2D = 'animGraph' | 'eventGraph' | 'sprites' | 'blendSpaces';
 
 // ---- Local rule UID ----
 let _ruleUid = 0;
@@ -296,6 +299,7 @@ export class AnimBlueprint2DEditorPanel {
       { key: 'animGraph', label: 'Animation Graph', icon: '▸' },
       { key: 'eventGraph', label: 'Event Variables', icon: '▪' },
       { key: 'sprites', label: 'Sprites', icon: '🖼' },
+      { key: 'blendSpaces', label: 'Blend Spaces', icon: '▴' },
     ];
 
     for (const tab of tabs) {
@@ -368,6 +372,7 @@ export class AnimBlueprint2DEditorPanel {
       case 'animGraph': this._buildAnimGraphTab(); break;
       case 'eventGraph': this._buildEventGraphTab(); break;
       case 'sprites': this._buildSpritesTab(); break;
+      case 'blendSpaces': this._buildBlendSpacesTab2D(); break;
     }
   }
 
@@ -1134,6 +1139,7 @@ export class AnimBlueprint2DEditorPanel {
       <div>${sm.states.length} states</div>
       <div>${sm.transitions.length} transitions</div>
       <div>${this._asset.blueprintData.variables.length} variables</div>
+      <div>${(this._asset.blendSprites1D ?? []).length} blend spaces</div>
     `;
     p.appendChild(stats);
 
@@ -1174,138 +1180,206 @@ export class AnimBlueprint2DEditorPanel {
       return inp;
     });
 
-    // ── Flat animation picker (all animations across all sheets) ──
-    const allAnims = this._getAllAnimations();
-
-    this._addPropRow(p, 'Animation', () => {
+    // ── Output Type selector ──
+    const curOutputType = state.outputType ?? 'spriteAnimation';
+    this._addPropRow(p, 'Mode', () => {
       const sel = document.createElement('select');
       sel.className = 'prop-input';
-      const noneOpt = document.createElement('option');
-      noneOpt.value = '';
-      noneOpt.textContent = allAnims.length === 0 ? '-- Create an animation first --' : '-- None --';
-      noneOpt.selected = !state.spriteSheetId && !state.spriteAnimationName;
-      sel.appendChild(noneOpt);
-
-      // Group by sheet using <optgroup>
-      const bySheet = new Map<string, SavedAnimationRef[]>();
-      for (const ref of allAnims) {
-        if (!bySheet.has(ref.sheetId)) bySheet.set(ref.sheetId, []);
-        bySheet.get(ref.sheetId)!.push(ref);
+      const modes: Array<{ value: string; label: string }> = [
+        { value: 'spriteAnimation', label: 'Sprite Animation' },
+        { value: 'blendSprite1D', label: 'Blend Space 1D' },
+      ];
+      for (const m of modes) {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        if (m.value === curOutputType) opt.selected = true;
+        sel.appendChild(opt);
       }
-      for (const [sheetId, refs] of bySheet) {
-        const grp = document.createElement('optgroup');
-        grp.label = refs[0].sheetName;
-        for (const ref of refs) {
-          const opt = document.createElement('option');
-          opt.value = sheetId + '|' + ref.animName;
-          opt.textContent = `${ref.animName}  (${ref.frameCount}fr @ ${ref.fps}fps)`;
-          if (state.spriteSheetId === sheetId && state.spriteAnimationName === ref.animName) {
-            opt.selected = true;
-          }
-          grp.appendChild(opt);
-        }
-        sel.appendChild(grp);
-      }
-
       sel.addEventListener('change', () => {
-        const [sid, aName] = sel.value ? sel.value.split('|') : ['', ''];
-        state.spriteSheetId = sid || '';
-        state.spriteAnimationName = aName || '';
+        state.outputType = sel.value as any;
         this._asset.touch();
         this._renderGraph();
-        this._schedulePropsRender();
+        this._renderProps();
       });
       return sel;
     });
 
-    // Edit / New animation buttons
-    const animBtnRow = document.createElement('div');
-    animBtnRow.style.cssText = 'display:flex;gap:6px;padding:4px 10px 6px;flex-wrap:wrap;';
+    // ── Flat animation picker (all animations across all sheets) ──
+    const allAnims = this._getAllAnimations();
 
-    const openEditor = (sheetId?: string, animName?: string) => {
-      if (!this._scene2DManager) {
-        alert('No active Scene2DManager — open a 2D scene first.');
-        return;
+    if (curOutputType === 'blendSprite1D') {
+      // ── Blend Space 1D picker ──
+      this._addPropRow(p, 'Blend Space', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = (this._asset.blendSprites1D ?? []).length === 0
+          ? '-- Create one in Blend Spaces tab --'
+          : '-- None --';
+        sel.appendChild(noneOpt);
+        for (const bs of (this._asset.blendSprites1D ?? [])) {
+          const opt = document.createElement('option');
+          opt.value = bs.id;
+          opt.textContent = bs.name;
+          if (bs.id === state.blendSprite1DId) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          state.blendSprite1DId = sel.value;
+          const found = (this._asset.blendSprites1D ?? []).find(b => b.id === sel.value);
+          if (found) state.blendSpriteAxisVar = found.drivingVariable;
+          this._asset.touch();
+          this._renderProps();
+        });
+        return sel;
+      });
+
+      // Variable override
+      const selectedBs = (this._asset.blendSprites1D ?? []).find(b => b.id === state.blendSprite1DId);
+      const vars2d = this._getEventGraphVars();
+      this._addPropRow(p, 'Drive Variable', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = '-- None --';
+        sel.appendChild(noneOpt);
+        for (const v of vars2d) {
+          if (v.type !== 'Float') continue;
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          opt.textContent = v.name;
+          if (v.name === (state.blendSpriteAxisVar || selectedBs?.drivingVariable)) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', () => {
+          state.blendSpriteAxisVar = sel.value;
+          this._asset.touch();
+        });
+        return sel;
+      });
+
+      if (selectedBs) {
+        const hint = document.createElement('div');
+        hint.style.cssText = 'padding:4px 10px 6px;font-size:11px;color:#94a3b8;';
+        hint.textContent = `${selectedBs.samples.length} samples, axis: ${selectedBs.axisLabel} [${selectedBs.axisMin}–${selectedBs.axisMax}]`;
+        p.appendChild(hint);
+      } else {
+        const hint = document.createElement('div');
+        hint.style.cssText = 'padding:4px 10px 8px;font-size:11px;color:#fb923c;';
+        hint.textContent = 'No blend space selected. Go to the Blend Spaces tab to create one.';
+        p.appendChild(hint);
       }
-      const existingSheet = sheetId ? this._scene2DManager.spriteSheets.get(sheetId) : undefined;
-      const existingAnim = existingSheet?.animations.find(a => a.animName === animName);
-      SpriteAnimationEditor.open(
-        this._scene2DManager,
-        (ref: SavedAnimationRef) => {
-          // Sync sheets back, auto-apply to this state, refresh props
-          if (this._scene2DManager) {
-            this._spriteSheets = new Map(this._scene2DManager.spriteSheets);
+
+    } else {
+      // ── Sprite Animation picker ──
+      this._addPropRow(p, 'Animation', () => {
+        const sel = document.createElement('select');
+        sel.className = 'prop-input';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = allAnims.length === 0 ? '-- Create an animation first --' : '-- None --';
+        noneOpt.selected = !state.spriteSheetId && !state.spriteAnimationName;
+        sel.appendChild(noneOpt);
+        const bySheet = new Map<string, SavedAnimationRef[]>();
+        for (const ref of allAnims) {
+          if (!bySheet.has(ref.sheetId)) bySheet.set(ref.sheetId, []);
+          bySheet.get(ref.sheetId)!.push(ref);
+        }
+        for (const [sheetId, refs] of bySheet) {
+          const grp = document.createElement('optgroup');
+          grp.label = refs[0].sheetName;
+          for (const ref of refs) {
+            const opt = document.createElement('option');
+            opt.value = sheetId + '|' + ref.animName;
+            opt.textContent = `${ref.animName}  (${ref.frameCount}fr @ ${ref.fps}fps)`;
+            if (state.spriteSheetId === sheetId && state.spriteAnimationName === ref.animName) opt.selected = true;
+            grp.appendChild(opt);
           }
-          state.spriteSheetId = ref.sheetId;
-          state.spriteAnimationName = ref.animName;
+          sel.appendChild(grp);
+        }
+        sel.addEventListener('change', () => {
+          const [sid, aName] = sel.value ? sel.value.split('|') : ['', ''];
+          state.spriteSheetId = sid || '';
+          state.spriteAnimationName = aName || '';
           this._asset.touch();
           this._renderGraph();
-          this._renderProps();
-        },
-        sheetId,
-        existingAnim,
-      );
-    };
+          this._schedulePropsRender();
+        });
+        return sel;
+      });
 
-    if (state.spriteSheetId && state.spriteAnimationName) {
-      const editBtn = document.createElement('button');
-      editBtn.className = 'toolbar-btn';
-      editBtn.innerHTML = '✏️ Edit Animation';
-      editBtn.title = `Edit "${state.spriteAnimationName}"`;
-      editBtn.addEventListener('click', () => openEditor(state.spriteSheetId, state.spriteAnimationName));
-      animBtnRow.appendChild(editBtn);
-    }
+      // Edit / New animation buttons
+      const animBtnRow = document.createElement('div');
+      animBtnRow.style.cssText = 'display:flex;gap:6px;padding:4px 10px 6px;flex-wrap:wrap;';
+      const openEditor = (sheetId?: string, animName?: string) => {
+        if (!this._scene2DManager) { alert('No active Scene2DManager — open a 2D scene first.'); return; }
+        const existingSheet = sheetId ? this._scene2DManager.spriteSheets.get(sheetId) : undefined;
+        const existingAnim = existingSheet?.animations.find(a => a.animName === animName);
+        SpriteAnimationEditor.open(
+          this._scene2DManager,
+          (ref: SavedAnimationRef) => {
+            if (this._scene2DManager) this._spriteSheets = new Map(this._scene2DManager.spriteSheets);
+            state.spriteSheetId = ref.sheetId;
+            state.spriteAnimationName = ref.animName;
+            this._asset.touch();
+            this._renderGraph();
+            this._renderProps();
+          },
+          sheetId,
+          existingAnim,
+        );
+      };
+      if (state.spriteSheetId && state.spriteAnimationName) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'toolbar-btn';
+        editBtn.innerHTML = '✏️ Edit Animation';
+        editBtn.title = `Edit "${state.spriteAnimationName}"`;
+        editBtn.addEventListener('click', () => openEditor(state.spriteSheetId, state.spriteAnimationName));
+        animBtnRow.appendChild(editBtn);
+      }
+      const newBtn = document.createElement('button');
+      newBtn.className = 'toolbar-btn';
+      newBtn.innerHTML = '🎬 New Animation';
+      newBtn.addEventListener('click', () => openEditor());
+      animBtnRow.appendChild(newBtn);
+      p.appendChild(animBtnRow);
 
-    const newBtn = document.createElement('button');
-    newBtn.className = 'toolbar-btn';
-    newBtn.innerHTML = '🎬 New Animation';
-    newBtn.title = 'Open the Sprite Animation Editor to create a new animation';
-    newBtn.addEventListener('click', () => openEditor());
-    animBtnRow.appendChild(newBtn);
+      if (allAnims.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'anim-props-hint';
+        hint.style.cssText = 'color:#fb923c;padding:0 10px 6px;font-size:11px;';
+        hint.textContent = 'No animations yet. Click "🎬 New Animation" to create one.';
+        p.appendChild(hint);
+      }
 
-    p.appendChild(animBtnRow);
+      // FPS override
+      this._addPropRow(p, 'Play Rate', () => {
+        const inp = document.createElement('input');
+        inp.className = 'prop-input';
+        inp.type = 'number'; inp.step = '0.1'; inp.min = '0'; inp.max = '100';
+        inp.title = 'Playback speed multiplier (1 = normal, 2 = double speed)';
+        inp.placeholder = '1.0';
+        inp.value = String(state.spriteAnimFPS || 1);
+        inp.addEventListener('change', () => { state.spriteAnimFPS = parseFloat(inp.value) || 1; this._asset.touch(); });
+        return inp;
+      });
 
-    if (allAnims.length === 0) {
-      const hint = document.createElement('div');
-      hint.className = 'anim-props-hint';
-      hint.style.cssText = 'color:#fb923c;padding:0 10px 6px;font-size:11px;';
-      hint.textContent = 'No animations yet. Click "🎬 New Animation" to create one.';
-      p.appendChild(hint);
+      // Loop
+      this._addPropRow(p, 'Loop', () => {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = state.spriteAnimLoop ?? true;
+        cb.addEventListener('change', () => { state.spriteAnimLoop = cb.checked; this._asset.touch(); });
+        return cb;
+      });
     }
 
     // Resolve selected sheet (needed for _buildStatePreview)
     const resolvedSheetId = state.spriteSheetId || this._asset.targetSpriteSheetId || '';
     const selectedSheet = resolvedSheetId ? (this._spriteSheets.get(resolvedSheetId) ?? null) : null;
-
-    // FPS override
-    this._addPropRow(p, 'Play Rate', () => {
-      const inp = document.createElement('input');
-      inp.className = 'prop-input';
-      inp.type = 'number';
-      inp.step = '0.1';
-      inp.min = '0';
-      inp.max = '100';
-      inp.title = 'Playback speed multiplier (1 = normal, 2 = double speed)';
-      inp.placeholder = '1.0';
-      inp.value = String(state.spriteAnimFPS || 1);
-      inp.addEventListener('change', () => {
-        state.spriteAnimFPS = parseFloat(inp.value) || 1;
-        this._asset.touch();
-      });
-      return inp;
-    });
-
-    // Loop
-    this._addPropRow(p, 'Loop', () => {
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = state.spriteAnimLoop ?? true;
-      cb.addEventListener('change', () => {
-        state.spriteAnimLoop = cb.checked;
-        this._asset.touch();
-      });
-      return cb;
-    });
 
     // Set as entry
     const setEntryBtn = document.createElement('button');
@@ -1323,6 +1397,395 @@ export class AnimBlueprint2DEditorPanel {
 
     // Live preview
     this._buildStatePreview(p, state, selectedSheet);
+  }
+
+  // ============================================================
+  //  Blend Spaces 2D Tab
+  // ============================================================
+
+  private _buildBlendSpacesTab2D(): void {
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;flex-direction:column;flex:1;overflow:hidden;';
+
+    // Toolbar
+    const toolbar = document.createElement('div');
+    toolbar.className = 'anim-bs-toolbar';
+    const header = document.createElement('div');
+    header.className = 'anim-props-header';
+    header.style.margin = '0';
+    header.textContent = 'Sprite Blend Spaces';
+    toolbar.appendChild(header);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'toolbar-btn';
+    addBtn.textContent = '+ New Blend Space';
+    addBtn.addEventListener('click', () => {
+      this._showPrompt('Blend Space Name', 'BS_Locomotion', (name) => {
+        if (!name) return;
+        const bs: BlendSprite1D = {
+          id: animUid(),
+          name,
+          axisLabel: 'Speed',
+          axisMin: 0,
+          axisMax: 600,
+          drivingVariable: 'speed',
+          blendMargin: 10,
+          samples: [],
+        };
+        if (!this._asset.blendSprites1D) (this._asset as any).blendSprites1D = [];
+        this._asset.blendSprites1D.push(bs);
+        this._asset.touch();
+        this._buildBlendSpacesTab2D();
+      });
+    });
+    toolbar.appendChild(addBtn);
+    wrapper.appendChild(toolbar);
+
+    const scrollArea = document.createElement('div');
+    scrollArea.style.cssText = 'flex:1;overflow-y:auto;padding:0 12px 16px;';
+
+    if ((this._asset.blendSprites1D ?? []).length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'anim-props-help';
+      empty.style.marginTop = '20px';
+      empty.innerHTML = 'No blend spaces yet. Click <b>+ New Blend Space</b> to create one.<br><br>' +
+        'Blend spaces map a variable value (e.g. character speed) to different sprite animations. ' +
+        'Perfect for locomotion: Idle → Walk → Run as speed increases.<br><br>' +
+        'Then assign a blend space to a state in the Animation Graph using <b>Mode: Blend Space 1D</b>.';
+      scrollArea.appendChild(empty);
+    }
+
+    for (const bs of (this._asset.blendSprites1D ?? [])) {
+      scrollArea.appendChild(this._buildBlendSpaceCard2D(bs));
+    }
+
+    wrapper.appendChild(scrollArea);
+    this._contentArea.innerHTML = '';
+    this._contentArea.appendChild(wrapper);
+  }
+
+  private _buildBlendSpaceCard2D(bs: BlendSprite1D): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'anim-bs-card';
+
+    // ── Header ──
+    const cardHeader = document.createElement('div');
+    cardHeader.className = 'anim-bs-header';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = `▴ ${bs.name}`;
+    cardHeader.appendChild(nameSpan);
+    const headerBtns = document.createElement('div');
+    headerBtns.style.cssText = 'display:flex;gap:4px;';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'toolbar-btn';
+    renameBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+    renameBtn.textContent = 'Rename';
+    renameBtn.addEventListener('click', () => {
+      this._showPrompt('Rename Blend Space', bs.name, (name) => {
+        if (!name) return;
+        bs.name = name;
+        this._asset.touch();
+        this._buildBlendSpacesTab2D();
+      });
+    });
+    headerBtns.appendChild(renameBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'prop-btn-danger';
+    delBtn.innerHTML = '✕';
+    delBtn.title = 'Delete Blend Space';
+    delBtn.addEventListener('click', () => {
+      const idx = this._asset.blendSprites1D.indexOf(bs);
+      if (idx >= 0) this._asset.blendSprites1D.splice(idx, 1);
+      this._asset.touch();
+      this._buildBlendSpacesTab2D();
+    });
+    headerBtns.appendChild(delBtn);
+    cardHeader.appendChild(headerBtns);
+    card.appendChild(cardHeader);
+
+    const body = document.createElement('div');
+    body.className = 'anim-bs-body';
+
+    // ── Config row ──
+    const configRow = document.createElement('div');
+    configRow.className = 'anim-bs-config-row';
+
+    // Driving variable
+    const driverLabel = document.createElement('label');
+    driverLabel.textContent = 'Variable:';
+    configRow.appendChild(driverLabel);
+    const driverSel = document.createElement('select');
+    driverSel.innerHTML = '<option value="">-- None --</option>';
+    for (const v of this._asset.blueprintData.variables) {
+      if (v.type !== 'Float' && v.type !== 'Boolean') continue;
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.type})`;
+      if (v.name === bs.drivingVariable) opt.selected = true;
+      driverSel.appendChild(opt);
+    }
+    // Also add built-in 2D speed
+    const speedOpt = document.createElement('option');
+    speedOpt.value = 'speed';
+    speedOpt.textContent = 'speed (Float)';
+    if (bs.drivingVariable === 'speed') speedOpt.selected = true;
+    driverSel.appendChild(speedOpt);
+    driverSel.addEventListener('change', () => { bs.drivingVariable = driverSel.value; this._asset.touch(); rebuildAxis(); });
+    configRow.appendChild(driverSel);
+
+    // Axis label
+    const axisLabelEl = document.createElement('label'); axisLabelEl.textContent = 'Axis:';
+    configRow.appendChild(axisLabelEl);
+    const axisInp = document.createElement('input');
+    axisInp.type = 'text'; axisInp.style.width = '70px'; axisInp.value = bs.axisLabel;
+    axisInp.addEventListener('change', () => { bs.axisLabel = axisInp.value; this._asset.touch(); rebuildAxis(); });
+    configRow.appendChild(axisInp);
+
+    // Min
+    const minLabel = document.createElement('label'); minLabel.textContent = 'Min:';
+    configRow.appendChild(minLabel);
+    const minInp = document.createElement('input');
+    minInp.type = 'number'; minInp.style.width = '60px'; minInp.value = String(bs.axisMin);
+    minInp.addEventListener('change', () => { bs.axisMin = parseFloat(minInp.value) || 0; this._asset.touch(); rebuildAxis(); });
+    configRow.appendChild(minInp);
+
+    // Max
+    const maxLabel = document.createElement('label'); maxLabel.textContent = 'Max:';
+    configRow.appendChild(maxLabel);
+    const maxInp = document.createElement('input');
+    maxInp.type = 'number'; maxInp.style.width = '60px'; maxInp.value = String(bs.axisMax);
+    maxInp.addEventListener('change', () => { bs.axisMax = parseFloat(maxInp.value) || 1; this._asset.touch(); rebuildAxis(); });
+    configRow.appendChild(maxInp);
+
+    body.appendChild(configRow);
+
+    // ── Axis track ──
+    const axisContainer = document.createElement('div');
+    axisContainer.className = 'bs-axis-container';
+
+    const axisHeader = document.createElement('div');
+    axisHeader.className = 'bs-axis-header';
+    axisContainer.appendChild(axisHeader);
+
+    const axisTrack = document.createElement('div');
+    axisTrack.className = 'bs-axis-track-area';
+    const segmentLayer = document.createElement('div'); segmentLayer.className = 'bs-axis-segments'; axisTrack.appendChild(segmentLayer);
+    const axisLine = document.createElement('div'); axisLine.className = 'bs-axis-line'; axisTrack.appendChild(axisLine);
+    const tickLayer = document.createElement('div'); tickLayer.className = 'bs-axis-tick-layer'; axisTrack.appendChild(tickLayer);
+    const dotLayer = document.createElement('div'); dotLayer.className = 'bs-axis-dot-layer'; axisTrack.appendChild(dotLayer);
+    axisContainer.appendChild(axisTrack);
+
+    const tickLabels = document.createElement('div');
+    tickLabels.className = 'bs-axis-tick-labels';
+    axisContainer.appendChild(tickLabels);
+
+    body.appendChild(axisContainer);
+
+    const detailsArea = document.createElement('div');
+    detailsArea.className = 'bs-sample-details';
+    body.appendChild(detailsArea);
+    card.appendChild(body);
+
+    const colors = ['#4a9eff', '#50c878', '#e6a23c', '#e74c3c', '#9b59b6', '#1abc9c', '#e67e22', '#3498db'];
+    let selectedSampleId: string | null = bs.samples.length > 0 ? bs.samples[0].id : null;
+
+    // Click axis to add sample
+    axisTrack.addEventListener('click', (e) => {
+      const rect = axisTrack.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const pct = Math.max(0, Math.min(1, x / rect.width));
+      const totalRange = bs.axisMax - bs.axisMin;
+      const value = Math.round((bs.axisMin + pct * totalRange) * 10) / 10;
+
+      // Don't add if clicking on an existing dot
+      for (const d of dotLayer.querySelectorAll('.bs-axis-dot')) {
+        const dr = d.getBoundingClientRect();
+        if (e.clientX >= dr.left - 4 && e.clientX <= dr.right + 4 && e.clientY >= dr.top - 4 && e.clientY <= dr.bottom + 4) return;
+      }
+
+      const sorted = [...bs.samples].sort((a, b) => a.rangeMin - b.rangeMin);
+      let rangeMin = bs.axisMin, rangeMax = bs.axisMax;
+      const left = sorted.filter(s => s.rangeMin <= value).pop();
+      const right = sorted.find(s => s.rangeMin > value);
+      if (left && right) { rangeMin = (left.rangeMax + value) / 2; rangeMax = (value + right.rangeMin) / 2; }
+      else if (left) { rangeMin = (left.rangeMax + value) / 2; rangeMax = bs.axisMax; }
+      else if (right) { rangeMin = bs.axisMin; rangeMax = (value + right.rangeMin) / 2; }
+
+      const s: BlendSprite1DSample = {
+        id: animUid(),
+        spriteSheetId: '',
+        spriteAnimationName: '',
+        rangeMin: Math.round(rangeMin * 10) / 10,
+        rangeMax: Math.round(rangeMax * 10) / 10,
+        playRate: 1,
+        loop: true,
+      };
+      bs.samples.push(s);
+      selectedSampleId = s.id;
+      this._asset.touch();
+      rebuildAxis();
+      rebuildDetails();
+    });
+
+    const rebuildAxis = () => {
+      segmentLayer.innerHTML = ''; dotLayer.innerHTML = ''; tickLayer.innerHTML = ''; tickLabels.innerHTML = '';
+      const totalRange = bs.axisMax - bs.axisMin;
+      if (totalRange <= 0) return;
+      const sorted = [...bs.samples].sort((a, b) => a.rangeMin - b.rangeMin);
+
+      for (let i = 0; i < sorted.length; i++) {
+        const s = sorted[i];
+        const color = colors[i % colors.length];
+        const leftPct = ((s.rangeMin - bs.axisMin) / totalRange) * 100;
+        const widthPct = ((s.rangeMax - s.rangeMin) / totalRange) * 100;
+        const seg = document.createElement('div');
+        seg.className = 'bs-axis-segment';
+        seg.style.left = `${Math.max(0, leftPct)}%`;
+        seg.style.width = `${Math.min(100 - Math.max(0, leftPct), Math.max(0, widthPct))}%`;
+        seg.style.backgroundColor = color;
+        seg.title = `${s.spriteAnimationName || '(none)'}: ${s.rangeMin} → ${s.rangeMax}`;
+        segmentLayer.appendChild(seg);
+      }
+
+      for (let i = 0; i < sorted.length; i++) {
+        const s = sorted[i];
+        const color = colors[i % colors.length];
+        const midpoint = (s.rangeMin + s.rangeMax) / 2;
+        const pct = ((midpoint - bs.axisMin) / totalRange) * 100;
+        const dot = document.createElement('div');
+        dot.className = 'bs-axis-dot' + (s.id === selectedSampleId ? ' bs-axis-dot-selected' : '');
+        dot.style.left = `${Math.max(0.5, Math.min(99.5, pct))}%`;
+        dot.style.borderColor = color;
+        dot.style.backgroundColor = s.id === selectedSampleId ? color : '#1e1e2e';
+        dot.title = `${s.spriteAnimationName || '(no anim)'}\nValue: ${midpoint.toFixed(1)}\nRange: ${s.rangeMin} → ${s.rangeMax}`;
+        const valLabel = document.createElement('div'); valLabel.className = 'bs-axis-dot-label'; valLabel.textContent = String(Math.round(midpoint)); dot.appendChild(valLabel);
+        const animLabel = document.createElement('div'); animLabel.className = 'bs-axis-dot-anim'; animLabel.textContent = s.spriteAnimationName || '?'; dot.appendChild(animLabel);
+        dot.addEventListener('click', (e) => { e.stopPropagation(); selectedSampleId = s.id; rebuildAxis(); rebuildDetails(); });
+        dot.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation(); e.preventDefault();
+          selectedSampleId = s.id; rebuildDetails();
+          const trackRect = axisTrack.getBoundingClientRect();
+          const startX = e.clientX;
+          const startMid = midpoint;
+          const onMove = (me: MouseEvent) => {
+            const dx = me.clientX - startX;
+            const dVal = (dx / trackRect.width) * totalRange;
+            const newMid = Math.round((startMid + dVal) * 10) / 10;
+            const half = (s.rangeMax - s.rangeMin) / 2;
+            s.rangeMin = Math.round(Math.max(bs.axisMin, newMid - half) * 10) / 10;
+            s.rangeMax = Math.round(Math.min(bs.axisMax, newMid + half) * 10) / 10;
+            this._asset.touch(); rebuildAxis();
+          };
+          const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); rebuildDetails(); };
+          document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+        });
+        dotLayer.appendChild(dot);
+      }
+
+      const tickCount = Math.min(10, Math.max(2, Math.ceil(totalRange / 50)));
+      for (let i = 0; i <= tickCount; i++) {
+        const pct = (i / tickCount) * 100;
+        const val = bs.axisMin + (totalRange * i / tickCount);
+        const tick = document.createElement('div'); tick.className = 'bs-axis-tick'; tick.style.left = `${pct}%`; tickLayer.appendChild(tick);
+        const label = document.createElement('div'); label.className = 'bs-axis-tick-label'; label.style.left = `${pct}%`; label.textContent = String(Math.round(val * 10) / 10); tickLabels.appendChild(label);
+      }
+      axisHeader.innerHTML = `<span class="bs-axis-title">${bs.axisLabel} (${bs.drivingVariable || 'no variable'})</span>` +
+        `<span class="bs-axis-hint">Click axis to add \u00b7 Drag to move \u00b7 ${bs.samples.length} sample${bs.samples.length !== 1 ? 's' : ''}</span>`;
+    };
+
+    const allAnims = this._getAllAnimations();
+
+    const rebuildDetails = () => {
+      detailsArea.innerHTML = '';
+      const sorted = [...bs.samples].sort((a, b) => a.rangeMin - b.rangeMin);
+      if (sorted.length === 0) {
+        const hint = document.createElement('div'); hint.className = 'bs-detail-hint';
+        hint.textContent = 'Click on the axis above to add animation sample points.';
+        detailsArea.appendChild(hint); return;
+      }
+      const listHeader = document.createElement('div');
+      listHeader.className = 'bs-detail-list-header';
+      listHeader.innerHTML = '<span></span><span>Animation</span><span>Value</span><span>Range Min</span><span>Range Max</span><span>Rate</span><span>Loop</span><span></span>';
+      detailsArea.appendChild(listHeader);
+
+      for (let i = 0; i < sorted.length; i++) {
+        const s = sorted[i];
+        const color = colors[i % colors.length];
+        const isSelected = s.id === selectedSampleId;
+        const row = document.createElement('div');
+        row.className = 'bs-detail-row' + (isSelected ? ' bs-detail-row-selected' : '');
+        row.addEventListener('click', () => { selectedSampleId = s.id; rebuildAxis(); rebuildDetails(); });
+
+        const colorDot = document.createElement('div'); colorDot.className = 'bs-detail-color'; colorDot.style.backgroundColor = color; row.appendChild(colorDot);
+
+        // Animation picker (grouped by sheet)
+        const animSel = document.createElement('select');
+        animSel.className = 'bs-detail-select';
+        const noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '-- Anim --'; animSel.appendChild(noneOpt);
+        const bySheet = new Map<string, SavedAnimationRef[]>();
+        for (const ref of allAnims) {
+          if (!bySheet.has(ref.sheetId)) bySheet.set(ref.sheetId, []);
+          bySheet.get(ref.sheetId)!.push(ref);
+        }
+        for (const [sheetId, refs] of bySheet) {
+          const grp = document.createElement('optgroup'); grp.label = refs[0].sheetName;
+          for (const ref of refs) {
+            const opt = document.createElement('option');
+            opt.value = sheetId + '|' + ref.animName;
+            opt.textContent = ref.animName;
+            if (s.spriteSheetId === sheetId && s.spriteAnimationName === ref.animName) opt.selected = true;
+            grp.appendChild(opt);
+          }
+          animSel.appendChild(grp);
+        }
+        animSel.addEventListener('change', (e) => {
+          e.stopPropagation();
+          const [sid, aName] = animSel.value ? animSel.value.split('|') : ['', ''];
+          s.spriteSheetId = sid || '';
+          s.spriteAnimationName = aName || '';
+          this._asset.touch(); rebuildAxis();
+        });
+        animSel.addEventListener('click', (e) => e.stopPropagation());
+        row.appendChild(animSel);
+
+        const valSpan = document.createElement('span'); valSpan.className = 'bs-detail-value';
+        valSpan.textContent = String(Math.round(((s.rangeMin + s.rangeMax) / 2) * 10) / 10); row.appendChild(valSpan);
+
+        const makeNumInput = (val: number, onChange: (v: number) => void): HTMLInputElement => {
+          const inp = document.createElement('input'); inp.className = 'bs-detail-input'; inp.type = 'number'; inp.value = String(val);
+          inp.addEventListener('change', (e) => { e.stopPropagation(); onChange(parseFloat(inp.value) || 0); this._asset.touch(); rebuildAxis(); });
+          inp.addEventListener('click', (e) => e.stopPropagation()); return inp;
+        };
+        row.appendChild(makeNumInput(s.rangeMin, v => { s.rangeMin = v; }));
+        row.appendChild(makeNumInput(s.rangeMax, v => { s.rangeMax = v; }));
+
+        const rateInp = document.createElement('input'); rateInp.className = 'bs-detail-input'; rateInp.type = 'number'; rateInp.step = '0.1'; rateInp.min = '0'; rateInp.style.width = '40px'; rateInp.value = String(s.playRate ?? 1);
+        rateInp.addEventListener('change', (e) => { e.stopPropagation(); s.playRate = parseFloat(rateInp.value) || 1; this._asset.touch(); });
+        rateInp.addEventListener('click', (e) => e.stopPropagation()); row.appendChild(rateInp);
+
+        const loopWrap = document.createElement('label'); loopWrap.className = 'bs-detail-loop';
+        const loopCb = document.createElement('input'); loopCb.type = 'checkbox'; loopCb.checked = s.loop !== false;
+        loopCb.addEventListener('change', (e) => { e.stopPropagation(); s.loop = loopCb.checked; this._asset.touch(); });
+        loopCb.addEventListener('click', (e) => e.stopPropagation()); loopWrap.appendChild(loopCb); row.appendChild(loopWrap);
+
+        const delBtn2 = document.createElement('button'); delBtn2.className = 'bs-detail-delete'; delBtn2.innerHTML = '✕'; delBtn2.title = 'Remove sample';
+        delBtn2.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = bs.samples.findIndex(x => x.id === s.id);
+          if (idx >= 0) bs.samples.splice(idx, 1);
+          if (selectedSampleId === s.id) selectedSampleId = bs.samples.length > 0 ? bs.samples[0].id : null;
+          this._asset.touch(); rebuildAxis(); rebuildDetails();
+        }); row.appendChild(delBtn2);
+        detailsArea.appendChild(row);
+      }
+    };
+
+    rebuildAxis();
+    rebuildDetails();
+    return card;
   }
 
   // ---- Transition properties ----
