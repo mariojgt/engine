@@ -1178,11 +1178,17 @@ export class ActorAssetBrowser {
         if (!this._animBPManager) return null;
         const abp = this._animBPManager.getAsset(assetId);
         if (!abp) return null;
+        const is2D = abp.is2D;
         return {
           id: abp.id, name: abp.name, type: assetType,
-          typeColor: meta.color, typeLabel: 'Anim Blueprint',
-          icon: meta.icon, iconColor: meta.color, thumbnail: null,
-          subtitle: `${abp.stateMachine.states.length} states`,
+          typeColor: is2D ? '#34d399' : meta.color,
+          typeLabel: is2D ? 'Anim BP 2D' : 'Anim Blueprint',
+          icon: meta.icon,
+          iconColor: is2D ? '#34d399' : meta.color,
+          thumbnail: null,
+          subtitle: is2D
+            ? `2D · ${abp.stateMachine.states.length} states`
+            : `${abp.stateMachine.states.length} states`,
           onOpen: () => this._onOpenAnimBP?.(abp),
           onContextMenu: (e) => this._showAnimBPContextMenu(e, abp),
           dragKind: null, dragPayload: null,
@@ -1693,10 +1699,20 @@ export class ActorAssetBrowser {
     }
 
     if (this._animBPManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.light) + ' Animation Blueprint', async () => {
+      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.light) + ' Animation Blueprint (3D)', async () => {
         const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
         if (name) {
           const abp = this._animBPManager!.createAsset(name);
+          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(abp.id);
+          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+        }
+      });
+      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, '#34d399') + ' Animation Blueprint (2D)', async () => {
+        const name = await this._showNameDialog('New 2D Animation Blueprint', 'ABP2D_NewAnimBP');
+        if (name) {
+          const abp = this._animBPManager!.createAsset2D(name);
           this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
           this._selectedIds.clear();
           this._selectedIds.add(abp.id);

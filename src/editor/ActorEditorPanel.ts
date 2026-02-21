@@ -1093,7 +1093,7 @@ export class ActorEditorPanel {
         abpHeader.textContent = '🎬 Animation Blueprint';
         container.appendChild(abpHeader);
 
-        const abpAssets = this._animBPManager.assets;
+        const abpAssets = this._animBPManager.assets.filter(a => !a.is2D);
         const abpOptions = ['(None)', ...abpAssets.map(a => a.name)];
         const currentBP = cfg.animationBlueprintId
           ? (abpAssets.find(a => a.id === cfg.animationBlueprintId)?.name ?? '(None)')

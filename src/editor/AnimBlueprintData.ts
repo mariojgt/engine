@@ -325,6 +325,12 @@ export class AnimBlueprintAsset {
   /** Compiled JS code string from the event graph (stored for runtime execution) */
   public compiledCode: string = '';
 
+  // ── 2D AnimBP mode ──
+  /** When true, this blueprint targets 2D sprite-based animations instead of 3D skeletal */
+  public is2D: boolean = false;
+  /** When is2D=true: the default sprite sheet asset ID this AnimBP drives */
+  public targetSpriteSheetId: string = '';
+
   private _dirty = false;
 
   constructor(id: string, name: string) {
@@ -370,6 +376,8 @@ export class AnimBlueprintAsset {
       eventGraph: this.eventGraph ? structuredClone(this.eventGraph) : null,
       compiledCode: this.compiledCode,
       blueprintGraphNodeData: this.blueprintData.eventGraph.nodeData ?? null,
+      is2D: this.is2D || undefined,
+      targetSpriteSheetId: this.targetSpriteSheetId || undefined,
     };
   }
 
@@ -387,6 +395,8 @@ export class AnimBlueprintAsset {
     asset.blendSpaces2D = json.blendSpaces2D ?? [];
     asset.eventGraph = json.eventGraph ?? null;
     asset.compiledCode = (json as any).compiledCode ?? '';
+    asset.is2D = json.is2D ?? false;
+    asset.targetSpriteSheetId = json.targetSpriteSheetId ?? '';
 
     // Migrate legacy blend space samples (position → rangeMin/rangeMax)
     for (const bs of asset.blendSpaces1D) {
@@ -537,6 +547,20 @@ export class AnimBlueprintManager {
   createAsset(name: string): AnimBlueprintAsset {
     const id = animUid();
     const asset = new AnimBlueprintAsset(id, name);
+    this._assets.set(id, asset);
+    this._notify();
+    return asset;
+  }
+
+  /** Create a 2D sprite animation blueprint asset */
+  createAsset2D(name: string): AnimBlueprintAsset {
+    const id = animUid();
+    const asset = new AnimBlueprintAsset(id, name);
+    asset.is2D = true;
+    // 2D AnimBPs default to spriteAnimation output per state
+    for (const state of asset.stateMachine.states) {
+      state.outputType = 'spriteAnimation';
+    }
     this._assets.set(id, asset);
     this._notify();
     return asset;

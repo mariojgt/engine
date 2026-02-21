@@ -38,8 +38,7 @@ import { InheritanceDialogsUI } from './InheritanceDialogsUI';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
 import { Scene2DManager, type SceneMode } from './Scene2DManager';
 import { SortingLayersPanel } from './SortingLayersPanel';
-import { SpriteSheetEditorPanel } from './SpriteSheetEditorPanel';
-import { SpriteAnimationEditorPanel } from './SpriteAnimationEditorPanel';
+import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
 import { CharacterPad2DPanel } from './CharacterPad2DPanel';
 import { TilemapRenderer } from './TilemapRenderer';
@@ -89,6 +88,7 @@ export class EditorLayout {
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
   private _animBPEditor: AnimBlueprintEditorPanel | null = null;
+  private _animBP2DEditor: AnimBlueprint2DEditorPanel | null = null;
   private _widgetBPEditor: WidgetBlueprintEditorPanel | null = null;
   private _assetBrowser: ActorAssetBrowser | null = null;
   private _structManager: StructureAssetManager | null = null;
@@ -116,8 +116,7 @@ export class EditorLayout {
 
   /* 2D editor panels */
   private _sortingLayersPanel: SortingLayersPanel | null = null;
-  private _spriteSheetPanel: SpriteSheetEditorPanel | null = null;
-  private _spriteAnimPanel: SpriteAnimationEditorPanel | null = null;
+
   private _tileEditorPanel: TileEditorPanel | null = null;
   private _tilemapRenderer: TilemapRenderer | null = null;
   private _charPad2DPanel: CharacterPad2DPanel | null = null;
@@ -630,7 +629,13 @@ export class EditorLayout {
   setAnimBPManager(mgr: AnimBlueprintManager): void {
     this._animBPManager = mgr;
     if (this._assetBrowser) {
-      this._assetBrowser.setAnimBPManager(mgr, (asset: AnimBlueprintAsset) => this._openAnimBlueprintEditor(asset));
+      this._assetBrowser.setAnimBPManager(mgr, (asset: AnimBlueprintAsset) => {
+        if (asset.is2D) {
+          this._openAnimBlueprint2DEditor(asset);
+        } else {
+          this._openAnimBlueprintEditor(asset);
+        }
+      });
     }
   }
 
@@ -724,6 +729,40 @@ export class EditorLayout {
       this._onSave ?? undefined,
     );
     if (this._meshManager) this._animBPEditor.setMeshManager(this._meshManager);
+  }
+
+  /** Open a 2D animation blueprint editor panel */
+  private _openAnimBlueprint2DEditor(asset: AnimBlueprintAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'anim-bp-2d-editor-' + asset.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `🎞 AnimBP 2D: ${asset.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._animBP2DEditor = new AnimBlueprint2DEditorPanel(
+      wrapper,
+      asset,
+      this._onSave ?? undefined,
+    );
+    this._animBP2DEditor.setScene2DManager(this.scene2DManager);
   }
 
   /** Open a widget blueprint editor panel */
@@ -1084,35 +1123,13 @@ export class EditorLayout {
       this._initSortingLayersPanel('sorting-layers-2d');
     } catch (_e) {}
 
-    // Sprite Sheet editor (tab below viewport, in content area)
-    try {
-      this._api.addPanel({
-        id: 'sprite-sheet-editor-2d',
-        title: '🖼 Sprite Sheets',
-        component: 'default',
-        position: { referencePanel: 'asset-browser' },
-      });
-      this._initSpriteSheetPanel('sprite-sheet-editor-2d');
-    } catch (_e) {}
-
-    // Sprite Animation editor (tab alongside sprite sheets)
-    try {
-      this._api.addPanel({
-        id: 'sprite-anim-editor-2d',
-        title: '▷ Sprite Animation',
-        component: 'default',
-        position: { referencePanel: 'sprite-sheet-editor-2d' },
-      });
-      this._initSpriteAnimPanel('sprite-anim-editor-2d');
-    } catch (_e) {}
-
-    // Tile Editor (tab alongside sprite sheets)
+    // Tile Editor (tab in content area)
     try {
       this._api.addPanel({
         id: 'tile-editor-2d',
         title: '▦ Tile Editor',
         component: 'default',
-        position: { referencePanel: 'sprite-sheet-editor-2d' },
+        position: { referencePanel: 'asset-browser' },
       });
       this._initTileEditorPanel('tile-editor-2d');
     } catch (_e) {}
@@ -1133,8 +1150,6 @@ export class EditorLayout {
   private _close2DPanels(): void {
     const ids2D = [
       'sorting-layers-2d',
-      'sprite-sheet-editor-2d',
-      'sprite-anim-editor-2d',
       'tile-editor-2d',
       'character-pad-2d',
     ];
@@ -1145,8 +1160,6 @@ export class EditorLayout {
       } catch (_e) {}
     }
     this._sortingLayersPanel = null;
-    this._spriteSheetPanel = null;
-    this._spriteAnimPanel = null;
     this._tileEditorPanel = null;
     // Disconnect tile editor from viewport
     if (this._viewport) this._viewport.setTileEditorPanel(null);
@@ -1166,20 +1179,6 @@ export class EditorLayout {
       el,
       this.scene2DManager.sortingLayers,
     );
-  }
-
-  private _initSpriteSheetPanel(panelId: string): void {
-    const renderer = rendererMap.get(panelId);
-    if (!renderer) return;
-    const el = renderer.element;
-    this._spriteSheetPanel = new SpriteSheetEditorPanel(el, this.scene2DManager);
-  }
-
-  private _initSpriteAnimPanel(panelId: string): void {
-    const renderer = rendererMap.get(panelId);
-    if (!renderer) return;
-    const el = renderer.element;
-    this._spriteAnimPanel = new SpriteAnimationEditorPanel(el, this.scene2DManager);
   }
 
   private _initTileEditorPanel(panelId: string): void {
