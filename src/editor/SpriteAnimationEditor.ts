@@ -51,6 +51,18 @@ export class SpriteAnimationEditor {
   private _timelineFrames: number[] = [];
   private _dragSrcIndex = -1;
 
+  // Per-frame pixel offsets (parallel to _timelineFrames)
+  // Shifts the capture rectangle so sprites extending beyond the grid cell are captured.
+  private _frameOffsets: { x: number; y: number }[] = [];
+  private _selectedTlIdx = -1;
+
+  // Offset row DOM ref
+  private _offsetRow: HTMLElement | null = null;
+
+  // Sheet-canvas drag state for repositioning offset
+  private _sheetDragging = false;
+  private _sheetDragStart = { mx: 0, my: 0, ox: 0, oy: 0 };
+
   // Preview state
   private _previewCanvas!: HTMLCanvasElement;
   private _previewCtx!: CanvasRenderingContext2D;
@@ -113,6 +125,7 @@ export class SpriteAnimationEditor {
             const idx = ed._sheet!.sprites.findIndex(s => s.spriteId === fid);
             return idx >= 0 ? idx : -1;
           }).filter(i => i >= 0);
+          ed._frameOffsets = ed._timelineFrames.map(() => ({ x: 0, y: 0 }));
           ed._rebuildTimeline();
           ed._drawSheet();
         }
@@ -300,7 +313,7 @@ export class SpriteAnimationEditor {
 
     const helpTip = document.createElement('span');
     helpTip.style.cssText = 'font-size:10px;color:#414168;margin-left:auto;';
-    helpTip.textContent = 'Click frame → adds to timeline';
+    helpTip.textContent = 'Click frame → add to timeline · Select card → drag on sheet to offset';
     controls.appendChild(helpTip);
 
     panel.appendChild(controls);
@@ -315,7 +328,10 @@ export class SpriteAnimationEditor {
 
     this._sheetCanvas = document.createElement('canvas');
     this._sheetCanvas.style.cssText = 'cursor:crosshair;image-rendering:pixelated;display:block;';
-    this._sheetCanvas.addEventListener('click', (e) => this._handleSheetClick(e));
+    this._sheetCanvas.addEventListener('mousedown', (e) => this._handleSheetMouseDown(e));
+    this._sheetCanvas.addEventListener('mousemove', (e) => this._handleSheetMouseMove(e));
+    this._sheetCanvas.addEventListener('mouseup', (e) => this._handleSheetMouseUp(e));
+    this._sheetCanvas.addEventListener('mouseleave', () => { this._sheetDragging = false; });
     canvasWrap.appendChild(this._sheetCanvas);
     this._sheetCtx = this._sheetCanvas.getContext('2d')!;
     this._sheetCtx.imageSmoothingEnabled = false;
@@ -451,12 +467,26 @@ export class SpriteAnimationEditor {
     clearBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted) + ' Clear All';
     clearBtn.addEventListener('click', () => {
       this._timelineFrames = [];
+      this._frameOffsets = [];
+      this._selectedTlIdx = -1;
       this._rebuildTimeline();
       this._updateAnimInfo();
       this._drawPreviewFrame();
+      this._updateOffsetRow();
+      this._drawSheet();
     });
     timelineHeader.appendChild(clearBtn);
     panel.appendChild(timelineHeader);
+
+    // Offset controls row (visible when a timeline frame is selected)
+    this._offsetRow = document.createElement('div');
+    Object.assign(this._offsetRow.style, {
+      padding: '5px 12px', background: '#12122a',
+      borderBottom: '1px solid #1e1e36', flexShrink: '0',
+      display: 'none', alignItems: 'center', gap: '8px',
+      fontSize: '11px', color: '#94a3b8',
+    });
+    panel.appendChild(this._offsetRow);
 
     this._timelineContainer = document.createElement('div');
     Object.assign(this._timelineContainer.style, {
@@ -697,9 +727,83 @@ export class SpriteAnimationEditor {
         }
       }
     }
+
+    // Draw the offset capture rectangle for the selected timeline frame
+    if (this._selectedTlIdx >= 0 && this._selectedTlIdx < this._timelineFrames.length) {
+      const frameIdx = this._timelineFrames[this._selectedTlIdx];
+      const off = this._frameOffsets[this._selectedTlIdx] ?? { x: 0, y: 0 };
+      const fCol = frameIdx % cols;
+      const fRow = Math.floor(frameIdx / cols);
+      const ox = (fCol * cellW + off.x) * scale;
+      const oy = (fRow * cellH + off.y) * scale;
+
+      // Draw offset capture rect with visible border
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(ox, oy, cw, ch);
+      ctx.setLineDash([]);
+
+      // Semi-transparent fill
+      ctx.fillStyle = 'rgba(245,158,11,0.12)';
+      ctx.fillRect(ox, oy, cw, ch);
+
+      // Label
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`offset (${off.x}, ${off.y})`, ox + 2, oy - 2);
+    }
   }
 
-  private _handleSheetClick(e: MouseEvent): void {
+  // ---- Sheet canvas mouse handlers (click-to-add or drag-to-offset) ----
+
+  private _handleSheetMouseDown(e: MouseEvent): void {
+    const grid = this._computeGrid();
+    if (!grid || !this._sheet) return;
+
+    // If a timeline frame is selected, start drag to reposition offset
+    if (this._selectedTlIdx >= 0 && this._selectedTlIdx < this._timelineFrames.length) {
+      const off = this._frameOffsets[this._selectedTlIdx] ?? { x: 0, y: 0 };
+      this._sheetDragging = true;
+      this._sheetDragStart = {
+        mx: e.clientX, my: e.clientY,
+        ox: off.x, oy: off.y,
+      };
+      this._sheetCanvas.style.cursor = 'grabbing';
+      e.preventDefault();
+      return;
+    }
+  }
+
+  private _handleSheetMouseMove(e: MouseEvent): void {
+    if (!this._sheetDragging || this._selectedTlIdx < 0) return;
+    const scale = this._sheetScale || 1;
+    const dx = (e.clientX - this._sheetDragStart.mx) / scale;
+    const dy = (e.clientY - this._sheetDragStart.my) / scale;
+
+    if (!this._frameOffsets[this._selectedTlIdx]) {
+      this._frameOffsets[this._selectedTlIdx] = { x: 0, y: 0 };
+    }
+    this._frameOffsets[this._selectedTlIdx].x = Math.round(this._sheetDragStart.ox + dx);
+    this._frameOffsets[this._selectedTlIdx].y = Math.round(this._sheetDragStart.oy + dy);
+
+    this._drawSheet();
+    this._updateOffsetRow();
+    // Live-update the thumbnail for the selected frame
+    this._rebuildTimeline();
+    this._drawPreviewFrame();
+  }
+
+  private _handleSheetMouseUp(e: MouseEvent): void {
+    if (this._sheetDragging) {
+      this._sheetDragging = false;
+      this._sheetCanvas.style.cursor = this._selectedTlIdx >= 0 ? 'move' : 'crosshair';
+      return;
+    }
+
+    // No drag → add frame to timeline (original click-to-add behaviour)
     const grid = this._computeGrid();
     if (!grid || !this._sheet) return;
 
@@ -717,10 +821,103 @@ export class SpriteAnimationEditor {
 
     const frameIdx = row * cols + col;
     this._timelineFrames.push(frameIdx);
+    this._frameOffsets.push({ x: 0, y: 0 });
     this._rebuildTimeline();
     this._updateAnimInfo();
     this._drawSheet();
     this._drawPreviewFrame();
+  }
+
+  // ---- Offset controls row ----
+
+  private _updateOffsetRow(): void {
+    if (!this._offsetRow) return;
+
+    // Update cursor based on selection state
+    if (this._sheetCanvas) {
+      this._sheetCanvas.style.cursor = this._selectedTlIdx >= 0 ? 'move' : 'crosshair';
+    }
+
+    if (this._selectedTlIdx < 0 || this._selectedTlIdx >= this._timelineFrames.length) {
+      this._offsetRow.style.display = 'none';
+      return;
+    }
+    this._offsetRow.style.display = 'flex';
+    const off = this._frameOffsets[this._selectedTlIdx] ?? { x: 0, y: 0 };
+    const frameIdx = this._timelineFrames[this._selectedTlIdx];
+
+    this._offsetRow.innerHTML = '';
+
+    const label = document.createElement('span');
+    label.style.cssText = 'font-weight:600;color:#f59e0b;';
+    label.textContent = `Frame f${frameIdx} Offset:`;
+    this._offsetRow.appendChild(label);
+
+    // X input
+    const xLabel = document.createElement('span');
+    xLabel.textContent = 'X:';
+    this._offsetRow.appendChild(xLabel);
+    const xInp = document.createElement('input');
+    xInp.type = 'number'; xInp.value = String(off.x);
+    Object.assign(xInp.style, {
+      width: '52px', background: '#1e1e32', color: '#dde',
+      border: '1px solid #3a3a56', borderRadius: '3px',
+      padding: '2px 5px', fontSize: '11px',
+    });
+    xInp.addEventListener('change', () => {
+      if (!this._frameOffsets[this._selectedTlIdx]) this._frameOffsets[this._selectedTlIdx] = { x: 0, y: 0 };
+      this._frameOffsets[this._selectedTlIdx].x = parseInt(xInp.value) || 0;
+      this._drawSheet(); this._rebuildTimeline(); this._drawPreviewFrame();
+    });
+    this._offsetRow.appendChild(xInp);
+
+    // Y input
+    const yLabel = document.createElement('span');
+    yLabel.textContent = 'Y:';
+    this._offsetRow.appendChild(yLabel);
+    const yInp = document.createElement('input');
+    yInp.type = 'number'; yInp.value = String(off.y);
+    Object.assign(yInp.style, {
+      width: '52px', background: '#1e1e32', color: '#dde',
+      border: '1px solid #3a3a56', borderRadius: '3px',
+      padding: '2px 5px', fontSize: '11px',
+    });
+    yInp.addEventListener('change', () => {
+      if (!this._frameOffsets[this._selectedTlIdx]) this._frameOffsets[this._selectedTlIdx] = { x: 0, y: 0 };
+      this._frameOffsets[this._selectedTlIdx].y = parseInt(yInp.value) || 0;
+      this._drawSheet(); this._rebuildTimeline(); this._drawPreviewFrame();
+    });
+    this._offsetRow.appendChild(yInp);
+
+    // px label
+    const pxLabel = document.createElement('span');
+    pxLabel.style.cssText = 'color:#64748b;';
+    pxLabel.textContent = 'px';
+    this._offsetRow.appendChild(pxLabel);
+
+    // Reset button
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'toolbar-btn';
+    resetBtn.style.cssText += 'margin-left:auto;';
+    resetBtn.textContent = 'Reset';
+    resetBtn.title = 'Reset offset to (0,0)';
+    resetBtn.addEventListener('click', () => {
+      this._frameOffsets[this._selectedTlIdx] = { x: 0, y: 0 };
+      this._updateOffsetRow();
+      this._drawSheet(); this._rebuildTimeline(); this._drawPreviewFrame();
+    });
+    this._offsetRow.appendChild(resetBtn);
+
+    // Deselect button
+    const deselectBtn = document.createElement('button');
+    deselectBtn.className = 'toolbar-btn';
+    deselectBtn.textContent = 'Done';
+    deselectBtn.addEventListener('click', () => {
+      this._selectedTlIdx = -1;
+      this._updateOffsetRow();
+      this._drawSheet(); this._rebuildTimeline();
+    });
+    this._offsetRow.appendChild(deselectBtn);
   }
 
   // ============================================================
@@ -786,12 +983,15 @@ export class SpriteAnimationEditor {
     const thumbSize = 56;
 
     this._timelineFrames.forEach((frameIdx, tlIdx) => {
+      const isSelected = this._selectedTlIdx === tlIdx;
       const card = document.createElement('div');
       Object.assign(card.style, {
         position: 'relative', flexShrink: '0', width: thumbSize + 'px',
-        background: '#1a1a2e', border: '1px solid #2e2e4a',
+        background: isSelected ? '#1e1a38' : '#1a1a2e',
+        border: isSelected ? '2px solid #f59e0b' : '1px solid #2e2e4a',
         borderRadius: '5px', overflow: 'visible', cursor: 'grab',
         userSelect: 'none',
+        boxShadow: isSelected ? '0 0 8px rgba(245,158,11,0.4)' : '',
       });
       card.draggable = true;
       card.dataset.idx = String(tlIdx);
@@ -815,10 +1015,19 @@ export class SpriteAnimationEditor {
         const dest = parseInt(card.dataset.idx ?? '0');
         if (this._dragSrcIndex === dest) return;
         const moved = this._timelineFrames.splice(this._dragSrcIndex, 1)[0];
+        const movedOff = this._frameOffsets.splice(this._dragSrcIndex, 1)[0] ?? { x: 0, y: 0 };
         this._timelineFrames.splice(dest, 0, moved);
+        this._frameOffsets.splice(dest, 0, movedOff);
+        // Adjust selected index if it was affected by the reorder
+        if (this._selectedTlIdx === this._dragSrcIndex) this._selectedTlIdx = dest;
+        else if (this._selectedTlIdx >= 0) {
+          if (this._dragSrcIndex < this._selectedTlIdx && dest >= this._selectedTlIdx) this._selectedTlIdx--;
+          else if (this._dragSrcIndex > this._selectedTlIdx && dest <= this._selectedTlIdx) this._selectedTlIdx++;
+        }
         this._rebuildTimeline();
         this._drawSheet();
         this._drawPreviewFrame();
+        this._updateOffsetRow();
       });
 
       // Thumbnail canvas
@@ -830,7 +1039,8 @@ export class SpriteAnimationEditor {
       });
       const tCtx = thumb.getContext('2d')!;
       tCtx.imageSmoothingEnabled = false;
-      this._drawThumb(tCtx, frameIdx, thumbSize, thumbSize, grid);
+      const off = this._frameOffsets[tlIdx] ?? { x: 0, y: 0 };
+      this._drawThumb(tCtx, frameIdx, thumbSize, thumbSize, grid, off.x, off.y);
       card.appendChild(thumb);
 
       // Frame number label
@@ -840,8 +1050,21 @@ export class SpriteAnimationEditor {
         padding: '1px 0 2px', background: '#111120',
         borderRadius: '0 0 4px 4px',
       });
-      label.textContent = `f${frameIdx}`;
+      const offStr = (off.x || off.y) ? ` (${off.x},${off.y})` : '';
+      label.textContent = `f${frameIdx}${offStr}`;
       card.appendChild(label);
+
+      // Click-to-select for offset editing
+      card.addEventListener('click', () => {
+        if (this._selectedTlIdx === tlIdx) {
+          this._selectedTlIdx = -1;
+        } else {
+          this._selectedTlIdx = tlIdx;
+        }
+        this._rebuildTimeline();
+        this._updateOffsetRow();
+        this._drawSheet();
+      });
 
       // Remove button
       const del = document.createElement('div');
@@ -858,8 +1081,12 @@ export class SpriteAnimationEditor {
       del.addEventListener('click', (e) => {
         e.stopPropagation();
         this._timelineFrames.splice(tlIdx, 1);
+        this._frameOffsets.splice(tlIdx, 1);
+        if (this._selectedTlIdx === tlIdx) this._selectedTlIdx = -1;
+        else if (this._selectedTlIdx > tlIdx) this._selectedTlIdx--;
         this._rebuildTimeline();
         this._updateAnimInfo();
+        this._updateOffsetRow();
         this._drawSheet();
         this._drawPreviewFrame();
       });
@@ -880,8 +1107,11 @@ export class SpriteAnimationEditor {
       dup.addEventListener('click', (e) => {
         e.stopPropagation();
         this._timelineFrames.splice(tlIdx + 1, 0, frameIdx);
+        this._frameOffsets.splice(tlIdx + 1, 0, { ...(this._frameOffsets[tlIdx] ?? { x: 0, y: 0 }) });
+        if (this._selectedTlIdx > tlIdx) this._selectedTlIdx++;
         this._rebuildTimeline();
         this._updateAnimInfo();
+        this._updateOffsetRow();
         this._drawSheet();
       });
       card.appendChild(dup);
@@ -907,6 +1137,8 @@ export class SpriteAnimationEditor {
     tw: number,
     th: number,
     grid: { cols: number; rows: number; cellW: number; cellH: number } | null,
+    offsetX = 0,
+    offsetY = 0,
   ): void {
     ctx.clearRect(0, 0, tw, th);
     ctx.fillStyle = '#0a0a14';
@@ -915,8 +1147,8 @@ export class SpriteAnimationEditor {
     if (!this._sheetImage || !grid) return;
     const col = frameIdx % grid.cols;
     const row = Math.floor(frameIdx / grid.cols);
-    const sx = col * grid.cellW;
-    const sy = row * grid.cellH;
+    const sx = col * grid.cellW + offsetX;
+    const sy = row * grid.cellH + offsetY;
     const scale = Math.min(tw / grid.cellW, th / grid.cellH);
     const dw = grid.cellW * scale;
     const dh = grid.cellH * scale;
@@ -951,10 +1183,11 @@ export class SpriteAnimationEditor {
     const frameIdx = this._timelineFrames[idx];
     if (frameIdx === undefined) return;
 
+    const off = this._frameOffsets[idx] ?? { x: 0, y: 0 };
     const col = frameIdx % grid.cols;
     const row = Math.floor(frameIdx / grid.cols);
-    const sx = col * grid.cellW;
-    const sy = row * grid.cellH;
+    const sx = col * grid.cellW + off.x;
+    const sy = row * grid.cellH + off.y;
     const scale = Math.min(cv.width / grid.cellW, cv.height / grid.cellH);
     const dw = grid.cellW * scale;
     const dh = grid.cellH * scale;
@@ -1021,11 +1254,36 @@ export class SpriteAnimationEditor {
     const sprites = this._syncSprites();
     const grid = this._computeGrid()!;
 
-    // Build frame sprite IDs from timeline
-    const frameIds = this._timelineFrames.map(fi => {
-      const s = sprites[fi];
-      return s ? s.spriteId : '';
-    }).filter(Boolean);
+    // Build frame sprite IDs from timeline.
+    // If a frame has a non-zero offset, create a unique sprite entry with
+    // the adjusted source rectangle so the animation uses the correct crop.
+    const frameIds: string[] = [];
+    for (let i = 0; i < this._timelineFrames.length; i++) {
+      const fi = this._timelineFrames[i];
+      const off = this._frameOffsets[i] ?? { x: 0, y: 0 };
+      const baseSprite = sprites[fi];
+      if (!baseSprite) continue;
+
+      if (off.x === 0 && off.y === 0) {
+        // No offset — use the grid-aligned sprite as-is
+        frameIds.push(baseSprite.spriteId);
+      } else {
+        // Create a unique offset sprite entry
+        const offId = uid();
+        const col = fi % grid.cols;
+        const row = Math.floor(fi / grid.cols);
+        this._sheet!.sprites.push({
+          spriteId: offId,
+          name: `${baseSprite.name}_off${off.x}_${off.y}`,
+          x: col * grid.cellW + off.x,
+          y: row * grid.cellH + off.y,
+          width: grid.cellW,
+          height: grid.cellH,
+          pivot: { ...baseSprite.pivot },
+        });
+        frameIds.push(offId);
+      }
+    }
 
     // Find or create the animation on the sheet
     const existing = this._sheet.animations.find(a => a.animName === name);
