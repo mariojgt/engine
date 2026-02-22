@@ -728,6 +728,9 @@ async function main() {
 
   stopBtn.addEventListener('click', async () => {
     console.log('[Editor] Stop button clicked');
+    // Use try-finally so the play/stop button state ALWAYS resets even if
+    // an error occurs mid-cleanup (otherwise the UI gets permanently locked).
+    try {
 
     // Close gameplay window if it exists
     if (gameplayWindow) {
@@ -773,6 +776,18 @@ async function main() {
     if (was2DPlaying) {
       console.log('[Editor] 2D play stopped — skipping 3D scene restore (2D state preserved)');
       prePlaySceneState = null;
+      // Restore GO mesh positions/rotations/scales to their pre-play state.
+      // 3D physics (which runs alongside 2D play) can move go.mesh, so we
+      // must reset before re-spawning edit previews (which read go.mesh.position).
+      for (const go of engine.scene.gameObjects) {
+        if ((go as any)._savedPos) { go.mesh.position.copy((go as any)._savedPos); (go as any)._savedPos = null; }
+        if ((go as any)._savedRot) { go.mesh.rotation.copy((go as any)._savedRot); (go as any)._savedRot = null; }
+        if ((go as any)._savedScl) { go.mesh.scale.copy((go as any)._savedScl); (go as any)._savedScl = null; }
+        if ((go as any)._savedVisible !== undefined) {
+          go.mesh.visible = (go as any)._savedVisible;
+          (go as any)._savedVisible = undefined;
+        }
+      }
       // Re-spawn edit-mode sprite previews now that play actors are gone
       editor.scene2DManager.setupEditPreviews(engine.scene.gameObjects, editor.assetManager);
     } else if (prePlaySceneState) {
@@ -798,8 +813,10 @@ async function main() {
       }
     }
 
-    playBtn.style.display = '';
-    stopBtn.style.display = 'none';
+    } finally {
+      playBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    }
   });
 
   document.getElementById('btn-add-cube')!.addEventListener('click', () => {
@@ -818,10 +835,16 @@ async function main() {
 
   // --- Main loop ---
   function loop() {
-    engine.update();
-    editor.render();
-    if (engine.physics.isPlaying) {
-      editor.refreshProperties();
+    try {
+      engine.update();
+      editor.render();
+      if (engine.physics.isPlaying) {
+        editor.refreshProperties();
+      }
+    } catch (err) {
+      // Log but never let an exception kill the RAF loop — a crashed loop is
+      // unrecoverable (game freezes and Stop/Play buttons stop working).
+      console.error('[Loop] Uncaught error in game loop — continuing:', err);
     }
     requestAnimationFrame(loop);
   }

@@ -1891,6 +1891,29 @@ export class ActorEditorPanel {
         menu.appendChild(item);
       }
 
+      // ---- Trigger 2D sub-header ----
+      const trig2DHeader = document.createElement('div');
+      trig2DHeader.className = 'context-menu-header';
+      trig2DHeader.textContent = '⚡ Trigger 2D';
+      menu.appendChild(trig2DHeader);
+
+      const trigger2DTypes: { label: string; shape: 'box' | 'circle' | 'capsule' }[] = [
+        { label: 'Box Trigger 2D',     shape: 'box' },
+        { label: 'Circle Trigger 2D',  shape: 'circle' },
+        { label: 'Capsule Trigger 2D', shape: 'capsule' },
+      ];
+      for (const tt of trigger2DTypes) {
+        const titem = document.createElement('div');
+        titem.className = 'context-menu-item';
+        titem.textContent = tt.label;
+        titem.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addCollider2DComponent(tt.shape, true);
+        });
+        menu.appendChild(titem);
+      }
+
       // ---- Camera 2D (only for characterPawn2D) ----
       if (this._asset.actorType === 'characterPawn2D') {
         const cam2DHeader = document.createElement('div');
@@ -2284,17 +2307,25 @@ export class ActorEditorPanel {
     this._onAssetChanged();
   }
 
-  private _addCollider2DComponent(shape: 'box' | 'circle' | 'capsule'): void {
-    // Allow only one collider2d per actor
-    if (this._asset.components.some(c => c.type === 'collider2d')) {
+  private _addCollider2DComponent(shape: 'box' | 'circle' | 'capsule', asTrigger = false): void {
+    // Allow at most one solid collider and one trigger collider per actor.
+    const existing = this._asset.components.filter(c => c.type === 'collider2d');
+    const hasSolid   = existing.some(c => !c.isTrigger);
+    const hasTrigger = existing.some(c => !!c.isTrigger);
+    if (asTrigger && hasTrigger) {
+      alert('This actor already has a Trigger 2D component. Remove the existing one first.');
+      return;
+    }
+    if (!asTrigger && hasSolid) {
       alert('This actor already has a Collider 2D component. Remove the existing one first.');
       return;
     }
+    const label = shape.charAt(0).toUpperCase() + shape.slice(1);
     const comp: ActorComponentData = {
       id: compUid(),
       type: 'collider2d',
       meshType: 'cube',
-      name: shape.charAt(0).toUpperCase() + shape.slice(1) + 'Collider2D',
+      name: asTrigger ? label + 'Trigger2D' : label + 'Collider2D',
       offset: { x: 0, y: 0, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
@@ -2302,7 +2333,7 @@ export class ActorEditorPanel {
       collider2dShape: shape,
       collider2dSize: { width: 1.0, height: 1.0 },
       collider2dRadius: 0.5,
-      isTrigger: false,
+      isTrigger: asTrigger,
     };
     this._asset.components.push(comp);
     this._asset.touch();

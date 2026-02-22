@@ -35,10 +35,34 @@ export interface SpriteActorConfig {
   isTrigger?: boolean;
   /** Name of this collider component (used as selfComponentName in trigger/collision events) */
   componentName?: string;
+  /**
+   * Additional colliders to attach to the same rigid body.
+   * Allows one actor to have both a solid collider AND a trigger on the same body
+   * (e.g. BoxCollider2D for collision + a larger sensor zone for OnTriggerBegin).
+   */
+  additionalColliders?: Array<{
+    shape: 'box' | 'circle' | 'capsule';
+    size?: { width: number; height: number };
+    radius?: number;
+    isTrigger: boolean;
+    name?: string;
+  }>;
   /** Enable continuous collision detection (prevents tunneling) */
   ccdEnabled?: boolean;
   /** Lock rotation */
   freezeRotation?: boolean;
+  /** Gravity scale (0 = no gravity, 1 = normal, 2 = double) */
+  gravityScale?: number;
+  /** Linear velocity damping */
+  linearDamping?: number;
+  /** Angular velocity damping */
+  angularDamping?: number;
+  /** Mass in kg */
+  mass?: number;
+  /** Surface friction */
+  friction?: number;
+  /** Restitution / bounciness */
+  restitution?: number;
   /** Actor type identifier */
   actorType?: string;
   /** Blueprint asset IDs */
@@ -253,8 +277,12 @@ export class SpriteActor {
     let rigidBody: any;
     if (bodyType === 'dynamic') {
       rigidBody = physics.addDynamicBody(this, pos.x, pos.y, {
-        ccdEnabled: config.ccdEnabled ?? false,
-        freezeRotation: config.freezeRotation ?? false,
+        ccdEnabled:      config.ccdEnabled      ?? false,
+        freezeRotation:  config.freezeRotation  ?? false,
+        gravityScale:    config.gravityScale     ?? 1.0,
+        linearDamping:   config.linearDamping    ?? 0.0,
+        angularDamping:  config.angularDamping   ?? 0.05,
+        mass:            config.mass             ?? 1.0,
       });
     } else if (bodyType === 'kinematic') {
       rigidBody = physics.addKinematicBody(this, pos.x, pos.y);
@@ -269,7 +297,7 @@ export class SpriteActor {
     }
 
     const colliderName = config.componentName || '';
-    // Add collider
+    // Add primary collider
     if (config.colliderShape === 'circle') {
       const radius = config.colliderRadius ?? 0.5;
       physics.addCircleCollider(rigidBody, radius, { isTrigger: config.isTrigger, name: colliderName });
@@ -281,6 +309,22 @@ export class SpriteActor {
       const w = config.colliderSize?.width ?? 1;
       const h = config.colliderSize?.height ?? 1;
       physics.addBoxCollider(rigidBody, w / 2, h / 2, { isTrigger: config.isTrigger, name: colliderName });
+    }
+
+    // Add any additional colliders (e.g. a trigger zone on the same body as a solid collider)
+    for (const extra of config.additionalColliders ?? []) {
+      const eName = extra.name ?? '';
+      if (extra.shape === 'circle') {
+        physics.addCircleCollider(rigidBody, extra.radius ?? 0.5, { isTrigger: extra.isTrigger, name: eName });
+      } else if (extra.shape === 'capsule') {
+        const w = extra.size?.width ?? 0.5;
+        const h = extra.size?.height ?? 1;
+        physics.addCapsuleCollider(rigidBody, h / 2, w / 2, { isTrigger: extra.isTrigger, name: eName });
+      } else {
+        const w = extra.size?.width ?? 1;
+        const h = extra.size?.height ?? 1;
+        physics.addBoxCollider(rigidBody, w / 2, h / 2, { isTrigger: extra.isTrigger, name: eName });
+      }
     }
 
     this.physicsBody = physics.bodyMap.get(rigidBody.handle) ?? null;
@@ -390,8 +434,10 @@ export class SpriteActor {
   // ---- Cleanup ----
 
   dispose(physics?: Physics2DWorld): void {
-    if (this.physicsBody && physics && physics.world) {
-      physics.world.removeRigidBody(this.physicsBody.rigidBody);
+    if (this.physicsBody && physics) {
+      // Use removeActorBody so bodyMap is cleaned up too — skipping this caused
+      // syncToThreeJS() to call .translation() on a freed WASM handle → FREEZE.
+      physics.removeActorBody(this);
     }
     this.spriteRenderer.dispose();
     this.animator = null;

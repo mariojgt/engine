@@ -344,6 +344,9 @@ import {
   GetCharacterSpeed2DNode,
   // Spawning nodes
   DestroyActorNode,
+  SpawnActorFromClassNode,
+  ActorClassSelectControl,
+  RefreshNodesControl,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -761,21 +764,21 @@ function resolveValue(
   // Component getter nodes
   if (node instanceof GetComponentLocationNode) {
     const ref = (node as GetComponentLocationNode).compIndex === -1
-      ? 'gameObject.mesh'
+      ? '(gameObject.group || gameObject.mesh)'  // 2D: SpriteActor.group; 3D: GameObject.mesh
       : `((gameObject._meshComponents || [])[${(node as GetComponentLocationNode).compIndex}] || {}).mesh`;
-    return `${ref}.position.${outputKey}`;
+    return `(${ref} ? ${ref}.position.${outputKey} : 0)`;
   }
   if (node instanceof GetComponentRotationNode) {
     const ref = (node as GetComponentRotationNode).compIndex === -1
-      ? 'gameObject.mesh'
+      ? '(gameObject.group || gameObject.mesh)'  // 2D: SpriteActor.group; 3D: GameObject.mesh
       : `((gameObject._meshComponents || [])[${(node as GetComponentRotationNode).compIndex}] || {}).mesh`;
-    return `${ref}.rotation.${outputKey}`;
+    return `(${ref} ? ${ref}.rotation.${outputKey} : 0)`;
   }
   if (node instanceof GetComponentScaleNode) {
     const ref = (node as GetComponentScaleNode).compIndex === -1
-      ? 'gameObject.mesh'
+      ? '(gameObject.group || gameObject.mesh)'  // 2D: SpriteActor.group; 3D: GameObject.mesh
       : `((gameObject._meshComponents || [])[${(node as GetComponentScaleNode).compIndex}] || {}).mesh`;
-    return `${ref}.scale.${outputKey}`;
+    return `(${ref} ? ${ref}.scale.${outputKey} : 1)`;
   }
 
   // Get Material node — returns the material asset ID on a specific slot
@@ -1037,6 +1040,13 @@ function resolveValue(
       return `__wh_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     }
     return '""';
+  }
+  // Spawn Actor from Class — returnValue is a temp variable set in genAction
+  if (node instanceof SpawnActorFromClassNode) {
+    if (outputKey === 'returnValue') {
+      return `__sa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    }
+    return 'null';
   }
   if (node instanceof PureCastNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
@@ -1451,44 +1461,63 @@ function genAction(
 
   // Component setter nodes
   if (node instanceof SetComponentLocationNode) {
-    const ref = (node as SetComponentLocationNode).compIndex === -1
-      ? 'gameObject.mesh'
-      : `((gameObject._meshComponents || [])[${(node as SetComponentLocationNode).compIndex}] || {}).mesh`;
+    const ci = (node as SetComponentLocationNode).compIndex;
+    const is2DRoot = ci === -1; // Root in 2D mode should also move the physics body
+    const ref = ci === -1
+      ? '(gameObject.group || gameObject.mesh)'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
-    lines.push(`${ref}.position.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.position.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.position.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.position.z`});`);
+    const xExpr = xS ? rv(xS.nid, xS.ok) : `(${ref} ? ${ref}.position.x : 0)`;
+    const yExpr = yS ? rv(yS.nid, yS.ok) : `(${ref} ? ${ref}.position.y : 0)`;
+    const zExpr = zS ? rv(zS.nid, zS.ok) : `(${ref} ? ${ref}.position.z : 0)`;
+    if (is2DRoot) {
+      // 2D-aware: update group position, transform2D, AND physics body (teleport)
+      lines.push(`{ var __slX=${xExpr},__slY=${yExpr},__slZ=${zExpr}; var __slRef=${ref}; if(__slRef){__slRef.position.set(__slX,__slY,__slZ);} if(gameObject.transform2D){gameObject.transform2D.position.x=__slX;gameObject.transform2D.position.y=__slY;} if(gameObject.physicsBody&&gameObject.physicsBody.rigidBody){gameObject.physicsBody.rigidBody.setTranslation({x:__slX,y:__slY},true);} }`);
+    } else {
+      lines.push(`{ var __slRef=${ref}; if(__slRef) __slRef.position.set(${xExpr},${yExpr},${zExpr}); }`);
+    }
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetComponentRotationNode) {
-    const ref = (node as SetComponentRotationNode).compIndex === -1
-      ? 'gameObject.mesh'
-      : `((gameObject._meshComponents || [])[${(node as SetComponentRotationNode).compIndex}] || {}).mesh`;
+    const ci = (node as SetComponentRotationNode).compIndex;
+    const ref = ci === -1
+      ? '(gameObject.group || gameObject.mesh)'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
-    lines.push(`${ref}.rotation.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.rotation.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.rotation.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.rotation.z`});`);
+    const xExpr = xS ? rv(xS.nid, xS.ok) : `(${ref} ? ${ref}.rotation.x : 0)`;
+    const yExpr = yS ? rv(yS.nid, yS.ok) : `(${ref} ? ${ref}.rotation.y : 0)`;
+    const zExpr = zS ? rv(zS.nid, zS.ok) : `(${ref} ? ${ref}.rotation.z : 0)`;
+    lines.push(`{ var __srRef=${ref}; if(__srRef) __srRef.rotation.set(${xExpr},${yExpr},${zExpr}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetComponentScaleNode) {
-    const ref = (node as SetComponentScaleNode).compIndex === -1
-      ? 'gameObject.mesh'
-      : `((gameObject._meshComponents || [])[${(node as SetComponentScaleNode).compIndex}] || {}).mesh`;
+    const ci = (node as SetComponentScaleNode).compIndex;
+    const ref = ci === -1
+      ? '(gameObject.group || gameObject.mesh)'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
     const xS = inputSrc.get(`${nodeId}.x`);
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
-    lines.push(`${ref}.scale.set(${xS ? rv(xS.nid, xS.ok) : `${ref}.scale.x`}, ${yS ? rv(yS.nid, yS.ok) : `${ref}.scale.y`}, ${zS ? rv(zS.nid, zS.ok) : `${ref}.scale.z`});`);
+    const xExpr = xS ? rv(xS.nid, xS.ok) : `(${ref} ? ${ref}.scale.x : 1)`;
+    const yExpr = yS ? rv(yS.nid, yS.ok) : `(${ref} ? ${ref}.scale.y : 1)`;
+    const zExpr = zS ? rv(zS.nid, zS.ok) : `(${ref} ? ${ref}.scale.z : 1)`;
+    lines.push(`{ var __ssRef=${ref}; if(__ssRef) __ssRef.scale.set(${xExpr},${yExpr},${zExpr}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof SetComponentVisibilityNode) {
-    const ref = (node as SetComponentVisibilityNode).compIndex === -1
-      ? 'gameObject.mesh'
-      : `((gameObject._meshComponents || [])[${(node as SetComponentVisibilityNode).compIndex}] || {}).mesh`;
+    const ci = (node as SetComponentVisibilityNode).compIndex;
+    const ref = ci === -1
+      ? '(gameObject.group || gameObject.mesh)'
+      : `((gameObject._meshComponents || [])[${ci}] || {}).mesh`;
     const vS = inputSrc.get(`${nodeId}.visible`);
-    lines.push(`${ref}.visible = ${vS ? rv(vS.nid, vS.ok) : 'true'};`);
+    lines.push(`{ var __svRef=${ref}; if(__svRef) __svRef.visible = ${vS ? `!!(${rv(vS.nid, vS.ok)})` : 'true'}; }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2063,18 +2092,42 @@ function genAction(
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Destroy Actor': {
-      const tS = inputSrc.get(`${nodeId}.target`);
-      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'null';
-      // Support both 2D SpriteActors (via scene2DManager) and 3D GameObjects (via __scene).
-      // In 2D blueprints __engine.scene2DManager is always available.
-      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.removeActor === 'function') { __scene.removeActor(__destroyTarget); } } }`);
+    case 'Spawn Actor from Class': {
+      const san = node as SpawnActorFromClassNode;
+      const classId = JSON.stringify(san.targetClassId || '');
+      const className = JSON.stringify(san.targetClassName || '');
+      const lxS = inputSrc.get(`${nodeId}.locX`), lyS = inputSrc.get(`${nodeId}.locY`), lzS = inputSrc.get(`${nodeId}.locZ`);
+      const rxS = inputSrc.get(`${nodeId}.rotX`), ryS = inputSrc.get(`${nodeId}.rotY`), rzS = inputSrc.get(`${nodeId}.rotZ`);
+      const sxS = inputSrc.get(`${nodeId}.scaleX`), syS = inputSrc.get(`${nodeId}.scaleY`), szS = inputSrc.get(`${nodeId}.scaleZ`);
+      const owS = inputSrc.get(`${nodeId}.owner`);
+      const locX = lxS ? rv(lxS.nid, lxS.ok) : '0';
+      const locY = lyS ? rv(lyS.nid, lyS.ok) : '0';
+      const locZ = lzS ? rv(lzS.nid, lzS.ok) : '0';
+      const rotX = rxS ? rv(rxS.nid, rxS.ok) : '0';
+      const rotY = ryS ? rv(ryS.nid, ryS.ok) : '0';
+      const rotZ = rzS ? rv(rzS.nid, rzS.ok) : '0';
+      const scX = sxS ? rv(sxS.nid, sxS.ok) : '1';
+      const scY = syS ? rv(syS.nid, syS.ok) : '1';
+      const scZ = szS ? rv(szS.nid, szS.ok) : '1';
+      const owner = owS ? rv(owS.nid, owS.ok) : 'null';
+      // Build expose-on-spawn overrides object
+      const overrideFields = san.exposedVars.map(v => {
+        const eS = inputSrc.get(`${nodeId}.exposed_${v.varId}`);
+        return eS ? `${JSON.stringify(v.name)}: ${rv(eS.nid, eS.ok)}` : null;
+      }).filter(Boolean);
+      const overrides = overrideFields.length > 0 ? `{${overrideFields.join(', ')}}` : 'null';
+      const saVar = `__sa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${saVar} = null;`);
+      lines.push(`{ var __pos = {x:${locX},y:${locY},z:${locZ}}; var __rot = {x:${rotX},y:${rotY},z:${rotZ}}; var __sc = {x:${scX},y:${scY},z:${scZ}}; if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.spawnActorFromClassId === 'function') { ${saVar} = __engine.scene2DManager.spawnActorFromClassId(${classId}, __pos, ${overrides}); } else if (__scene && typeof __scene.spawnActorFromClass === 'function') { ${saVar} = __scene.spawnActorFromClass(${classId}, ${className}, __pos, __rot, __sc, ${owner}, ${overrides}); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Destroy Actor': {
       const tS = inputSrc.get(`${nodeId}.target`);
-      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'null';
+      // Default to `gameObject` (self) when no Target pin is connected — mirrors UE behaviour.
+      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'gameObject';
+      // Support both 2D SpriteActors (via scene2DManager) and 3D GameObjects (via __scene).
+      // In 2D blueprints __engine.scene2DManager is always available.
       lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.removeActor === 'function') { __scene.removeActor(__destroyTarget); } } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
@@ -5022,6 +5075,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SetAirControl2DNode) return 'SetAirControl2DNode';
   if (node instanceof GetSpriteFacingDirection2DNode) return 'GetSpriteFacingDirection2DNode';
   if (node instanceof GetCharacterSpeed2DNode) return 'GetCharacterSpeed2DNode';
+  // Spawning nodes
+  if (node instanceof SpawnActorFromClassNode) return 'SpawnActorFromClassNode';
 
   return 'Unknown';
 }
@@ -5177,6 +5232,12 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateWidgetNode) {
     data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
     data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
+  }
+  // Spawning nodes
+  if (node instanceof SpawnActorFromClassNode) {
+    data.targetClassId = (node as SpawnActorFromClassNode).targetClassId;
+    data.targetClassName = (node as SpawnActorFromClassNode).targetClassName;
+    data.exposedVars = (node as SpawnActorFromClassNode).exposedVars;
   }
 
   // Widget instance interaction nodes
@@ -5870,6 +5931,15 @@ function createNodeFromData(
       return n;
     }
 
+    // Spawning nodes
+    case 'SpawnActorFromClassNode': {
+      const n = new SpawnActorFromClassNode(d.targetClassId || '', d.targetClassName || '');
+      if (Array.isArray(d.exposedVars) && d.exposedVars.length > 0) {
+        n.setExposedVars(d.exposedVars);
+      }
+      return n;
+    }
+
     // Character Movement 2D nodes
     case 'AddMovementInput2DNode':           return new AddMovementInput2DNode();
     case 'Jump2DNode':                       return new Jump2DNode();
@@ -6141,6 +6211,168 @@ async function createGraphEditor(
               ),
             );
           };
+        }
+        if (data.payload instanceof ActorClassSelectControl) {
+          const ctrl = data.payload as ActorClassSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            const actors: { id: string; name: string }[] = _actorAssetMgr
+              ? _actorAssetMgr.assets.map((a: any) => ({ id: a.id, name: a.name }))
+              : [];
+            const filtered = search
+              ? actors.filter(a => a.name.toLowerCase().includes(search.toLowerCase()))
+              : actors;
+
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            const onSelectActor = (id: string, name: string) => {
+              ctrl.setValue(id, name);
+              setSelected(name || '(none)');
+              setOpen(false);
+              setSearch('');
+              // Populate Expose on Spawn input pins automatically
+              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
+              if (parentNode) {
+                const asset = _actorAssetMgr?.getAsset(id);
+                const expVars = ((asset?.blueprintData?.variables ?? []) as any[])
+                  .filter((v: any) => v.exposeOnSpawn)
+                  .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+                parentNode.setExposedVars(expVars);
+                area.update('node', parentNode.id);
+              }
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#ff9800',
+                  border: open ? '1px solid #ff9800' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+              ),
+              open && React.createElement('div', {
+                style: {
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  maxHeight: 180,
+                  overflowY: 'auto' as const,
+                  background: '#1a1a2e',
+                  border: '1px solid #ff9800',
+                  borderRadius: '0 0 4px 4px',
+                  zIndex: 9999,
+                },
+              },
+                React.createElement('input', {
+                  type: 'text',
+                  placeholder: 'Search actors...',
+                  value: search,
+                  autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%',
+                    padding: '5px 8px',
+                    background: '#141422',
+                    color: '#e0e0e0',
+                    border: 'none',
+                    borderBottom: '1px solid #333',
+                    fontSize: 11,
+                    outline: 'none',
+                    boxSizing: 'border-box' as const,
+                  },
+                }),
+                ...filtered.map(a =>
+                  React.createElement('div', {
+                    key: a.id,
+                    onClick: () => onSelectActor(a.id, a.name),
+                    style: {
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      color: a.id === ctrl.value ? '#ff9800' : '#e0e0e0',
+                      fontWeight: a.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', { style: { marginRight: 4, fontSize: 9, color: '#ff9800' } }, '◈'),
+                    a.name,
+                  ),
+                ),
+                filtered.length === 0 && actors.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching actors'),
+                actors.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No actor assets yet'),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof RefreshNodesControl) {
+          const ctrl = data.payload as RefreshNodesControl;
+          return (_props: any) => React.createElement('button', {
+            onPointerDown: (e: any) => e.stopPropagation(),
+            onClick: () => {
+              const parentNode = (ctrl as any).__parentNode as SpawnActorFromClassNode | undefined;
+              if (parentNode && parentNode.targetClassId && _actorAssetMgr) {
+                const asset = _actorAssetMgr.getAsset(parentNode.targetClassId);
+                const expVars = ((asset?.blueprintData?.variables ?? []) as any[])
+                  .filter((v: any) => v.exposeOnSpawn)
+                  .map((v: any) => ({ name: v.name, type: v.type, varId: v.id }));
+                parentNode.setExposedVars(expVars);
+                area.update('node', parentNode.id);
+              }
+            },
+            style: {
+              width: '100%',
+              padding: '3px 6px',
+              background: '#1a2a1a',
+              color: '#66bb6a',
+              border: '1px solid #2e7d32',
+              borderRadius: 4,
+              fontSize: 11,
+              cursor: 'pointer',
+              textAlign: 'center' as const,
+              marginTop: 2,
+            },
+          }, '\u21bb Refresh Exposed Pins');
         }
         if (data.payload instanceof GameInstanceVarNameControl) {
           const ctrl = data.payload as GameInstanceVarNameControl;

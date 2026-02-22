@@ -52,6 +52,26 @@ export function defaultScene2DConfig(): Scene2DConfig {
   };
 }
 
+/**
+ * Patches compiled blueprint variable declarations for Expose-on-Spawn overrides.
+ * Replaces `let __var_<Name> = <old>;` with `let __var_<Name> = <newValue>;`
+ * using the same sanitizeName logic as NodeEditorPanel (`/[^a-zA-Z0-9_]/g → '_'`).
+ */
+function _applyExposeOnSpawnOverrides(
+  code: string,
+  overrides: Record<string, any>,
+): string {
+  let result = code;
+  for (const [name, value] of Object.entries(overrides)) {
+    const sanitized = name.replace(/[^a-zA-Z0-9_]/g, '_');
+    result = result.replace(
+      new RegExp(`(\\blet\\s+__var_${sanitized}\\s*=\\s*)[^;\\n]+`, 'g'),
+      `$1${JSON.stringify(value)}`,
+    );
+  }
+  return result;
+}
+
 export class Scene2DManager {
   public sceneMode: SceneMode = '3D';
   public camera2D: Camera2D | null = null;
@@ -90,6 +110,9 @@ export class Scene2DManager {
   private _pendingDestroy = new Set<SpriteActor>();
   /** Print function for 2D AnimBP event graphs — wire from editor Output Log so Print String nodes appear there */
   public printFn: ((v: any) => void) | null = null;
+  /** Cached asset managers populated on first spawn so runtime blueprint spawning can use them */
+  private _cachedAssetManager: any = null;
+  private _cachedAnimBPManager: any = null;
 
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
@@ -390,6 +413,8 @@ export class Scene2DManager {
     assetManager?: any,
     animBPManager?: any,
   ): SpriteActor | null {
+    if (assetManager) this._cachedAssetManager = assetManager;
+    if (animBPManager) this._cachedAnimBPManager = animBPManager;
     if (!this.physics2D) return null;
 
     // ── FIX: Hide the source 3D GameObject mesh so the original cube/sphere
@@ -404,13 +429,26 @@ export class Scene2DManager {
 
     // ── Read all relevant component data from the actor asset upfront ──
     const _actorAssetForSize = assetManager?.getAsset?.(go.actorAssetId);
-    const _collider2dComp    = _actorAssetForSize?.components?.find((c: any) => c.type === 'collider2d');
+    const _allCollider2dComps: any[] = (_actorAssetForSize?.components ?? []).filter((c: any) => c.type === 'collider2d');
+    const _solidColliderComps = _allCollider2dComps.filter((c: any) => !c.isTrigger);
+    const _collider2dComp    = _solidColliderComps[0] ?? _allCollider2dComps[0] ?? null;
     const _sprRendComp       = _actorAssetForSize?.components?.find((c: any) => c.type === 'spriteRenderer');
 
     const colliderShape: 'box' | 'circle' | 'capsule' =
       (_collider2dComp?.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule';
     const w = _collider2dComp?.collider2dSize?.width  ?? 0.8;
     const h = _collider2dComp?.collider2dSize?.height ?? 1.0;
+
+    // Extra colliders (trigger zones etc.) on top of the primary solid one
+    const _additionalColliders = _allCollider2dComps
+      .filter((c: any) => c !== _collider2dComp)
+      .map((c: any) => ({
+        shape:    (c.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule',
+        size:     c.collider2dSize ? { width: c.collider2dSize.width, height: c.collider2dSize.height } : undefined,
+        radius:   c.collider2dRadius,
+        isTrigger: !!c.isTrigger,
+        name:     c.name ?? '',
+      }));
 
     // ── Safe spawn position ──
     // Place the pawn above the highest solid tile so it falls onto the map
@@ -433,6 +471,7 @@ export class Scene2DManager {
       colliderSize: { width: w, height: h },
       colliderRadius: _collider2dComp?.collider2dRadius,
       componentName: _collider2dComp?.name || 'Collider2D',
+      additionalColliders: _additionalColliders,
       sortingLayer: _sprRendComp?.sortingLayer ?? 'Default',
       orderInLayer: _sprRendComp?.orderInLayer ?? 0,
       freezeRotation: movementConfig?.freezeRotation !== false, // default true
@@ -599,6 +638,8 @@ export class Scene2DManager {
     assetManager?: any,
     animBPManager?: any,
   ): SpriteActor | null {
+    if (assetManager) this._cachedAssetManager = assetManager;
+    if (animBPManager) this._cachedAnimBPManager = animBPManager;
     if (!this.physics2D) return null;
 
     // Hide the source 3D mesh so the cube/sphere is not rendered over the sprite.
@@ -610,20 +651,46 @@ export class Scene2DManager {
     const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
 
     const actorAsset          = assetManager?.getAsset?.(go.actorAssetId);
-    const collider2dComp      = actorAsset?.components?.find((c: any) => c.type === 'collider2d');
+    // Collect ALL collider2d components — an actor can have both a solid collider
+    // AND a trigger sensor on the same body (BoxCollider2D + trigger zone).
+    const allCollider2dComps: any[] = (actorAsset?.components ?? []).filter((c: any) => c.type === 'collider2d');
+    const solidColliderComps  = allCollider2dComps.filter((c: any) => !c.isTrigger);
+    const triggerColliderComps = allCollider2dComps.filter((c: any) => !!c.isTrigger);
+    // Primary collider: prefer solid; fall back to first trigger if only triggers exist
+    const collider2dComp      = solidColliderComps[0] ?? triggerColliderComps[0] ?? null;
     const rigidbody2dComp     = actorAsset?.components?.find((c: any) => c.type === 'rigidbody2d');
     const sprRendComp         = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
+    // rootPhysics holds the "Simulate Physics" checkbox and material settings
+    // set in the root-component panel of the Actor Editor.
+    const rootPhysics         = actorAsset?.rootPhysics;
 
-    // Determine physics body type: explicit rigidbody2d wins; if only a collider
-    // exists default to 'static'; if neither exists → no physics body.
+    // Determine physics body type:
+    //   1. Explicit rigidbody2d component wins (legacy / explicit path)
+    //   2. rootPhysics.simulatePhysics = true  → dynamic body
+    //   3. Any collider2d exists (solid or trigger) → static body (collidable)
+    //   4. Nothing → no physics
     const physicsBodyType: 'dynamic' | 'kinematic' | 'static' | undefined =
-      rigidbody2dComp?.rigidbody2dType ?? (collider2dComp ? 'static' : undefined);
+      rigidbody2dComp?.rigidbody2dType
+      ?? (rootPhysics?.simulatePhysics
+          ? 'dynamic'
+          : (allCollider2dComps.length > 0 ? 'static' : undefined));
 
     const colliderShape: 'box' | 'circle' | 'capsule' =
       (collider2dComp?.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule';
     const w        = collider2dComp?.collider2dSize?.width  ?? 1.0;
     const h        = collider2dComp?.collider2dSize?.height ?? 1.0;
     const isTrigger = collider2dComp?.isTrigger ?? false;
+
+    // Build extra colliders list: all colliders except the primary one
+    const additionalColliders = allCollider2dComps
+      .filter((c: any) => c !== collider2dComp)
+      .map((c: any) => ({
+        shape:    (c.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule',
+        size:     c.collider2dSize ? { width: c.collider2dSize.width, height: c.collider2dSize.height } : undefined,
+        radius:   c.collider2dRadius,
+        isTrigger: !!c.isTrigger,
+        name:     c.name ?? '',
+      }));
 
     const config: SpriteActorConfig = {
       name:         go.name,
@@ -635,9 +702,17 @@ export class Scene2DManager {
       colliderRadius: collider2dComp?.collider2dRadius,
       isTrigger,
       componentName: collider2dComp?.name || 'Collider2D',
+      additionalColliders,
       sortingLayer:  sprRendComp?.sortingLayer  ?? 'Default',
       orderInLayer:  sprRendComp?.orderInLayer  ?? 0,
       blueprintId:   go.actorAssetId ?? undefined,
+      // Physics material / body properties from rootPhysics
+      gravityScale:   rootPhysics?.gravityEnabled === false ? 0 : (rootPhysics?.gravityScale ?? 1.0),
+      linearDamping:  rootPhysics?.linearDamping  ?? 0.0,
+      angularDamping: rootPhysics?.angularDamping  ?? 0.05,
+      mass:           rootPhysics?.mass            ?? 1.0,
+      freezeRotation: rootPhysics?.lockRotationZ   ?? false,
+      ccdEnabled:     rootPhysics?.ccdEnabled      ?? false,
     };
 
     const actor = new SpriteActor(config);
@@ -738,6 +813,52 @@ export class Scene2DManager {
     })();
 
     console.log(`[Scene2DManager] Spawned spriteActor "${go.name}" at (${rawPos.x.toFixed(3)}, ${rawPos.y.toFixed(3)}) physicsType=${physicsBodyType ?? 'none'} isTrigger=${isTrigger}`);
+    return actor;
+  }
+
+  /**
+   * Spawn a SpriteActor from an actor asset ID at a given world position.
+   * Called at runtime from blueprint-generated code:
+   *   `__engine.scene2DManager.spawnActorFromClassId(classId, {x, y}, overrides?)`
+   * Uses internally cached asset/animBP managers set during initial play spawning.
+   * `overrides` maps variable names (Expose on Spawn) to runtime values.
+   */
+  spawnActorFromClassId(
+    classId: string,
+    position: { x: number; y: number; z?: number },
+    overrides?: Record<string, any> | null,
+  ): SpriteActor | null {
+    if (!this.physics2D) return null;
+
+    const assetManager = this._cachedAssetManager;
+    const animBPManager = this._cachedAnimBPManager;
+
+    const actorAsset = assetManager?.getAsset?.(classId);
+    if (!actorAsset) {
+      console.warn('[Scene2DManager] spawnActorFromClassId: actor asset not found for id', classId);
+      return null;
+    }
+
+    // Build a synthetic game-object-like stub so we can reuse spawnSpriteActor2D
+    const stub: any = {
+      id: `runtime_${classId}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: actorAsset.name ?? 'SpawnedActor',
+      actorAssetId: classId,
+      mesh: { position: { x: position.x, y: position.y }, visible: true },
+      _runtimeComponents: new Map(),
+    };
+
+    const actor = this.spawnSpriteActor2D(stub, assetManager, animBPManager);
+
+    // Apply Expose on Spawn overrides by patching the compiled blueprint code's
+    // variable initializations — mirrors what Scene.spawnActorFromClass does for 3D.
+    if (actor && overrides && Object.keys(overrides).length > 0) {
+      const baseCode = (actor as any).__actorBlueprintCode;
+      if (baseCode) {
+        (actor as any).__actorBlueprintCode = _applyExposeOnSpawnOverrides(baseCode, overrides);
+      }
+    }
+
     return actor;
   }
 
@@ -1326,7 +1447,13 @@ export class Scene2DManager {
       const idx = this.spriteActors.indexOf(actor);
       if (idx !== -1) this.spriteActors.splice(idx, 1);
       this.root2D.remove(actor.group);
-      actor.dispose(this.physics2D ?? undefined);
+      // Guard each dispose individually — a Rapier/WASM error from one actor
+      // must never prevent the others from being cleaned up.
+      try {
+        actor.dispose(this.physics2D ?? undefined);
+      } catch (err) {
+        console.error('[Scene2DManager] Error disposing actor "' + actor.name + '" during destroy flush:', err);
+      }
       this._actorAnimBPStates.delete(actor);
       this._actorEventScripts.delete(actor);
       this._actorBlueprintScripts.delete(actor);
@@ -1345,7 +1472,11 @@ export class Scene2DManager {
     // Remove sprite actor groups from scene
     for (const actor of this.spriteActors) {
       this.root2D.remove(actor.group);
-      actor.dispose(this.physics2D ?? undefined);
+      try {
+        actor.dispose(this.physics2D ?? undefined);
+      } catch (err) {
+        console.error('[Scene2DManager] Error disposing actor "' + actor.name + '" during stopPlay:', err);
+      }
     }
     this.spriteActors = [];
     this._actorAnimBPStates.clear();

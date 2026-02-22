@@ -101,7 +101,15 @@ export class Physics2DWorld {
   syncToThreeJS(): void {
     this.bodyMap.forEach(({ rigidBody, actor }) => {
       if (!rigidBody.isDynamic() && !rigidBody.isKinematic()) return;
-      const pos = rigidBody.translation();
+      // Guard against stale WASM handles — should not happen if removeActorBody is
+      // called correctly, but a try-catch prevents a freed body from crashing the loop.
+      let pos: { x: number; y: number };
+      try {
+        pos = rigidBody.translation();
+      } catch (err) {
+        console.warn('[Physics2DWorld] syncToThreeJS: stale rigid body handle for "' + actor.name + '" — skipping. Did you forget removeActorBody()?', err);
+        return;
+      }
       actor.group.position.x = pos.x;
       actor.group.position.y = pos.y;
       actor.group.position.z = 0; // LOCK to 2D plane — prevent Z drift from any source
@@ -193,14 +201,22 @@ export class Physics2DWorld {
           ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
           : (started ? 'collisionBegin2D' : 'collisionEnd2D');
         const selfName1 = entry1.colliderNames?.get(handle1) ?? '';
-        entry1.actor.emit(eventType, { otherActor: entry2.actor, otherName: entry2.actor.name, selfComponentName: selfName1 });
+        try {
+          entry1.actor.emit(eventType, { otherActor: entry2.actor, otherName: entry2.actor.name, selfComponentName: selfName1 });
+        } catch (err) {
+          console.error('[Physics2DWorld] Error in collision event handler for "' + entry1.actor.name + '":', err);
+        }
       }
       if (entry2?.actor?.emit && entry1?.actor) {
         const eventType = isTrigger
           ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
           : (started ? 'collisionBegin2D' : 'collisionEnd2D');
         const selfName2 = entry2.colliderNames?.get(handle2) ?? '';
-        entry2.actor.emit(eventType, { otherActor: entry1.actor, otherName: entry1.actor.name, selfComponentName: selfName2 });
+        try {
+          entry2.actor.emit(eventType, { otherActor: entry1.actor, otherName: entry1.actor.name, selfComponentName: selfName2 });
+        } catch (err) {
+          console.error('[Physics2DWorld] Error in collision event handler for "' + entry2.actor.name + '":', err);
+        }
       }
     });
 
@@ -228,6 +244,8 @@ export class Physics2DWorld {
   addDynamicBody(actor: any, x: number, y: number, options: {
     gravityScale?: number;
     linearDamping?: number;
+    angularDamping?: number;
+    mass?: number;
     freezeRotation?: boolean;
     ccdEnabled?: boolean;
   } = {}): any {
@@ -236,11 +254,21 @@ export class Physics2DWorld {
     const rbDesc = this._rapier.RigidBodyDesc.dynamic()
       .setTranslation(x, y)
       .setGravityScale(options.gravityScale ?? 1.0)
-      .setLinearDamping(options.linearDamping ?? 0.0);
+      .setLinearDamping(options.linearDamping ?? 0.0)
+      .setAngularDamping(options.angularDamping ?? 0.05);
 
     if (options.ccdEnabled) rbDesc.setCcdEnabled(true);
 
     const rigidBody = this.world.createRigidBody(rbDesc);
+
+    // Apply mass if specified (setAdditionalMass adds on top of collider-computed mass;
+    // we use it here as the primary mass setter before colliders are added).
+    if (options.mass !== undefined && options.mass > 0) {
+      try { rigidBody.setAdditionalMass(options.mass, true); } catch (_) {
+        // Some Rapier builds use setMass instead
+        try { (rigidBody as any).setMass(options.mass, true); } catch (_2) { /* ignore */ }
+      }
+    }
 
     if (options.freezeRotation) {
       rigidBody.lockRotations(true, true);
@@ -381,6 +409,28 @@ export class Physics2DWorld {
       this.world.removeRigidBody(rb);
     }
     this._layerBodies.delete(layerId);
+  }
+
+  /**
+   * Properly remove a runtime actor's physics body.
+   * Removes the rigid body from the Rapier world AND from bodyMap so that
+   * syncToThreeJS() never calls .translation() on a freed WASM handle.
+   * Always use this instead of calling physics.world.removeRigidBody() directly.
+   */
+  removeActorBody(actor: any): void {
+    if (!this.world) return;
+    for (const [handle, entry] of this.bodyMap) {
+      if (entry.actor === actor) {
+        try {
+          this.world.removeRigidBody(entry.rigidBody);
+        } catch (err) {
+          console.warn('[Physics2DWorld] removeActorBody: error removing rigid body for "' + actor.name + '":', err);
+        }
+        this.bodyMap.delete(handle);
+        // An actor normally has only one rigid body; break after the first match.
+        break;
+      }
+    }
   }
 
   // ---- Query helpers ----
