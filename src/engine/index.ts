@@ -12,6 +12,9 @@ export { CharacterMovementComponent } from './CharacterMovementComponent';
 export { FloatingPawnMovement, defaultFloatingPawnConfig, type FloatingPawnConfig } from './FloatingPawnMovement';
 export { AnimationInstance } from './AnimationInstance';
 export { UIManager, type RuntimeWidgetBlueprint, type RuntimeWidgetNode } from './UIManager';
+export { AudioEngine, AudioSource, AudioBus, type AudioPlayOptions } from './AudioSystem';
+export { SaveLoadSystem, SaveGameObject, type SaveFileData, type SaveSlotInfo } from './SaveLoadSystem';
+export { GAMEPAD_BUTTONS, GAMEPAD_AXES } from './InputManager';
 
 // ── 2D Engine Exports ───────────────────────────────────────
 export { Physics2DWorld, type Physics2DSettings, type BodyEntry2D } from './Physics2DWorld';

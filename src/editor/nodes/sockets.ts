@@ -134,6 +134,10 @@ export function getCategoryIcon(cat: string): string {
     case 'Physics 2D':    return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
     case 'Camera 2D':     return iconHTML(Icons.Camera, 10, ICON_COLORS.camera);
     case 'Tilemap':       return iconHTML(Icons.Grid, 10, ICON_COLORS.secondary);
+    // Phase 1 categories
+    case 'Audio':          return iconHTML(Icons.Circle, 10, '#E91E63');
+    case 'Gamepad':        return iconHTML(Icons.Gamepad2, 10, '#00BFA5');
+    case 'Save/Load':      return iconHTML(Icons.Circle, 10, '#FF7043');
     default:              return iconHTML(Icons.Circle, 10, ICON_COLORS.muted);
   }
 }

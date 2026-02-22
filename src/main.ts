@@ -11,6 +11,7 @@ import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
+import { SaveGameAssetManager } from './editor/SaveGameAsset';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
@@ -123,6 +124,11 @@ async function main() {
   projectManager.setGameInstanceManager(gameInstanceManager);
   editor.setGameInstanceManager(gameInstanceManager);
   engine.gameInstanceManager = gameInstanceManager;
+
+  // Create save game asset manager (save game class definitions)
+  const saveGameManager = new SaveGameAssetManager();
+  projectManager.setSaveGameManager(saveGameManager);
+  editor.setSaveGameManager(saveGameManager);
 
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);

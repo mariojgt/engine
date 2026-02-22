@@ -13,6 +13,35 @@ export interface AxisMapping {
   scale: number;
 }
 
+// ── Gamepad Constants ───────────────────────────────────────
+// Standard Gamepad API button indices (Xbox layout names)
+export const GAMEPAD_BUTTONS = {
+  A: 0,        // Cross (PS) / A (Xbox)
+  B: 1,        // Circle (PS) / B (Xbox)
+  X: 2,        // Square (PS) / X (Xbox)
+  Y: 3,        // Triangle (PS) / Y (Xbox)
+  LB: 4,       // L1 / Left Bumper
+  RB: 5,       // R1 / Right Bumper
+  LT: 6,       // L2 / Left Trigger
+  RT: 7,       // R2 / Right Trigger
+  Back: 8,     // Select / Back / Share
+  Start: 9,    // Start / Options
+  LS: 10,      // Left Stick Press
+  RS: 11,      // Right Stick Press
+  DPadUp: 12,
+  DPadDown: 13,
+  DPadLeft: 14,
+  DPadRight: 15,
+} as const;
+
+// Standard Gamepad API axis indices
+export const GAMEPAD_AXES = {
+  LeftStickX: 0,
+  LeftStickY: 1,
+  RightStickX: 2,
+  RightStickY: 3,
+} as const;
+
 export class InputManager {
   private _keys = new Set<string>();
   private _mouseDown = new Set<number>();
@@ -22,6 +51,18 @@ export class InputManager {
   private _actionMappings: Map<string, KeyCode[]> = new Map();
   private _axisMappings: Map<string, AxisMapping[]> = new Map();
 
+  // ── Gamepad State ───────────────────────────────────────
+  /** Deadzone threshold for sticks (values below this are treated as 0) */
+  public gamepadDeadzone = 0.15;
+  /** Currently connected gamepad indices */
+  private _connectedGamepads = new Set<number>();
+  /** Button "pressed last frame" state for just-pressed detection */
+  private _prevGamepadButtons: Map<number, boolean[]> = new Map();
+  /** Current-frame raw axis values per gamepad */
+  private _gamepadAxes: Map<number, number[]> = new Map();
+  /** Current-frame button pressed state per gamepad */
+  private _gamepadButtons: Map<number, boolean[]> = new Map();
+
   // Bound listeners
   private _onKeyDownBound = this._onKeyDown.bind(this);
   private _onKeyUpBound = this._onKeyUp.bind(this);
@@ -29,6 +70,8 @@ export class InputManager {
   private _onMouseUpBound = this._onMouseUp.bind(this);
   private _onMouseMoveBound = this._onMouseMove.bind(this);
   private _onBlurBound = this._onBlur.bind(this);
+  private _onGamepadConnectedBound = this._onGamepadConnected.bind(this);
+  private _onGamepadDisconnectedBound = this._onGamepadDisconnected.bind(this);
 
   constructor(canvas?: HTMLCanvasElement) {
     if (canvas) this.bindEvents(canvas);
@@ -44,6 +87,10 @@ export class InputManager {
     target.addEventListener('mousedown', this._onMouseDownBound as any);
     window.addEventListener('mouseup', this._onMouseUpBound);
     document.addEventListener('mousemove', this._onMouseMoveBound);
+
+    // Gamepad connect/disconnect
+    window.addEventListener('gamepadconnected', this._onGamepadConnectedBound as any);
+    window.addEventListener('gamepaddisconnected', this._onGamepadDisconnectedBound as any);
   }
 
   public unbindEvents(): void {
@@ -52,6 +99,8 @@ export class InputManager {
     window.removeEventListener('blur', this._onBlurBound);
     window.removeEventListener('mouseup', this._onMouseUpBound);
     document.removeEventListener('mousemove', this._onMouseMoveBound);
+    window.removeEventListener('gamepadconnected', this._onGamepadConnectedBound as any);
+    window.removeEventListener('gamepaddisconnected', this._onGamepadDisconnectedBound as any);
     // Note: mousedown is tricky if canvas ref is lost, but usually fine
   }
 
@@ -118,9 +167,97 @@ export class InputManager {
     return this._keys.has(code);
   }
 
-  /** Call at end of frame to reset per-frame deltas */
+  /** Call at end of frame to reset per-frame deltas and poll gamepads */
   public update(): void {
     this._mouseDelta.set(0, 0);
+    this._pollGamepads();
+  }
+
+  // ── Gamepad Queries ───────────────────────────────────────
+
+  /** Returns true if any gamepad is connected */
+  public isGamepadConnected(index = 0): boolean {
+    return this._connectedGamepads.has(index);
+  }
+
+  /** Get a raw gamepad axis value (after deadzone), index = gamepad index */
+  public getGamepadAxis(axisIndex: number, gamepadIndex = 0): number {
+    const axes = this._gamepadAxes.get(gamepadIndex);
+    if (!axes || axisIndex >= axes.length) return 0;
+    const raw = axes[axisIndex];
+    return Math.abs(raw) < this.gamepadDeadzone ? 0 : raw;
+  }
+
+  /** Returns true while a gamepad button is held down */
+  public isGamepadButtonDown(buttonIndex: number, gamepadIndex = 0): boolean {
+    const buttons = this._gamepadButtons.get(gamepadIndex);
+    if (!buttons || buttonIndex >= buttons.length) return false;
+    return buttons[buttonIndex];
+  }
+
+  /** Returns true only on the frame the button was first pressed */
+  public isGamepadButtonJustPressed(buttonIndex: number, gamepadIndex = 0): boolean {
+    const curr = this._gamepadButtons.get(gamepadIndex);
+    const prev = this._prevGamepadButtons.get(gamepadIndex);
+    if (!curr || buttonIndex >= curr.length) return false;
+    const wasDown = prev ? (buttonIndex < prev.length ? prev[buttonIndex] : false) : false;
+    return curr[buttonIndex] && !wasDown;
+  }
+
+  /** Returns true only on the frame the button was released */
+  public isGamepadButtonJustReleased(buttonIndex: number, gamepadIndex = 0): boolean {
+    const curr = this._gamepadButtons.get(gamepadIndex);
+    const prev = this._prevGamepadButtons.get(gamepadIndex);
+    if (!prev || buttonIndex >= prev.length) return false;
+    const isDown = curr ? (buttonIndex < curr.length ? curr[buttonIndex] : false) : false;
+    return prev[buttonIndex] && !isDown;
+  }
+
+  /** Vibrate / rumble the gamepad (if supported) */
+  public setGamepadVibration(
+    weakMagnitude: number,
+    strongMagnitude: number,
+    durationMs: number,
+    gamepadIndex = 0,
+  ): void {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gp = gamepads[gamepadIndex];
+    if (!gp) return;
+    const actuator = (gp as any).vibrationActuator;
+    if (actuator && typeof actuator.playEffect === 'function') {
+      actuator.playEffect('dual-rumble', {
+        startDelay: 0,
+        duration: durationMs,
+        weakMagnitude: Math.max(0, Math.min(weakMagnitude, 1)),
+        strongMagnitude: Math.max(0, Math.min(strongMagnitude, 1)),
+      }).catch(() => { /* vibration not supported */ });
+    }
+  }
+
+  /** Poll all connected gamepads and snapshot their state */
+  private _pollGamepads(): void {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (let i = 0; i < gamepads.length; i++) {
+      const gp = gamepads[i];
+      if (!gp) continue;
+      this._connectedGamepads.add(gp.index);
+
+      // Save previous frame buttons for just-pressed detection
+      const prevButtons = this._gamepadButtons.get(gp.index);
+      if (prevButtons) {
+        this._prevGamepadButtons.set(gp.index, [...prevButtons]);
+      }
+
+      // Snapshot axes
+      const axes: number[] = [];
+      for (let a = 0; a < gp.axes.length; a++) axes.push(gp.axes[a]);
+      this._gamepadAxes.set(gp.index, axes);
+
+      // Snapshot buttons
+      const buttons: boolean[] = [];
+      for (let b = 0; b < gp.buttons.length; b++) buttons.push(gp.buttons[b].pressed);
+      this._gamepadButtons.set(gp.index, buttons);
+    }
   }
 
   // ---- Event Handlers ----
@@ -151,5 +288,18 @@ export class InputManager {
     this._keys.clear();
     this._mouseDown.clear();
     this._mouseDelta.set(0, 0);
+  }
+
+  private _onGamepadConnected(e: GamepadEvent): void {
+    this._connectedGamepads.add(e.gamepad.index);
+    console.log(`[InputManager] Gamepad connected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
+  }
+
+  private _onGamepadDisconnected(e: GamepadEvent): void {
+    this._connectedGamepads.delete(e.gamepad.index);
+    this._gamepadAxes.delete(e.gamepad.index);
+    this._gamepadButtons.delete(e.gamepad.index);
+    this._prevGamepadButtons.delete(e.gamepad.index);
+    console.log(`[InputManager] Gamepad disconnected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
   }
 }

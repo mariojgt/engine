@@ -16,6 +16,7 @@ import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJS
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
+import type { SaveGameAssetManager, SaveGameAssetJSON } from './SaveGameAsset';
 import type { ContentFolderManager } from './ContentFolderManager';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
@@ -103,6 +104,7 @@ const MESHES_DIR = 'Meshes';
 const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const GAME_INSTANCES_DIR = 'GameInstances';
+const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
 const CONFIG_DIR = 'Config';
@@ -120,6 +122,7 @@ export class ProjectManager {
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
+  private _saveGameManager: SaveGameAssetManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
@@ -187,6 +190,11 @@ export class ProjectManager {
   /** Wire up the GameInstanceBlueprintManager for saving/loading game instances */
   setGameInstanceManager(mgr: GameInstanceBlueprintManager): void {
     this._gameInstanceManager = mgr;
+  }
+
+  /** Wire up the SaveGameAssetManager for saving/loading save game class definitions */
+  setSaveGameManager(mgr: SaveGameAssetManager): void {
+    this._saveGameManager = mgr;
   }
 
   /** Get the configured Game Instance class ID (from Project Settings) */
@@ -356,6 +364,9 @@ export class ProjectManager {
       // Load game instances
       await this._loadGameInstances();
 
+      // Load save game class definitions
+      await this._loadSaveGameClasses();
+
       // Load texture library
       await this._loadTextures();
 
@@ -441,6 +452,10 @@ export class ProjectManager {
       // Save game instances
       await this._saveGameInstances();
       console.log('[ProjectManager]   ✓ game instances');
+
+      // Save save game class definitions
+      await this._saveSaveGameClasses();
+      console.log('[ProjectManager]   ✓ save game classes');
 
       // Save texture library
       await this._saveTextures();
@@ -1203,6 +1218,67 @@ export class ProjectManager {
 
     if (allGameInstances.length > 0) {
       this._gameInstanceManager.importAll(allGameInstances);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Save Game Classes
+  // ============================================================
+
+  private async _saveSaveGameClasses(): Promise<void> {
+    if (!this._projectPath || !this._saveGameManager) return;
+    const sgDir = `${this._projectPath}/${SAVE_GAME_CLASSES_DIR}`;
+    const allSG = this._saveGameManager.exportAll();
+    for (const json of allSG) {
+      const safeName = json.saveGameName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${sgDir}/${safeName}_${json.saveGameId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = allSG.map(sg => ({
+      id: sg.saveGameId,
+      name: sg.saveGameName,
+      file: `${sg.saveGameName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${sg.saveGameId}.json`,
+    }));
+    await fsWrite(`${sgDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadSaveGameClasses(): Promise<void> {
+    if (!this._projectPath || !this._saveGameManager) return;
+    const sgDir = `${this._projectPath}/${SAVE_GAME_CLASSES_DIR}`;
+    if (!(await fsExists(sgDir))) return;
+
+    const allSG: SaveGameAssetJSON[] = [];
+    const indexPath = `${sgDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${sgDir}/${entry.file}`);
+          allSG.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load save game class ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(sgDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${sgDir}/${name}`);
+          allSG.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load save game class file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allSG.length > 0) {
+      this._saveGameManager.importAll(allSG);
     }
   }
 

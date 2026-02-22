@@ -704,3 +704,49 @@ export {
   GetAnimBool2DNode,
   SetPlaybackSpeed2DNode,
 } from './animation2d/Animation2DNodes';
+
+// ── Audio Nodes ─────────────────────────────────────────────
+export {
+  PlaySound2DNode,
+  PlaySoundAtLocationNode,
+  StopSoundNode,
+  StopAllSoundsNode,
+  PauseSoundNode,
+  ResumeSoundNode,
+  SetSoundVolumeNode,
+  SetSoundPitchNode,
+  IsSoundPlayingNode,
+  SetBusVolumeNode,
+  SetMasterVolumeNode,
+  PauseAllSoundsNode,
+  ResumeAllSoundsNode,
+} from './audio/AudioNodes';
+
+// ── Gamepad Nodes ───────────────────────────────────────────
+export {
+  IsGamepadConnectedNode,
+  GetGamepadAxisNode,
+  IsGamepadButtonDownNode,
+  IsGamepadButtonJustPressedNode,
+  IsGamepadButtonJustReleasedNode,
+  SetGamepadVibrationNode,
+  GetGamepadLeftStickNode,
+  GetGamepadRightStickNode,
+} from './gamepad/GamepadNodes';
+
+// ── Save / Load Nodes (UE-style) ────────────────────────────
+export {
+  CreateSaveGameObjectNode,
+  SaveGameToSlotNode,
+  LoadGameFromSlotNode,
+  DoesSaveGameExistNode,
+  DeleteGameInSlotNode,
+  SetSaveGameVariableNode,
+  GetSaveGameStringNode,
+  GetSaveGameIntNode,
+  GetSaveGameFloatNode,
+  GetSaveGameBoolNode,
+  GetSaveGameVectorNode,
+  GetAllSaveSlotNamesNode,
+  GetSaveSlotCountNode,
+} from './saveload/SaveLoadNodes';

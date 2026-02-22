@@ -25,6 +25,8 @@ import type { StructureAssetManager, StructureAsset, EnumAsset } from './Structu
 import type { MeshAssetManager, MaterialAssetJSON } from './MeshAsset';
 import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
+import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
+import { SaveGameEditorPanel } from './SaveGameEditorPanel';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
 import { PhysicsSettingsPanel } from './PhysicsSettingsPanel';
@@ -98,6 +100,7 @@ export class EditorLayout {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
+  private _saveGameManager: SaveGameAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
 
   /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
@@ -698,6 +701,14 @@ export class EditorLayout {
     }
   }
 
+  /** Wire up the SaveGameAssetManager for the content browser and editors */
+  setSaveGameManager(mgr: SaveGameAssetManager): void {
+    this._saveGameManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setSaveGameManager(mgr, (asset: SaveGameAsset) => this._openSaveGameEditor(asset));
+    }
+  }
+
   /** Open a game instance blueprint editor panel */
   private _openGameInstanceEditor(asset: GameInstanceBlueprintAsset): void {
     this._closeNodeEditor();
@@ -876,6 +887,43 @@ export class EditorLayout {
       if (panel) {
         try { panel.setTitle(`Struct: ${sa.name}`); } catch (_e) {}
         this._injectTabIcon(panelId, Icons.Diamond, ICON_COLORS.blue);
+      }
+    });
+  }
+
+  /** Open a save game editor panel */
+  private _openSaveGameEditor(sg: SaveGameAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'savegame-editor-' + sg.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `SaveGame: ${sg.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Save, '#FF7043');
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._saveGameManager) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    new SaveGameEditorPanel(wrapper, sg, this._saveGameManager, this._structManager ?? null, () => {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`SaveGame: ${sg.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.Save, '#FF7043');
       }
     });
   }

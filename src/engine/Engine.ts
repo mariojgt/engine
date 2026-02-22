@@ -15,6 +15,8 @@ import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAss
 import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { GameInstance } from './GameInstance';
 import type { Physics2DWorld } from './Physics2DWorld';
+import { AudioEngine } from './AudioSystem';
+import { SaveLoadSystem } from './SaveLoadSystem';
 
 export class Engine {
   public scene: Scene;
@@ -26,6 +28,8 @@ export class Engine {
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
   public uiManager: UIManager = new UIManager();
+  public audio: AudioEngine = new AudioEngine();
+  public saveLoad: SaveLoadSystem = new SaveLoadSystem();
 
   /** All controllers created this play session (for central cleanup) */
   private _activeControllers: Controller[] = [];
@@ -132,7 +136,15 @@ export class Engine {
       this.input.bindEvents(canvas);
     }
 
-    // ── 0. Initialize UI overlay ──
+    // ── 0. Initialize audio engine ──
+    this.audio.init();
+
+    // ── 0. Initialize save/load system (async — populates cache from disk) ──
+    if (this.projectManager?.projectPath) {
+      this.saveLoad.initialize(this.projectManager.projectPath);
+    }
+
+    // ── 0a. Initialize UI overlay ──
     if (canvas) {
       this.uiManager.init(canvas);
     }
@@ -326,6 +338,12 @@ export class Engine {
 
     // Destroy UI overlay
     this.uiManager.destroy();
+
+    // Destroy audio engine (stops all sounds, closes AudioContext)
+    this.audio.destroy();
+
+    // Flush pending save writes and clear save cache
+    this.saveLoad.shutdown();
 
     // Destroy Game Instance (only when play fully stops, not on scene transitions)
     if (this.gameInstance) {

@@ -347,6 +347,14 @@ import {
   SpawnActorFromClassNode,
   ActorClassSelectControl,
   RefreshNodesControl,
+  // Audio nodes
+  PlaySound2DNode,
+  PlaySoundAtLocationNode,
+  // Save/Load nodes (UE-style)
+  CreateSaveGameObjectNode,
+  SaveGameToSlotNode,
+  LoadGameFromSlotNode,
+  DeleteGameInSlotNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -1048,6 +1056,31 @@ function resolveValue(
     }
     return 'null';
   }
+  // Play Sound 2D / Play Sound at Location — sourceId is set (async, reads -1 initially)
+  if (node instanceof PlaySound2DNode || node instanceof PlaySoundAtLocationNode) {
+    if (outputKey === 'sourceId') {
+      return `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    }
+    return '-1';
+  }
+  // Save/Load exec nodes — temp vars set in genAction (UE-style)
+  if (node instanceof CreateSaveGameObjectNode) {
+    if (outputKey === 'saveObject') return `__sgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'null';
+  }
+  if (node instanceof SaveGameToSlotNode) {
+    if (outputKey === 'success') return `__sts_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof LoadGameFromSlotNode) {
+    if (outputKey === 'saveObject') return `__lgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'success') return `__lgOk_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'null';
+  }
+  if (node instanceof DeleteGameInSlotNode) {
+    if (outputKey === 'success') return `__dgs_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
   if (node instanceof PureCastNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
     const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
@@ -1427,6 +1460,123 @@ function resolveValue(
       if (outputKey === 'height') return '(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; return _ts ? _ts.rows : 0; }())';
       if (outputKey === 'tileSize') return '(function(){ var _sm = __engine && __engine.scene2DManager; if (!_sm) return 0; var _ts = Array.from(_sm.tilesets.values())[0]; return _ts ? _ts.tileWidth : 0; }())';
       return '0';
+    }
+
+    // ── Audio (pure) ────────────────────────────────────────
+    case 'Is Sound Playing': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      return `(__engine && __engine.audio ? __engine.audio.isPlaying(${sid}) : false)`;
+    }
+
+    // ── Gamepad (pure) ──────────────────────────────────────
+    case 'Is Gamepad Connected': {
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      return `(__engine && __engine.input ? __engine.input.isGamepadConnected(${gi}) : false)`;
+    }
+    case 'Get Gamepad Axis': {
+      const aiS = inputSrc.get(`${nodeId}.axisIndex`);
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const ai = aiS ? rv(aiS.nid, aiS.ok) : '0';
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      return `(__engine && __engine.input ? __engine.input.getGamepadAxis(${ai}, ${gi}) : 0)`;
+    }
+    case 'Is Gamepad Button Down': {
+      const biS = inputSrc.get(`${nodeId}.buttonIndex`);
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const bi = biS ? rv(biS.nid, biS.ok) : '0';
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      return `(__engine && __engine.input ? __engine.input.isGamepadButtonDown(${bi}, ${gi}) : false)`;
+    }
+    case 'Is Gamepad Button Pressed': {
+      const biS = inputSrc.get(`${nodeId}.buttonIndex`);
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const bi = biS ? rv(biS.nid, biS.ok) : '0';
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      return `(__engine && __engine.input ? __engine.input.isGamepadButtonJustPressed(${bi}, ${gi}) : false)`;
+    }
+    case 'Is Gamepad Button Released': {
+      const biS = inputSrc.get(`${nodeId}.buttonIndex`);
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const bi = biS ? rv(biS.nid, biS.ok) : '0';
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      return `(__engine && __engine.input ? __engine.input.isGamepadButtonJustReleased(${bi}, ${gi}) : false)`;
+    }
+    case 'Get Gamepad Left Stick': {
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      if (outputKey === 'x') return `(__engine && __engine.input ? __engine.input.getGamepadAxis(0, ${gi}) : 0)`;
+      if (outputKey === 'y') return `(__engine && __engine.input ? __engine.input.getGamepadAxis(1, ${gi}) : 0)`;
+      return '0';
+    }
+    case 'Get Gamepad Right Stick': {
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      if (outputKey === 'x') return `(__engine && __engine.input ? __engine.input.getGamepadAxis(2, ${gi}) : 0)`;
+      if (outputKey === 'y') return `(__engine && __engine.input ? __engine.input.getGamepadAxis(3, ${gi}) : 0)`;
+      return '0';
+    }
+
+    // ── Save/Load (pure — UE-style) ────────────────────────
+    case 'Does Save Game Exist': {
+      const slotS = inputSrc.get(`${nodeId}.slotName`);
+      const uiS = inputSrc.get(`${nodeId}.userIndex`);
+      const slot = slotS ? rv(slotS.nid, slotS.ok) : '"Slot1"';
+      const ui = uiS ? rv(uiS.nid, uiS.ok) : '0';
+      return `(__engine && __engine.saveLoad ? __engine.saveLoad.doesSaveGameExist(${slot}, ${ui}) : false)`;
+    }
+    case 'Get Save Game String': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const defS = inputSrc.get(`${nodeId}.default`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      const def = defS ? rv(defS.nid, defS.ok) : '""';
+      return `(${obj} ? ${obj}.getString(${name}, ${def}) : ${def})`;
+    }
+    case 'Get Save Game Int': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const defS = inputSrc.get(`${nodeId}.default`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      const def = defS ? rv(defS.nid, defS.ok) : '0';
+      return `(${obj} ? ${obj}.getInt(${name}, ${def}) : ${def})`;
+    }
+    case 'Get Save Game Float': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const defS = inputSrc.get(`${nodeId}.default`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      const def = defS ? rv(defS.nid, defS.ok) : '0';
+      return `(${obj} ? ${obj}.getFloat(${name}, ${def}) : ${def})`;
+    }
+    case 'Get Save Game Bool': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const defS = inputSrc.get(`${nodeId}.default`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      const def = defS ? rv(defS.nid, defS.ok) : 'false';
+      return `(${obj} ? ${obj}.getBool(${name}, ${def}) : ${def})`;
+    }
+    case 'Get Save Game Vector': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      if (outputKey === 'x') return `(${obj} ? ${obj}.getVector(${name}).x : 0)`;
+      if (outputKey === 'y') return `(${obj} ? ${obj}.getVector(${name}).y : 0)`;
+      if (outputKey === 'z') return `(${obj} ? ${obj}.getVector(${name}).z : 0)`;
+      return '0';
+    }
+    case 'Get All Save Slot Names': {
+      return `(__engine && __engine.saveLoad ? __engine.saveLoad.getAllSaveSlotInfos().map(function(s){return s.slotName}).join(",") : "")`;
+    }
+    case 'Get Save Slot Count': {
+      return `(__engine && __engine.saveLoad ? __engine.saveLoad.getSaveSlotCount() : 0)`;
     }
 
     default: return '0';
@@ -2936,6 +3086,215 @@ function genAction(
     }
     case 'Rebuild Tilemap Collision': {
       lines.push(`{ /* Rebuild tilemap collision — handled by editor on scene save */ }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Audio Nodes ─────────────────────────────────────────
+    case 'Play Sound 2D': {
+      const sS = inputSrc.get(`${nodeId}.sound`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const pitS = inputSrc.get(`${nodeId}.pitch`);
+      const loopS = inputSrc.get(`${nodeId}.loop`);
+      const busS = inputSrc.get(`${nodeId}.bus`);
+      const stS = inputSrc.get(`${nodeId}.startTime`);
+      const fiS = inputSrc.get(`${nodeId}.fadeIn`);
+      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const bus = busS ? rv(busS.nid, busS.ok) : '"SFX"';
+      const st = stS ? rv(stS.nid, stS.ok) : '0';
+      const fi = fiS ? rv(fiS.nid, fiS.ok) : '0';
+      const varName = `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSound2D(${sound}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, startTime: ${st}, fadeInDuration: ${fi} }).then(function(id) { ${varName} = id; }); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Play Sound at Location': {
+      const sS = inputSrc.get(`${nodeId}.sound`);
+      const lxS = inputSrc.get(`${nodeId}.locX`);
+      const lyS = inputSrc.get(`${nodeId}.locY`);
+      const lzS = inputSrc.get(`${nodeId}.locZ`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const pitS = inputSrc.get(`${nodeId}.pitch`);
+      const loopS = inputSrc.get(`${nodeId}.loop`);
+      const busS = inputSrc.get(`${nodeId}.bus`);
+      const mdS = inputSrc.get(`${nodeId}.maxDistance`);
+      const stS = inputSrc.get(`${nodeId}.startTime`);
+      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const lx = lxS ? rv(lxS.nid, lxS.ok) : '0';
+      const ly = lyS ? rv(lyS.nid, lyS.ok) : '0';
+      const lz = lzS ? rv(lzS.nid, lzS.ok) : '0';
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const bus = busS ? rv(busS.nid, busS.ok) : '"SFX"';
+      const md = mdS ? rv(mdS.nid, mdS.ok) : '50';
+      const st = stS ? rv(stS.nid, stS.ok) : '0';
+      const varName = `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSoundAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, maxDistance: ${md}, startTime: ${st} }).then(function(id) { ${varName} = id; }); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Spawn Sound at Location': {
+      // Legacy node — map to the same code as Play Sound at Location
+      const sS = inputSrc.get(`${nodeId}.sound`);
+      const lxS = inputSrc.get(`${nodeId}.locX`);
+      const lyS = inputSrc.get(`${nodeId}.locY`);
+      const lzS = inputSrc.get(`${nodeId}.locZ`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const pitS = inputSrc.get(`${nodeId}.pitch`);
+      const stS = inputSrc.get(`${nodeId}.startTime`);
+      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const lx = lxS ? rv(lxS.nid, lxS.ok) : '0';
+      const ly = lyS ? rv(lyS.nid, lyS.ok) : '0';
+      const lz = lzS ? rv(lzS.nid, lzS.ok) : '0';
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
+      const st = stS ? rv(stS.nid, stS.ok) : '0';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.playSoundAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, startTime: ${st} }); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Stop Sound': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const foS = inputSrc.get(`${nodeId}.fadeOut`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      const fo = foS ? rv(foS.nid, foS.ok) : '0';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.stopSource(${sid}, ${fo}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Stop All Sounds': {
+      const foS = inputSrc.get(`${nodeId}.fadeOut`);
+      const fo = foS ? rv(foS.nid, foS.ok) : '0';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.stopAll(${fo}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Pause Sound': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.pauseSource(${sid}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Resume Sound': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.resumeSource(${sid}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sound Volume': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.setSourceVolume(${sid}, ${vol}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Sound Pitch': {
+      const idS = inputSrc.get(`${nodeId}.sourceId`);
+      const pitS = inputSrc.get(`${nodeId}.pitch`);
+      const sid = idS ? rv(idS.nid, idS.ok) : '-1';
+      const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.setSourcePitch(${sid}, ${pit}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Bus Volume': {
+      const busS = inputSrc.get(`${nodeId}.bus`);
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const bus = busS ? rv(busS.nid, busS.ok) : '"SFX"';
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.setBusVolume(${bus}, ${vol}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Master Volume': {
+      const volS = inputSrc.get(`${nodeId}.volume`);
+      const vol = volS ? rv(volS.nid, volS.ok) : '1';
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.masterVolume = ${vol}; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Pause All Sounds': {
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.pauseAll(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Resume All Sounds': {
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.resumeAll(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Gamepad Nodes (exec-based) ──────────────────────────
+    case 'Set Gamepad Vibration': {
+      const wmS = inputSrc.get(`${nodeId}.weakMagnitude`);
+      const smS = inputSrc.get(`${nodeId}.strongMagnitude`);
+      const durS = inputSrc.get(`${nodeId}.duration`);
+      const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
+      const wm = wmS ? rv(wmS.nid, wmS.ok) : '0.5';
+      const sm = smS ? rv(smS.nid, smS.ok) : '0.5';
+      const dur = durS ? rv(durS.nid, durS.ok) : '200';
+      const gi = giS ? rv(giS.nid, giS.ok) : '0';
+      lines.push(`if (__engine && __engine.input) { __engine.input.setGamepadVibration(${wm}, ${sm}, ${dur}, ${gi}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Save/Load Nodes (exec-based — UE-style) ──────────────
+    case 'Create Save Game Object': {
+      const varName = `__sgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varName} = null; if (__engine && __engine.saveLoad) { ${varName} = __engine.saveLoad.createSaveGameObject(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Save Game to Slot': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const slotS = inputSrc.get(`${nodeId}.slotName`);
+      const uiS = inputSrc.get(`${nodeId}.userIndex`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const slot = slotS ? rv(slotS.nid, slotS.ok) : '"Slot1"';
+      const ui = uiS ? rv(uiS.nid, uiS.ok) : '0';
+      const varName = `__sts_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varName} = false; if (__engine && __engine.saveLoad && ${obj}) { var _gi = __engine.gameInstance; var _giVars = _gi ? _gi.variables : {}; var _sceneId = __engine.projectManager ? (__engine.projectManager.currentSceneId || "") : ""; var _pt = typeof elapsedTime !== 'undefined' ? elapsedTime : 0; ${varName} = __engine.saveLoad.saveGameToSlot(${obj}, ${slot}, ${ui}, ${slot}, _sceneId, _pt, _giVars); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Load Game from Slot': {
+      const slotS = inputSrc.get(`${nodeId}.slotName`);
+      const uiS = inputSrc.get(`${nodeId}.userIndex`);
+      const slot = slotS ? rv(slotS.nid, slotS.ok) : '"Slot1"';
+      const ui = uiS ? rv(uiS.nid, uiS.ok) : '0';
+      const varObj = `__lgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const varOk = `__lgOk_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varObj} = null; var ${varOk} = false; if (__engine && __engine.saveLoad) { ${varObj} = __engine.saveLoad.loadGameFromSlot(${slot}, ${ui}); if (${varObj}) { ${varOk} = true; var _fullData = __engine.saveLoad.getFullSaveData(${slot}, ${ui}); if (_fullData && _fullData.gameInstanceVars) { var _gi = __engine.gameInstance; if (_gi) { for (var _k in _fullData.gameInstanceVars) { _gi.variables[_k] = _fullData.gameInstanceVars[_k]; } } } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Delete Game in Slot': {
+      const slotS = inputSrc.get(`${nodeId}.slotName`);
+      const uiS = inputSrc.get(`${nodeId}.userIndex`);
+      const slot = slotS ? rv(slotS.nid, slotS.ok) : '"Slot1"';
+      const ui = uiS ? rv(uiS.nid, uiS.ok) : '0';
+      const varName = `__dgs_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${varName} = false; if (__engine && __engine.saveLoad) { ${varName} = __engine.saveLoad.deleteSaveGameInSlot(${slot}, ${ui}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Save Game Variable': {
+      const objS = inputSrc.get(`${nodeId}.saveObject`);
+      const nameS = inputSrc.get(`${nodeId}.varName`);
+      const valS = inputSrc.get(`${nodeId}.value`);
+      const obj = objS ? rv(objS.nid, objS.ok) : 'null';
+      const name = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      const val = valS ? rv(valS.nid, valS.ok) : '""';
+      lines.push(`if (${obj}) { ${obj}.setVariable(${name}, ${val}); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }

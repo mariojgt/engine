@@ -18,6 +18,7 @@ import { MeshAssetManager, type MeshAsset, type MaterialAssetJSON, isImportableF
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
 import { GameInstanceBlueprintManager, type GameInstanceBlueprintAsset } from './GameInstanceData';
+import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
 import { ContentFolderManager, type AssetType, type FolderNode } from './ContentFolderManager';
 import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress, showTextureImportDialog } from './ImportDialog';
@@ -43,6 +44,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   animBP:       { color: '#fbbf24', icon: Icons.Clapperboard, label: 'Anim Blueprint' },
   widget:       { color: '#67e8f9', icon: Icons.Palette,      label: 'Widget' },
   gameInstance: { color: '#c084fc', icon: Icons.Circle,       label: 'Game Instance' },
+  saveGame:     { color: '#FF7043', icon: Icons.Save,         label: 'Save Game' },
   texture:      { color: '#4ade80', icon: Icons.Image,        label: 'Texture' },
   animation:    { color: '#fbbf24', icon: Icons.Play,         label: 'Animation' },
 };
@@ -77,6 +79,7 @@ export class ActorAssetBrowser {
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
+  private _saveGameManager: SaveGameAssetManager | null = null;
   private _folderManager: ContentFolderManager;
 
   // ── Callbacks (preserved) ──
@@ -86,6 +89,7 @@ export class ActorAssetBrowser {
   private _onOpenAnimBP: ((asset: AnimBlueprintAsset) => void) | null = null;
   private _onOpenWidgetBP: ((asset: WidgetBlueprintAsset) => void) | null = null;
   private _onOpenGameInstance: ((asset: GameInstanceBlueprintAsset) => void) | null = null;
+  private _onOpenSaveGame: ((asset: SaveGameAsset) => void) | null = null;
   private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
@@ -217,6 +221,13 @@ export class ActorAssetBrowser {
   public setGameInstanceManager(mgr: GameInstanceBlueprintManager, onOpenGameInstance: (asset: GameInstanceBlueprintAsset) => void): void {
     this._gameInstanceManager = mgr;
     this._onOpenGameInstance = onOpenGameInstance;
+    mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setSaveGameManager(mgr: SaveGameAssetManager, onOpenSaveGame: (asset: SaveGameAsset) => void): void {
+    this._saveGameManager = mgr;
+    this._onOpenSaveGame = onOpenSaveGame;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -1224,6 +1235,21 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'saveGame': {
+        if (!this._saveGameManager) return null;
+        const sg = this._saveGameManager.getAsset(assetId);
+        if (!sg) return null;
+        const fc = sg.fields.length;
+        return {
+          id: sg.id, name: sg.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Save Game',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${fc} field${fc !== 1 ? 's' : ''}`,
+          onOpen: () => this._onOpenSaveGame?.(sg),
+          onContextMenu: (e) => this._showSaveGameContextMenu(e, sg),
+          dragKind: null, dragPayload: null,
+        };
+      }
       case 'texture': {
         const texLib = TextureLibrary.instance;
         if (!texLib) return null;
@@ -1765,6 +1791,20 @@ export class ActorAssetBrowser {
       });
     }
 
+    // ── Save Game ──
+    if (this._saveGameManager) {
+      this._addMenuItem(menu, iconHTML(Icons.Save, 12, '#FF7043') + ' Save Game Object', async () => {
+        const name = await this._showNameDialog('New Save Game', 'SG_NewSaveGame');
+        if (name) {
+          const sg = this._saveGameManager!.createAsset(name);
+          this._folderManager.setAssetLocation(sg.id, 'saveGame', this._currentFolderId);
+          this._selectedIds.clear();
+          this._selectedIds.add(sg.id);
+          if (this._onOpenSaveGame) this._onOpenSaveGame(sg);
+        }
+      });
+    }
+
     // ── Materials ──
     if (this._meshManager) {
       this._addMenuSeparator(menu);
@@ -2150,6 +2190,32 @@ export class ActorAssetBrowser {
         this._gameInstanceManager!.removeAsset(gi.id);
         this._folderManager.removeAssetLocation(gi.id, 'gameInstance');
         this._selectedIds.delete(gi.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Save Game context menu ──
+  private _showSaveGameContextMenu(e: MouseEvent, sg: SaveGameAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenSaveGame?.(sg));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Save Game', sg.name);
+      if (newName && newName !== sg.name) this._saveGameManager!.renameAsset(sg.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete save game class "${sg.name}"?`)) {
+        this._saveGameManager!.removeAsset(sg.id);
+        this._folderManager.removeAssetLocation(sg.id, 'saveGame');
+        this._selectedIds.delete(sg.id);
       }
     });
     delItem.style.color = 'var(--danger, #f87171)';
