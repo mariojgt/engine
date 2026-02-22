@@ -42,6 +42,12 @@ export class TileEditorPanel {
   private _palCtx: CanvasRenderingContext2D;
   private _palZoom = 2;
 
+  // Palette tab: 'tileset' shows the raw tileset atlas, 'animated' shows animated tile thumbnails
+  private _paletteTab: 'tileset' | 'animated' = 'tileset';
+  /** Timer for cycling animated tile thumbnails on the Animated palette tab. */
+  private _animPaletteTimer: ReturnType<typeof setInterval> | null = null;
+  private _animPaletteFrame = 0;
+
   /** Whether the tile editor panel is currently visible (active tab in dockview) */
   get isVisible(): boolean {
     // Dockview hides inactive tabs via display:none on the .dv-view ancestor.
@@ -171,6 +177,22 @@ export class TileEditorPanel {
     const paletteLabel = document.createElement('div');
     paletteLabel.style.cssText = 'font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px;';
     paletteLabel.innerHTML = `<span>TILE PALETTE</span>`;
+
+    // Tab buttons: Tileset | Animated
+    const tabRow = document.createElement('span');
+    tabRow.className = 'pal-tab-row';
+    tabRow.style.cssText = 'display:inline-flex;gap:2px;margin-left:4px;';
+    for (const tab of ['tileset', 'animated'] as const) {
+      const tBtn = document.createElement('button');
+      tBtn.textContent = tab === 'tileset' ? 'Tileset' : 'Animated';
+      tBtn.className = `pal-tab-btn pal-tab-${tab}`;
+      tBtn.style.cssText = 'background:#313244;color:#cdd6f4;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:10px;';
+      tBtn.onclick = () => { this._paletteTab = tab; this._renderPalette(); this._renderPaletteTabButtons(); };
+      tabRow.appendChild(tBtn);
+    }
+    paletteLabel.appendChild(tabRow);
+
+    // Zoom buttons (shown for both tabs)
     const zoomRow = document.createElement('span');
     zoomRow.style.cssText = 'opacity:0.5;font-size:10px;';
     for (const z of [1, 2, 4]) {
@@ -331,7 +353,22 @@ export class TileEditorPanel {
     }
   }
 
+  /** Update the active/inactive styling on the Tileset / Animated tab buttons. */
+  private _renderPaletteTabButtons(): void {
+    const tsBtn = this._container.querySelector('.pal-tab-tileset') as HTMLElement | null;
+    const anBtn = this._container.querySelector('.pal-tab-animated') as HTMLElement | null;
+    const activeCss = 'background:#585b70;color:#cdd6f4;border:1px solid #89b4fa;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:10px;';
+    const inactiveCss = 'background:#313244;color:#cdd6f4;border:1px solid transparent;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:10px;';
+    if (tsBtn) tsBtn.style.cssText = this._paletteTab === 'tileset' ? activeCss : inactiveCss;
+    if (anBtn) anBtn.style.cssText = this._paletteTab === 'animated' ? activeCss : inactiveCss;
+  }
+
   private _renderPalette(): void {
+    // Stop any running animated-palette cycling timer
+    if (this._animPaletteTimer) { clearInterval(this._animPaletteTimer); this._animPaletteTimer = null; }
+
+    this._renderPaletteTabButtons();
+
     if (!this._activeTileset) {
       // Clear palette and show hint
       this._paletteCanvas.width = 256;
@@ -342,6 +379,12 @@ export class TileEditorPanel {
       this._palCtx.font = '12px Inter, sans-serif';
       this._palCtx.textAlign = 'center';
       this._palCtx.fillText('Import a tileset to see tiles', 128, 36);
+      return;
+    }
+
+    // Dispatch to the correct tab renderer
+    if (this._paletteTab === 'animated') {
+      this._renderAnimatedPalette();
       return;
     }
     if (!this._activeTileset.image) {
@@ -400,6 +443,230 @@ export class TileEditorPanel {
         selH * ts.tileHeight * z,
       );
     }
+  }
+
+  // ---- Animated Palette tab ----
+
+  /**
+   * Render the "Animated" palette view.
+   * Shows each animated tile definition as a large thumbnail that cycles frames.
+   * Clicking one selects it for painting.
+   */
+  private _renderAnimatedPalette(): void {
+    const ts = this._activeTileset;
+    if (!ts?.image) {
+      this._paletteCanvas.width = 256;
+      this._paletteCanvas.height = 64;
+      this._palCtx.fillStyle = '#181825';
+      this._palCtx.fillRect(0, 0, 256, 64);
+      this._palCtx.fillStyle = '#6c7086';
+      this._palCtx.font = '12px Inter, sans-serif';
+      this._palCtx.textAlign = 'center';
+      this._palCtx.fillText('No tileset image loaded', 128, 36);
+      return;
+    }
+
+    const anims = ts.animatedTiles ?? [];
+    if (anims.length === 0) {
+      this._paletteCanvas.width = 256;
+      this._paletteCanvas.height = 64;
+      this._palCtx.fillStyle = '#181825';
+      this._palCtx.fillRect(0, 0, 256, 64);
+      this._palCtx.fillStyle = '#6c7086';
+      this._palCtx.font = '12px Inter, sans-serif';
+      this._palCtx.textAlign = 'center';
+      this._palCtx.fillText('No animated tiles defined', 128, 36);
+      return;
+    }
+
+    const z = this._palZoom;
+    // Each animated tile gets drawn as a tile-sized thumbnail in a grid layout
+    const thumbW = ts.tileWidth * z;
+    const thumbH = ts.tileHeight * z;
+    const padding = 4;
+    const labelH = 14; // height for the name label below each thumbnail
+    const cellW = thumbW + padding;
+    const cellH = thumbH + labelH + padding;
+
+    // Calculate grid layout
+    const canvasW = Math.max(256, this._paletteCanvas.parentElement?.clientWidth ?? 256);
+    const cols = Math.max(1, Math.floor(canvasW / cellW));
+    const rows = Math.ceil(anims.length / cols);
+
+    this._paletteCanvas.width = cols * cellW;
+    this._paletteCanvas.height = rows * cellH + padding;
+    this._palCtx.imageSmoothingEnabled = false;
+
+    // Fill background
+    this._palCtx.fillStyle = '#181825';
+    this._palCtx.fillRect(0, 0, this._paletteCanvas.width, this._paletteCanvas.height);
+
+    // Draw each animated tile
+    for (let i = 0; i < anims.length; i++) {
+      const anim = anims[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = col * cellW + padding / 2;
+      const y = row * cellH + padding / 2;
+
+      // Determine current display frame (cycles via timer)
+      const frameIdx = anim.frames.length > 0
+        ? this._animPaletteFrame % anim.frames.length
+        : 0;
+      const tileId = anim.frames[frameIdx] ?? 0;
+      const tileCol = tileId % ts.columns;
+      const tileRow = Math.floor(tileId / ts.columns);
+
+      // Background cell
+      const isSelected = this._activeAnimTileIndex === i;
+      this._palCtx.fillStyle = isSelected ? '#45475a' : '#1e1e2e';
+      this._palCtx.fillRect(x - 1, y - 1, thumbW + 2, thumbH + labelH + 4);
+
+      // Draw the tile frame
+      this._palCtx.drawImage(
+        ts.image!,
+        tileCol * ts.tileWidth, tileRow * ts.tileHeight,
+        ts.tileWidth, ts.tileHeight,
+        x, y, thumbW, thumbH,
+      );
+
+      // Border
+      this._palCtx.strokeStyle = isSelected ? '#89b4fa' : '#45475a';
+      this._palCtx.lineWidth = isSelected ? 2 : 1;
+      this._palCtx.strokeRect(x, y, thumbW, thumbH);
+
+      // Name label
+      this._palCtx.fillStyle = '#a6adc8';
+      this._palCtx.font = `${Math.max(9, Math.min(11, thumbW / 6))}px Inter, sans-serif`;
+      this._palCtx.textAlign = 'center';
+      this._palCtx.textBaseline = 'top';
+      const maxTextW = thumbW;
+      const label = anim.name.length > 12 ? anim.name.slice(0, 11) + '…' : anim.name;
+      this._palCtx.fillText(label, x + thumbW / 2, y + thumbH + 2, maxTextW);
+
+      // Frame count badge
+      this._palCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      const badgeText = `${anim.frames.length}f`;
+      const badgeW = this._palCtx.measureText(badgeText).width + 6;
+      this._palCtx.fillRect(x + thumbW - badgeW, y, badgeW, 12);
+      this._palCtx.fillStyle = '#cdd6f4';
+      this._palCtx.font = '9px Inter, sans-serif';
+      this._palCtx.textAlign = 'right';
+      this._palCtx.textBaseline = 'top';
+      this._palCtx.fillText(badgeText, x + thumbW - 3, y + 1);
+    }
+
+    // Start animation cycling timer
+    // Use the fastest frame duration among all anims, clamped to ≥50ms
+    const minDur = Math.max(50, Math.min(...anims.map(a => a.frameDurationMs)));
+    this._animPaletteTimer = setInterval(() => {
+      this._animPaletteFrame++;
+      // Direct re-paint of animated palette (don't go through _renderPalette
+      // which would clear + recreate the timer every tick)
+      this._repaintAnimatedPaletteFrame();
+    }, minDur);
+  }
+
+  /**
+   * Lightweight re-paint of just the animated tile frames on the canvas.
+   * Called by the cycling timer — does NOT touch the timer itself.
+   */
+  private _repaintAnimatedPaletteFrame(): void {
+    const ts = this._activeTileset;
+    if (!ts?.image) return;
+    const anims = ts.animatedTiles ?? [];
+    if (anims.length === 0) return;
+
+    const z = this._palZoom;
+    const thumbW = ts.tileWidth * z;
+    const thumbH = ts.tileHeight * z;
+    const padding = 4;
+    const labelH = 14;
+    const cellW = thumbW + padding;
+    const cellH = thumbH + labelH + padding;
+    const cols = Math.max(1, Math.floor(this._paletteCanvas.width / cellW));
+
+    this._palCtx.imageSmoothingEnabled = false;
+
+    for (let i = 0; i < anims.length; i++) {
+      const anim = anims[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = col * cellW + padding / 2;
+      const y = row * cellH + padding / 2;
+
+      const frameIdx = anim.frames.length > 0
+        ? this._animPaletteFrame % anim.frames.length
+        : 0;
+      const tileId = anim.frames[frameIdx] ?? 0;
+      const tileCol = tileId % ts.columns;
+      const tileRow = Math.floor(tileId / ts.columns);
+
+      // Clear just the thumbnail area and redraw
+      const isSelected = this._activeAnimTileIndex === i;
+      this._palCtx.fillStyle = isSelected ? '#45475a' : '#1e1e2e';
+      this._palCtx.fillRect(x, y, thumbW, thumbH);
+
+      this._palCtx.drawImage(
+        ts.image!,
+        tileCol * ts.tileWidth, tileRow * ts.tileHeight,
+        ts.tileWidth, ts.tileHeight,
+        x, y, thumbW, thumbH,
+      );
+
+      // Re-draw border
+      this._palCtx.strokeStyle = isSelected ? '#89b4fa' : '#45475a';
+      this._palCtx.lineWidth = isSelected ? 2 : 1;
+      this._palCtx.strokeRect(x, y, thumbW, thumbH);
+
+      // Re-draw frame badge
+      this._palCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      const badgeText = `${anim.frames.length}f`;
+      const badgeW = this._palCtx.measureText(badgeText).width + 6;
+      this._palCtx.fillRect(x + thumbW - badgeW, y, badgeW, 12);
+      this._palCtx.fillStyle = '#cdd6f4';
+      this._palCtx.font = '9px Inter, sans-serif';
+      this._palCtx.textAlign = 'right';
+      this._palCtx.textBaseline = 'top';
+      this._palCtx.fillText(badgeText, x + thumbW - 3, y + 1);
+    }
+  }
+
+  /** Handle click on the animated palette to select/deselect animated tiles. */
+  private _onAnimatedPaletteClick(e: MouseEvent): void {
+    if (this._paletteTab !== 'animated' || !this._activeTileset) return;
+    const ts = this._activeTileset;
+    const anims = ts.animatedTiles ?? [];
+    if (anims.length === 0) return;
+
+    const z = this._palZoom;
+    const thumbW = ts.tileWidth * z;
+    const thumbH = ts.tileHeight * z;
+    const padding = 4;
+    const labelH = 14;
+    const cellW = thumbW + padding;
+    const cellH = thumbH + labelH + padding;
+    const cols = Math.max(1, Math.floor(this._paletteCanvas.width / cellW));
+
+    const rect = this._paletteCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const col = Math.floor(mx / cellW);
+    const row = Math.floor(my / cellH);
+    const idx = row * cols + col;
+
+    if (idx < 0 || idx >= anims.length) return;
+
+    // Toggle selection
+    if (this._activeAnimTileIndex === idx) {
+      this._activeAnimTileIndex = -1;
+    } else {
+      this._activeAnimTileIndex = idx;
+    }
+    this._renderAnimatedTilesList();
+    this._renderTileInfo();
+    this._renderPalette(); // re-render to highlight
   }
 
   private _renderLayerList(): void {
@@ -559,6 +826,11 @@ export class TileEditorPanel {
   }
 
   private _onPaletteMouseDown(e: MouseEvent): void {
+    // If on the animated tab, route to animated palette click handler
+    if (this._paletteTab === 'animated') {
+      this._onAnimatedPaletteClick(e);
+      return;
+    }
     const cell = this._paletteEventToCell(e);
     if (!cell) return;
     this._palDragStart = cell;
@@ -1899,6 +2171,7 @@ export class TileEditorPanel {
 
   dispose(): void {
     if (this._collisionRebuildTimer) clearTimeout(this._collisionRebuildTimer);
+    if (this._animPaletteTimer) clearInterval(this._animPaletteTimer);
     this._container.innerHTML = '';
   }
 }

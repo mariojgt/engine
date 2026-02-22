@@ -339,7 +339,13 @@ export class TilemapRenderer {
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    const uvAttr = new THREE.Float32BufferAttribute(uvs, 2);
+    // If this layer contains animated quads, hint to the GPU that the UV
+    // buffer will be updated frequently (prevents driver stalls).
+    if (layerAnimQuads.length > 0) {
+      uvAttr.setUsage(THREE.DynamicDrawUsage);
+    }
+    geometry.setAttribute('uv', uvAttr);
     geometry.setIndex(indices);
 
     const material = new THREE.MeshBasicMaterial({

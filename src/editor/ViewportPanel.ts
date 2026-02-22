@@ -1030,32 +1030,71 @@ export class ViewportPanel {
     const ts = panel.activeTileset;
     if (!ts?.image) return false;
 
-    const sel = panel.selectionRect;
-    const key = `${ts.assetId}::${sel.col},${sel.row},${sel.w},${sel.h}::${panel.selectedTileId}`;
+    const animIdx = panel.activeAnimatedTileIndex;
+    const isAnim = animIdx >= 0 && (ts.animatedTiles?.length ?? 0) > animIdx;
+
+    // Build a cache key that differentiates normal vs animated selection
+    let key: string;
+    if (isAnim) {
+      // For animated tiles, include a time-based component so the preview
+      // cycles through frames like a live animation preview ghost.
+      const anim = ts.animatedTiles![animIdx];
+      const frameIdx = Math.floor((performance.now() / anim.frameDurationMs)) % anim.frames.length;
+      key = `${ts.assetId}::anim:${animIdx}:f${frameIdx}`;
+    } else {
+      const sel = panel.selectionRect;
+      key = `${ts.assetId}::${sel.col},${sel.row},${sel.w},${sel.h}::${panel.selectedTileId}`;
+    }
     if (key === this._tilePreviewKey && this._tilePreviewTexture) return true;
 
-    // Build an off-screen canvas with just the selected tile region
-    const pw = sel.w * ts.tileWidth;
-    const ph = sel.h * ts.tileHeight;
     if (!this._tilePreviewCanvas) {
       this._tilePreviewCanvas = document.createElement('canvas');
     }
-    this._tilePreviewCanvas.width = pw;
-    this._tilePreviewCanvas.height = ph;
-    const ctx = this._tilePreviewCanvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, pw, ph);
 
-    // Copy each tile in the selection from the atlas
-    for (let dy = 0; dy < sel.h; dy++) {
-      for (let dx = 0; dx < sel.w; dx++) {
-        const srcX = (sel.col + dx) * ts.tileWidth;
-        const srcY = (sel.row + dy) * ts.tileHeight;
-        ctx.drawImage(
-          ts.image,
-          srcX, srcY, ts.tileWidth, ts.tileHeight,
-          dx * ts.tileWidth, dy * ts.tileHeight, ts.tileWidth, ts.tileHeight,
-        );
+    if (isAnim) {
+      // Animated tile preview — draw the current animation frame
+      const anim = ts.animatedTiles![animIdx];
+      const frameIdx = Math.floor((performance.now() / anim.frameDurationMs)) % anim.frames.length;
+      const tileId = anim.frames[frameIdx];
+
+      const actualW = ts.image!.naturalWidth || ts.textureWidth;
+      const actualCols = Math.floor(actualW / ts.tileWidth) || ts.columns;
+      const srcCol = tileId % actualCols;
+      const srcRow = Math.floor(tileId / actualCols);
+      const srcX = srcCol * ts.tileWidth;
+      const srcY = srcRow * ts.tileHeight;
+
+      this._tilePreviewCanvas.width = ts.tileWidth;
+      this._tilePreviewCanvas.height = ts.tileHeight;
+      const ctx = this._tilePreviewCanvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, ts.tileWidth, ts.tileHeight);
+      ctx.drawImage(
+        ts.image!,
+        srcX, srcY, ts.tileWidth, ts.tileHeight,
+        0, 0, ts.tileWidth, ts.tileHeight,
+      );
+    } else {
+      // Normal tileset selection — draw the selected tile region
+      const sel = panel.selectionRect;
+      const pw = sel.w * ts.tileWidth;
+      const ph = sel.h * ts.tileHeight;
+      this._tilePreviewCanvas.width = pw;
+      this._tilePreviewCanvas.height = ph;
+      const ctx = this._tilePreviewCanvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, pw, ph);
+
+      for (let dy = 0; dy < sel.h; dy++) {
+        for (let dx = 0; dx < sel.w; dx++) {
+          const srcX = (sel.col + dx) * ts.tileWidth;
+          const srcY = (sel.row + dy) * ts.tileHeight;
+          ctx.drawImage(
+            ts.image!,
+            srcX, srcY, ts.tileWidth, ts.tileHeight,
+            dx * ts.tileWidth, dy * ts.tileHeight, ts.tileWidth, ts.tileHeight,
+          );
+        }
       }
     }
 
@@ -1104,9 +1143,12 @@ export class ViewportPanel {
     const snappedX = cellX * cellW;
     const snappedY = cellY * cellH;
 
+    // Animated tiles always use a 1×1 stamp
+    const animIdx = panel.activeAnimatedTileIndex;
+    const isAnim = animIdx >= 0 && (ts.animatedTiles?.length ?? 0) > animIdx;
     const sel = panel.selectionRect;
-    const stampWorldW = sel.w * cellW;
-    const stampWorldH = sel.h * cellH;
+    const stampWorldW = isAnim ? cellW : sel.w * cellW;
+    const stampWorldH = isAnim ? cellH : sel.h * cellH;
 
     if (!this._tilePreviewGroup) {
       this._tilePreviewGroup = new THREE.Group();
