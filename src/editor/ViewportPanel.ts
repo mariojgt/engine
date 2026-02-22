@@ -76,6 +76,13 @@ export class ViewportPanel {
   private _tilePaintMouseDown = false;
   private _tilePaintStartWorld: { x: number; y: number } | null = null;
 
+  /* Tile paint preview — semi-transparent mesh following the cursor */
+  private _tilePreviewGroup: THREE.Group | null = null;
+  private _tilePreviewTexture: THREE.Texture | null = null;
+  private _tilePreviewCanvas: HTMLCanvasElement | null = null;
+  /** Cache key so we only rebuild the preview texture when the selection changes */
+  private _tilePreviewKey = '';
+
   /* 2D play mode — blocks editing while keeping 2D render active */
   private _isPlaying2D = false;
 
@@ -295,6 +302,7 @@ export class ViewportPanel {
     canvas.addEventListener('mousedown', (e) => this._onMouseDown(e));
     canvas.addEventListener('mousemove', (e) => this._onMouseMove(e));
     canvas.addEventListener('mouseup', (e) => this._onMouseUp(e));
+    canvas.addEventListener('mouseleave', () => this._hideTilePreview());
 
     // Right-click context menu
     canvas.addEventListener('contextmenu', (e) => {
@@ -349,6 +357,21 @@ export class ViewportPanel {
 
   private _onMouseMove(e: MouseEvent): void {
     if (this._playCamera || this._isPlaying2D) return;
+
+    // ── Tile preview ghost (always update when in 2D tile paint mode) ──
+    if (this._is2DMode && this._tileEditorPanel && this._tileEditorPanel.isVisible
+        && this._scene2DManager?.camera2D && this._renderer) {
+      const tool = this._tileEditorPanel.activeTool;
+      if (tool === 'paint' || tool === 'rect' || tool === 'line') {
+        const wp = this._screenToWorld2D(e);
+        this._updateTilePreview(wp.x, wp.y);
+      } else {
+        this._hideTilePreview();
+      }
+    } else {
+      this._hideTilePreview();
+    }
+
     if (this._tilePaintMouseDown && this._tileEditorPanel && this._is2DMode) {
       const tool = this._tileEditorPanel.activeTool;
       if (tool === 'paint' || tool === 'erase') {
@@ -945,6 +968,8 @@ export class ViewportPanel {
       this._cameraController.setEnabled(true);
       this._gizmo.setCamera(this._camera);
       this._selectionManager.setCamera(null);
+      // Clean up 2D tile preview when leaving 2D mode
+      this._disposeTilePreview();
     }
   }
 
@@ -980,6 +1005,180 @@ export class ViewportPanel {
     const v = new THREE.Vector3(ndcX, ndcY, 0);
     v.unproject(cam);
     return { x: v.x, y: v.y };
+  }
+
+  /* ==================================================================
+   *  TILE PAINT PREVIEW — semi-transparent ghost showing what will be
+   *  placed, snapped to the tile grid, following the mouse cursor.
+   * ================================================================== */
+
+  /**
+   * Create (or re-create) the off-screen canvas that holds the cropped
+   * tile selection from the atlas, then upload it as a THREE.Texture.
+   * Returns `true` if the texture was (re-)built.
+   */
+  private _ensureTilePreviewTexture(): boolean {
+    const panel = this._tileEditorPanel;
+    if (!panel) return false;
+    const ts = panel.activeTileset;
+    if (!ts?.image) return false;
+
+    const sel = panel.selectionRect;
+    const key = `${ts.assetId}::${sel.col},${sel.row},${sel.w},${sel.h}::${panel.selectedTileId}`;
+    if (key === this._tilePreviewKey && this._tilePreviewTexture) return true;
+
+    // Build an off-screen canvas with just the selected tile region
+    const pw = sel.w * ts.tileWidth;
+    const ph = sel.h * ts.tileHeight;
+    if (!this._tilePreviewCanvas) {
+      this._tilePreviewCanvas = document.createElement('canvas');
+    }
+    this._tilePreviewCanvas.width = pw;
+    this._tilePreviewCanvas.height = ph;
+    const ctx = this._tilePreviewCanvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, pw, ph);
+
+    // Copy each tile in the selection from the atlas
+    for (let dy = 0; dy < sel.h; dy++) {
+      for (let dx = 0; dx < sel.w; dx++) {
+        const srcX = (sel.col + dx) * ts.tileWidth;
+        const srcY = (sel.row + dy) * ts.tileHeight;
+        ctx.drawImage(
+          ts.image,
+          srcX, srcY, ts.tileWidth, ts.tileHeight,
+          dx * ts.tileWidth, dy * ts.tileHeight, ts.tileWidth, ts.tileHeight,
+        );
+      }
+    }
+
+    // Dispose old texture
+    if (this._tilePreviewTexture) this._tilePreviewTexture.dispose();
+
+    this._tilePreviewTexture = new THREE.CanvasTexture(this._tilePreviewCanvas);
+    this._tilePreviewTexture.magFilter = THREE.NearestFilter;
+    this._tilePreviewTexture.minFilter = THREE.NearestFilter;
+    this._tilePreviewTexture.generateMipmaps = false;
+    this._tilePreviewTexture.colorSpace = THREE.SRGBColorSpace;
+    this._tilePreviewTexture.needsUpdate = true;
+    this._tilePreviewKey = key;
+    return true;
+  }
+
+  /**
+   * Show (or update) the tile preview ghost at the given world position,
+   * snapped to the tile grid.
+   */
+  private _updateTilePreview(worldX: number, worldY: number): void {
+    const panel = this._tileEditorPanel;
+    if (!panel) return;
+    const ts = panel.activeTileset;
+    if (!ts) return;
+
+    const tool = panel.activeTool;
+    // Only show preview for paint-like tools
+    if (tool !== 'paint' && tool !== 'rect' && tool !== 'line') {
+      this._hideTilePreview();
+      return;
+    }
+
+    if (!this._ensureTilePreviewTexture()) {
+      this._hideTilePreview();
+      return;
+    }
+
+    const ppu = ts.pixelsPerUnit || 100;
+    const cellW = ts.tileWidth / ppu;
+    const cellH = ts.tileHeight / ppu;
+
+    // Snap to grid
+    const cellX = Math.floor(worldX / cellW);
+    const cellY = Math.floor(worldY / cellH);
+    const snappedX = cellX * cellW;
+    const snappedY = cellY * cellH;
+
+    const sel = panel.selectionRect;
+    const stampWorldW = sel.w * cellW;
+    const stampWorldH = sel.h * cellH;
+
+    if (!this._tilePreviewGroup) {
+      this._tilePreviewGroup = new THREE.Group();
+      this._tilePreviewGroup.name = '__tilePreview__';
+      this._tilePreviewGroup.renderOrder = 9999;
+      this._engine.scene.threeScene.add(this._tilePreviewGroup);
+    }
+
+    // Rebuild mesh if stamp size changed
+    const mesh = this._tilePreviewGroup.children[0] as THREE.Mesh | undefined;
+    const needsNewMesh = !mesh
+      || (mesh.geometry as THREE.PlaneGeometry).parameters?.width !== stampWorldW
+      || (mesh.geometry as THREE.PlaneGeometry).parameters?.height !== stampWorldH;
+
+    if (needsNewMesh) {
+      // Remove old mesh
+      while (this._tilePreviewGroup.children.length) {
+        const child = this._tilePreviewGroup.children[0] as THREE.Mesh;
+        child.geometry?.dispose();
+        (child.material as THREE.Material)?.dispose();
+        this._tilePreviewGroup.remove(child);
+      }
+
+      const geom = new THREE.PlaneGeometry(stampWorldW, stampWorldH);
+      const mat = new THREE.MeshBasicMaterial({
+        map: this._tilePreviewTexture,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      });
+      const newMesh = new THREE.Mesh(geom, mat);
+      newMesh.renderOrder = 9999;
+      newMesh.frustumCulled = false;
+      this._tilePreviewGroup.add(newMesh);
+    } else {
+      // Just update texture reference
+      const mat = (mesh!.material as THREE.MeshBasicMaterial);
+      if (mat.map !== this._tilePreviewTexture) {
+        mat.map = this._tilePreviewTexture;
+        mat.needsUpdate = true;
+      }
+    }
+
+    // Position: PlaneGeometry is centred, so offset by half the stamp size
+    this._tilePreviewGroup.position.set(
+      snappedX + stampWorldW / 2,
+      snappedY + stampWorldH / 2,
+      0.01, // Slightly above the tile layer
+    );
+    this._tilePreviewGroup.visible = true;
+  }
+
+  /** Hide the tile preview ghost */
+  private _hideTilePreview(): void {
+    if (this._tilePreviewGroup) {
+      this._tilePreviewGroup.visible = false;
+    }
+  }
+
+  /** Fully dispose tile preview resources */
+  private _disposeTilePreview(): void {
+    if (this._tilePreviewGroup) {
+      while (this._tilePreviewGroup.children.length) {
+        const child = this._tilePreviewGroup.children[0] as THREE.Mesh;
+        child.geometry?.dispose();
+        (child.material as THREE.Material)?.dispose();
+        this._tilePreviewGroup.remove(child);
+      }
+      this._tilePreviewGroup.parent?.remove(this._tilePreviewGroup);
+      this._tilePreviewGroup = null;
+    }
+    if (this._tilePreviewTexture) {
+      this._tilePreviewTexture.dispose();
+      this._tilePreviewTexture = null;
+    }
+    this._tilePreviewCanvas = null;
+    this._tilePreviewKey = '';
   }
 
   /** Convert a mouse event to 2D world coordinates and invoke the tile tool */
@@ -1071,6 +1270,7 @@ export class ViewportPanel {
   dispose(): void {
     this._resizeObserver.disconnect();
     if (this._keyHandler) window.removeEventListener('keydown', this._keyHandler);
+    this._disposeTilePreview();
     this._cameraController?.dispose();
     this._selectionManager?.dispose();
     this._gizmo?.dispose();

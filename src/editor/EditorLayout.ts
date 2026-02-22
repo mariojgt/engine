@@ -1289,47 +1289,72 @@ export class EditorLayout {
     // tileset's tiles are visible simultaneously — not just the active one.
     const syncAllTilemaps = () => {
       if (!this._tilemapRenderer) return;
-      // Ensure panel-held tileset images are synced back to SM
-      if (this._tileEditorPanel?.activeTileset?.image) {
-        const panelTs = this._tileEditorPanel.activeTileset;
-        const smTs = sm.tilesets.get(panelTs.assetId);
-        if (!smTs || !smTs.image) {
-          sm.tilesets.set(panelTs.assetId, panelTs);
+
+      // Build a merged tileset map that guarantees every tileset has its
+      // .image if ANY source (SM, panel, or activeTileset) has one.
+      // This prevents tiles from vanishing when the SM copy is out-of-sync
+      // with the panel copy after rapid import / switch operations.
+      const mergedTilesets = new Map<string, TilesetAsset>();
+
+      // 1) Start with SM's tilesets as the base
+      for (const [id, ts] of sm.tilesets) mergedTilesets.set(id, ts);
+
+      // 2) Overlay panel-held tilesets — prefer whichever copy has .image
+      if (this._tileEditorPanel) {
+        for (const pts of this._tileEditorPanel.allTilesets) {
+          const existing = mergedTilesets.get(pts.assetId);
+          if (!existing) {
+            mergedTilesets.set(pts.assetId, pts);
+          } else if (!existing.image && pts.image) {
+            mergedTilesets.set(pts.assetId, pts);
+          }
+        }
+        // 3) Also check activeTileset (may not be in allTilesets yet during import)
+        const active = this._tileEditorPanel.activeTileset;
+        if (active?.image) {
+          const existing = mergedTilesets.get(active.assetId);
+          if (!existing || !existing.image) {
+            mergedTilesets.set(active.assetId, active);
+          }
         }
       }
+
+      // Sync the merged (image-bearing) tilesets back to SM for persistence
+      for (const [id, ts] of mergedTilesets) {
+        if (ts.image) sm.tilesets.set(id, ts);
+      }
+
       const allTilemaps = Array.from(sm.tilemaps.values());
-      const allTilesets = Array.from(sm.tilesets.values());
+      const allTilesets = Array.from(mergedTilesets.values());
+
+      // Diagnostic: log what we're sending to the renderer
+      const tsReport = allTilesets.map(t => `"${t.assetName}"(img=${!!t.image})`).join(', ');
+      const tmReport = allTilemaps.map(t => {
+        const totalTiles = t.layers.reduce((s, l) => s + Object.keys(l.tiles).length, 0);
+        return `"${t.assetName}"(tsId=${t.tilesetId.slice(0, 8)}, layers=${t.layers.length}, tiles=${totalTiles})`;
+      }).join(', ');
+      console.log('[syncAllTilemaps]  tilesets=[%s]  tilemaps=[%s]', tsReport, tmReport);
+
       this._tilemapRenderer.setAllTilemaps(allTilemaps, allTilesets);
     };
 
     // Initial sync — render everything currently registered
     syncAllTilemaps();
 
-    // When tilemap data changes (layer added, tiles modified, etc.)  → persist / update
-    this._tileEditorPanel.onTilemapChanged((tilemap) => {
+    // When tilemap data changes (layer added, tiles modified, etc.)  → full sync
+    // Always do a full rebuild so ALL tilemaps remain visible (not just
+    // the active one).  syncAllTilemaps merges tilesets from SM + panel
+    // + activeTileset so every tileset's .image is available.
+    this._tileEditorPanel.onTilemapChanged((_tilemap) => {
       if (this._tilemapRenderer) {
-        // Ensure we have the tileset with image in SM
-        let ts = sm.tilesets.get(tilemap.tilesetId) ?? null;
-        if ((!ts || !ts.image) && this._tileEditorPanel) {
-          const panelTs = this._tileEditorPanel.activeTileset;
-          if (panelTs && panelTs.assetId === tilemap.tilesetId && panelTs.image) {
-            ts = panelTs;
-            sm.tilesets.set(ts.assetId, ts);
-          }
-        }
-        if (ts) {
-          this._tilemapRenderer.addOrUpdateTilemap(tilemap, ts);
-        } else {
-          // Fallback: rebuild everything
-          syncAllTilemaps();
-        }
+        syncAllTilemaps();
       }
     });
 
     // When a specific layer is painted → rebuild only that layer for perf
-    this._tileEditorPanel.onLayerPainted((layerId) => {
+    this._tileEditorPanel.onLayerPainted((tilemapId, layerId) => {
       if (this._tilemapRenderer) {
-        this._tilemapRenderer.rebuildLayer(layerId);
+        this._tilemapRenderer.rebuildLayer(layerId, tilemapId);
       }
     });
 

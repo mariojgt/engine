@@ -78,26 +78,46 @@ export class TilemapRenderer {
 
   /** Full rebuild of all layer meshes for every registered tilemap. */
   rebuildAll(): void {
-    // Clear existing
+    console.log('[TilemapRenderer.rebuildAll] START — %d tilemaps, %d tilesets, %d cached textures, %d layer groups',
+      this._tilemaps.size, this._tilesets.size, this._textureCache.size, this._layerGroups.size);
+
+    // Clear existing layer geometry
     for (const [, group] of this._layerGroups) {
       this._root.remove(group);
       this._disposeGroup(group);
     }
     this._layerGroups.clear();
 
-    // Flush texture cache so textures get recreated from the latest
-    // HTMLImageElement (important after save/load when a new image is
-    // decoded with possibly corrected dimensions).
-    for (const [, tex] of this._textureCache) tex.dispose();
-    this._textureCache.clear();
+    // Selectively invalidate texture cache — only dispose textures whose
+    // source image has changed (or whose tileset is no longer registered).
+    // Previously the cache was flushed on every rebuild, which caused
+    // tiles from other tilesets to vanish when their image couldn't be
+    // immediately recreated (e.g. if the SM's tileset copy lacked .image).
+    for (const [id, tex] of this._textureCache) {
+      const ts = this._tilesets.get(id);
+      if (!ts || !ts.image || (tex.image !== ts.image)) {
+        console.log('[TilemapRenderer.rebuildAll]   disposing cached texture for %s (ts=%s, hasImage=%s, sameImage=%s)',
+          id, !!ts, !!ts?.image, ts?.image ? tex.image === ts.image : 'N/A');
+        tex.dispose();
+        this._textureCache.delete(id);
+      }
+    }
 
     for (const [, tilemap] of this._tilemaps) {
       const tileset = this._tilesets.get(tilemap.tilesetId);
-      if (!tileset) continue;
+      if (!tileset) {
+        console.warn('[TilemapRenderer.rebuildAll]   SKIP tilemap "%s" — no tileset found for id=%s', tilemap.assetName, tilemap.tilesetId);
+        continue;
+      }
+      if (!tileset.image) {
+        console.warn('[TilemapRenderer.rebuildAll]   SKIP tilemap "%s" — tileset "%s" has no .image', tilemap.assetName, tileset.assetName);
+      }
       for (const layer of tilemap.layers) {
         this._buildLayer(tilemap, layer, tileset);
       }
     }
+
+    console.log('[TilemapRenderer.rebuildAll] DONE — %d layer groups in scene', this._layerGroups.size);
   }
 
   /** Rebuild all layers for a specific tilemap. */
@@ -127,10 +147,15 @@ export class TilemapRenderer {
 
   /**
    * Rebuild a single layer (after painting).
-   * Searches all registered tilemaps for a layer with the given ID.
+   * When tilemapId is provided, targets exactly that tilemap's layer.
+   * Otherwise searches all registered tilemaps (legacy compat).
    */
-  rebuildLayer(layerId: string): void {
-    for (const [, tilemap] of this._tilemaps) {
+  rebuildLayer(layerId: string, tilemapId?: string): void {
+    const candidates = tilemapId
+      ? [this._tilemaps.get(tilemapId)].filter(Boolean) as TilemapAsset[]
+      : Array.from(this._tilemaps.values());
+
+    for (const tilemap of candidates) {
       const layer = tilemap.layers.find(l => l.layerId === layerId);
       if (!layer) continue;
 
@@ -144,7 +169,8 @@ export class TilemapRenderer {
 
       const tileset = this._tilesets.get(tilemap.tilesetId);
       if (tileset) this._buildLayer(tilemap, layer, tileset);
-      return; // layer IDs are unique within a tilemap
+      // If a specific tilemap was targeted, we're done
+      if (tilemapId) return;
     }
   }
 

@@ -24,6 +24,15 @@ export class TileEditorPanel {
   private _flipY = false;
   private _rotation = 0;
 
+  // Multi-tile palette selection (rectangular region)
+  // When the user drags on the palette, this stores the top-left tile column/row
+  // and the width/height of the selection in tiles.  A 1×1 selection is identical
+  // to the old single-tile behaviour.  _selectedTileId always tracks the
+  // top-left tile of the selection.
+  private _selectionRect = { col: 0, row: 0, w: 1, h: 1 };
+  private _palDragStart: { col: number; row: number } | null = null;
+  private _palDragging = false;
+
   // Palette canvas
   private _paletteCanvas: HTMLCanvasElement;
   private _palCtx: CanvasRenderingContext2D;
@@ -49,7 +58,7 @@ export class TileEditorPanel {
 
   // Callbacks
   private _onTilemapChanged: ((tilemap: TilemapAsset) => void) | null = null;
-  private _onLayerPainted: ((layerId: string) => void) | null = null;
+  private _onLayerPainted: ((tilemapId: string, layerId: string) => void) | null = null;
   private _onPixelPerfectChanged: ((enabled: boolean, tileset: TilesetAsset | null) => void) | null = null;
   private _physics2DWorld: any = null;
   private _scene2D: any = null;
@@ -100,7 +109,7 @@ export class TileEditorPanel {
   setPhysics2DWorld(world: any): void { this._physics2DWorld = world; }
   setScene2DManager(scene2D: any): void { this._scene2D = scene2D; }
   onTilemapChanged(cb: (tilemap: TilemapAsset) => void): void { this._onTilemapChanged = cb; }
-  onLayerPainted(cb: (layerId: string) => void): void { this._onLayerPainted = cb; }
+  onLayerPainted(cb: (tilemapId: string, layerId: string) => void): void { this._onLayerPainted = cb; }
   onPixelPerfectChanged(cb: (enabled: boolean, tileset: TilesetAsset | null) => void): void { this._onPixelPerfectChanged = cb; }
 
   selectTilemap(tilemapId: string): void {
@@ -170,7 +179,9 @@ export class TileEditorPanel {
     paletteSection.appendChild(paletteLabel);
 
     this._paletteCanvas.style.cssText = 'border:1px solid #45475a;cursor:pointer;image-rendering:pixelated;';
-    this._paletteCanvas.onclick = (e) => this._onPaletteClick(e);
+    this._paletteCanvas.addEventListener('mousedown', (e) => this._onPaletteMouseDown(e));
+    this._paletteCanvas.addEventListener('mousemove', (e) => this._onPaletteMouseMove(e));
+    window.addEventListener('mouseup', (e) => this._onPaletteMouseUp(e));
     paletteSection.appendChild(this._paletteCanvas);
 
     this._tileInfoEl = document.createElement('div');
@@ -347,12 +358,26 @@ export class TileEditorPanel {
       this._palCtx.stroke();
     }
 
-    // Highlight selected tile
-    const col = this._selectedTileId % ts.columns;
-    const row = Math.floor(this._selectedTileId / ts.columns);
+    // Highlight selected tile region
+    const { col: selCol, row: selRow, w: selW, h: selH } = this._selectionRect;
     this._palCtx.strokeStyle = '#89b4fa';
     this._palCtx.lineWidth = 2;
-    this._palCtx.strokeRect(col * ts.tileWidth * z, row * ts.tileHeight * z, ts.tileWidth * z, ts.tileHeight * z);
+    this._palCtx.strokeRect(
+      selCol * ts.tileWidth * z,
+      selRow * ts.tileHeight * z,
+      selW * ts.tileWidth * z,
+      selH * ts.tileHeight * z,
+    );
+    // Dimmed overlay on each selected sub-tile for clarity
+    if (selW > 1 || selH > 1) {
+      this._palCtx.fillStyle = 'rgba(137, 180, 250, 0.12)';
+      this._palCtx.fillRect(
+        selCol * ts.tileWidth * z,
+        selRow * ts.tileHeight * z,
+        selW * ts.tileWidth * z,
+        selH * ts.tileHeight * z,
+      );
+    }
   }
 
   private _renderLayerList(): void {
@@ -448,6 +473,13 @@ export class TileEditorPanel {
   private _renderTileInfo(): void {
     if (!this._tileInfoEl || !this._activeTileset) return;
     const ts = this._activeTileset;
+    const { col: selCol, row: selRow, w: selW, h: selH } = this._selectionRect;
+    if (selW > 1 || selH > 1) {
+      // Multi-tile selection
+      this._tileInfoEl.innerHTML = `Selected: ${selW}×${selH} tiles (${selCol},${selRow}) → (${selCol + selW - 1},${selRow + selH - 1})`;
+      return;
+    }
+    // Single tile — show full details
     const tileDef = ts.tiles[this._selectedTileId];
     const col = this._selectedTileId % ts.columns;
     const row = Math.floor(this._selectedTileId / ts.columns);
@@ -481,18 +513,70 @@ export class TileEditorPanel {
     }
   }
 
-  // ---- Palette interaction ----
+  // ---- Palette interaction (multi-tile drag selection) ----
 
-  private _onPaletteClick(e: MouseEvent): void {
-    if (!this._activeTileset) return;
+  /** Convert a mouse event on the palette canvas to a tile column/row. */
+  private _paletteEventToCell(e: MouseEvent): { col: number; row: number } | null {
+    if (!this._activeTileset) return null;
     const rect = this._paletteCanvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / this._palZoom;
     const y = (e.clientY - rect.top) / this._palZoom;
-    const col = Math.floor(x / this._activeTileset.tileWidth);
-    const row = Math.floor(y / this._activeTileset.tileHeight);
-    this._selectedTileId = row * this._activeTileset.columns + col;
+    const col = Math.min(Math.max(Math.floor(x / this._activeTileset.tileWidth), 0), this._activeTileset.columns - 1);
+    const row = Math.min(Math.max(Math.floor(y / this._activeTileset.tileHeight), 0), this._activeTileset.rows - 1);
+    return { col, row };
+  }
+
+  private _onPaletteMouseDown(e: MouseEvent): void {
+    const cell = this._paletteEventToCell(e);
+    if (!cell) return;
+    this._palDragStart = cell;
+    this._palDragging = true;
+    // Immediately set a 1×1 selection at the click point
+    this._selectionRect = { col: cell.col, row: cell.row, w: 1, h: 1 };
+    this._selectedTileId = cell.row * this._activeTileset!.columns + cell.col;
     this._renderPalette();
     this._renderTileInfo();
+  }
+
+  private _onPaletteMouseMove(e: MouseEvent): void {
+    if (!this._palDragging || !this._palDragStart || !this._activeTileset) return;
+    const cell = this._paletteEventToCell(e);
+    if (!cell) return;
+    const minCol = Math.min(this._palDragStart.col, cell.col);
+    const maxCol = Math.max(this._palDragStart.col, cell.col);
+    const minRow = Math.min(this._palDragStart.row, cell.row);
+    const maxRow = Math.max(this._palDragStart.row, cell.row);
+    this._selectionRect = { col: minCol, row: minRow, w: maxCol - minCol + 1, h: maxRow - minRow + 1 };
+    // _selectedTileId stays as top-left tile of selection
+    this._selectedTileId = minRow * this._activeTileset.columns + minCol;
+    this._renderPalette();
+    this._renderTileInfo();
+  }
+
+  private _onPaletteMouseUp(_e: MouseEvent): void {
+    if (!this._palDragging) return;
+    this._palDragging = false;
+    this._palDragStart = null;
+  }
+
+  /**
+   * Returns the 2D array of tile IDs for the current palette selection.
+   * The array is indexed [row][col] relative to the selection top-left.
+   * For a 1×1 selection this returns [[selectedTileId]].
+   */
+  getSelectionStamp(): number[][] {
+    if (!this._activeTileset) return [[this._selectedTileId]];
+    const { col, row, w, h } = this._selectionRect;
+    const cols = this._activeTileset.columns;
+    const stamp: number[][] = [];
+    for (let dy = 0; dy < h; dy++) {
+      const rowArr: number[] = [];
+      for (let dx = 0; dx < w; dx++) {
+        rowArr.push((row + dy) * cols + (col + dx));
+      }
+      stamp.push(rowArr);
+    }
+    return stamp;
   }
 
   // ---- Paint operations (called by viewport when in 2D tile-paint mode) ----
@@ -512,25 +596,38 @@ export class TileEditorPanel {
     const ppu = this._activeTileset.pixelsPerUnit;
     const cellX = Math.floor(worldX / (this._activeTileset.tileWidth / ppu));
     const cellY = Math.floor(worldY / (this._activeTileset.tileHeight / ppu));
-    console.log(`[TileEditor.paintAt] world=(${worldX.toFixed(3)}, ${worldY.toFixed(3)}) cell=(${cellX}, ${cellY}) tileId=${this._selectedTileId} tool=${this._activeTool} ppu=${ppu}`);
 
-    for (let dy = 0; dy < this._brushSize.h; dy++) {
-      for (let dx = 0; dx < this._brushSize.w; dx++) {
+    const stamp = this.getSelectionStamp();
+    const stampH = stamp.length;
+    const stampW = stamp[0]?.length ?? 1;
+
+    console.log(`[TileEditor.paintAt] world=(${worldX.toFixed(3)}, ${worldY.toFixed(3)}) cell=(${cellX}, ${cellY}) stamp=${stampW}×${stampH} tool=${this._activeTool} ppu=${ppu}`);
+
+    for (let dy = 0; dy < stampH; dy++) {
+      for (let dx = 0; dx < stampW; dx++) {
         const key = `${cellX + dx},${cellY + dy}`;
         if (this._activeTool === 'paint') {
-          this._activeLayer.tiles[key] = this._selectedTileId;
+          this._activeLayer.tiles[key] = stamp[dy][dx];
         } else if (this._activeTool === 'erase') {
           delete this._activeLayer.tiles[key];
         }
       }
     }
 
+    // When erasing, also remove overlapping tiles from ALL other tilemaps
+    // that share the same layer name, so the user doesn't have to switch
+    // tilesets to erase each tilemap's tiles individually.
+    if (this._activeTool === 'erase') {
+      const tileW = this._activeTileset.tileWidth / ppu;
+      const tileH = this._activeTileset.tileHeight / ppu;
+      this._eraseWorldAreaFromOtherTilemaps(
+        cellX * tileW, cellY * tileH,
+        (cellX + stampW) * tileW, (cellY + stampH) * tileH,
+      );
+    }
+
     this._scheduleCollisionRebuild(this._activeLayer);
-    // NOTE: Do NOT call _emitChanged() here — it triggers a full setTilemap → rebuildAll()
-    // on the TilemapRenderer for EVERY mouse-move during drag painting, destroying and
-    // recreating ALL layer geometries each time.  _onLayerPainted already triggers a
-    // targeted rebuildLayer() which is all that's needed for visual updates.
-    this._onLayerPainted?.(this._activeLayer.layerId);
+    this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
   fillAt(worldX: number, worldY: number): void {
@@ -568,7 +665,7 @@ export class TileEditorPanel {
 
     this._scheduleCollisionRebuild(this._activeLayer);
     // Only rebuild the affected layer, not the entire tilemap (same fix as paintAt)
-    this._onLayerPainted?.(this._activeLayer.layerId);
+    this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
   /** Paint a filled rectangle of tiles between two world positions */
@@ -590,19 +687,34 @@ export class TileEditorPanel {
     const minCY = Math.min(startCY, endCY);
     const maxCY = Math.max(startCY, endCY);
 
+    const stamp = this.getSelectionStamp();
+    const stampH = stamp.length;
+    const stampW = stamp[0]?.length ?? 1;
+
     for (let cy = minCY; cy <= maxCY; cy++) {
       for (let cx = minCX; cx <= maxCX; cx++) {
         const key = `${cx},${cy}`;
         if (this._activeTool === 'erase') {
           delete this._activeLayer.tiles[key];
         } else {
-          this._activeLayer.tiles[key] = this._selectedTileId;
+          // Tile the stamp across the rectangle
+          const sx = ((cx - minCX) % stampW + stampW) % stampW;
+          const sy = ((cy - minCY) % stampH + stampH) % stampH;
+          this._activeLayer.tiles[key] = stamp[sy][sx];
         }
       }
     }
 
+    // When erasing, also clear overlapping tiles from other tilemaps
+    if (this._activeTool === 'erase') {
+      this._eraseWorldAreaFromOtherTilemaps(
+        minCX * tileWorldW, minCY * tileWorldH,
+        (maxCX + 1) * tileWorldW, (maxCY + 1) * tileWorldH,
+      );
+    }
+
     this._scheduleCollisionRebuild(this._activeLayer);
-    this._onLayerPainted?.(this._activeLayer.layerId);
+    this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
   /** Paint a line of tiles between two world positions (Bresenham) */
@@ -620,18 +732,31 @@ export class TileEditorPanel {
     const ex = Math.floor(x2 / tileWorldW);
     const ey = Math.floor(y2 / tileWorldH);
 
+    const stamp = this.getSelectionStamp();
+    const stampH = stamp.length;
+    const stampW = stamp[0]?.length ?? 1;
+
     const dx = Math.abs(ex - cx);
     const dy = Math.abs(ey - cy);
     const sx = cx < ex ? 1 : -1;
     const sy = cy < ey ? 1 : -1;
     let err = dx - dy;
 
+    const erasedLineCells: Array<[number, number]> = [];
+
     while (true) {
-      const key = `${cx},${cy}`;
       if (this._activeTool === 'erase') {
+        const key = `${cx},${cy}`;
         delete this._activeLayer.tiles[key];
+        erasedLineCells.push([cx, cy]);
       } else {
-        this._activeLayer.tiles[key] = this._selectedTileId;
+        // Stamp the full selection centered on the line point
+        for (let sdy = 0; sdy < stampH; sdy++) {
+          for (let sdx = 0; sdx < stampW; sdx++) {
+            const key = `${cx + sdx},${cy + sdy}`;
+            this._activeLayer.tiles[key] = stamp[sdy][sdx];
+          }
+        }
       }
       if (cx === ex && cy === ey) break;
       const e2 = 2 * err;
@@ -639,8 +764,18 @@ export class TileEditorPanel {
       if (e2 < dx) { err += dx; cy += sy; }
     }
 
+    // When erasing, also clear overlapping tiles from other tilemaps
+    if (this._activeTool === 'erase' && erasedLineCells.length > 0) {
+      for (const [ecx, ecy] of erasedLineCells) {
+        this._eraseWorldAreaFromOtherTilemaps(
+          ecx * tileWorldW, ecy * tileWorldH,
+          (ecx + 1) * tileWorldW, (ecy + 1) * tileWorldH,
+        );
+      }
+    }
+
     this._scheduleCollisionRebuild(this._activeLayer);
-    this._onLayerPainted?.(this._activeLayer.layerId);
+    this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
   /** Pick the tile under cursor and set it as the active tile */
@@ -655,11 +790,67 @@ export class TileEditorPanel {
 
     if (tileId !== undefined) {
       this._selectedTileId = tileId;
+      const col = tileId % this._activeTileset.columns;
+      const row = Math.floor(tileId / this._activeTileset.columns);
+      this._selectionRect = { col, row, w: 1, h: 1 };
       this._activeTool = 'paint'; // Switch back to paint tool after picking
       this._renderPalette();
       this._renderTileInfo();
       this._renderToolbar();
       console.log(`[TileEditor.pickAt] Picked tile ${tileId} at cell (${cellX}, ${cellY})`);
+    }
+  }
+
+  // ---- Cross-tilemap erase ----
+
+  /**
+   * When erasing, also remove overlapping tiles from ALL other tilemaps
+   * that have a layer with the same name as the active layer.  This lets
+   * the user erase visible tiles regardless of which tileset they belong
+   * to, without switching tilesets manually.
+   */
+  private _eraseWorldAreaFromOtherTilemaps(
+    worldMinX: number, worldMinY: number,
+    worldMaxX: number, worldMaxY: number,
+  ): void {
+    if (!this._activeLayer || !this._activeTilemap) return;
+    const activeLayerName = this._activeLayer.name;
+    const activeTilemapId = this._activeTilemap.assetId;
+
+    for (const tilemap of this._tilemaps) {
+      if (tilemap.assetId === activeTilemapId) continue; // Already handled by caller
+
+      const layer = tilemap.layers.find(l => l.name === activeLayerName);
+      if (!layer || layer.locked) continue;
+
+      const tileset = this._tilesets.find(t => t.assetId === tilemap.tilesetId);
+      if (!tileset) continue;
+
+      const ppu = tileset.pixelsPerUnit || 100;
+      const tileW = tileset.tileWidth / ppu;
+      const tileH = tileset.tileHeight / ppu;
+
+      // Find all cells of this tilemap that overlap the erased world area
+      const minCX = Math.floor(worldMinX / tileW);
+      const minCY = Math.floor(worldMinY / tileH);
+      const maxCX = Math.floor((worldMaxX - 0.0001) / tileW);
+      const maxCY = Math.floor((worldMaxY - 0.0001) / tileH);
+
+      let changed = false;
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        for (let cx = minCX; cx <= maxCX; cx++) {
+          const key = `${cx},${cy}`;
+          if (key in layer.tiles) {
+            delete layer.tiles[key];
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        this._scheduleCollisionRebuild(layer);
+        this._onLayerPainted?.(tilemap.assetId, layer.layerId);
+      }
     }
   }
 
@@ -949,7 +1140,7 @@ export class TileEditorPanel {
       }
       this._renderTileScaleSettings();
       this._emitChanged();
-      this._onLayerPainted?.(this._activeLayer?.layerId ?? '');
+      this._onLayerPainted?.(this._activeTilemap?.assetId ?? '', this._activeLayer?.layerId ?? '');
     };
     ppuRow.appendChild(ppuInput);
 
@@ -963,7 +1154,7 @@ export class TileEditorPanel {
         ppuInput.value = String(scenePPU);
         this._renderTileScaleSettings();
         this._emitChanged();
-        this._onLayerPainted?.(this._activeLayer?.layerId ?? '');
+        this._onLayerPainted?.(this._activeTilemap?.assetId ?? '', this._activeLayer?.layerId ?? '');
       };
       ppuRow.appendChild(matchBtn);
     } else if (ppuMatch) {
@@ -1190,6 +1381,10 @@ export class TileEditorPanel {
   get activeTileset(): TilesetAsset | null { return this._activeTileset; }
   get activeLayer(): TilemapLayer | null { return this._activeLayer; }
   get isPixelPerfect(): boolean { return this._pixelPerfect; }
+  get selectedTileId(): number { return this._selectedTileId; }
+  get selectionRect(): { col: number; row: number; w: number; h: number } { return this._selectionRect; }
+  /** All tilesets known to this panel (for image sync). */
+  get allTilesets(): readonly TilesetAsset[] { return this._tilesets; }
 
   dispose(): void {
     if (this._collisionRebuildTimer) clearTimeout(this._collisionRebuildTimer);

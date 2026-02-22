@@ -48,17 +48,20 @@ export interface TilemapAsset {
 }
 
 export function createDefaultTilemap(name: string, tilesetId: string): TilemapAsset {
+  // Generate unique layer IDs per tilemap so that multiple tilemaps can
+  // coexist without layer-ID collisions (critical for rebuildLayer targeting).
+  const uid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   return {
-    assetId: `tilemap-${Date.now().toString(36)}`,
+    assetId: `tilemap-${uid}`,
     assetType: 'tilemap',
     assetName: name,
     tilesetId,
     pixelsPerUnit: 100,
     layers: [
-      { layerId: 'layer-bg', name: 'Background', z: 0, visible: true, locked: false, hasCollision: false, tiles: {} },
-      { layerId: 'layer-ground', name: 'Ground', z: 10, visible: true, locked: false, hasCollision: true, tiles: {} },
-      { layerId: 'layer-deco', name: 'Decoration', z: 15, visible: true, locked: false, hasCollision: false, tiles: {} },
-      { layerId: 'layer-fg', name: 'Foreground', z: 70, visible: true, locked: false, hasCollision: false, tiles: {} },
+      { layerId: `layer-bg-${uid}`, name: 'Background', z: 0, visible: true, locked: false, hasCollision: false, tiles: {} },
+      { layerId: `layer-ground-${uid}`, name: 'Ground', z: 10, visible: true, locked: false, hasCollision: true, tiles: {} },
+      { layerId: `layer-deco-${uid}`, name: 'Decoration', z: 15, visible: true, locked: false, hasCollision: false, tiles: {} },
+      { layerId: `layer-fg-${uid}`, name: 'Foreground', z: 70, visible: true, locked: false, hasCollision: false, tiles: {} },
     ],
   };
 }
