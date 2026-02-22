@@ -21,6 +21,7 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
 import { TextureLibrary } from './TextureLibrary';
 import type { Scene2DManager } from './Scene2DManager';
+import { iconHTML, Icons, ICON_COLORS, createIconSpan, setTextWithIcon } from './icons';
 
 let _compNextId = 1;
 function compUid(): string {
@@ -178,8 +179,8 @@ export class ActorEditorPanel {
       tabsLeft.appendChild(tab);
     };
 
-    makeTab('🎮 Viewport', 'viewport');
-    makeTab('⬡ Event Graph', 'graph');
+    makeTab('Viewport', 'viewport');
+    makeTab('Event Graph', 'graph');
     this._tabBar.appendChild(tabsLeft);
 
     // ── Right side: Compile + Save buttons (UE-style toolbar) ──
@@ -210,7 +211,7 @@ export class ActorEditorPanel {
     // Save button
     const saveBtn = document.createElement('button');
     saveBtn.className = 'ae-toolbar-btn ae-save-btn';
-    saveBtn.innerHTML = '💾 Save';
+    saveBtn.innerHTML = `${iconHTML(Icons.Save, 'sm', ICON_COLORS.green)} Save`;
     saveBtn.title = 'Save all (Ctrl+S)';
     saveBtn.addEventListener('click', () => this._doSave());
     toolbarRight.appendChild(saveBtn);
@@ -230,17 +231,17 @@ export class ActorEditorPanel {
     const btn = this._compileBtnEl;
     switch (this._compileStatus) {
       case 'compiled':
-        btn.innerHTML = '✅ Compile';
+        btn.innerHTML = `${iconHTML(Icons.CheckCircle, 'sm', ICON_COLORS.green)} Compile`;
         btn.classList.remove('ae-compile-dirty', 'ae-compile-error');
         btn.classList.add('ae-compile-ok');
         break;
       case 'dirty':
-        btn.innerHTML = '🔨 Compile';
+        btn.innerHTML = `${iconHTML(Icons.Settings, 'sm', ICON_COLORS.secondary)} Compile`;
         btn.classList.remove('ae-compile-ok', 'ae-compile-error');
         btn.classList.add('ae-compile-dirty');
         break;
       case 'error':
-        btn.innerHTML = '❌ Compile';
+        btn.innerHTML = `${iconHTML(Icons.XCircle, 'sm', ICON_COLORS.red)} Compile`;
         btn.classList.remove('ae-compile-ok', 'ae-compile-dirty');
         btn.classList.add('ae-compile-error');
         break;
@@ -316,7 +317,9 @@ export class ActorEditorPanel {
   private _flashSaveStatus(): void {
     if (!this._compileStatusEl) return;
     const el = this._compileStatusEl;
-    el.textContent = '💾 Saved!';
+    el.textContent = '';
+    el.appendChild(createIconSpan(Icons.Save, 'xs', ICON_COLORS.green));
+    el.appendChild(document.createTextNode(' Saved!'));
     el.className = 'ae-compile-status ae-status-saved';
     setTimeout(() => this._updateCompileStatus(), 1500);
   }
@@ -428,12 +431,13 @@ export class ActorEditorPanel {
 
     const isPC = this._asset.actorType === 'playerController';
     const typeLabel = isPC ? 'Player Controller' : 'AI Controller';
-    const emoji = isPC ? '🎮' : '🤖';
+    const ctrlIcon = isPC ? Icons.Gamepad2 : Icons.Bot;
+    const ctrlColor = isPC ? ICON_COLORS.actor : ICON_COLORS.blueprint;
 
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'physics-section-header';
-    hdr.textContent = `${emoji} ${typeLabel} Blueprint`;
+    setTextWithIcon(hdr, ctrlIcon, `${typeLabel} Blueprint`, 'sm', ctrlColor);
     wrap.appendChild(hdr);
 
     // Description
@@ -698,7 +702,8 @@ export class ActorEditorPanel {
     const refreshBtn = document.createElement('button');
     refreshBtn.className = 'toolbar-btn';
     refreshBtn.style.marginTop = '4px';
-    refreshBtn.textContent = '↺ Refresh Preview';
+    refreshBtn.textContent = '';
+    setTextWithIcon(refreshBtn, Icons.RefreshCw, 'Refresh Preview', 'xs', ICON_COLORS.muted);
     refreshBtn.addEventListener('click', () => {
       zoom = 1; panX = 0; panY = 0;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -730,39 +735,43 @@ export class ActorEditorPanel {
           ? 'DefaultSceneRoot'
           : 'DefaultSceneRoot (' + this._asset.rootMeshType + ')',
         '__root__',
-        this._asset.rootMeshType === 'none' ? '🔵' : '📦',
+        this._asset.rootMeshType === 'none' ? Icons.Circle : Icons.Box,
+        this._asset.rootMeshType === 'none' ? ICON_COLORS.blue : ICON_COLORS.actor,
       ),
     );
 
     // Child components — render with hierarchy indentation
     for (const comp of this._asset.components) {
-      const icon = comp.type === 'trigger' ? '⚡'
-        : comp.type === 'light' ? '💡'
-        : comp.type === 'camera' ? '📷'
-        : comp.type === 'characterMovement' ? '🏃'
-        : comp.type === 'springArm' ? '🎯'
-        : comp.type === 'capsule' ? '🔵'
-        : comp.type === 'spriteRenderer' ? '🖼'
-        : comp.type === 'rigidbody2d' ? '⚙'
-        : comp.type === 'collider2d' ? '▭'
-        : comp.type === 'characterMovement2d' ? '🏃'
-        : comp.type === 'camera2d' ? '📷'
-        : comp.type === 'tilemap' ? '🗺'
-        : '🔹';
+      const { icon: compIcon, color: compColor } = (() => {
+        switch (comp.type) {
+          case 'trigger': return { icon: Icons.Zap, color: ICON_COLORS.warning };
+          case 'light': return { icon: Icons.Lamp, color: ICON_COLORS.light };
+          case 'camera': return { icon: Icons.Camera, color: ICON_COLORS.camera };
+          case 'characterMovement': return { icon: Icons.PersonStanding, color: ICON_COLORS.actor };
+          case 'springArm': return { icon: Icons.Target, color: ICON_COLORS.secondary };
+          case 'capsule': return { icon: Icons.Circle, color: ICON_COLORS.blue };
+          case 'spriteRenderer': return { icon: Icons.Image, color: ICON_COLORS.success };
+          case 'rigidbody2d': return { icon: Icons.Settings, color: ICON_COLORS.muted };
+          case 'collider2d': return { icon: Icons.RectangleHorizontal, color: ICON_COLORS.secondary };
+          case 'characterMovement2d': return { icon: Icons.PersonStanding, color: ICON_COLORS.actor };
+          case 'camera2d': return { icon: Icons.Camera, color: ICON_COLORS.camera };
+          case 'tilemap': return { icon: Icons.Map, color: ICON_COLORS.secondary };
+          default: return { icon: Icons.Diamond, color: ICON_COLORS.blue };
+        }
+      })();
       const indent = comp.parentId ? true : false;
-      const item = this._makeComponentItem(comp.name, comp.id, icon);
+      const item = this._makeComponentItem(comp.name, comp.id, compIcon, compColor);
       if (indent) item.style.paddingLeft = '24px';
       this._componentsListEl.appendChild(item);
     }
   }
 
-  private _makeComponentItem(label: string, id: string, icon: string): HTMLElement {
+  private _makeComponentItem(label: string, id: string, iconData: any[], iconColor?: string): HTMLElement {
     const item = document.createElement('div');
     item.className = 'actor-comp-item' + (this._selectedComponentId === id ? ' selected' : '');
 
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'actor-comp-item-icon';
-    iconSpan.textContent = icon;
+    const iconSpan = createIconSpan(iconData, 'sm', iconColor);
+    iconSpan.classList.add('actor-comp-item-icon');
     item.appendChild(iconSpan);
 
     const nameSpan = document.createElement('span');
@@ -803,7 +812,8 @@ export class ActorEditorPanel {
 
       const delBtn = document.createElement('span');
       delBtn.className = 'mybp-delete';
-      delBtn.textContent = '✕';
+      delBtn.textContent = '';
+      delBtn.appendChild(createIconSpan(Icons.X, 'xs', ICON_COLORS.muted));
       delBtn.title = 'Remove component';
       delBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -878,7 +888,7 @@ export class ActorEditorPanel {
       // ── Controller selector ──
       const ctrlHeader = document.createElement('div');
       ctrlHeader.className = 'physics-section-header';
-      ctrlHeader.textContent = '🎮 Controller';
+      setTextWithIcon(ctrlHeader, Icons.Gamepad2, 'Controller', 'sm', ICON_COLORS.actor);
       container.appendChild(ctrlHeader);
 
       // Build options list: Default types + any created controller blueprints
@@ -888,8 +898,8 @@ export class ActorEditorPanel {
         for (const a of this._assetManager.assets) {
           if (a.actorType === 'playerController' || a.actorType === 'aiController') {
             controllerBlueprintAssets.push(a);
-            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
-            controllerOptions.push(`${prefix} ${a.name}`);
+            const prefix = a.actorType === 'playerController' ? 'PC' : 'AI';
+            controllerOptions.push(`${prefix}: ${a.name}`);
           }
         }
       }
@@ -899,8 +909,8 @@ export class ActorEditorPanel {
       if (this._asset.controllerBlueprintId) {
         const bpAsset = controllerBlueprintAssets.find(a => a.id === this._asset.controllerBlueprintId);
         if (bpAsset) {
-          const prefix = bpAsset.actorType === 'playerController' ? '🎮' : '🤖';
-          currentValue = `${prefix} ${bpAsset.name}`;
+          const prefix = bpAsset.actorType === 'playerController' ? 'PC' : 'AI';
+          currentValue = `${prefix}: ${bpAsset.name}`;
         }
       } else if (this._asset.controllerClass === 'PlayerController') {
         currentValue = 'PlayerController (Default)';
@@ -921,8 +931,8 @@ export class ActorEditorPanel {
         } else {
           // A specific controller blueprint was selected
           const bpAsset = controllerBlueprintAssets.find(a => {
-            const prefix = a.actorType === 'playerController' ? '🎮' : '🤖';
-            return `${prefix} ${a.name}` === v;
+            const prefix = a.actorType === 'playerController' ? 'PC' : 'AI';
+            return `${prefix}: ${a.name}` === v;
           });
           if (bpAsset) {
             this._asset.controllerClass = bpAsset.actorType === 'playerController' ? 'PlayerController' : 'AIController';
@@ -984,7 +994,8 @@ export class ActorEditorPanel {
     // ── Section header ──
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '🎨 Material Slots';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Palette, 'Material Slots', 'sm', ICON_COLORS.material);
     container.appendChild(header);
 
     // Build all available material options
@@ -1047,7 +1058,8 @@ export class ActorEditorPanel {
       // Reset button
       if (currentOverride) {
         const resetBtn = document.createElement('button');
-        resetBtn.textContent = '↺';
+        resetBtn.textContent = '';
+        resetBtn.appendChild(createIconSpan(Icons.RotateCcw, 'xs', ICON_COLORS.muted));
         resetBtn.title = 'Reset to default';
         resetBtn.style.cssText = 'background:none;border:1px solid #555;color:#ccc;border-radius:3px;cursor:pointer;padding:1px 4px;font-size:12px;flex-shrink:0;';
         resetBtn.addEventListener('click', () => {
@@ -1246,7 +1258,8 @@ export class ActorEditorPanel {
 
         const profileHeader = document.createElement('div');
         profileHeader.className = 'physics-section-header';
-        profileHeader.textContent = '🛡️ Collision Profile';
+        profileHeader.textContent = '';
+        setTextWithIcon(profileHeader, Icons.Shield, 'Collision Profile', 'sm', ICON_COLORS.secondary);
         profileSection.appendChild(profileHeader);
 
         const profileBody = document.createElement('div');
@@ -1356,7 +1369,8 @@ export class ActorEditorPanel {
       if (this._animBPManager && this._animBPManager.assets.length > 0) {
         const abpHeader = document.createElement('div');
         abpHeader.className = 'prop-section-title';
-        abpHeader.textContent = '🎬 Animation Blueprint';
+        abpHeader.textContent = '';
+        setTextWithIcon(abpHeader, Icons.Clapperboard, 'Animation Blueprint', 'sm', ICON_COLORS.secondary);
         container.appendChild(abpHeader);
 
         const abpAssets = this._animBPManager.assets.filter(a => !a.is2D);
@@ -1486,7 +1500,8 @@ export class ActorEditorPanel {
       // ---- Sprite Renderer component properties ----
       const sprHeader = document.createElement('div');
       sprHeader.className = 'prop-section-title';
-      sprHeader.textContent = '🖼 Sprite';
+      sprHeader.textContent = '';
+      setTextWithIcon(sprHeader, Icons.Image, 'Sprite', 'sm', ICON_COLORS.success);
       container.appendChild(sprHeader);
 
       // Build sheet options from Scene2DManager + TextureLibrary 'Sprite'
@@ -1573,7 +1588,8 @@ export class ActorEditorPanel {
       // ---- 2D Animation Blueprint picker ----
       const abp2dHeader = document.createElement('div');
       abp2dHeader.className = 'prop-section-title';
-      abp2dHeader.textContent = '🎬 2D Animation Blueprint';
+      abp2dHeader.textContent = '';
+      setTextWithIcon(abp2dHeader, Icons.Film, '2D Animation Blueprint', 'sm', ICON_COLORS.secondary);
       container.appendChild(abp2dHeader);
 
       if (this._animBPManager) {
@@ -1614,7 +1630,8 @@ export class ActorEditorPanel {
             const openBtn = document.createElement('button');
             openBtn.className = 'toolbar-btn';
             openBtn.style.margin = '4px 10px';
-            openBtn.textContent = '🎬 Open AnimBP 2D Editor';
+            openBtn.textContent = '';
+            setTextWithIcon(openBtn, Icons.Clapperboard, 'Open AnimBP 2D Editor', 'xs', ICON_COLORS.secondary);
             openBtn.addEventListener('click', () => {
               document.dispatchEvent(new CustomEvent('open-animblueprint-2d', { detail: { assetId: abp.id } }));
             });
@@ -1623,7 +1640,7 @@ export class ActorEditorPanel {
             if (!abp.targetSpriteSheetId) {
               const warn = document.createElement('div');
               warn.style.cssText = 'font-size:10px;color:#e8a838;padding:2px 12px;line-height:1.4;';
-              warn.textContent = '⚠ Anim BP has no target sprite sheet — set it in the AnimBP 2D editor.';
+              setTextWithIcon(warn, Icons.AlertTriangle, 'Anim BP has no target sprite sheet — set it in the AnimBP 2D editor.', 'xs', ICON_COLORS.warning);
               container.appendChild(warn);
             }
           }
@@ -1639,7 +1656,8 @@ export class ActorEditorPanel {
       // ---- RigidBody 2D ----
       const rbHeader = document.createElement('div');
       rbHeader.className = 'prop-section-title';
-      rbHeader.textContent = '⚙ Rigidbody 2D';
+      rbHeader.textContent = '';
+      setTextWithIcon(rbHeader, Icons.Settings, 'Rigidbody 2D', 'sm', ICON_COLORS.muted);
       container.appendChild(rbHeader);
       container.appendChild(this._makeDropdownRow('Body Type',
         comp.rigidbody2dType ?? 'dynamic', ['dynamic', 'static', 'kinematic'], (v) => {
@@ -1652,7 +1670,8 @@ export class ActorEditorPanel {
       // ---- Collider 2D ----
       const colHeader = document.createElement('div');
       colHeader.className = 'prop-section-title';
-      colHeader.textContent = '▭ Collider 2D';
+      colHeader.textContent = '';
+      setTextWithIcon(colHeader, Icons.RectangleHorizontal, 'Collider 2D', 'sm', ICON_COLORS.secondary);
       container.appendChild(colHeader);
       container.appendChild(this._makeDropdownRow('Shape',
         comp.collider2dShape ?? 'box', ['box', 'circle', 'capsule'], (v) => {
@@ -1705,7 +1724,8 @@ export class ActorEditorPanel {
       // MOVEMENT section
       const movHdr = document.createElement('div');
       movHdr.className = 'physics-section-header';
-      movHdr.textContent = '🏃 Movement';
+      movHdr.textContent = '';
+      setTextWithIcon(movHdr, Icons.PersonStanding, 'Movement', 'sm', ICON_COLORS.actor);
       container.appendChild(movHdr);
       container.appendChild(this._makeNumberRow('Move Speed',   mv.moveSpeed   ?? 300,  10,   0, 5000, v => { cfg().moveSpeed   = v; notify(); }));
       container.appendChild(this._makeNumberRow('Run Speed',    mv.runSpeed    ?? 600,  10,   0, 5000, v => { cfg().runSpeed    = v; notify(); }));
@@ -1717,7 +1737,8 @@ export class ActorEditorPanel {
       const jumpHdr = document.createElement('div');
       jumpHdr.className = 'physics-section-header';
       jumpHdr.style.marginTop = '10px';
-      jumpHdr.textContent = '⬆ Jumping';
+      jumpHdr.textContent = '';
+      setTextWithIcon(jumpHdr, Icons.ChevronUp, 'Jumping', 'sm', ICON_COLORS.secondary);
       container.appendChild(jumpHdr);
       container.appendChild(this._makeNumberRow('Jump Force',     mv.jumpForce     ?? 600,   10, 0,    5000, v => { cfg().jumpForce     = v; notify(); }));
       container.appendChild(this._makeNumberRow('Max Jumps',      mv.maxJumps      ?? 2,      1, 0,      10, v => { cfg().maxJumps      = Math.round(v); notify(); }));
@@ -1730,7 +1751,8 @@ export class ActorEditorPanel {
       const physHdr = document.createElement('div');
       physHdr.className = 'physics-section-header';
       physHdr.style.marginTop = '10px';
-      physHdr.textContent = '⚙ Physics';
+      physHdr.textContent = '';
+      setTextWithIcon(physHdr, Icons.Settings, 'Physics', 'sm', ICON_COLORS.muted);
       container.appendChild(physHdr);
       container.appendChild(this._makeNumberRow('Gravity Scale',  mv.gravityScale  ?? 1.0,  0.1, -5, 10, v => { cfg().gravityScale  = v; notify(); }));
       container.appendChild(this._makeNumberRow('Linear Drag',    mv.linearDrag    ?? 0.0, 0.01,  0, 10, v => { cfg().linearDrag    = v; notify(); }));
@@ -1755,22 +1777,22 @@ export class ActorEditorPanel {
       const allMeshOptions = [
         ...primitiveOptions,
         ...(importedMeshes.length > 0 ? ['──── Imported Meshes ────'] : []),
-        ...importedMeshes.map(m => `📁 ${m.label}`),
+        ...importedMeshes.map(m => `[Mesh] ${m.label}`),
       ];
 
       // Determine current display value
       let currentMeshDisplay: string;
       if (comp.customMeshAssetId) {
         const ma = this._meshManager?.getAsset(comp.customMeshAssetId);
-        currentMeshDisplay = ma ? `📁 ${ma.name}` : '(Missing Mesh)';
+        currentMeshDisplay = ma ? `[Mesh] ${ma.name}` : '(Missing Mesh)';
       } else {
         currentMeshDisplay = comp.meshType.charAt(0).toUpperCase() + comp.meshType.slice(1);
       }
 
       container.appendChild(this._makeDropdownRow('Static Mesh', currentMeshDisplay, allMeshOptions, (v) => {
         if (v.startsWith('────')) return; // separator — ignore
-        if (v.startsWith('📁 ')) {
-          const meshName = v.slice(3);
+        if (v.startsWith('[Mesh] ')) {
+          const meshName = v.slice(7);
           const ma = importedMeshes.find(m => m.label === meshName);
           if (ma) {
             comp.customMeshAssetId = ma.id;
@@ -1839,7 +1861,8 @@ export class ActorEditorPanel {
       // ---- Sprite sub-header ----
       const spriteHeader = document.createElement('div');
       spriteHeader.className = 'context-menu-header';
-      spriteHeader.textContent = '🖼 Sprite';
+      spriteHeader.textContent = '';
+      setTextWithIcon(spriteHeader, Icons.Image, 'Sprite', 'sm', ICON_COLORS.success);
       menu.appendChild(spriteHeader);
 
       const addSpriteRenderer = document.createElement('div');
@@ -1855,7 +1878,8 @@ export class ActorEditorPanel {
       // ---- Physics 2D sub-header ----
       const phys2DHeader = document.createElement('div');
       phys2DHeader.className = 'context-menu-header';
-      phys2DHeader.textContent = '⚙ Physics 2D';
+      phys2DHeader.textContent = '';
+      setTextWithIcon(phys2DHeader, Icons.Settings, 'Physics 2D', 'sm', ICON_COLORS.muted);
       menu.appendChild(phys2DHeader);
 
       const addRigidbody2D = document.createElement('div');
@@ -1871,7 +1895,8 @@ export class ActorEditorPanel {
       // ---- Collider 2D sub-header ----
       const coll2DHeader = document.createElement('div');
       coll2DHeader.className = 'context-menu-header';
-      coll2DHeader.textContent = '▭ Collider 2D';
+      coll2DHeader.textContent = '';
+      setTextWithIcon(coll2DHeader, Icons.RectangleHorizontal, 'Collider 2D', 'sm', ICON_COLORS.secondary);
       menu.appendChild(coll2DHeader);
 
       const collider2DTypes: { label: string; shape: 'box' | 'circle' | 'capsule' }[] = [
@@ -1894,7 +1919,8 @@ export class ActorEditorPanel {
       // ---- Trigger 2D sub-header ----
       const trig2DHeader = document.createElement('div');
       trig2DHeader.className = 'context-menu-header';
-      trig2DHeader.textContent = '⚡ Trigger 2D';
+      trig2DHeader.textContent = '';
+      setTextWithIcon(trig2DHeader, Icons.Zap, 'Trigger 2D', 'sm', ICON_COLORS.warning);
       menu.appendChild(trig2DHeader);
 
       const trigger2DTypes: { label: string; shape: 'box' | 'circle' | 'capsule' }[] = [
@@ -1918,7 +1944,8 @@ export class ActorEditorPanel {
       if (this._asset.actorType === 'characterPawn2D') {
         const cam2DHeader = document.createElement('div');
         cam2DHeader.className = 'context-menu-header';
-        cam2DHeader.textContent = '📷 Camera';
+        cam2DHeader.textContent = '';
+        setTextWithIcon(cam2DHeader, Icons.Camera, 'Camera', 'sm', ICON_COLORS.camera);
         menu.appendChild(cam2DHeader);
 
         const addCamera2D = document.createElement('div');
@@ -1940,7 +1967,8 @@ export class ActorEditorPanel {
       // ---- Mesh sub-header ----
       const meshHeader = document.createElement('div');
       meshHeader.className = 'context-menu-header';
-      meshHeader.textContent = '📦 Mesh';
+      meshHeader.textContent = '';
+      setTextWithIcon(meshHeader, Icons.Box, 'Mesh', 'sm', ICON_COLORS.actor);
       menu.appendChild(meshHeader);
 
       // Static Mesh Component (imported mesh)
@@ -1976,7 +2004,8 @@ export class ActorEditorPanel {
       // ---- Skeletal Mesh sub-header ----
       const skeletalHeader = document.createElement('div');
       skeletalHeader.className = 'context-menu-header';
-      skeletalHeader.textContent = '🦴 Skeletal Mesh';
+      skeletalHeader.textContent = '';
+      setTextWithIcon(skeletalHeader, Icons.Bone, 'Skeletal Mesh', 'sm', ICON_COLORS.secondary);
       menu.appendChild(skeletalHeader);
 
       const addSkeletalMesh = document.createElement('div');
@@ -1992,7 +2021,8 @@ export class ActorEditorPanel {
       // ---- Trigger sub-header ----
       const triggerHeader = document.createElement('div');
       triggerHeader.className = 'context-menu-header';
-      triggerHeader.textContent = '⚡ Collision';
+      triggerHeader.textContent = '';
+      setTextWithIcon(triggerHeader, Icons.Zap, 'Collision', 'sm', ICON_COLORS.warning);
       menu.appendChild(triggerHeader);
 
       const triggerTypes: { label: string; shape: CollisionShapeType }[] = [
@@ -2016,7 +2046,8 @@ export class ActorEditorPanel {
       // ---- Light sub-header ----
       const lightHeader = document.createElement('div');
       lightHeader.className = 'context-menu-header';
-      lightHeader.textContent = '💡 Light';
+      lightHeader.textContent = '';
+      setTextWithIcon(lightHeader, Icons.Sun, 'Light', 'sm', ICON_COLORS.light);
       menu.appendChild(lightHeader);
 
       const lightTypes: { label: string; lt: LightType }[] = [
@@ -2042,7 +2073,8 @@ export class ActorEditorPanel {
       // ---- Camera sub-header ----
       const cameraHeader = document.createElement('div');
       cameraHeader.className = 'context-menu-header';
-      cameraHeader.textContent = '📷 Camera';
+      cameraHeader.textContent = '';
+      setTextWithIcon(cameraHeader, Icons.Camera, 'Camera', 'sm', ICON_COLORS.camera);
       menu.appendChild(cameraHeader);
 
       const addSpringArm = document.createElement('div');
@@ -2410,7 +2442,8 @@ export class ActorEditorPanel {
     // Section header
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '⚡ Collision Settings';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Zap, 'Collision Settings', 'sm', ICON_COLORS.warning);
     section.appendChild(header);
 
     const body = document.createElement('div');
@@ -2548,7 +2581,8 @@ export class ActorEditorPanel {
     // Section header
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '⚛ Physics Settings';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Settings, 'Physics Settings', 'sm', ICON_COLORS.muted);
     section.appendChild(header);
 
     const body = document.createElement('div');
@@ -2663,7 +2697,8 @@ export class ActorEditorPanel {
     // ---- Movement settings ----
     const moveHeader = document.createElement('div');
     moveHeader.className = 'physics-section-header';
-    moveHeader.textContent = '🏃 Movement';
+    moveHeader.textContent = '';
+    setTextWithIcon(moveHeader, Icons.PersonStanding, 'Movement', 'sm', ICON_COLORS.actor);
     container.appendChild(moveHeader);
 
     container.appendChild(this._makeNumberRow('Walk Speed', cfg.movement.walkSpeed, 0.5, 0, 50, (v) => {
@@ -2722,7 +2757,8 @@ export class ActorEditorPanel {
     // ---- Input Bindings ----
     const inputHeader = document.createElement('div');
     inputHeader.className = 'physics-section-header';
-    inputHeader.textContent = '🎮 Input Bindings';
+    inputHeader.textContent = '';
+    setTextWithIcon(inputHeader, Icons.Gamepad2, 'Input Bindings', 'sm', ICON_COLORS.actor);
     container.appendChild(inputHeader);
 
     container.appendChild(this._makeTextRow('Forward', cfg.inputBindings.moveForward, (v) => {
@@ -2760,7 +2796,8 @@ export class ActorEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '🎯 Spring Arm (Camera Boom)';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Target, 'Spring Arm (Camera Boom)', 'sm', ICON_COLORS.secondary);
     container.appendChild(header);
 
     container.appendChild(this._makeNumberRow('Arm Length', sa.armLength, 0.5, 0, 50, (v) => {
@@ -2881,7 +2918,8 @@ export class ActorEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '📷 Camera';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Camera, 'Camera', 'sm', ICON_COLORS.camera);
     container.appendChild(header);
 
     container.appendChild(this._makeDropdownRow('Camera Mode', cam.cameraMode, ['firstPerson', 'thirdPerson'], (v) => {
@@ -2943,7 +2981,8 @@ export class ActorEditorPanel {
 
     const header = document.createElement('div');
     header.className = 'physics-section-header';
-    header.textContent = '📷 Camera 2D';
+    header.textContent = '';
+    setTextWithIcon(header, Icons.Camera, 'Camera 2D', 'sm', ICON_COLORS.camera);
     container.appendChild(header);
 
     const desc = document.createElement('div');

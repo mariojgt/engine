@@ -212,7 +212,7 @@ export class EnumEditorPanel {
       const upBtn = document.createElement('button');
       upBtn.className = 'enum-value-action-btn';
       upBtn.title = 'Move Up';
-      upBtn.textContent = '▲';
+      upBtn.innerHTML = iconHTML(Icons.ChevronUp, 'xs');
       upBtn.addEventListener('click', () => {
         this._asset.reorderValue(val.id, index - 1);
         this._emit();
@@ -225,7 +225,7 @@ export class EnumEditorPanel {
       const downBtn = document.createElement('button');
       downBtn.className = 'enum-value-action-btn';
       downBtn.title = 'Move Down';
-      downBtn.textContent = '▼';
+      downBtn.innerHTML = iconHTML(Icons.ChevronDown, 'xs');
       downBtn.addEventListener('click', () => {
         this._asset.reorderValue(val.id, index + 1);
         this._emit();
@@ -237,7 +237,7 @@ export class EnumEditorPanel {
     const delBtn = document.createElement('button');
     delBtn.className = 'enum-value-action-btn enum-value-delete-btn';
     delBtn.title = 'Delete';
-    delBtn.textContent = '✕';
+    delBtn.innerHTML = iconHTML(Icons.X, 'xs');
     delBtn.addEventListener('click', () => {
       this._asset.removeValue(val.id);
       this._emit();

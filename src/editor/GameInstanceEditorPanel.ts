@@ -267,7 +267,7 @@ export class GameInstanceEditorPanel {
 
       // Delete button
       const delBtn = document.createElement('button');
-      delBtn.textContent = '✕';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs');
       delBtn.style.background = 'transparent';
       delBtn.style.border = 'none';
       delBtn.style.color = '#e57373';

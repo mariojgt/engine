@@ -1,4 +1,5 @@
 import { ClassicPreset } from 'rete';
+import { iconHTML, Icons, ICON_COLORS } from '../icons';
 
 // ============================================================
 //  Shared Socket Types
@@ -100,40 +101,40 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
 
 export function getCategoryIcon(cat: string): string {
   switch (cat) {
-    case 'Events':        return '◇';
-    case 'Flow Control':  return '⑂';
-    case 'Math':          return '∑';
-    case 'Values':        return '◆';
-    case 'Variables':     return '◉';
-    case 'Physics':       return '○';
-    case 'Transform':     return '↕';
-    case 'Utility':       return '⚙';
-    case 'Conversions':   return '⇄';
-    case 'Components':    return '○';
-    case 'Functions':     return 'ƒ';
-    case 'Macros':        return '◇';
-    case 'Custom Events': return '◆';
-    case 'Input':         return '▹';
-    case 'Structs':       return '◈';
-    case 'Enums':         return '▣';
-    case 'Collision':     return '○';
-    case 'Character':     return '▸';
-    case 'Casting':       return '◆';
-    case 'Animation':     return '▷';
+    case 'Events':        return iconHTML(Icons.Zap, 10, ICON_COLORS.warning);
+    case 'Flow Control':  return iconHTML(Icons.GitBranch, 10, ICON_COLORS.secondary);
+    case 'Math':          return iconHTML(Icons.Sigma, 10, ICON_COLORS.secondary);
+    case 'Values':        return iconHTML(Icons.Diamond, 10, ICON_COLORS.blue);
+    case 'Variables':     return iconHTML(Icons.CircleDot, 10, ICON_COLORS.secondary);
+    case 'Physics':       return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
+    case 'Transform':     return iconHTML(Icons.Move, 10, ICON_COLORS.secondary);
+    case 'Utility':       return iconHTML(Icons.Settings, 10, ICON_COLORS.muted);
+    case 'Conversions':   return iconHTML(Icons.ArrowRight, 10, ICON_COLORS.secondary);
+    case 'Components':    return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
+    case 'Functions':     return iconHTML(Icons.Code, 10, ICON_COLORS.blueprint);
+    case 'Macros':        return iconHTML(Icons.Diamond, 10, ICON_COLORS.secondary);
+    case 'Custom Events': return iconHTML(Icons.Zap, 10, ICON_COLORS.warning);
+    case 'Input':         return iconHTML(Icons.ChevronRight, 10, ICON_COLORS.secondary);
+    case 'Structs':       return iconHTML(Icons.Diamond, 10, ICON_COLORS.blue);
+    case 'Enums':         return iconHTML(Icons.List, 10, ICON_COLORS.secondary);
+    case 'Collision':     return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
+    case 'Character':     return iconHTML(Icons.PersonStanding, 10, ICON_COLORS.actor);
+    case 'Casting':       return iconHTML(Icons.Diamond, 10, ICON_COLORS.secondary);
+    case 'Animation':     return iconHTML(Icons.Play, 10, ICON_COLORS.secondary);
     // New categories
-    case 'String':        return '❝';
-    case 'Spawning':      return '✦';
-    case 'Actor':         return '▣';
-    case 'Timer':         return '⏱';
-    case 'World':         return '◎';
-    case 'Player':        return '▶';
+    case 'String':        return iconHTML(Icons.Type, 10, ICON_COLORS.secondary);
+    case 'Spawning':      return iconHTML(Icons.Plus, 10, ICON_COLORS.blue);
+    case 'Actor':         return iconHTML(Icons.Box, 10, ICON_COLORS.actor);
+    case 'Timer':         return iconHTML(Icons.Clock, 10, ICON_COLORS.secondary);
+    case 'World':         return iconHTML(Icons.Globe, 10, ICON_COLORS.secondary);
+    case 'Player':        return iconHTML(Icons.Gamepad2, 10, ICON_COLORS.actor);
     // 2D categories
-    case 'Animation 2D':  return '▷';
-    case 'Movement 2D':   return '↔';
-    case 'Physics 2D':    return '◐';
-    case 'Camera 2D':     return '◱';
-    case 'Tilemap':       return '▦';
-    default:              return '●';
+    case 'Animation 2D':  return iconHTML(Icons.Film, 10, ICON_COLORS.secondary);
+    case 'Movement 2D':   return iconHTML(Icons.Move, 10, ICON_COLORS.secondary);
+    case 'Physics 2D':    return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
+    case 'Camera 2D':     return iconHTML(Icons.Camera, 10, ICON_COLORS.camera);
+    case 'Tilemap':       return iconHTML(Icons.Grid, 10, ICON_COLORS.secondary);
+    default:              return iconHTML(Icons.Circle, 10, ICON_COLORS.muted);
   }
 }
 

@@ -175,15 +175,15 @@ export class AnimBlueprintEditorPanel {
     this._tabBar.innerHTML = '';
 
     const tabs: Array<{ key: EditorTab; label: string; icon: string }> = [
-      { key: 'animGraph', label: 'Animation Graph', icon: '▸' },
-      { key: 'eventGraph', label: 'Event Variables', icon: '▪' },
-      { key: 'blendSpaces', label: 'Blend Spaces', icon: '▴' },
+      { key: 'animGraph', label: 'Animation Graph', icon: iconHTML(Icons.GitBranch, 'xs') },
+      { key: 'eventGraph', label: 'Event Variables', icon: iconHTML(Icons.Workflow, 'xs') },
+      { key: 'blendSpaces', label: 'Blend Spaces', icon: iconHTML(Icons.Activity, 'xs') },
     ];
 
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.className = `anim-bp-tab${this._activeTab === tab.key ? ' active' : ''}`;
-      btn.textContent = `${tab.icon} ${tab.label}`;
+      btn.innerHTML = `${tab.icon} ${tab.label}`;
       btn.addEventListener('click', () => {
         this._activeTab = tab.key;
         this._rebuildTabBar();
@@ -1921,7 +1921,7 @@ export class AnimBlueprintEditorPanel {
 
       const del = document.createElement('button');
       del.className = 'prop-btn-danger';
-      del.textContent = '✕';
+      del.innerHTML = iconHTML(Icons.X, 'xs');
       del.addEventListener('click', () => {
         group.rules = group.rules.filter(r => r.id !== rule.id);
         this._asset.touch();
@@ -2167,7 +2167,7 @@ export class AnimBlueprintEditorPanel {
 
     const refreshBtn = document.createElement('button');
     refreshBtn.className = 'toolbar-btn';
-    refreshBtn.textContent = '↻ Refresh';
+    refreshBtn.innerHTML = `${iconHTML(Icons.RotateCcw, 'xs')} Refresh`;
     refreshBtn.addEventListener('click', () => this._refreshPreview(true));
     header.appendChild(refreshBtn);
 
@@ -2694,7 +2694,7 @@ export class AnimBlueprintEditorPanel {
       // Delete button
       const delBtn = document.createElement('button');
       delBtn.className = 'prop-btn-danger';
-      delBtn.textContent = '✕';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs');
       delBtn.title = 'Delete variable';
       delBtn.addEventListener('click', () => {
         this._asset.blueprintData.removeVariable(v.id);
@@ -3248,7 +3248,7 @@ export class AnimBlueprintEditorPanel {
         // Delete button
         const delBtn = document.createElement('button');
         delBtn.className = 'bs-detail-delete';
-        delBtn.innerHTML = '✕';
+        delBtn.innerHTML = iconHTML(Icons.X, 'xs');
         delBtn.title = 'Remove sample point';
         delBtn.addEventListener('click', (e) => {
           e.stopPropagation();

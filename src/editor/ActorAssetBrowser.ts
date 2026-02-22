@@ -475,7 +475,7 @@ export class ActorAssetBrowser {
       const item = document.createElement('div');
       item.className = 'context-menu-item cb-filter-check-item';
       const checked = this._activeFilters.has(t);
-      item.innerHTML = `<span class="cb-filter-check">${checked ? '✓' : ''}</span>
+      item.innerHTML = `<span class="cb-filter-check">${checked ? iconHTML(Icons.Check, 'xs', ICON_COLORS.success) : ''}</span>
         <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${meta.color};margin-right:6px;"></span>
         ${meta.label}`;
       item.addEventListener('click', (ev) => {
@@ -520,7 +520,7 @@ export class ActorAssetBrowser {
     ];
     for (const opt of options) {
       const active = this._sortBy === opt.key;
-      const arrow = active ? (this._sortAsc ? ' ↑' : ' ↓') : '';
+      const arrow = active ? (this._sortAsc ? ' ' + iconHTML(Icons.ChevronUp, 'xs', ICON_COLORS.secondary) : ' ' + iconHTML(Icons.ChevronDown, 'xs', ICON_COLORS.secondary)) : '';
       this._addMenuItem(menu, (active ? '● ' : '○ ') + opt.label + arrow, () => {
         if (this._sortBy === opt.key) this._sortAsc = !this._sortAsc;
         else { this._sortBy = opt.key; this._sortAsc = true; }
@@ -888,7 +888,7 @@ export class ActorAssetBrowser {
           this._refreshGrid();
         });
         if (this._sortBy === col.key) {
-          cell.textContent += this._sortAsc ? ' ↑' : ' ↓';
+          cell.innerHTML = cell.textContent + (this._sortAsc ? ' ' + iconHTML(Icons.ChevronUp, 'xs', ICON_COLORS.secondary) : ' ' + iconHTML(Icons.ChevronDown, 'xs', ICON_COLORS.secondary));
         }
       }
       header.appendChild(cell);
@@ -2439,9 +2439,9 @@ export class ActorAssetBrowser {
 
       type Preset = { key: 'platformer' | 'topdown' | 'blank'; icon: string; title: string; desc: string };
       const presets: Preset[] = [
-        { key: 'platformer', icon: '🏃', title: 'Platformer', desc: 'Side-scrolling movement with gravity, jump, and left/right controls.' },
-        { key: 'topdown',    icon: '🎯', title: 'Top-Down',   desc: '4-directional movement with no gravity. WASD controls.' },
-        { key: 'blank',      icon: '📄', title: 'Blank',      desc: 'Empty blueprint with just BeginPlay and Tick events.' },
+        { key: 'platformer', icon: iconHTML(Icons.PersonStanding, 'lg', ICON_COLORS.actor), title: 'Platformer', desc: 'Side-scrolling movement with gravity, jump, and left/right controls.' },
+        { key: 'topdown',    icon: iconHTML(Icons.Target, 'lg', ICON_COLORS.secondary), title: 'Top-Down',   desc: '4-directional movement with no gravity. WASD controls.' },
+        { key: 'blank',      icon: iconHTML(Icons.FileText, 'lg', ICON_COLORS.muted), title: 'Blank',      desc: 'Empty blueprint with just BeginPlay and Tick events.' },
       ];
 
       let selected: Preset['key'] = 'platformer';
@@ -2453,7 +2453,7 @@ export class ActorAssetBrowser {
 
         const icon = document.createElement('div');
         icon.className = 'cb-preset-card-icon';
-        icon.textContent = preset.icon;
+        icon.innerHTML = preset.icon;
 
         const ti = document.createElement('div');
         ti.className = 'cb-preset-card-title';

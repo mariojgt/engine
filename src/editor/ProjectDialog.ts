@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { ProjectManager } from './ProjectManager';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export type ProjectDialogResult =
   | { action: 'created' }
@@ -26,7 +27,7 @@ export function showProjectDialog(
     overlay.innerHTML = `
       <div class="project-dialog">
         <div class="project-dialog-header">
-          <div class="project-dialog-logo">🪶</div>
+          <div class="project-dialog-logo">${iconHTML(Icons.Feather, 'xl', ICON_COLORS.blue)}</div>
           <h1 class="project-dialog-title">Feather Engine</h1>
           <p class="project-dialog-subtitle">Project Browser</p>
         </div>

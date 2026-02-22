@@ -3385,7 +3385,7 @@ function buildMyBlueprintPanel(
   for (const tab of callbacks.graphTabs) {
     const item = document.createElement('div');
     item.className = 'mybp-item' + (tab.id === callbacks.activeGraphId ? ' active' : '');
-    const icon = tab.type === 'event' ? '◆' : tab.type === 'function' ? 'ƒ' : '◇';
+    const icon = tab.type === 'event' ? iconHTML(Icons.Zap, 'xs', ICON_COLORS.warning) : tab.type === 'function' ? iconHTML(Icons.Code, 'xs', ICON_COLORS.blueprint) : iconHTML(Icons.Diamond, 'xs');
     item.innerHTML = `<span class="mybp-item-icon">${icon}</span><span>${tab.label}</span>`;
     item.addEventListener('click', () => callbacks.onSwitchGraph(tab));
     graphBody.appendChild(item);
@@ -3394,7 +3394,7 @@ function buildMyBlueprintPanel(
   // --- Functions ---
   const fnBody = addSection(container, 'Functions', callbacks.onAddFunction);
   for (const fn of bp.functions) {
-    const fnItem = makeDeletableItem(fn.name, 'ƒ', 'mybp-fn',
+    const fnItem = makeDeletableItem(fn.name, iconHTML(Icons.Code, 'xs', ICON_COLORS.blueprint), 'mybp-fn',
       () => callbacks.onSwitchGraph({ id: fn.id, label: fn.name, type: 'function', refId: fn.id }),
       () => callbacks.onDeleteFunction(fn.id),
       { dragType: 'function', funcId: fn.id, funcName: fn.name, inputs: JSON.stringify(fn.inputs), outputs: JSON.stringify(fn.outputs) },
@@ -3403,7 +3403,7 @@ function buildMyBlueprintPanel(
     const actionsEl = fnItem.querySelector('.mybp-item-actions')!;
     const editBtn = document.createElement('span');
     editBtn.className = 'mybp-edit-btn';
-    editBtn.textContent = '⚙';
+    editBtn.innerHTML = iconHTML(Icons.Settings, 'xs', ICON_COLORS.muted);
     editBtn.title = 'Edit Parameters';
     editBtn.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onEditFunction(fn); });
     actionsEl.insertBefore(editBtn, actionsEl.firstChild);
@@ -3413,7 +3413,7 @@ function buildMyBlueprintPanel(
   // --- Macros ---
   const macroBody = addSection(container, 'Macros', callbacks.onAddMacro);
   for (const m of bp.macros) {
-    macroBody.appendChild(makeDeletableItem(m.name, '◇', 'mybp-macro',
+    macroBody.appendChild(makeDeletableItem(m.name, iconHTML(Icons.Diamond, 'xs', ICON_COLORS.secondary), 'mybp-macro',
       () => callbacks.onSwitchGraph({ id: m.id, label: m.name, type: 'macro', refId: m.id }),
       () => callbacks.onDeleteMacro(m.id),
       { dragType: 'macro', macroId: m.id, macroName: m.name },
@@ -3445,7 +3445,7 @@ function buildMyBlueprintPanel(
     actions.className = 'mybp-item-actions';
     const del = document.createElement('span');
     del.className = 'mybp-delete';
-    del.textContent = '✕';
+    del.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
     del.title = 'Delete';
     del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteVariable(v.id); });
     actions.appendChild(del);
@@ -3488,7 +3488,7 @@ function buildMyBlueprintPanel(
         actions.className = 'mybp-item-actions';
         const del = document.createElement('span');
         del.className = 'mybp-delete';
-        del.textContent = '✕';
+        del.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
         del.title = 'Delete';
         del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteLocalVariable(fn.id, lv.id); });
         actions.appendChild(del);
@@ -3507,7 +3507,7 @@ function buildMyBlueprintPanel(
   // --- Custom Events ---
   const evtBody = addSection(container, 'Custom Events', callbacks.onAddCustomEvent);
   for (const evt of bp.customEvents) {
-    const evtItem = makeDeletableItem(evt.name, '○', 'mybp-evt',
+    const evtItem = makeDeletableItem(evt.name, iconHTML(Icons.Circle, 'xs', ICON_COLORS.secondary), 'mybp-evt',
       () => callbacks.onSwitchGraph(callbacks.graphTabs[0]),
       () => callbacks.onDeleteCustomEvent(evt.id),
       { dragType: 'customEvent', eventId: evt.id, eventName: evt.name, params: JSON.stringify(evt.params) },
@@ -3516,7 +3516,7 @@ function buildMyBlueprintPanel(
     const actionsEl = evtItem.querySelector('.mybp-item-actions')!;
     const editBtn = document.createElement('span');
     editBtn.className = 'mybp-edit-btn';
-    editBtn.textContent = '⚙';
+    editBtn.innerHTML = iconHTML(Icons.Settings, 'xs', ICON_COLORS.muted);
     editBtn.title = 'Edit Parameters';
     editBtn.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onEditCustomEvent(evt); });
     actionsEl.insertBefore(editBtn, actionsEl.firstChild);
@@ -3548,7 +3548,7 @@ function buildMyBlueprintPanel(
     actions.className = 'mybp-item-actions';
     const del = document.createElement('span');
     del.className = 'mybp-delete';
-    del.textContent = '✕';
+    del.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
     del.title = 'Delete';
     del.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDeleteStruct(s.id); });
     actions.appendChild(del);
@@ -3592,7 +3592,7 @@ function makeDeletableItem(
 
   const iconSpan = document.createElement('span');
   iconSpan.className = 'mybp-item-icon';
-  iconSpan.textContent = icon;
+  iconSpan.innerHTML = icon;
   item.appendChild(iconSpan);
 
   const nameSpan = document.createElement('span');
@@ -3607,7 +3607,7 @@ function makeDeletableItem(
 
   const del = document.createElement('span');
   del.className = 'mybp-delete';
-  del.textContent = '✕';
+  del.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
   del.title = 'Delete';
   del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
   actions.appendChild(del);
@@ -3634,8 +3634,8 @@ function buildGraphTabBar(
   for (const tab of tabs) {
     const btn = document.createElement('div');
     btn.className = 'graph-tab' + (tab.id === activeId ? ' active' : '');
-    const icon = tab.type === 'event' ? '◆' : tab.type === 'function' ? 'ƒ' : '◇';
-    btn.textContent = `${icon} ${tab.label}`;
+    const icon = tab.type === 'event' ? iconHTML(Icons.Zap, 'xs', ICON_COLORS.warning) : tab.type === 'function' ? iconHTML(Icons.Code, 'xs', ICON_COLORS.blueprint) : iconHTML(Icons.Diamond, 'xs');
+    btn.innerHTML = `${icon} ${tab.label}`;
     btn.addEventListener('click', () => onSwitch(tab));
     container.appendChild(btn);
   }
@@ -4445,7 +4445,7 @@ function showParamEditorDialog(
 
       const delBtn = document.createElement('span');
       delBtn.className = 'mybp-struct-field-del';
-      delBtn.textContent = '✕';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
       delBtn.title = 'Remove';
       delBtn.addEventListener('click', () => { inputs.splice(i, 1); render(); });
       row.appendChild(delBtn);
@@ -4492,7 +4492,7 @@ function showParamEditorDialog(
 
         const delBtn = document.createElement('span');
         delBtn.className = 'mybp-struct-field-del';
-        delBtn.textContent = '✕';
+        delBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
         delBtn.title = 'Remove';
         delBtn.addEventListener('click', () => { outputs.splice(i, 1); render(); });
         row.appendChild(delBtn);
@@ -4731,7 +4731,7 @@ function showStructDialog(
 
       const delBtn = document.createElement('span');
       delBtn.className = 'mybp-struct-field-del';
-      delBtn.textContent = '✕';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
       delBtn.title = 'Remove field';
       delBtn.addEventListener('click', () => { fields.splice(i, 1); render(); });
       row.appendChild(delBtn);
@@ -6068,7 +6068,7 @@ async function createGraphEditor(
             style: { '--node-color': color } as any,
           },
             React.createElement('div', { className: 'fe-node-cat-strip' },
-              React.createElement('span', { className: 'fe-node-cat-icon' }, icon),
+              React.createElement('span', { className: 'fe-node-cat-icon', dangerouslySetInnerHTML: { __html: icon } }),
               React.createElement('span', { className: 'fe-node-cat-label' }, category),
             ),
             React.createElement(Presets.classic.Node, props),
@@ -6283,7 +6283,7 @@ async function createGraphEditor(
                 React.createElement('span', {
                   style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
                 }, selected),
-                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
               ),
               open && React.createElement('div', {
                 style: {
@@ -6333,7 +6333,7 @@ async function createGraphEditor(
                     onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
                     onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
                   },
-                    React.createElement('span', { style: { marginRight: 4, fontSize: 9, color: '#ff9800' } }, '◈'),
+                    React.createElement('span', { style: { marginRight: 4, fontSize: 9, color: '#ff9800' }, dangerouslySetInnerHTML: { __html: iconHTML(Icons.Diamond, 'xs', '#ff9800') } }),
                     a.name,
                   ),
                 ),
@@ -6472,7 +6472,7 @@ async function createGraphEditor(
                 React.createElement('span', {
                   style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
                 }, selected),
-                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
               ),
               // Dropdown panel
               open && React.createElement('div', { style: dropdownStyle },
@@ -6694,7 +6694,7 @@ async function createGraphEditor(
                 React.createElement('span', {
                   style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
                 }, selected),
-                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' } }, open ? '▲' : '▼'),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
               ),
               // Dropdown panel
               open && React.createElement('div', { style: dropdownStyle },
@@ -6788,7 +6788,7 @@ async function createGraphEditor(
                             color: '#666',
                             flexShrink: 0,
                           },
-                        }, '🖼'),
+                        }, React.createElement('span', { dangerouslySetInnerHTML: { __html: iconHTML(Icons.Image, 10, '#666') } })),
                     // Name + dimensions
                     React.createElement('div', { style: { display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } },
                       React.createElement('span', {
@@ -7585,7 +7585,7 @@ async function createGraphEditor(
     el.className = 'fe-comment-box';
     el.setAttribute('data-comment-id', c.id);
     el.style.cssText = `left:${c.position.x}px;top:${c.position.y}px;width:${c.size.width}px;height:${c.size.height}px;border-color:${c.color};`;
-    el.innerHTML = `<div class="fe-comment-header" style="background:${c.color}"><span class="fe-comment-text" contenteditable="true">${c.text}</span><span class="fe-comment-close">✕</span></div><div class="fe-comment-body"></div><div class="fe-comment-resize"></div>`;
+    el.innerHTML = `<div class="fe-comment-header" style="background:${c.color}"><span class="fe-comment-text" contenteditable="true">${c.text}</span><span class="fe-comment-close">${iconHTML(Icons.X, 'xs', ICON_COLORS.muted)}</span></div><div class="fe-comment-body"></div><div class="fe-comment-resize"></div>`;
     // Make header draggable
     const header = el.querySelector('.fe-comment-header')!;
     let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;

@@ -704,27 +704,12 @@ export class ViewportPanel {
       return;
     }
 
-    // Play mode → simple render
+    // Play mode → render with post-processing
     if (this._playCamera) {
-      if (this._renderer) {
-        const sceneBackground = this._engine.scene.threeScene.background;
-        const sceneEnv = this._engine.scene.threeScene.environment;
-        
-        // Log sky object info
-        let skySphereMesh: THREE.Object3D | null = null;
-        this._engine.scene.threeScene.children.forEach(child => {
-          if ((child as any).__isSceneCompositionHelper) {
-            skySphereMesh = child;
-            console.log('[Viewport] Found sky mesh:', child.type, 'visible:', child.visible, 'renderOrder:', (child as any).renderOrder);
-          }
-        });
-        if (!skySphereMesh) {
-          console.log('[Viewport] WARNING: No sky sphere mesh found in scene!');
-        }
-        
-        const bgStr = sceneBackground ? ((sceneBackground as any).isColor ? 'Color: ' + (sceneBackground as THREE.Color).getHexString() : 'Texture') : 'null';
-        console.log('[Viewport] Play render - background:', bgStr);
-        console.log('[Viewport] Play render - environment:', sceneEnv ? 'SET' : 'null');
+      this._updateVolumetricEffects();
+      if (this._selectionManager) {
+        this._selectionManager.render();
+      } else if (this._renderer) {
         this._renderer.render(this._engine.scene.threeScene, this._playCamera);
       }
       return;
@@ -829,15 +814,23 @@ export class ViewportPanel {
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      // Play mode renders directly (no EffectComposer) → need sRGB output
-      if (this._renderer) this._renderer.outputColorSpace = THREE.SRGBColorSpace;
+      // Play mode now uses EffectComposer via SelectionManager
+      if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       // Disable camera controls + gizmo during play
       this._cameraController.setEnabled(false);
       this._gizmo.detach();
+      if (this._selectionManager) {
+        this._selectionManager.setPlayMode(true);
+        this._selectionManager.setCamera(cam);
+      }
     } else {
       // Back to editor → EffectComposer handles gamma via GammaCorrectionShader
       if (this._renderer) this._renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       this._cameraController.setEnabled(true);
+      if (this._selectionManager) {
+        this._selectionManager.setPlayMode(false);
+        this._selectionManager.setCamera(null);
+      }
     }
   }
 

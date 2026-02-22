@@ -176,6 +176,8 @@ html, body, #app {
   padding: 0 12px;
   gap: 4px;
   -webkit-app-region: drag;
+  /* Subtle bottom gradient line for depth */
+  box-shadow: 0 1px 0 0 rgba(0,0,0,0.3);
 }
 
 .toolbar-title {
@@ -187,12 +189,14 @@ html, body, #app {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Subtle text glow for branding prominence */
+  text-shadow: 0 0 16px rgba(59,130,246,0.15);
 }
 
 .toolbar-separator {
   width: 1px;
   height: 18px;
-  background: var(--color-border-default);
+  background: linear-gradient(180deg, transparent 0%, var(--color-border-default) 20%, var(--color-border-default) 80%, transparent 100%);
   margin: 0 8px;
 }
 
@@ -211,15 +215,17 @@ html, body, #app {
   font-family: var(--font-family);
   font-weight: var(--font-medium);
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out),
-              border-color var(--duration-fast) var(--ease-out),
-              color var(--duration-fast) var(--ease-out),
-              transform 60ms var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out),
+              border-color var(--duration-normal) var(--ease-out),
+              color var(--duration-normal) var(--ease-out),
+              transform 60ms var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
 }
 
 .toolbar-btn:hover {
   background: var(--color-bg-overlay);
   color: var(--color-text-primary);
+  border-color: rgba(255,255,255,0.06);
 }
 
 .toolbar-btn:active {
@@ -227,31 +233,47 @@ html, body, #app {
 }
 
 .toolbar-btn.play {
-  background: var(--color-bg-overlay);
-  border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
-  font-weight: var(--font-medium);
+  background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.08) 100%);
+  border-color: rgba(34,197,94,0.3);
+  color: var(--color-green);
+  font-weight: var(--font-semibold);
   min-width: 80px;
   justify-content: center;
   border-radius: var(--radius-md);
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 12px rgba(34,197,94,0.08);
 }
 
 .toolbar-btn.play:hover {
-  background: var(--color-bg-subtle);
+  background: linear-gradient(135deg, rgba(34,197,94,0.25) 0%, rgba(34,197,94,0.12) 100%);
+  border-color: rgba(34,197,94,0.5);
+  box-shadow: 0 0 20px rgba(34,197,94,0.15);
+  color: #4ade80;
 }
 
 .toolbar-btn.stop {
-  background: var(--color-bg-subtle);
-  border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
-  font-weight: var(--font-medium);
+  background: linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.08) 100%);
+  border-color: rgba(239,68,68,0.3);
+  color: var(--color-red);
+  font-weight: var(--font-semibold);
   min-width: 80px;
   justify-content: center;
   border-radius: var(--radius-md);
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 12px rgba(239,68,68,0.08);
+  animation: stop-pulse 2s ease-in-out infinite;
 }
 
 .toolbar-btn.stop:hover {
-  background: var(--color-bg-overlay);
+  background: linear-gradient(135deg, rgba(239,68,68,0.25) 0%, rgba(239,68,68,0.12) 100%);
+  border-color: rgba(239,68,68,0.5);
+  box-shadow: 0 0 20px rgba(239,68,68,0.15);
+  color: #f87171;
+}
+
+@keyframes stop-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(239,68,68,0.08); }
+  50% { box-shadow: 0 0 20px rgba(239,68,68,0.2); }
 }
 
 /* =========================================
@@ -292,6 +314,19 @@ html, body, #app {
   --dv-group-view-background-color: var(--color-bg-surface);
 }
 
+/* Tab text styling — smaller, cleaner */
+.dockview-theme-dark .tab {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  transition: color 0.15s ease, background 0.15s ease !important;
+}
+
+.dockview-theme-dark .tab:hover:not(.active-tab) {
+  background: rgba(255,255,255,0.03) !important;
+  color: var(--color-text-secondary) !important;
+}
+
 /* Active tab bottom border accent */
 .dockview-theme-dark .tab.active-tab {
   border-bottom: 2px solid var(--color-blue) !important;
@@ -318,10 +353,11 @@ html, body, #app {
 /* Floating group container — the draggable overlay */
 .dockview-theme-dark .dv-floating-groupview {
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(59,130,246,0.15);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(59,130,246,0.12), 0 0 40px rgba(0,0,0,0.4);
   background: var(--color-bg-surface);
   overflow: hidden;
+  backdrop-filter: blur(8px);
 }
 
 /* Floating group resize handles */
@@ -349,21 +385,24 @@ html, body, #app {
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out),
-              color var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out),
+              color var(--duration-normal) var(--ease-out),
+              transform 60ms var(--ease-out);
 }
 
 .docking-action-btn:hover {
   background: var(--color-bg-overlay);
   color: var(--color-text-primary);
+  transform: scale(1.05);
 }
 
 .docking-action-btn:active {
   background: var(--color-bg-subtle);
+  transform: scale(0.95);
 }
 
 .docking-action-btn svg {
@@ -458,9 +497,10 @@ html, body, #app {
 
 /* Drop target overlay styling for docking */
 .dockview-theme-dark .drop-target-dropzone > .drop-target-selection {
-  background: rgba(59, 130, 246, 0.12) !important;
-  border: 2px dashed rgba(59, 130, 246, 0.4) !important;
-  border-radius: var(--radius);
+  background: rgba(59, 130, 246, 0.10) !important;
+  border: 2px dashed rgba(59, 130, 246, 0.35) !important;
+  border-radius: var(--radius-md);
+  transition: all 0.15s ease !important;
 }
 
 /* =========================================
@@ -666,15 +706,17 @@ html, body, #app {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 10px;
   height: var(--height-menu-bar);
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border-default);
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
   color: var(--color-text-primary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   gap: 6px;
+  text-transform: uppercase;
+  font-size: 10px;
 }
 
 .panel-header svg {
@@ -697,12 +739,13 @@ html, body, #app {
 }
 
 .panel-body::-webkit-scrollbar-thumb {
-  background: var(--color-bg-subtle);
+  background: rgba(255,255,255,0.08);
   border-radius: 3px;
+  transition: background 0.2s;
 }
 
 .panel-body::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  background: rgba(255,255,255,0.16);
 }
 
 /* =========================================
@@ -717,8 +760,10 @@ html, body, #app {
   cursor: pointer;
   font-size: var(--text-sm);
   color: var(--color-text-primary);
-  transition: background var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out),
+              border-color var(--duration-normal) var(--ease-out);
   height: var(--height-tree-item);
+  border-left: 2px solid transparent;
 }
 
 .content-browser-item:hover {
@@ -727,7 +772,7 @@ html, body, #app {
 
 .content-browser-item.selected {
   background: var(--color-blue-muted);
-  border-left: 2px solid var(--color-blue);
+  border-left-color: var(--color-blue);
 }
 
 .content-browser-item .icon {
@@ -767,7 +812,14 @@ html, body, #app {
   border-radius: var(--radius-md);
   padding: 4px 0;
   min-width: 220px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0,0,0,0.15);
+  backdrop-filter: blur(12px);
+  animation: ctx-menu-in 120ms var(--ease-spring);
+}
+
+@keyframes ctx-menu-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 .context-menu-item {
@@ -778,12 +830,15 @@ html, body, #app {
   font-size: var(--text-sm);
   color: var(--color-text-primary);
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
   gap: 8px;
+  border-radius: 3px;
+  margin: 0 4px;
 }
 
 .context-menu-item:hover {
-  background: var(--color-bg-overlay);
+  background: var(--color-blue-dim);
 }
 
 .context-menu-item .shortcut {
@@ -844,11 +899,13 @@ html, body, #app {
   padding: 0 8px;
   margin: 4px 0 2px;
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: all var(--duration-normal) var(--ease-out);
+  border-left: 2px solid transparent;
 }
 
 .prop-group-header:hover {
   background: var(--color-bg-overlay);
+  border-left-color: var(--color-blue);
 }
 
 .prop-group-header .label {
@@ -894,17 +951,20 @@ html, body, #app {
   font-family: var(--font-family-mono);
   color: var(--color-text-primary);
   outline: none;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              box-shadow var(--duration-fast) var(--ease-out);
+  transition: border-color var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 
 .prop-input:hover {
   border-color: var(--color-border-strong);
+  background: rgba(255,255,255,0.04);
 }
 
 .prop-input:focus {
   border-color: var(--color-blue);
   box-shadow: var(--shadow-glow-blue);
+  background: rgba(59,130,246,0.03);
 }
 
 .prop-input-sm {
@@ -969,7 +1029,13 @@ html, body, #app {
   padding: 0 8px;
   outline: none;
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out);
+  transition: border-color var(--duration-normal) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+
+.prop-select:hover {
+  border-color: var(--color-border-strong);
+  background: rgba(255,255,255,0.04);
 }
 
 .prop-select:focus {
@@ -1024,12 +1090,15 @@ html, body, #app {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--color-border-default);
-  transition: background var(--duration-fast) var(--ease-out);
+  border-left: 2px solid transparent;
+  transition: background var(--duration-normal) var(--ease-out),
+              border-left-color var(--duration-normal) var(--ease-out);
 }
 
 .physics-section-header:hover {
   background: var(--color-bg-overlay);
   color: var(--color-text-primary);
+  border-left-color: var(--color-blue);
 }
 
 .physics-section-body {
@@ -2444,45 +2513,62 @@ html, body, #app {
   top: 100%;
   left: 0;
   margin-top: 2px;
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  min-width: 200px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  min-width: 220px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0,0,0,0.2);
   z-index: 10000;
   padding: 4px 0;
+  backdrop-filter: blur(12px);
+  transform-origin: top left;
 }
 
 .toolbar-dropdown-content.show {
   display: block;
+  animation: dropdown-in 150ms var(--ease-spring);
+}
+
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .toolbar-dropdown-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 14px;
+  padding: 7px 14px;
   font-size: 12px;
-  color: var(--text);
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+  border-radius: 3px;
+  margin: 0 4px;
 }
 
 .toolbar-dropdown-item:hover {
-  background: var(--accent-dim);
-  color: var(--text-bright);
+  background: var(--color-blue-dim);
+  color: var(--color-text-primary);
 }
 
 .toolbar-dropdown-item .shortcut {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--color-text-muted);
   margin-left: 24px;
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.06);
 }
 
 .toolbar-dropdown-divider {
   height: 1px;
-  background: var(--border);
-  margin: 4px 0;
+  background: var(--color-border-default);
+  margin: 4px 8px;
 }
 
 .toolbar-spacer {
@@ -4846,8 +4932,9 @@ html, body, #app {
   align-items: center;
   gap: 2px;
   padding: 0 6px;
-  background: rgba(22, 22, 30, 0.92);
-  border-bottom: 1px solid var(--border);
+  background: rgba(22, 22, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   z-index: 100;
   pointer-events: auto;
 }
@@ -7283,6 +7370,169 @@ html, body, #app {
 
 .tile-layer-item.selected {
   background: rgba(141, 110, 99, 0.15);
+}
+
+/* =========================================
+   Global UI Polish & Enhancements
+   ========================================= */
+
+/* ── Smooth global scrollbar styling ────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.12);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── Focus-visible ring for keyboard navigation ─────────── */
+.toolbar-btn:focus-visible,
+.prop-input:focus-visible,
+.prop-select:focus-visible,
+.context-menu-item:focus-visible,
+.toolbar-dropdown-item:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+/* ── Subtle selection color ─────────────────────────────── */
+::selection {
+  background: rgba(59,130,246,0.3);
+  color: #fff;
+}
+
+/* ── Smoother resize handles for dockview ────────────────── */
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-right,
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-left {
+  width: 3px !important;
+  transition: background 0.2s ease, width 0.15s ease !important;
+}
+
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-right:hover,
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-left:hover {
+  width: 4px !important;
+  background: var(--color-blue) !important;
+}
+
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-top,
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-bottom {
+  height: 3px !important;
+  transition: background 0.2s ease, height 0.15s ease !important;
+}
+
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-top:hover,
+.dockview-theme-dark .dv-resize-container > .dv-resize-handle-bottom:hover {
+  height: 4px !important;
+  background: var(--color-blue) !important;
+}
+
+/* ── Viewport play-mode enhancement ─────────────────────── */
+.viewport-container.play-mode {
+  box-shadow: inset 0 0 0 2px var(--color-green), inset 0 0 24px rgba(34,197,94,0.06);
+}
+
+/* ── Improved prop-row hover ────────────────────────────── */
+.prop-row {
+  transition: background var(--duration-normal) var(--ease-out);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Tree item hover transitions ────────────────────────── */
+.cb-tree-item,
+.outliner-item,
+.outliner-go-item,
+.folder-tree-item {
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease !important;
+}
+
+/* ── Content browser card lift effect ───────────────────── */
+.cb-card {
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease, transform 0.15s ease !important;
+}
+
+.cb-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.1) !important;
+}
+
+/* ── Subtle toolbar scene/project name styling ──────────── */
+.toolbar-scene-name {
+  font-size: 11px;
+  color: var(--color-blue);
+  margin-right: 4px;
+  font-weight: 500;
+  -webkit-app-region: no-drag;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.toolbar-scene-name:hover {
+  opacity: 1;
+}
+
+.toolbar-project-name {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-right: 8px;
+  -webkit-app-region: no-drag;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.toolbar-project-name:hover {
+  opacity: 1;
+}
+
+/* ── Improved loading/empty states ──────────────────────── */
+.prop-empty,
+.cb-empty-state,
+.wbp-library-placeholder {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ── Keyboard shortcut badges in menus ──────────────────── */
+.context-menu-item .shortcut {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  padding: 1px 5px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ── Viewport context menu polish ───────────────────────── */
+.vp-context-menu {
+  backdrop-filter: blur(12px) !important;
+  animation: ctx-menu-in 120ms var(--ease-spring) !important;
+}
+
+/* ── Notification slide-in enhancement ──────────────────── */
+.vp-notification {
+  backdrop-filter: blur(8px);
+}
+
+/* ── Prevent jarring flashes during panel transitions ───── */
+.panel,
+.panel-body,
+.editor-container {
+  will-change: auto;
 }
 
 /* Character 2D Pad */

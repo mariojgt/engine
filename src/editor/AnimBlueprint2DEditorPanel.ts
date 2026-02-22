@@ -7,7 +7,7 @@
 //  State properties: sprite sheet picker, animation picker, FPS, loop, live preview
 // ============================================================
 
-import { iconHTML, Icons, ICON_COLORS } from './icons';
+import { iconHTML, Icons, ICON_COLORS, setTextWithIcon, createIconSpan } from './icons';
 import type {
   AnimBlueprintAsset,
   AnimStateData,
@@ -295,17 +295,17 @@ export class AnimBlueprint2DEditorPanel {
   private _rebuildTabBar(): void {
     this._tabBar.innerHTML = '';
 
-    const tabs: Array<{ key: EditorTab2D; label: string; icon: string }> = [
-      { key: 'animGraph', label: 'Animation Graph', icon: '▸' },
-      { key: 'eventGraph', label: 'Event Variables', icon: '▪' },
-      { key: 'sprites', label: 'Sprites', icon: '🖼' },
-      { key: 'blendSpaces', label: 'Blend Spaces', icon: '▴' },
+    const tabs: Array<{ key: EditorTab2D; label: string; icon: any[]; iconColor?: string }> = [
+      { key: 'animGraph', label: 'Animation Graph', icon: Icons.GitBranch, iconColor: ICON_COLORS.blueprint },
+      { key: 'eventGraph', label: 'Event Variables', icon: Icons.Workflow, iconColor: ICON_COLORS.secondary },
+      { key: 'sprites', label: 'Sprites', icon: Icons.Image, iconColor: ICON_COLORS.success },
+      { key: 'blendSpaces', label: 'Blend Spaces', icon: Icons.Activity, iconColor: ICON_COLORS.secondary },
     ];
 
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.className = `anim-bp-tab${this._activeTab === tab.key ? ' active' : ''}`;
-      btn.textContent = `${tab.icon} ${tab.label}`;
+      btn.innerHTML = iconHTML(tab.icon, 'xs', tab.iconColor) + ' ' + tab.label;
       btn.addEventListener('click', () => {
         this._activeTab = tab.key;
         this._rebuildTabBar();
@@ -335,7 +335,7 @@ export class AnimBlueprint2DEditorPanel {
     // Open Sprite Animation Editor
     const animEdBtn = document.createElement('button');
     animEdBtn.className = 'toolbar-btn';
-    animEdBtn.innerHTML = '🎬 Animations';
+    animEdBtn.innerHTML = iconHTML(Icons.Clapperboard, 'xs', ICON_COLORS.secondary) + ' Animations';
     animEdBtn.title = 'Open the Sprite Animation Editor to create or edit named animations';
     animEdBtn.addEventListener('click', () => {
       if (!this._scene2DManager) {
@@ -991,19 +991,19 @@ export class AnimBlueprint2DEditorPanel {
     const hitState = this._hitTestState(worldX, worldY);
 
     if (hitState) {
-      this._addMenuItem(menu, '⭐ Set as Entry State', () => {
+      this._addMenuItem(menu, iconHTML(Icons.Star, 'xs', ICON_COLORS.warning) + ' Set as Entry State', () => {
         this._asset.stateMachine.entryStateId = hitState.id;
         this._asset.touch();
         this._renderGraph();
       });
 
-      this._addMenuItem(menu, '→ Add Transition From Here', () => {
+      this._addMenuItem(menu, iconHTML(Icons.ArrowRight, 'xs', ICON_COLORS.secondary) + ' Add Transition From Here', () => {
         this._linkingFrom = hitState;
       });
 
       menu.appendChild(this._menuSep());
 
-      const del = this._addMenuItem(menu, '🗑 Delete State', () => {
+      const del = this._addMenuItem(menu, iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red) + ' Delete State', () => {
         const sm = this._asset.stateMachine;
         sm.states = sm.states.filter(s => s.id !== hitState.id);
         sm.transitions = sm.transitions.filter(t => t.fromStateId !== hitState.id && t.toStateId !== hitState.id);
@@ -1031,7 +1031,7 @@ export class AnimBlueprint2DEditorPanel {
         });
       });
 
-      this._addMenuItem(menu, '⭐ Add Wildcard Transition', () => {
+      this._addMenuItem(menu, iconHTML(Icons.Star, 'xs', ICON_COLORS.warning) + ' Add Wildcard Transition', () => {
         const targets = this._asset.stateMachine.states;
         if (targets.length === 0) return;
         this._showSelect('Target State', targets.map(s => s.name), (name) => {
@@ -1051,7 +1051,7 @@ export class AnimBlueprint2DEditorPanel {
     const hitTrans = this._hitTestTransition(worldX, worldY);
     if (hitTrans && !hitState) {
       menu.appendChild(this._menuSep());
-      const del = this._addMenuItem(menu, '🗑 Delete Transition', () => {
+      const del = this._addMenuItem(menu, iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red) + ' Delete Transition', () => {
         this._asset.stateMachine.transitions = this._asset.stateMachine.transitions.filter(t => t.id !== hitTrans.id);
         if (this._selectedTransitionId === hitTrans.id) this._selectedTransitionId = null;
         this._asset.touch();
@@ -1335,14 +1335,14 @@ export class AnimBlueprint2DEditorPanel {
       if (state.spriteSheetId && state.spriteAnimationName) {
         const editBtn = document.createElement('button');
         editBtn.className = 'toolbar-btn';
-        editBtn.innerHTML = '✏️ Edit Animation';
+        editBtn.innerHTML = iconHTML(Icons.Pencil, 'xs', ICON_COLORS.muted) + ' Edit Animation';
         editBtn.title = `Edit "${state.spriteAnimationName}"`;
         editBtn.addEventListener('click', () => openEditor(state.spriteSheetId, state.spriteAnimationName));
         animBtnRow.appendChild(editBtn);
       }
       const newBtn = document.createElement('button');
       newBtn.className = 'toolbar-btn';
-      newBtn.innerHTML = '🎬 New Animation';
+      newBtn.innerHTML = iconHTML(Icons.Clapperboard, 'xs', ICON_COLORS.secondary) + ' New Animation';
       newBtn.addEventListener('click', () => openEditor());
       animBtnRow.appendChild(newBtn);
       p.appendChild(animBtnRow);
@@ -1351,7 +1351,7 @@ export class AnimBlueprint2DEditorPanel {
         const hint = document.createElement('div');
         hint.className = 'anim-props-hint';
         hint.style.cssText = 'color:#fb923c;padding:0 10px 6px;font-size:11px;';
-        hint.textContent = 'No animations yet. Click "🎬 New Animation" to create one.';
+        hint.textContent = 'No animations yet. Click "New Animation" to create one.';
         p.appendChild(hint);
       }
 
@@ -1385,7 +1385,9 @@ export class AnimBlueprint2DEditorPanel {
     const setEntryBtn = document.createElement('button');
     setEntryBtn.className = 'toolbar-btn';
     setEntryBtn.style.margin = '6px 10px';
-    setEntryBtn.textContent = this._asset.stateMachine.entryStateId === state.id ? '⭐ Entry State' : 'Set as Entry State';
+    setEntryBtn.innerHTML = this._asset.stateMachine.entryStateId === state.id
+      ? iconHTML(Icons.Star, 'xs', ICON_COLORS.warning) + ' Entry State'
+      : 'Set as Entry State';
     setEntryBtn.disabled = this._asset.stateMachine.entryStateId === state.id;
     setEntryBtn.addEventListener('click', () => {
       this._asset.stateMachine.entryStateId = state.id;
@@ -1472,7 +1474,7 @@ export class AnimBlueprint2DEditorPanel {
     const cardHeader = document.createElement('div');
     cardHeader.className = 'anim-bs-header';
     const nameSpan = document.createElement('span');
-    nameSpan.textContent = `▴ ${bs.name}`;
+    nameSpan.innerHTML = iconHTML(Icons.Activity, 'xs', ICON_COLORS.secondary) + ' ' + bs.name;
     cardHeader.appendChild(nameSpan);
     const headerBtns = document.createElement('div');
     headerBtns.style.cssText = 'display:flex;gap:4px;';
@@ -1493,7 +1495,7 @@ export class AnimBlueprint2DEditorPanel {
 
     const delBtn = document.createElement('button');
     delBtn.className = 'prop-btn-danger';
-    delBtn.innerHTML = '✕';
+    delBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
     delBtn.title = 'Delete Blend Space';
     delBtn.addEventListener('click', () => {
       const idx = this._asset.blendSprites1D.indexOf(bs);
@@ -1771,7 +1773,7 @@ export class AnimBlueprint2DEditorPanel {
         loopCb.addEventListener('change', (e) => { e.stopPropagation(); s.loop = loopCb.checked; this._asset.touch(); });
         loopCb.addEventListener('click', (e) => e.stopPropagation()); loopWrap.appendChild(loopCb); row.appendChild(loopWrap);
 
-        const delBtn2 = document.createElement('button'); delBtn2.className = 'bs-detail-delete'; delBtn2.innerHTML = '✕'; delBtn2.title = 'Remove sample';
+        const delBtn2 = document.createElement('button'); delBtn2.className = 'bs-detail-delete'; delBtn2.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted); delBtn2.title = 'Remove sample';
         delBtn2.addEventListener('click', (e) => {
           e.stopPropagation();
           const idx = bs.samples.findIndex(x => x.id === s.id);
@@ -1928,7 +1930,7 @@ export class AnimBlueprint2DEditorPanel {
 
       const del = document.createElement('button');
       del.className = 'prop-btn-danger';
-      del.textContent = '✕';
+      del.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
       del.addEventListener('click', () => {
         group.rules = group.rules.filter(r => r.id !== rule.id);
         this._asset.touch();
@@ -2120,20 +2122,20 @@ export class AnimBlueprint2DEditorPanel {
     const mkBtn = (label: string, onClick: () => void) => {
       const b = document.createElement('button');
       b.className = 'toolbar-btn';
-      b.textContent = label;
-      b.style.cssText += 'padding:2px 7px;font-size:11px;';
+      b.innerHTML = label;
+      b.style.cssText += 'padding:2px 7px;font-size:11px;';;
       b.addEventListener('click', onClick);
       return b;
     };
 
-    ctrlRow.appendChild(mkBtn('◀◀', () => {
+    ctrlRow.appendChild(mkBtn(iconHTML(Icons.SkipBack, 'xs', ICON_COLORS.secondary), () => {
       this._stopPreview();
       this._previewFrameIndex = 0;
       scrub.value = '0';
       frameLabel.textContent = `1/${anim.frames.length}`;
       this._drawPreviewFrame(sheet, anim, 0);
     }));
-    ctrlRow.appendChild(mkBtn('◀', () => {
+    ctrlRow.appendChild(mkBtn(iconHTML(Icons.ChevronLeft, 'xs', ICON_COLORS.secondary), () => {
       this._stopPreview();
       this._previewFrameIndex = Math.max(0, this._previewFrameIndex - 1);
       scrub.value = String(this._previewFrameIndex);
@@ -2141,25 +2143,25 @@ export class AnimBlueprint2DEditorPanel {
       this._drawPreviewFrame(sheet, anim, this._previewFrameIndex);
     }));
 
-    const playBtn = mkBtn('▶ Play', () => {
+    const playBtn = mkBtn(iconHTML(Icons.Play, 'xs') + ' Play', () => {
       if (this._previewIsPlaying) {
         this._stopPreview();
-        playBtn.textContent = '▶ Play';
+        playBtn.innerHTML = iconHTML(Icons.Play, 'xs') + ' Play';
       } else {
-        playBtn.textContent = '⏹ Stop';
+        playBtn.innerHTML = iconHTML(Icons.Square, 'xs') + ' Stop';
         this._startPreview(sheet, anim, state, scrub, frameLabel);
       }
     });
     ctrlRow.appendChild(playBtn);
 
-    ctrlRow.appendChild(mkBtn('▶', () => {
+    ctrlRow.appendChild(mkBtn(iconHTML(Icons.ChevronRight, 'xs', ICON_COLORS.secondary), () => {
       this._stopPreview();
       this._previewFrameIndex = (this._previewFrameIndex + 1) % anim.frames.length;
       scrub.value = String(this._previewFrameIndex);
       frameLabel.textContent = `${this._previewFrameIndex + 1}/${anim.frames.length}`;
       this._drawPreviewFrame(sheet, anim, this._previewFrameIndex);
     }));
-    ctrlRow.appendChild(mkBtn('▶▶', () => {
+    ctrlRow.appendChild(mkBtn(iconHTML(Icons.SkipForward, 'xs', ICON_COLORS.secondary), () => {
       this._stopPreview();
       this._previewFrameIndex = anim.frames.length - 1;
       scrub.value = String(this._previewFrameIndex);
@@ -2424,7 +2426,7 @@ export class AnimBlueprint2DEditorPanel {
 
       const delBtn = document.createElement('button');
       delBtn.className = 'prop-btn-danger';
-      delBtn.textContent = '✕';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted);
       delBtn.addEventListener('click', () => {
         this._asset.blueprintData.removeVariable(v.id);
         this._asset.touch();
@@ -2449,7 +2451,7 @@ export class AnimBlueprint2DEditorPanel {
       const empty = document.createElement('div');
       empty.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;';
       empty.innerHTML = `
-        <div style="font-size:48px;opacity:0.3">🖼</div>
+        <div style="opacity:0.3">${iconHTML(Icons.Image, 48, ICON_COLORS.muted)}</div>
         <div style="font-weight:600;">No Sprite Sheets Available</div>
         <div style="font-size:12px;text-align:center;max-width:320px;">
           Import sprite sheets in the editor (use File → Import or the Content Browser),
@@ -2524,7 +2526,7 @@ export class AnimBlueprint2DEditorPanel {
           const animRow = document.createElement('div');
           animRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;margin-bottom:2px;background:#1a1a2e;';
           animRow.innerHTML = `
-            <span style="color:#3b82f6;font-size:13px;">▶</span>
+            ${iconHTML(Icons.Play, 'xs', '#3b82f6')}
             <span style="flex:1;font-size:12px;">${anim.animName}</span>
             <span style="font-size:10px;color:#64748b;">${anim.frames.length}fr · ${anim.fps}fps</span>
           `;

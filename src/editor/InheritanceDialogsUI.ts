@@ -566,7 +566,7 @@ export function inheritanceBadgeHTML(isInherited: boolean, isOverridden: boolean
 export function resetToParentButton(label: string, onClick: () => void): HTMLElement {
   const btn = document.createElement('button');
   btn.className = 'inh-reset-btn';
-  btn.textContent = `↩ Reset to Parent${label ? ': ' + label : ''}`;
+  btn.innerHTML = `${iconHTML(Icons.RotateCcw, 'xs')} Reset to Parent${label ? ': ' + label : ''}`;
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     onClick();

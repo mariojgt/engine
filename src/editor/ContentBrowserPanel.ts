@@ -1,7 +1,7 @@
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { MeshType } from '../engine/Scene';
-import { createIcon, Icons, ICON_COLORS } from './icons';
+import { createIcon, iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class ContentBrowserPanel {
   public container: HTMLElement;
@@ -77,7 +77,7 @@ export class ContentBrowserPanel {
 
       const icon = document.createElement('span');
       icon.className = 'icon';
-      icon.textContent = this._getIcon(go);
+      icon.innerHTML = this._getIcon(go);
 
       const name = document.createElement('span');
       name.textContent = go.name;
@@ -119,7 +119,7 @@ export class ContentBrowserPanel {
   }
 
   private _getIcon(go: GameObject): string {
-    return '▢'; // Uniform box glyph for all mesh types
+    return iconHTML(Icons.Box, 'sm'); // Uniform box icon for all mesh types
   }
 
   private _showAddMenu(e: MouseEvent): void {

@@ -6,6 +6,7 @@
 
 import type { SpriteSheetAsset, SpriteData, SpriteAnimationDef, SpriteAnimEvent } from '../engine/SpriteRenderer';
 import type { Scene2DManager } from './Scene2DManager';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class SpriteSheetEditorPanel {
   private _container: HTMLElement;
@@ -74,7 +75,7 @@ export class SpriteSheetEditorPanel {
     // Header bar
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #313244;gap:8px;';
-    header.innerHTML = `<span style="opacity:0.6">🎬</span><span class="ss-title" style="font-weight:600;flex:1">Sprite Sheet</span>`;
+    header.innerHTML = `${iconHTML(Icons.Clapperboard, 'xs', ICON_COLORS.secondary)}<span class="ss-title" style="font-weight:600;flex:1">Sprite Sheet</span>`;
 
     const saveBtn = this._makeBtn('Save', () => { if (this._asset) this._onSave?.(this._asset); });
     const revertBtn = this._makeBtn('Revert', () => { /* TODO */ });
@@ -175,11 +176,11 @@ export class SpriteSheetEditorPanel {
     // Controls
     const controlRow = document.createElement('div');
     controlRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;align-items:center;';
-    controlRow.appendChild(this._makeBtn('◀◀', () => { this._previewFrame = 0; this._renderPreviewFrame(); }));
-    controlRow.appendChild(this._makeBtn('◀', () => { if (this._previewFrame > 0) this._previewFrame--; this._renderPreviewFrame(); }));
-    controlRow.appendChild(this._makeBtn('▶ Play', () => this._togglePreview()));
-    controlRow.appendChild(this._makeBtn('▶', () => this._advancePreviewFrame()));
-    controlRow.appendChild(this._makeBtn('▶▶', () => {
+    controlRow.appendChild(this._makeBtn(iconHTML(Icons.SkipBack, 'xs', ICON_COLORS.secondary), () => { this._previewFrame = 0; this._renderPreviewFrame(); }));
+    controlRow.appendChild(this._makeBtn(iconHTML(Icons.ChevronLeft, 'xs', ICON_COLORS.secondary), () => { if (this._previewFrame > 0) this._previewFrame--; this._renderPreviewFrame(); }));
+    controlRow.appendChild(this._makeBtn(iconHTML(Icons.Play, 'xs') + ' Play', () => this._togglePreview()));
+    controlRow.appendChild(this._makeBtn(iconHTML(Icons.ChevronRight, 'xs', ICON_COLORS.secondary), () => this._advancePreviewFrame()));
+    controlRow.appendChild(this._makeBtn(iconHTML(Icons.SkipForward, 'xs', ICON_COLORS.secondary), () => {
       if (this._selectedAnim) { this._previewFrame = this._selectedAnim.frames.length - 1; this._renderPreviewFrame(); }
     }));
     const speedLabel = document.createElement('span');
@@ -250,7 +251,7 @@ export class SpriteSheetEditorPanel {
       const row = document.createElement('div');
       const isActive = anim === this._selectedAnim;
       row.style.cssText = `display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:3px;cursor:pointer;${isActive ? 'background:#45475a;' : ''}`;
-      row.innerHTML = `<span>▶</span><span style="flex:1">${anim.animName}</span><span style="opacity:0.5;font-size:10px">${anim.frames.length}fr ${anim.fps}fps${anim.loop ? ' loop' : ''}</span>`;
+      row.innerHTML = `${iconHTML(Icons.Play, 'xs', '#3b82f6')}<span style="flex:1">${anim.animName}</span><span style="opacity:0.5;font-size:10px">${anim.frames.length}fr ${anim.fps}fps${anim.loop ? ' loop' : ''}</span>`;
       row.onclick = () => {
         this._selectedAnim = anim;
         this._previewFrame = 0;
@@ -259,7 +260,7 @@ export class SpriteSheetEditorPanel {
 
       // Delete button
       const delBtn = document.createElement('button');
-      delBtn.textContent = '🗑';
+      delBtn.innerHTML = iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red);
       delBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#f38ba8;font-size:11px;padding:2px;';
       delBtn.onclick = (e) => {
         e.stopPropagation();
@@ -402,7 +403,7 @@ export class SpriteSheetEditorPanel {
       <div>Animation: <strong>${a.animName}</strong></div>
       <div>Frame: ${this._previewFrame + 1}/${a.frames.length}</div>
       <div>FPS: ${a.fps}</div>
-      <div>${a.loop ? '⟳ Loop' : '→ Once'}</div>
+      <div>${a.loop ? iconHTML(Icons.Repeat, 'xs', ICON_COLORS.muted) + ' Loop' : iconHTML(Icons.ArrowRight, 'xs', ICON_COLORS.muted) + ' Once'}</div>
     `;
   }
 
@@ -497,7 +498,7 @@ export class SpriteSheetEditorPanel {
 
   private _makeBtn(label: string, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement('button');
-    btn.textContent = label;
+    btn.innerHTML = label;
     btn.style.cssText = 'background:#45475a;color:#cdd6f4;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;';
     btn.onmouseenter = () => { btn.style.background = '#585b70'; };
     btn.onmouseleave = () => { btn.style.background = '#45475a'; };

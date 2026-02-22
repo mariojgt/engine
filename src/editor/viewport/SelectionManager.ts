@@ -515,6 +515,12 @@ export class SelectionManager {
     this.composer.render();
   }
 
+  /** Enable or disable play mode (disables selection outlines) */
+  setPlayMode(isPlaying: boolean): void {
+    this._outlineSelected.enabled = !isPlaying;
+    this._outlineHover.enabled = !isPlaying;
+  }
+
   /** Update post-processing settings from a PostProcessVolumeActor */
   updatePostProcessSettings(settings: Record<string, any>): void {
     Object.assign(this._ppSettings, settings);

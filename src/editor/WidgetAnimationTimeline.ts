@@ -136,7 +136,7 @@ export class WidgetAnimationTimeline {
     // Delete animation
     const delBtn = document.createElement('button');
     delBtn.style.cssText = 'background:#444;color:#ccc;border:none;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer;';
-    delBtn.textContent = '×';
+    delBtn.innerHTML = iconHTML(Icons.X, 'xs');
     delBtn.title = 'Delete animation';
     delBtn.addEventListener('click', () => this._deleteAnimation());
     topBar.appendChild(delBtn);
@@ -251,7 +251,7 @@ export class WidgetAnimationTimeline {
     // Rewind
     const rewindBtn = document.createElement('button');
     rewindBtn.style.cssText = btnStyle;
-    rewindBtn.innerHTML = '⏮';
+    rewindBtn.innerHTML = iconHTML(Icons.SkipBack, 'xs');
     rewindBtn.title = 'Rewind to start';
     rewindBtn.addEventListener('click', () => { this._currentTime = 0; this._renderTimeline(); this._updateTimeDisplay(); this._applyCurrentTime(); });
     this._controlsEl.appendChild(rewindBtn);
@@ -259,7 +259,7 @@ export class WidgetAnimationTimeline {
     // Play/Pause
     const playBtn = document.createElement('button');
     playBtn.style.cssText = btnStyle + (this._playbackState === 'playing' ? 'background:#2a5db0;' : '');
-    playBtn.innerHTML = this._playbackState === 'playing' ? '⏸' : '▶';
+    playBtn.innerHTML = this._playbackState === 'playing' ? iconHTML(Icons.Pause, 'xs') : iconHTML(Icons.Play, 'xs');
     playBtn.title = this._playbackState === 'playing' ? 'Pause' : 'Play';
     playBtn.addEventListener('click', () => {
       if (this._playbackState === 'playing') {
@@ -273,7 +273,7 @@ export class WidgetAnimationTimeline {
     // Stop
     const stopBtn = document.createElement('button');
     stopBtn.style.cssText = btnStyle;
-    stopBtn.innerHTML = '⏹';
+    stopBtn.innerHTML = iconHTML(Icons.Square, 'xs');
     stopBtn.title = 'Stop';
     stopBtn.addEventListener('click', () => this._stop());
     this._controlsEl.appendChild(stopBtn);
@@ -281,7 +281,7 @@ export class WidgetAnimationTimeline {
     // Forward to end
     const fwdBtn = document.createElement('button');
     fwdBtn.style.cssText = btnStyle;
-    fwdBtn.innerHTML = '⏭';
+    fwdBtn.innerHTML = iconHTML(Icons.SkipForward, 'xs');
     fwdBtn.title = 'Jump to end';
     fwdBtn.addEventListener('click', () => {
       const anim = this.currentAnimation;
@@ -299,7 +299,7 @@ export class WidgetAnimationTimeline {
     const anim = this.currentAnimation;
     const isLooping = anim?.isLooping ?? false;
     loopBtn.style.cssText = btnStyle + (isLooping ? 'background:#2a5db0;' : '');
-    loopBtn.innerHTML = '🔁';
+    loopBtn.innerHTML = iconHTML(Icons.Repeat, 'xs');
     loopBtn.title = 'Toggle loop';
     loopBtn.addEventListener('click', () => {
       const a = this.currentAnimation;
@@ -632,7 +632,7 @@ export class WidgetAnimationTimeline {
 
       const delBtn = document.createElement('button');
       delBtn.style.cssText = 'background:none;border:none;color:#666;font-size:10px;cursor:pointer;padding:0 2px;';
-      delBtn.textContent = '×';
+      delBtn.innerHTML = iconHTML(Icons.X, 'xs');
       delBtn.title = 'Remove track';
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1088,7 +1088,7 @@ export class WidgetAnimationTimeline {
     // Delete keyframe
     const delBtn = document.createElement('button');
     delBtn.style.cssText = 'background:#444;color:#ccc;border:none;border-radius:3px;padding:1px 8px;font-size:10px;cursor:pointer;margin-left:auto;';
-    delBtn.textContent = '🗑 Delete';
+    delBtn.innerHTML = `${iconHTML(Icons.Trash2, 'xs')} Delete`;
     delBtn.addEventListener('click', () => {
       track.keys.splice(keyIndex, 1);
       this._selectedKeyframe = null;

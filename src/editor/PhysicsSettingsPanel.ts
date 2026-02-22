@@ -8,6 +8,7 @@
  */
 import type { Engine } from '../engine/Engine';
 import type { PhysicsSettings } from '../engine/PhysicsWorld';
+import { iconHTML, Icons } from './icons';
 
 export class PhysicsSettingsPanel {
   public container: HTMLElement;
@@ -86,7 +87,7 @@ export class PhysicsSettingsPanel {
     hdr.style.padding = '4px 0';
     hdr.style.color = '#ccc';
     hdr.style.userSelect = 'none';
-    hdr.textContent = `▼ ${title}`;
+    hdr.innerHTML = `${iconHTML(Icons.ChevronDown, 'xs')} ${title}`;
 
     const content = document.createElement('div');
     content.className = 'prop-group-content';
@@ -97,7 +98,7 @@ export class PhysicsSettingsPanel {
     hdr.addEventListener('click', () => {
       collapsed = !collapsed;
       content.style.display = collapsed ? 'none' : '';
-      hdr.textContent = `${collapsed ? '▶' : '▼'} ${title}`;
+      hdr.innerHTML = `${collapsed ? iconHTML(Icons.ChevronRight, 'xs') : iconHTML(Icons.ChevronDown, 'xs')} ${title}`;
     });
 
     wrapper.appendChild(hdr);

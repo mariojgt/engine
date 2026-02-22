@@ -16,6 +16,7 @@ import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
+import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -33,10 +34,10 @@ async function main() {
   toolbar.className = 'toolbar';
 
   toolbar.innerHTML = `
-    <span class="toolbar-title">🪶 Feather Engine</span>
+    <span class="toolbar-title">${iconHTML(Icons.Feather, 'md', ICON_COLORS.blue)} Feather Engine</span>
     <div class="toolbar-separator"></div>
     <div class="toolbar-dropdown" id="file-menu">
-      <button class="toolbar-btn" id="btn-file">File ▾</button>
+      <button class="toolbar-btn" id="btn-file">File ${iconHTML(Icons.ChevronDown, 'xs')}</button>
       <div class="toolbar-dropdown-content" id="file-dropdown">
         <div class="toolbar-dropdown-item" id="menu-new-project">New Project…</div>
         <div class="toolbar-dropdown-item" id="menu-open-project">Open Project…</div>
@@ -49,7 +50,7 @@ async function main() {
       </div>
     </div>
     <div class="toolbar-dropdown" id="window-menu">
-      <button class="toolbar-btn" id="btn-window">Window ▾</button>
+      <button class="toolbar-btn" id="btn-window">Window ${iconHTML(Icons.ChevronDown, 'xs')}</button>
       <div class="toolbar-dropdown-content" id="window-dropdown">
         <div class="toolbar-dropdown-item" id="menu-dock-all">Dock All Panels</div>
         <div class="toolbar-dropdown-item" id="menu-reset-layout">Reset Layout</div>
@@ -59,8 +60,8 @@ async function main() {
       </div>
     </div>
     <div class="toolbar-separator"></div>
-    <button class="toolbar-btn play" id="btn-play">▶ Play</button>
-    <button class="toolbar-btn stop" id="btn-stop" style="display:none">■ Stop</button>
+    <button class="toolbar-btn play" id="btn-play">${iconHTML(Icons.Play, 'xs')} Play</button>
+    <button class="toolbar-btn stop" id="btn-stop" style="display:none">${iconHTML(Icons.Square, 'xs')} Stop</button>
     <div class="toolbar-separator"></div>
     <button class="toolbar-btn" id="btn-add-cube">+ Cube</button>
     <button class="toolbar-btn" id="btn-add-sphere">+ Sphere</button>
@@ -209,17 +210,17 @@ async function main() {
   const sceneNameEl = document.getElementById('toolbar-scene-name')!;
   function updateProjectName() {
     if (projectManager.isProjectOpen) {
-      projectNameEl.textContent = `📁 ${projectManager.projectName}`;
-      sceneNameEl.textContent = `🎬 ${projectManager.activeSceneName}`;
+      projectNameEl.innerHTML = `${iconHTML(Icons.Folder, 'sm', ICON_COLORS.folder)} ${projectManager.projectName}`;
+      sceneNameEl.innerHTML = `${iconHTML(Icons.Clapperboard, 'sm', ICON_COLORS.secondary)} ${projectManager.activeSceneName}`;
     } else {
-      projectNameEl.textContent = '';
-      sceneNameEl.textContent = '';
+      projectNameEl.innerHTML = '';
+      sceneNameEl.innerHTML = '';
     }
   }
 
   // Keep scene name in sync when ProjectManager switches scenes
   projectManager.onSceneChanged = (name: string) => {
-    sceneNameEl.textContent = `🎬 ${name}`;
+    sceneNameEl.innerHTML = `${iconHTML(Icons.Clapperboard, 'sm', ICON_COLORS.secondary)} ${name}`;
   };
 
   // Listen for 2D/3D scene mode detection on scene load
@@ -241,7 +242,7 @@ async function main() {
   editor.setSaveHandler(async () => {
     if (projectManager.isProjectOpen) {
       await projectManager.saveProject();
-      projectNameEl.textContent = `💾 Saved!`;
+      projectNameEl.innerHTML = `${iconHTML(Icons.Save, 'sm', ICON_COLORS.green)} Saved!`;
       setTimeout(updateProjectName, 1500);
     }
   });
@@ -303,7 +304,7 @@ async function main() {
         editor.switchSceneMode('3D');
       }
       updateProjectName();
-      projectNameEl.textContent = `🎬 Scene created! (${sceneMode})`;
+      projectNameEl.innerHTML = `${iconHTML(Icons.Clapperboard, 'sm', ICON_COLORS.green)} Scene created! (${sceneMode})`;
       setTimeout(updateProjectName, 1500);
     }
   });
@@ -344,7 +345,7 @@ async function main() {
       if (projectManager.isProjectOpen) {
         await projectManager.saveProject();
         // Brief visual feedback
-        projectNameEl.textContent = `💾 Saved!`;
+        projectNameEl.innerHTML = `${iconHTML(Icons.Save, 'sm', ICON_COLORS.green)} Saved!`;
         setTimeout(updateProjectName, 1500);
       }
     }
@@ -882,10 +883,10 @@ function showSceneModeDialog(parentEl: HTMLElement): Promise<string | null> {
         <label class="scene-dialog-label">Choose scene mode:</label>
         <div style="display:flex;gap:12px;margin:12px 0;">
           <button class="scene-dialog-btn confirm mode-btn" data-mode="3D" style="flex:1;padding:18px 0;font-size:16px;">
-            🧊 3D
+            ${iconHTML(Icons.Box, 'lg', ICON_COLORS.blue)} 3D
           </button>
           <button class="scene-dialog-btn confirm mode-btn" data-mode="2D" style="flex:1;padding:18px 0;font-size:16px;">
-            🎨 2D
+            ${iconHTML(Icons.Palette, 'lg', ICON_COLORS.blue)} 2D
           </button>
         </div>
         <div class="template-section" style="display:none;margin-top:8px;">
@@ -1063,7 +1064,7 @@ function showScenePickerDialog(
       const isActive = s === activeScene;
       return `
         <div class="scene-picker-item ${isActive ? 'active' : ''}" data-scene="${s}">
-          <span class="scene-picker-icon">${isActive ? '🎬' : '📄'}</span>
+          <span class="scene-picker-icon">${isActive ? iconHTML(Icons.Clapperboard, 'sm', ICON_COLORS.blue) : iconHTML(Icons.FileText, 'sm', ICON_COLORS.muted)}</span>
           <span class="scene-picker-name">${s}</span>
           ${isActive ? '<span class="scene-picker-badge">Current</span>' : ''}
         </div>

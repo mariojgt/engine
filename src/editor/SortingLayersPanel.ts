@@ -4,6 +4,7 @@
 // ============================================================
 
 import { SortingLayerManager, type SortingLayerData } from '../engine/SortingLayers';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class SortingLayersPanel {
   private _container: HTMLElement;
@@ -25,7 +26,7 @@ export class SortingLayersPanel {
     // Header
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #313244;gap:8px;';
-    header.innerHTML = `<span style="opacity:0.6">⬛</span><span style="font-weight:600;flex:1">SORTING LAYERS</span>`;
+    header.innerHTML = `${iconHTML(Icons.Layers, 'xs', ICON_COLORS.muted)}<span style="font-weight:600;flex:1">SORTING LAYERS</span>`;
 
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Add';
@@ -70,7 +71,7 @@ export class SortingLayersPanel {
 
       // Drag handle
       const handle = document.createElement('span');
-      handle.textContent = '⠿';
+      handle.innerHTML = iconHTML(Icons.GripVertical, 'xs', ICON_COLORS.muted);
       handle.style.cssText = 'opacity:0.4;cursor:grab;';
       row.appendChild(handle);
 
@@ -88,7 +89,7 @@ export class SortingLayersPanel {
 
       // Visibility toggle
       const visBtn = document.createElement('button');
-      visBtn.textContent = layer.visible ? '👁' : '👁‍🗨';
+      visBtn.innerHTML = layer.visible ? iconHTML(Icons.Eye, 'xs', ICON_COLORS.muted) : iconHTML(Icons.EyeOff, 'xs', ICON_COLORS.muted);
       visBtn.title = 'Toggle visibility';
       visBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:2px;opacity:' + (layer.visible ? '1' : '0.4');
       visBtn.onclick = (e) => { e.stopPropagation(); this._manager.toggleVisibility(layer.name); };
@@ -96,7 +97,7 @@ export class SortingLayersPanel {
 
       // Lock toggle
       const lockBtn = document.createElement('button');
-      lockBtn.textContent = layer.locked ? '🔒' : '🔓';
+      lockBtn.innerHTML = layer.locked ? iconHTML(Icons.Lock, 'xs', ICON_COLORS.muted) : iconHTML(Icons.Unlock, 'xs', ICON_COLORS.muted);
       lockBtn.title = 'Toggle lock';
       lockBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:2px;';
       lockBtn.onclick = (e) => { e.stopPropagation(); this._manager.toggleLock(layer.name); };
@@ -104,7 +105,7 @@ export class SortingLayersPanel {
 
       // Rename
       const renameBtn = document.createElement('button');
-      renameBtn.textContent = '✎';
+      renameBtn.innerHTML = iconHTML(Icons.Pencil, 'xs', ICON_COLORS.muted);
       renameBtn.title = 'Rename';
       renameBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#cdd6f4;font-size:12px;padding:2px;';
       renameBtn.onclick = (e) => {
@@ -117,7 +118,7 @@ export class SortingLayersPanel {
       // Delete (not for Default)
       if (layer.name !== 'Default') {
         const delBtn = document.createElement('button');
-        delBtn.textContent = '🗑';
+        delBtn.innerHTML = iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red);
         delBtn.title = 'Delete';
         delBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#f38ba8;font-size:12px;padding:2px;';
         delBtn.onclick = (e) => { e.stopPropagation(); this._manager.removeLayer(layer.name); };

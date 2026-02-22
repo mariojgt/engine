@@ -242,7 +242,7 @@ export class StructureEditorPanel {
       const upBtn = document.createElement('button');
       upBtn.className = 'struct-field-action-btn';
       upBtn.title = 'Move Up';
-      upBtn.textContent = '▲';
+      upBtn.innerHTML = iconHTML(Icons.ChevronUp, 'xs');
       upBtn.addEventListener('click', () => {
         this._asset.reorderField(field.id, index - 1);
         this._emit();
@@ -255,7 +255,7 @@ export class StructureEditorPanel {
       const downBtn = document.createElement('button');
       downBtn.className = 'struct-field-action-btn';
       downBtn.title = 'Move Down';
-      downBtn.textContent = '▼';
+      downBtn.innerHTML = iconHTML(Icons.ChevronDown, 'xs');
       downBtn.addEventListener('click', () => {
         this._asset.reorderField(field.id, index + 1);
         this._emit();
@@ -267,7 +267,7 @@ export class StructureEditorPanel {
     const delBtn = document.createElement('button');
     delBtn.className = 'struct-field-action-btn struct-field-delete-btn';
     delBtn.title = 'Delete Field';
-    delBtn.textContent = '✕';
+    delBtn.innerHTML = iconHTML(Icons.X, 'xs');
     delBtn.addEventListener('click', () => {
       this._asset.removeField(field.id);
       this._emit();

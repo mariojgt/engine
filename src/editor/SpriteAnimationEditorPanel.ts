@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { SpriteSheetAsset, SpriteData, SpriteAnimationDef, SpriteAnimEvent } from '../engine/SpriteRenderer';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export class SpriteAnimationEditorPanel {
   private _container: HTMLElement;
@@ -58,7 +59,7 @@ export class SpriteAnimationEditorPanel {
     // Header
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #313244;gap:8px;';
-    header.innerHTML = `<span style="opacity:0.6">🎬</span><span style="font-weight:600;flex:1">SPRITE ANIMATION EDITOR</span>`;
+    header.innerHTML = `${iconHTML(Icons.Clapperboard, 'xs', ICON_COLORS.secondary)}<span style="font-weight:600;flex:1">SPRITE ANIMATION EDITOR</span>`;
     root.appendChild(header);
 
     // Main split: left (anim list) | right (timeline + events + preview)
@@ -100,8 +101,8 @@ export class SpriteAnimationEditorPanel {
       <span>FPS <input type="number" class="anim-fps" value="8" min="1" max="60" style="width:40px"></span>
       <label><input type="checkbox" class="anim-loop" checked> Loop</label>
     `;
-    const previewBtn = this._makeBtn('▶ Preview', () => this._togglePreview());
-    const stopBtn = this._makeBtn('⏹ Stop', () => this._stopPreview());
+    const previewBtn = this._makeBtn(iconHTML(Icons.Play, 'xs') + ' Preview', () => this._togglePreview());
+    const stopBtn = this._makeBtn(iconHTML(Icons.Square, 'xs') + ' Stop', () => this._stopPreview());
     controlsRow.appendChild(previewBtn);
     controlsRow.appendChild(stopBtn);
     timelineSection.appendChild(controlsRow);
@@ -141,11 +142,11 @@ export class SpriteAnimationEditorPanel {
     // Playback controls
     const playRow = document.createElement('div');
     playRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;';
-    playRow.appendChild(this._makeBtn('◀◀', () => { this._currentFrame = 0; this._renderPreview(); }));
-    playRow.appendChild(this._makeBtn('◀', () => { if (this._currentFrame > 0) this._currentFrame--; this._renderPreview(); }));
-    playRow.appendChild(this._makeBtn('▶ Play', () => this._togglePreview()));
-    playRow.appendChild(this._makeBtn('▶', () => { this._advanceFrame(); }));
-    playRow.appendChild(this._makeBtn('▶▶', () => {
+    playRow.appendChild(this._makeBtn(iconHTML(Icons.SkipBack, 'xs', ICON_COLORS.secondary), () => { this._currentFrame = 0; this._renderPreview(); }));
+    playRow.appendChild(this._makeBtn(iconHTML(Icons.ChevronLeft, 'xs', ICON_COLORS.secondary), () => { if (this._currentFrame > 0) this._currentFrame--; this._renderPreview(); }));
+    playRow.appendChild(this._makeBtn(iconHTML(Icons.Play, 'xs') + ' Play', () => this._togglePreview()));
+    playRow.appendChild(this._makeBtn(iconHTML(Icons.ChevronRight, 'xs', ICON_COLORS.secondary), () => { this._advanceFrame(); }));
+    playRow.appendChild(this._makeBtn(iconHTML(Icons.SkipForward, 'xs', ICON_COLORS.secondary), () => {
       if (this._selectedAnim) { this._currentFrame = this._selectedAnim.frames.length - 1; this._renderPreview(); }
     }));
     previewSection.appendChild(playRow);
@@ -179,7 +180,7 @@ export class SpriteAnimationEditorPanel {
       const row = document.createElement('div');
       const isActive = anim === this._selectedAnim;
       row.style.cssText = `padding:4px 6px;border-radius:3px;cursor:pointer;display:flex;align-items:center;gap:4px;${isActive ? 'background:#45475a;' : ''}`;
-      row.innerHTML = `<span>▶</span><span style="flex:1">${anim.animName}</span>`;
+      row.innerHTML = `${iconHTML(Icons.Play, 'xs', '#3b82f6')}<span style="flex:1">${anim.animName}</span>`;
       row.onclick = () => {
         this._selectedAnim = anim;
         this._currentFrame = 0;
@@ -187,7 +188,7 @@ export class SpriteAnimationEditorPanel {
       };
 
       const delBtn = document.createElement('button');
-      delBtn.textContent = '🗑';
+      delBtn.innerHTML = iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red);
       delBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#f38ba8;font-size:11px;padding:2px;';
       delBtn.onclick = (e) => {
         e.stopPropagation();
@@ -262,7 +263,7 @@ export class SpriteAnimationEditorPanel {
 
       // Remove frame button
       const removeBtn = document.createElement('span');
-      removeBtn.textContent = '×';
+      removeBtn.innerHTML = iconHTML(Icons.X, 'xs');
       removeBtn.style.cssText = 'position:absolute;top:0;right:2px;cursor:pointer;color:#f38ba8;font-size:10px;';
       removeBtn.onclick = (e) => {
         e.stopPropagation();
@@ -290,7 +291,7 @@ export class SpriteAnimationEditorPanel {
       const input = row.querySelector('input')!;
       input.onchange = () => { ev.name = input.value; this._onChanged?.(); };
 
-      const delBtn = this._makeBtn('🗑', () => {
+      const delBtn = this._makeBtn(iconHTML(Icons.Trash2, 'xs', ICON_COLORS.red), () => {
         this._selectedAnim!.events = this._selectedAnim!.events.filter(e => e !== ev);
         this._renderEvents();
         this._onChanged?.();
@@ -438,7 +439,7 @@ export class SpriteAnimationEditorPanel {
 
   private _makeBtn(label: string, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement('button');
-    btn.textContent = label;
+    btn.innerHTML = label;
     btn.style.cssText = 'background:#45475a;color:#cdd6f4;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;';
     btn.onmouseenter = () => { btn.style.background = '#585b70'; };
     btn.onmouseleave = () => { btn.style.background = '#45475a'; };

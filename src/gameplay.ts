@@ -10,6 +10,8 @@ import { Engine } from './engine/Engine';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import { RenderPipeline } from './engine/RenderPipeline';
+
 console.log('[Gameplay] Gameplay window script loaded');
 
 const canvas = document.getElementById('render-canvas') as HTMLCanvasElement;
@@ -19,6 +21,7 @@ const frameTimeDisplay = document.getElementById('frame-time') as HTMLElement;
 const loadingOverlay = document.getElementById('loading-overlay') as HTMLElement;
 
 let renderer: THREE.WebGLRenderer | null = null;
+let renderPipeline: RenderPipeline | null = null;
 let engine: Engine | null = null;
 let animationId: number | null = null;
 
@@ -46,6 +49,9 @@ function initRenderer(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
     renderer!.setSize(w, h);
+    if (renderPipeline) {
+      renderPipeline.resize(w, h);
+    }
   };
   resize();
   window.addEventListener('resize', resize);
@@ -84,7 +90,23 @@ function gameLoop(time: number): void {
       ?? engine.playerControllers.getActiveCamera();
 
     if (cam) {
-      renderer.render(engine.scene.threeScene, cam);
+      if (renderPipeline) {
+        // Update volumetric effects (sun position)
+        const sunEntry = engine.scene.gameObjects.find(go => go.name === 'DirectionalLight');
+        if (sunEntry && sunEntry.mesh) {
+          const lightDir = new THREE.Vector3(0, 0, -1).applyQuaternion(sunEntry.mesh.quaternion);
+          const sunWorldPos = lightDir.clone().multiplyScalar(-1000);
+          const sunScreen = sunWorldPos.clone().project(cam);
+          const sx = sunScreen.x * 0.5 + 0.5;
+          const sy = 1.0 - (sunScreen.y * 0.5 + 0.5);
+          renderPipeline.setSunScreenPosition(sx, sy);
+        }
+        renderPipeline.updateTime(time * 0.001);
+        renderPipeline.renderPass.camera = cam;
+        renderPipeline.render();
+      } else {
+        renderer.render(engine.scene.threeScene, cam);
+      }
     }
   }
 }
@@ -144,6 +166,23 @@ async function startGameplay(sceneData: any): Promise<void> {
   // Wait for async mesh loads then start physics
   await engine.scene.waitForMeshLoads();
   engine.physics.play(engine.scene);
+
+  // Initialize Render Pipeline
+  if (renderer && engine) {
+    const cam = engine.characterControllers.getActiveCamera()
+      ?? engine.spectatorControllers.getActiveCamera()
+      ?? engine.playerControllers.getActiveCamera()
+      ?? new THREE.PerspectiveCamera();
+    renderPipeline = new RenderPipeline(renderer, engine.scene.threeScene, cam);
+    
+    // Try to find PostProcessVolumeActor settings in sceneData
+    if (sceneData.composition && sceneData.composition.actors) {
+      const ppActor = sceneData.composition.actors.find((a: any) => a.actorType === 'PostProcessVolume');
+      if (ppActor && ppActor.properties) {
+        renderPipeline.updateSettings(ppActor.properties);
+      }
+    }
+  }
 
   // Start game runtime
   if (canvas) {

@@ -113,6 +113,26 @@ import {
   Target,
   Diamond,
   Circle,
+  // Additional icons for UI (replacing emojis)
+  Feather,
+  Hexagon,
+  Globe,
+  Film,
+  Map,
+  Bot,
+  ClipboardList,
+  Shield,
+  Bone,
+  Star,
+  SkipBack,
+  SkipForward,
+  Eraser,
+  PaintBucket,
+  SquareDashed,
+  ArrowDown,
+  Repeat,
+  Clock,
+  Sigma,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -185,6 +205,22 @@ export function iconHTML(
 ): string {
   const el = createIconSpan(icon, size, color);
   return el.outerHTML;
+}
+
+/**
+ * Replace an element's content with an icon + text label.
+ * Used to convert textContent-based emoji labels to proper SVG icons.
+ */
+export function setTextWithIcon(
+  el: HTMLElement,
+  icon: any[],
+  text: string,
+  size: IconSize | number = 'xs',
+  color?: string,
+): void {
+  el.textContent = '';
+  el.appendChild(createIconSpan(icon, size, color));
+  el.appendChild(document.createTextNode(` ${text}`));
 }
 
 // ━━━━ Icon Presets for Asset Types ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -408,4 +444,25 @@ export const Icons = {
   Target,
   Diamond,
   Circle,
+
+  // Additional (replacing emojis)
+  Feather,
+  Hexagon,
+  Globe,
+  Film,
+  Map,
+  Bot,
+  ClipboardList,
+  Shield,
+  Bone,
+  Star,
+  SkipBack,
+  SkipForward,
+  Eraser,
+  PaintBucket,
+  SquareDashed,
+  ArrowDown,
+  Repeat,
+  Clock,
+  Sigma,
 };

@@ -758,7 +758,7 @@ export class WidgetBlueprintEditorPanel {
     // Close button for left panel
     const closeLeftBtn = document.createElement('button');
     closeLeftBtn.className = 'wbp-panel-close';
-    closeLeftBtn.textContent = '×';
+    closeLeftBtn.innerHTML = iconHTML(Icons.X, 'xs');
 
     leftTabRow.appendChild(paletteTab);
     leftTabRow.appendChild(libraryTab);
@@ -791,7 +791,7 @@ export class WidgetBlueprintEditorPanel {
 
     const closeHierBtn = document.createElement('button');
     closeHierBtn.className = 'wbp-panel-close';
-    closeHierBtn.textContent = '×';
+    closeHierBtn.innerHTML = iconHTML(Icons.X, 'xs');
     hierTabRow.appendChild(closeHierBtn);
 
     leftBottomSection.appendChild(hierTabRow);
@@ -801,7 +801,7 @@ export class WidgetBlueprintEditorPanel {
     hierSearch.className = 'wbp-search-box';
     const hierSearchIcon = document.createElement('span');
     hierSearchIcon.className = 'wbp-search-icon';
-    hierSearchIcon.textContent = '⌕';
+    hierSearchIcon.innerHTML = iconHTML(Icons.Search, 'xs');
     const hierSearchInput = document.createElement('input');
     hierSearchInput.className = 'wbp-search-input';
     hierSearchInput.placeholder = 'Search Widgets';
@@ -891,7 +891,7 @@ export class WidgetBlueprintEditorPanel {
     detailsTabRow.appendChild(detailsTab);
     const closeDetailsBtn = document.createElement('button');
     closeDetailsBtn.className = 'wbp-panel-close';
-    closeDetailsBtn.textContent = '×';
+    closeDetailsBtn.innerHTML = iconHTML(Icons.X, 'xs');
     detailsTabRow.appendChild(closeDetailsBtn);
     rightPanel.appendChild(detailsTabRow);
 
@@ -941,7 +941,7 @@ export class WidgetBlueprintEditorPanel {
     searchBox.className = 'wbp-search-box';
     const searchIcon = document.createElement('span');
     searchIcon.className = 'wbp-search-icon';
-    searchIcon.textContent = '⌕';
+    searchIcon.innerHTML = iconHTML(Icons.Search, 'xs');
     const searchInput = document.createElement('input');
     searchInput.className = 'wbp-search-input';
     searchInput.placeholder = 'Search Palette';
@@ -4192,7 +4192,7 @@ export class WidgetBlueprintEditorPanel {
 
     const clearBtn = document.createElement('button');
     clearBtn.style.cssText = 'background:#444;color:#ccc;border:none;border-radius:3px;padding:2px 5px;font-size:10px;cursor:pointer;';
-    clearBtn.textContent = '×';
+    clearBtn.innerHTML = iconHTML(Icons.X, 'xs');
     clearBtn.title = 'Clear';
     clearBtn.addEventListener('click', () => {
       onChange(undefined);
@@ -4433,7 +4433,7 @@ export class WidgetBlueprintEditorPanel {
 
         const delBtn = document.createElement('button');
         delBtn.style.cssText = 'background:none;border:none;color:#888;font-size:10px;cursor:pointer;padding:0 2px;';
-        delBtn.textContent = '×';
+        delBtn.innerHTML = iconHTML(Icons.X, 'xs');
         delBtn.addEventListener('click', () => {
           if (g.stops.length > 2) {
             g.stops.splice(i, 1);

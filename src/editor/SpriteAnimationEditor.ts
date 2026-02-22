@@ -8,6 +8,8 @@
 //    5. Set name, FPS, loop and Save → stored in SpriteSheetAsset.animations[]
 // ============================================================
 
+import { iconHTML, Icons, ICON_COLORS } from './icons';
+
 import type { SpriteSheetAsset, SpriteAnimationDef, SpriteData } from '../engine/SpriteRenderer';
 import type { Scene2DManager } from './Scene2DManager';
 import { TextureLibrary } from './TextureLibrary';
@@ -159,7 +161,7 @@ export class SpriteAnimationEditor {
     });
     const title = document.createElement('span');
     title.style.cssText = 'font-weight:700;font-size:14px;color:#c8d8ff;flex:1;';
-    title.textContent = '🎬 Sprite Animation Editor';
+    title.innerHTML = iconHTML(Icons.Clapperboard, 'sm', ICON_COLORS.secondary) + ' Sprite Animation Editor';
     titleBar.appendChild(title);
 
     // Sheet selector in title bar
@@ -193,7 +195,7 @@ export class SpriteAnimationEditor {
       background: 'none', border: 'none', color: '#888',
       fontSize: '20px', cursor: 'pointer', padding: '0 4px', lineHeight: '1',
     });
-    closeBtn.textContent = '✕';
+    closeBtn.innerHTML = iconHTML(Icons.X, 'sm', '#888');
     closeBtn.title = 'Close editor';
     closeBtn.addEventListener('click', () => this._close());
     titleBar.appendChild(closeBtn);
@@ -402,22 +404,22 @@ export class SpriteAnimationEditor {
     const mkBtn = (label: string, onClick: () => void): HTMLButtonElement => {
       const b = document.createElement('button');
       b.className = 'toolbar-btn';
-      b.textContent = label;
+      b.innerHTML = label;
       b.addEventListener('click', onClick);
       return b;
     };
 
-    const playBtn = mkBtn('▶ Play', () => {
+    const playBtn = mkBtn(iconHTML(Icons.Play, 'xs') + ' Play', () => {
       if (this._previewPlaying) {
         this._stopPreview();
-        playBtn.textContent = '▶ Play';
+        playBtn.innerHTML = iconHTML(Icons.Play, 'xs') + ' Play';
       } else {
-        playBtn.textContent = '⏹ Stop';
+        playBtn.innerHTML = iconHTML(Icons.Square, 'xs') + ' Stop';
         this._startPreview();
       }
     });
     playBtnRow.appendChild(playBtn);
-    playBtnRow.appendChild(mkBtn('↺ Restart', () => {
+    playBtnRow.appendChild(mkBtn(iconHTML(Icons.RotateCcw, 'xs') + ' Restart', () => {
       this._previewFrameIndex = 0;
       this._drawPreviewFrame();
     }));
@@ -446,7 +448,7 @@ export class SpriteAnimationEditor {
 
     const clearBtn = document.createElement('button');
     clearBtn.className = 'toolbar-btn';
-    clearBtn.textContent = '✕ Clear All';
+    clearBtn.innerHTML = iconHTML(Icons.X, 'xs', ICON_COLORS.muted) + ' Clear All';
     clearBtn.addEventListener('click', () => {
       this._timelineFrames = [];
       this._rebuildTimeline();
@@ -496,7 +498,7 @@ export class SpriteAnimationEditor {
       borderRadius: '5px', padding: '5px 18px', fontSize: '12px',
       fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap',
     });
-    saveBtn.textContent = '💾 Save Animation';
+    saveBtn.innerHTML = iconHTML(Icons.Save, 'xs', '#fff') + ' Save Animation';
     saveBtn.addEventListener('click', () => this._saveAnimation(nameInp.value.trim() || this._animName));
     saveRow.appendChild(saveBtn);
 
@@ -528,11 +530,11 @@ export class SpriteAnimationEditor {
       const sprites = texLib.getTexturesByCategory('Sprite').filter(t => !existingSourceTex.has(t.assetId));
       if (sprites.length > 0) {
         const grp = document.createElement('optgroup');
-        grp.label = '↑ Convert Texture to Sheet';
+        grp.label = 'Convert Texture to Sheet';
         for (const tex of sprites) {
           const opt = document.createElement('option');
           opt.value = 'tex:' + tex.assetId;
-          opt.textContent = tex.assetName + ' ↑';
+          opt.textContent = tex.assetName + ' (convert)';
           grp.appendChild(opt);
         }
         this._sheetDropdown.appendChild(grp);
@@ -851,7 +853,7 @@ export class SpriteAnimationEditor {
         cursor: 'pointer', lineHeight: '1', fontWeight: '700',
         boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
       });
-      del.textContent = '✕';
+      del.innerHTML = iconHTML(Icons.X, 10, '#fff');
       del.title = 'Remove frame';
       del.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1068,7 +1070,7 @@ export class SpriteAnimationEditor {
       borderRadius: '6px', fontWeight: '600', fontSize: '13px',
       boxShadow: '0 4px 16px rgba(0,0,0,0.5)', pointerEvents: 'none',
     });
-    toast.textContent = `✓ Saved "${name}" (${frameIds.length} frames)`;
+    toast.innerHTML = iconHTML(Icons.Check, 'xs', '#fff') + ` Saved "${name}" (${frameIds.length} frames)`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2000);
   }

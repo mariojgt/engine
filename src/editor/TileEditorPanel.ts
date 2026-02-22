@@ -6,6 +6,7 @@
 
 import type { TilemapAsset, TilemapLayer, TilesetAsset } from '../engine/TilemapData';
 import { TilemapCollisionBuilder, createDefaultTilemap, createTilesetFromImage } from '../engine/TilemapData';
+import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export type TileTool = 'paint' | 'erase' | 'fill' | 'select' | 'rect' | 'line' | 'pick' | 'moveLayer';
 
@@ -121,9 +122,9 @@ export class TileEditorPanel {
     // Header
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #313244;gap:8px;';
-    header.innerHTML = `<span style="opacity:0.6">▦</span><span style="font-weight:600;flex:1">TILE EDITOR</span>`;
+    header.innerHTML = `${iconHTML(Icons.Grid, 'xs', ICON_COLORS.muted)}<span style="font-weight:600;flex:1">TILE EDITOR</span>`;
     const settingsBtn = document.createElement('button');
-    settingsBtn.textContent = '⚙';
+    settingsBtn.innerHTML = iconHTML(Icons.Settings, 'xs', ICON_COLORS.muted);
     settingsBtn.style.cssText = 'background:none;border:none;color:#cdd6f4;cursor:pointer;';
     header.appendChild(settingsBtn);
     root.appendChild(header);
@@ -277,14 +278,14 @@ export class TileEditorPanel {
     this._toolbarEl.innerHTML = '';
 
     const tools: { id: TileTool; icon: string; label: string }[] = [
-      { id: 'paint', icon: '🖌', label: 'Paint' },
-      { id: 'erase', icon: '⌫', label: 'Erase' },
-      { id: 'fill', icon: '◻', label: 'Fill' },
-      { id: 'select', icon: '⬚', label: 'Select' },
-      { id: 'rect', icon: '▭', label: 'Rect' },
-      { id: 'line', icon: '╱', label: 'Line' },
-      { id: 'pick', icon: '👁', label: 'Pick' },
-      { id: 'moveLayer', icon: '✥', label: 'Move' },
+      { id: 'paint', icon: iconHTML(Icons.Paintbrush, 'xs'), label: 'Paint' },
+      { id: 'erase', icon: iconHTML(Icons.Eraser, 'xs'), label: 'Erase' },
+      { id: 'fill', icon: iconHTML(Icons.PaintBucket, 'xs'), label: 'Fill' },
+      { id: 'select', icon: iconHTML(Icons.SquareDashed, 'xs'), label: 'Select' },
+      { id: 'rect', icon: iconHTML(Icons.RectangleHorizontal, 'xs'), label: 'Rect' },
+      { id: 'line', icon: iconHTML(Icons.Minus, 'xs'), label: 'Line' },
+      { id: 'pick', icon: iconHTML(Icons.Eye, 'xs'), label: 'Pick' },
+      { id: 'moveLayer', icon: iconHTML(Icons.Move, 'xs'), label: 'Move' },
     ];
 
     for (const tool of tools) {
@@ -366,14 +367,14 @@ export class TileEditorPanel {
 
       // Visibility
       const visBtn = document.createElement('button');
-      visBtn.textContent = layer.visible ? '👁' : '🚫';
+      visBtn.innerHTML = layer.visible ? iconHTML(Icons.Eye, 'xs', ICON_COLORS.muted) : iconHTML(Icons.EyeOff, 'xs', ICON_COLORS.muted);
       visBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:11px;padding:1px;';
       visBtn.onclick = (e) => { e.stopPropagation(); layer.visible = !layer.visible; this._renderLayerList(); this._emitChanged(); };
       row.appendChild(visBtn);
 
       // Lock
       const lockBtn = document.createElement('button');
-      lockBtn.textContent = layer.locked ? '🔒' : '🔓';
+      lockBtn.innerHTML = layer.locked ? iconHTML(Icons.Lock, 'xs', ICON_COLORS.muted) : iconHTML(Icons.Unlock, 'xs', ICON_COLORS.muted);
       lockBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:11px;padding:1px;';
       lockBtn.onclick = (e) => { e.stopPropagation(); layer.locked = !layer.locked; this._renderLayerList(); };
       row.appendChild(lockBtn);
@@ -392,7 +393,7 @@ export class TileEditorPanel {
 
       // Collision toggle (always visible so users can enable/disable)
       const colBtn = document.createElement('button');
-      colBtn.textContent = layer.hasCollision ? '🔲' : '▫️';
+      colBtn.innerHTML = layer.hasCollision ? iconHTML(Icons.Shield, 'xs', ICON_COLORS.success) : iconHTML(Icons.Shield, 'xs', ICON_COLORS.muted);
       colBtn.title = layer.hasCollision ? 'Collision ON – click to disable' : 'Collision OFF – click to enable';
       colBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:11px;padding:1px;';
       colBtn.onclick = (e) => {
@@ -750,13 +751,13 @@ export class TileEditorPanel {
     const btnStyle = 'background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:11px;white-space:nowrap;';
 
     const importBtn = document.createElement('button');
-    importBtn.innerHTML = '📁 Import Tileset';
+    importBtn.innerHTML = iconHTML(Icons.Folder, 'xs', ICON_COLORS.folder) + ' Import Tileset';
     importBtn.style.cssText = btnStyle;
     importBtn.onclick = () => this._importTileset();
     this._actionBarEl.appendChild(importBtn);
 
     const newTmBtn = document.createElement('button');
-    newTmBtn.innerHTML = '➕ New Tilemap';
+    newTmBtn.innerHTML = iconHTML(Icons.Plus, 'xs', ICON_COLORS.blue) + ' New Tilemap';
     newTmBtn.style.cssText = btnStyle;
     newTmBtn.disabled = this._tilesets.length === 0;
     if (this._tilesets.length === 0) {
@@ -780,26 +781,26 @@ export class TileEditorPanel {
     this._emptyStateEl.style.display = 'block';
     if (!hasTilesets) {
       this._emptyStateEl.innerHTML = `
-        <div style="font-size:32px;margin-bottom:8px">🖼️</div>
+        <div style="margin-bottom:8px;opacity:0.3">${iconHTML(Icons.Image, 32, ICON_COLORS.muted)}</div>
         <div style="font-weight:600;margin-bottom:6px">No Tilesets</div>
         <div style="opacity:0.7;font-size:11px;margin-bottom:12px">
           Import a tileset image (PNG) to get started.<br>
           The image will be divided into a grid of tiles.
         </div>
         <button id="__tile_empty_import" style="background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px;font-weight:600;">
-          📁 Import Tileset Image
+          ${iconHTML(Icons.Folder, 'xs', '#1e1e2e')} Import Tileset Image
         </button>
       `;
       this._emptyStateEl.querySelector('#__tile_empty_import')!.addEventListener('click', () => this._importTileset());
     } else if (!hasTilemaps) {
       this._emptyStateEl.innerHTML = `
-        <div style="font-size:32px;margin-bottom:8px">🗺️</div>
+        <div style="margin-bottom:8px;opacity:0.3">${iconHTML(Icons.Map, 32, ICON_COLORS.muted)}</div>
         <div style="font-weight:600;margin-bottom:6px">No Tilemaps</div>
         <div style="opacity:0.7;font-size:11px;margin-bottom:12px">
           Create a tilemap to start painting tiles.
         </div>
         <button id="__tile_empty_create" style="background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px;font-weight:600;">
-          ➕ Create Tilemap
+          ${iconHTML(Icons.Plus, 'xs', '#1e1e2e')} Create Tilemap
         </button>
       `;
       this._emptyStateEl.querySelector('#__tile_empty_create')!.addEventListener('click', () => this._createTilemap());
@@ -898,7 +899,7 @@ export class TileEditorPanel {
 
     if (this._pixelPerfect) {
       const badge = document.createElement('span');
-      badge.textContent = '✓ active';
+      badge.innerHTML = iconHTML(Icons.Check, 'xs', '#a6e3a1') + ' active';
       badge.style.cssText = 'color:#a6e3a1;font-size:10px;margin-left:auto;';
       ppRow.appendChild(badge);
     }
@@ -909,7 +910,7 @@ export class TileEditorPanel {
       const infoBox = document.createElement('div');
       infoBox.style.cssText = 'background:#313244;border:1px solid #45475a;border-radius:4px;padding:6px 8px;margin-bottom:6px;font-size:10px;line-height:1.6;';
       infoBox.innerHTML = `
-        <div><span style="color:#89b4fa">Scene PPU:</span> ${scenePPU} ${ppuMatch ? '<span style="color:#a6e3a1">✓ synced</span>' : '<span style="color:#f9e2af">⚠ mismatch — toggle off/on to resync</span>'}</div>
+        <div><span style="color:#89b4fa">Scene PPU:</span> ${scenePPU} ${ppuMatch ? '<span style="color:#a6e3a1">' + iconHTML(Icons.Check, 'xs', '#a6e3a1') + ' synced</span>' : '<span style="color:#f9e2af">' + iconHTML(Icons.AlertTriangle, 'xs', '#f9e2af') + ' mismatch — toggle off/on to resync</span>'}</div>
         <div><span style="color:#89b4fa">Tile:</span> ${ts.tileWidth}×${ts.tileHeight}px → ${tileWorldW}×${tileWorldH} world units</div>
         <div><span style="color:#89b4fa">Zoom:</span> snapped to integer multiples (1 tile-px = N screen-px)</div>
         <div><span style="color:#89b4fa">Grid:</span> tile-aligned overlay ON</div>
@@ -923,7 +924,7 @@ export class TileEditorPanel {
     header.innerHTML = `<span>TILE SCALE</span>`;
     if (!ppuMatch && !this._pixelPerfect) {
       const warn = document.createElement('span');
-      warn.textContent = '⚠ PPU mismatch';
+      warn.innerHTML = iconHTML(Icons.AlertTriangle, 'xs', '#f9e2af') + ' PPU mismatch';
       warn.style.cssText = 'color:#f9e2af;font-size:10px;font-weight:normal;';
       header.appendChild(warn);
     }
@@ -967,7 +968,7 @@ export class TileEditorPanel {
       ppuRow.appendChild(matchBtn);
     } else if (ppuMatch) {
       const ok = document.createElement('span');
-      ok.textContent = '✓ matched';
+      ok.innerHTML = iconHTML(Icons.Check, 'xs', '#a6e3a1') + ' matched';
       ok.style.cssText = 'color:#a6e3a1;font-size:10px;';
       ppuRow.appendChild(ok);
     }

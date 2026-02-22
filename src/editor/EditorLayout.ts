@@ -42,6 +42,7 @@ import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
 
 import { TilemapRenderer } from './TilemapRenderer';
+import { createIconSpan, Icons, ICON_COLORS } from './icons';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -475,6 +476,27 @@ export class EditorLayout {
     }
   }
 
+  /**
+   * Inject a Lucide SVG icon into a dockview panel tab.
+   * Since SVG elements contribute no textContent, dockview's change-detection
+   * in DefaultTab.render() won't overwrite the injected icon.
+   */
+  private _injectTabIcon(panelId: string, icon: any[], color?: string): void {
+    requestAnimationFrame(() => {
+      const panel = this._api.getPanel(panelId) as any;
+      const tabEl = panel?.view?.tab?.element as HTMLElement | undefined;
+      if (!tabEl) return;
+      const tabContent = tabEl.querySelector('.dv-default-tab-content') as HTMLElement | null;
+      if (!tabContent) return;
+      // Remove any previously injected icon
+      tabContent.querySelector('.dv-tab-icon')?.remove();
+      const iconEl = createIconSpan(icon, 'xs', color);
+      iconEl.classList.add('dv-tab-icon');
+      iconEl.style.marginRight = '4px';
+      tabContent.insertBefore(iconEl, tabContent.firstChild);
+    });
+  }
+
   private _openNodeEditor(go: GameObject): void {
     // Close existing editors
     this._closeNodeEditor();
@@ -485,13 +507,14 @@ export class EditorLayout {
     // Add a new panel for the node editor below the viewport
     this._api.addPanel({
       id: panelId,
-      title: `⬡ Blueprint: ${go.name}`,
+      title: `Blueprint: ${go.name}`,
       component: 'default',
       position: {
         direction: 'below',
         referencePanel: 'viewport',
       },
     });
+    this._injectTabIcon(panelId, Icons.Hexagon, ICON_COLORS.blueprint);
 
     // Give the blueprint editor 55% of vertical space
     try {
@@ -517,22 +540,27 @@ export class EditorLayout {
 
     const panelId = 'actor-editor-' + asset.id;
 
-    const titleIcon = asset.actorType === 'playerController' ? '🎮'
-      : asset.actorType === 'aiController' ? '🤖'
-      : '⬡';
     const titleLabel = asset.actorType === 'playerController' ? 'PlayerController'
       : asset.actorType === 'aiController' ? 'AIController'
       : 'Actor';
 
+    const actorIcon = asset.actorType === 'playerController' ? Icons.Gamepad2
+      : asset.actorType === 'aiController' ? Icons.Bot
+      : Icons.Hexagon;
+    const actorColor = asset.actorType === 'playerController' ? ICON_COLORS.actor
+      : asset.actorType === 'aiController' ? ICON_COLORS.blueprint
+      : ICON_COLORS.blueprint;
+
     this._api.addPanel({
       id: panelId,
-      title: `${titleIcon} ${titleLabel}: ${asset.name}`,
+      title: `${titleLabel}: ${asset.name}`,
       component: 'default',
       position: {
         direction: 'below',
         referencePanel: 'viewport',
       },
     });
+    this._injectTabIcon(panelId, actorIcon, actorColor);
 
     try {
       const vpGroup = this._api.getPanel('viewport')?.group;
@@ -679,10 +707,11 @@ export class EditorLayout {
     const panelId = 'game-instance-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `🌐 GameInstance: ${asset.name}`,
+      title: `GameInstance: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Globe, ICON_COLORS.secondary);
 
     try {
       this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
@@ -712,10 +741,11 @@ export class EditorLayout {
     const panelId = 'anim-bp-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `🎬 AnimBP: ${asset.name}`,
+      title: `AnimBP: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Clapperboard, ICON_COLORS.secondary);
 
     try {
       this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
@@ -746,10 +776,11 @@ export class EditorLayout {
     const panelId = 'anim-bp-2d-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `🎞 AnimBP 2D: ${asset.name}`,
+      title: `AnimBP 2D: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Film, ICON_COLORS.secondary);
 
     try {
       this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
@@ -780,10 +811,11 @@ export class EditorLayout {
     const panelId = 'widget-bp-editor-' + asset.id;
     this._api.addPanel({
       id: panelId,
-      title: `🎨 Widget: ${asset.name}`,
+      title: `Widget: ${asset.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Palette, ICON_COLORS.widget);
 
     try {
       this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
@@ -819,10 +851,11 @@ export class EditorLayout {
     const panelId = 'struct-editor-' + sa.id;
     this._api.addPanel({
       id: panelId,
-      title: `🔷 Struct: ${sa.name}`,
+      title: `Struct: ${sa.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Diamond, ICON_COLORS.blue);
 
     try {
       const vpGroup = this._api.getPanel('viewport')?.group;
@@ -841,7 +874,8 @@ export class EditorLayout {
       // Update panel title when name changes
       const panel = this._api.getPanel(panelId);
       if (panel) {
-        try { panel.setTitle(`🔷 Struct: ${sa.name}`); } catch (_e) {}
+        try { panel.setTitle(`Struct: ${sa.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.Diamond, ICON_COLORS.blue);
       }
     });
   }
@@ -855,10 +889,11 @@ export class EditorLayout {
     const panelId = 'enum-editor-' + ea.id;
     this._api.addPanel({
       id: panelId,
-      title: `📋 Enum: ${ea.name}`,
+      title: `Enum: ${ea.name}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.ClipboardList, ICON_COLORS.secondary);
 
     try {
       const vpGroup = this._api.getPanel('viewport')?.group;
@@ -876,7 +911,8 @@ export class EditorLayout {
     new EnumEditorPanel(wrapper, ea, this._structManager, () => {
       const panel = this._api.getPanel(panelId);
       if (panel) {
-        try { panel.setTitle(`📋 Enum: ${ea.name}`); } catch (_e) {}
+        try { panel.setTitle(`Enum: ${ea.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.ClipboardList, ICON_COLORS.secondary);
       }
     });
   }
@@ -890,10 +926,11 @@ export class EditorLayout {
     const panelId = 'material-editor-' + mat.assetId;
     this._api.addPanel({
       id: panelId,
-      title: `🎨 Material: ${mat.assetName}`,
+      title: `Material: ${mat.assetName}`,
       component: 'default',
       position: { direction: 'below', referencePanel: 'viewport' },
     });
+    this._injectTabIcon(panelId, Icons.Palette, ICON_COLORS.material);
 
     try {
       this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
@@ -915,7 +952,8 @@ export class EditorLayout {
         // Update panel title when name changes
         const panel = this._api.getPanel(panelId);
         if (panel) {
-          try { panel.setTitle(`🎨 Material: ${mat.assetName}`); } catch (_e) {}
+          try { panel.setTitle(`Material: ${mat.assetName}`); } catch (_e) {}
+          this._injectTabIcon(panelId, Icons.Palette, ICON_COLORS.material);
         }
 
         // Sync all scene instances whose material overrides reference this material
@@ -1122,10 +1160,11 @@ export class EditorLayout {
     try {
       this._api.addPanel({
         id: 'sorting-layers-2d',
-        title: '🗂 Sorting Layers',
+        title: 'Sorting Layers',
         component: 'default',
         position: { referencePanel: 'properties' },
       });
+      this._injectTabIcon('sorting-layers-2d', Icons.Layers, ICON_COLORS.muted);
       this._initSortingLayersPanel('sorting-layers-2d');
     } catch (_e) {}
 
@@ -1133,10 +1172,11 @@ export class EditorLayout {
     try {
       this._api.addPanel({
         id: 'tile-editor-2d',
-        title: '▦ Tile Editor',
+        title: 'Tile Editor',
         component: 'default',
         position: { referencePanel: 'asset-browser' },
       });
+      this._injectTabIcon('tile-editor-2d', Icons.Grid, ICON_COLORS.muted);
       this._initTileEditorPanel('tile-editor-2d');
     } catch (_e) {}
 
