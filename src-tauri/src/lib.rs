@@ -44,8 +44,22 @@ fn write_file(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn write_binary_file(path: String, contents: Vec<u8>) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create parent dirs: {}", e))?;
+    }
+    fs::write(&p, contents).map_err(|e| format!("Failed to write binary {}: {}", path, e))
+}
+
+#[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
+}
+
+#[tauri::command]
+fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
+    fs::read(&path).map_err(|e| format!("Failed to read binary {}: {}", path, e))
 }
 
 #[tauri::command]
@@ -82,7 +96,9 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         create_project_structure,
         write_file,
+        write_binary_file,
         read_file,
+        read_binary_file,
         file_exists,
         list_dir_files,
     ])

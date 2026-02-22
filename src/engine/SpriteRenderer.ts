@@ -32,6 +32,8 @@ export interface SpriteSheetAsset {
   texture?: THREE.Texture;
   /** Base-64 data URL of the source image — persisted so sprite sheets survive save/load */
   imageDataUrl?: string;
+  /** Relative path to the image file in the project directory */
+  imagePath?: string;
 }
 
 export interface SpriteAnimationDef {

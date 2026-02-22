@@ -1518,10 +1518,12 @@ export class Scene2DManager {
         ...ss,
         image: undefined, // Don't serialize HTMLImageElement
         texture: undefined, // Don't serialize THREE.Texture
+        imageDataUrl: ss.imageDataUrl?.startsWith('blob:') ? undefined : ss.imageDataUrl,
       })),
       tilesets: tilesetArr.map(ts => ({
         ...ts,
         image: undefined,
+        imageDataUrl: ts.imageDataUrl?.startsWith('blob:') ? undefined : ts.imageDataUrl,
       })),
       tilemaps: tilemapArr,
     };

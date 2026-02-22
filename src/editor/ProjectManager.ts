@@ -34,8 +34,27 @@ async function fsWrite(path: string, contents: string): Promise<void> {
   await invoke('write_file', { path, contents });
 }
 
+async function fsWriteBinary(path: string, contents: Uint8Array): Promise<void> {
+  await invoke('write_binary_file', { path, contents: Array.from(contents) });
+}
+
 async function fsRead(path: string): Promise<string> {
   return await invoke<string>('read_file', { path });
+}
+
+async function fsReadBinary(path: string): Promise<Uint8Array> {
+  const data = await invoke<number[]>('read_binary_file', { path });
+  return new Uint8Array(data);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64.split(',')[1]);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }
 
 async function fsExists(path: string): Promise<boolean> {
@@ -125,6 +144,8 @@ export class ProjectManager {
   public getScene2DData: (() => any) | null = null;
   /** Callback to restore 2D scene data after deserialization */
   public setScene2DData: ((data: any) => void) | null = null;
+  /** Callback to get the live Scene2DManager instance */
+  public getScene2DManager: (() => any) | null = null;
 
   get isProjectOpen(): boolean {
     return this._projectPath !== null;
@@ -479,6 +500,57 @@ export class ProjectManager {
     if (currentMode === '2D') {
       const scene2DData = this.getScene2DData?.();
       if (scene2DData) {
+        // Extract images and save them as separate files
+        const texDir = `${this._projectPath}/${TEXTURES_DIR}`;
+        
+        if (scene2DData.spriteSheets) {
+          for (const sheet of scene2DData.spriteSheets) {
+            if (sheet.imageDataUrl && sheet.imageDataUrl.startsWith('data:image')) {
+              const safeName = sheet.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+              const fileName = `${safeName}_${sheet.assetId}.png`;
+              const filePath = `${texDir}/${fileName}`;
+              try {
+                await fsWriteBinary(filePath, base64ToUint8Array(sheet.imageDataUrl));
+                sheet.imagePath = `${TEXTURES_DIR}/${fileName}`;
+                sheet.imageDataUrl = undefined; // Remove base64 from JSON
+                
+                // Update live Scene2DManager to free memory and prevent re-saving
+                const liveSheet = this.getScene2DManager?.()?.spriteSheets.get(sheet.assetId);
+                if (liveSheet) {
+                  liveSheet.imagePath = sheet.imagePath;
+                  liveSheet.imageDataUrl = undefined;
+                }
+              } catch (e) {
+                console.error(`Failed to save sprite sheet image ${fileName}:`, e);
+              }
+            }
+          }
+        }
+
+        if (scene2DData.tilesets) {
+          for (const ts of scene2DData.tilesets) {
+            if (ts.imageDataUrl && ts.imageDataUrl.startsWith('data:image')) {
+              const safeName = ts.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+              const fileName = `${safeName}_${ts.assetId}.png`;
+              const filePath = `${texDir}/${fileName}`;
+              try {
+                await fsWriteBinary(filePath, base64ToUint8Array(ts.imageDataUrl));
+                ts.imagePath = `${TEXTURES_DIR}/${fileName}`;
+                ts.imageDataUrl = undefined; // Remove base64 from JSON
+                
+                // Update live Scene2DManager to free memory and prevent re-saving
+                const liveTs = this.getScene2DManager?.()?.tilesets.get(ts.assetId);
+                if (liveTs) {
+                  liveTs.imagePath = ts.imagePath;
+                  liveTs.imageDataUrl = undefined;
+                }
+              } catch (e) {
+                console.error(`Failed to save tileset image ${fileName}:`, e);
+              }
+            }
+          }
+        }
+
         sceneData.scene2DConfig = scene2DData;
       }
     }
@@ -519,6 +591,37 @@ export class ProjectManager {
     console.log(`[ProjectManager]   Scene mode: ${mode}, has scene2DConfig: ${!!sceneData.scene2DConfig}, has setScene2DData: ${!!this.setScene2DData}`);
     if (sceneData.scene2DConfig) {
       console.log(`[ProjectManager]   scene2DConfig: tilesets=${sceneData.scene2DConfig.tilesets?.length ?? 0}, tilemaps=${sceneData.scene2DConfig.tilemaps?.length ?? 0}, spriteSheets=${sceneData.scene2DConfig.spriteSheets?.length ?? 0}`);
+      
+      // Load images from separate files
+      if (sceneData.scene2DConfig.spriteSheets) {
+        for (const sheet of sceneData.scene2DConfig.spriteSheets) {
+          if (sheet.imagePath) {
+            try {
+              const filePath = `${this._projectPath}/${sheet.imagePath}`;
+              const data = await fsReadBinary(filePath);
+              const blob = new Blob([data], { type: 'image/png' });
+              sheet.imageDataUrl = URL.createObjectURL(blob);
+            } catch (e) {
+              console.error(`Failed to load sprite sheet image ${sheet.imagePath}:`, e);
+            }
+          }
+        }
+      }
+
+      if (sceneData.scene2DConfig.tilesets) {
+        for (const ts of sceneData.scene2DConfig.tilesets) {
+          if (ts.imagePath) {
+            try {
+              const filePath = `${this._projectPath}/${ts.imagePath}`;
+              const data = await fsReadBinary(filePath);
+              const blob = new Blob([data], { type: 'image/png' });
+              ts.imageDataUrl = URL.createObjectURL(blob);
+            } catch (e) {
+              console.error(`Failed to load tileset image ${ts.imagePath}:`, e);
+            }
+          }
+        }
+      }
     }
     if (mode === '2D' && sceneData.scene2DConfig && this.setScene2DData) {
       this.setScene2DData(sceneData.scene2DConfig);
@@ -1652,10 +1755,8 @@ export class ProjectManager {
     }
 
     try {
-      // Serialize current scene under the new name
-      const camera = this.getCameraState?.();
-      const sceneData = serializeScene(this._engine.scene, safeName, camera);
-      await fsWrite(destPath, JSON.stringify(sceneData, null, 2));
+      // Save current scene under the new name
+      await this._saveScene(safeName);
 
       console.log(`[ProjectManager] Duplicated scene as: ${safeName}`);
       return true;

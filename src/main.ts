@@ -160,6 +160,7 @@ async function main() {
   projectManager.getSceneMode = () => editor.getSceneMode();
   projectManager.getScene2DData = () => editor.scene2DManager.toJSON();
   projectManager.setScene2DData = (data: any) => editor.scene2DManager.fromJSON(data);
+  projectManager.getScene2DManager = () => editor.scene2DManager;
   // Wire scene2DManager into the Engine so Camera 2D blueprint nodes
   // (which use __engine.scene2DManager.camera2D) resolve at runtime
   // from both actor-blueprint and AnimBP2D script contexts.

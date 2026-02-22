@@ -18,6 +18,8 @@ export interface TilesetAsset {
   image?: HTMLImageElement;
   /** Base-64 data URL of the source image — persisted so tilesets survive save/load */
   imageDataUrl?: string;
+  /** Relative path to the image file in the project directory */
+  imagePath?: string;
 }
 
 export interface TileDefData {
