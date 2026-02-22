@@ -1582,7 +1582,22 @@ export class Scene2DManager {
         if (ts.imageDataUrl && !ts.image) {
           pendingImages++;
           const img = new Image();
-          img.onload = () => { console.log(`[Scene2DManager] Tileset image loaded: "${ts.assetName}"`); ts.image = img; onImageReady(); };
+          img.onload = () => {
+            console.log(`[Scene2DManager] Tileset image loaded: "${ts.assetName}" actual=${img.naturalWidth}×${img.naturalHeight}`);
+            ts.image = img;
+            // Reconcile stored dimensions with the actual loaded image to
+            // prevent stale textureWidth/Height from causing stretched tiles.
+            if (img.naturalWidth && img.naturalHeight) {
+              if (ts.textureWidth !== img.naturalWidth || ts.textureHeight !== img.naturalHeight) {
+                console.warn(`[Scene2DManager] Correcting tileset "${ts.assetName}" dims: stored=${ts.textureWidth}×${ts.textureHeight} → actual=${img.naturalWidth}×${img.naturalHeight}`);
+                ts.textureWidth = img.naturalWidth;
+                ts.textureHeight = img.naturalHeight;
+                ts.columns = Math.floor(img.naturalWidth / ts.tileWidth);
+                ts.rows = Math.floor(img.naturalHeight / ts.tileHeight);
+              }
+            }
+            onImageReady();
+          };
           img.onerror = () => { console.warn(`[Scene2DManager] Failed to load tileset image: ${ts.assetName}`); onImageReady(); };
           img.src = ts.imageDataUrl;
         }
@@ -1604,6 +1619,42 @@ export class Scene2DManager {
   }
 
   // ---- Cleanup ----
+
+  /**
+   * Clear all scene-specific 2D data (tilemaps, tilesets, sprite sheets,
+   * edit previews, sprite actors) WITHOUT tearing down camera/physics/grid
+   * infrastructure.  Used when switching to a new or different scene so the
+   * old scene's content does not bleed through.
+   */
+  clearSceneData(): void {
+    // Remove runtime sprite actors
+    for (const actor of this.spriteActors) {
+      this.root2D.remove(actor.group);
+      try { actor.dispose(this.physics2D ?? undefined); } catch (_) { /* best-effort */ }
+    }
+    this.spriteActors = [];
+    this._actorAnimBPStates.clear();
+    this._actorEventScripts.clear();
+    this._actorBlueprintScripts.clear();
+    this._pendingDestroy.clear();
+
+    // Remove edit-mode previews
+    this.clearEditPreviews();
+
+    // Clear asset registries
+    this.spriteSheets.clear();
+    this.tilesets.clear();
+    this.tilemaps.clear();
+
+    // Clear visual children from 2D root (tilemap meshes, etc.)
+    // Keep the group itself in the THREE scene so switchTo2D doesn't need re-adding
+    while (this.root2D.children.length > 0) {
+      this.root2D.remove(this.root2D.children[0]);
+    }
+
+    // Notify listeners so panels re-render with empty state
+    this._emit();
+  }
 
   cleanup(): void {
     this.camera2D?.dispose();

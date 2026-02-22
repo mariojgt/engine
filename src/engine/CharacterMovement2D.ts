@@ -85,12 +85,16 @@ export class CharacterMovement2D {
       this.jumpsRemaining = this.properties.maxJumps;
     }
 
-    // Clamp fall speed
-    const vel = rb.linvel();
-    const ppu = this._getPPU();
-    const maxFallPhys = this.properties.maxFallSpeed / ppu;
-    if (vel.y < maxFallPhys) {
-      rb.setLinvel({ x: vel.x, y: maxFallPhys }, true);
+    // Clamp fall speed — only when maxFallSpeed is negative (platformer mode).
+    // A value of 0 means "no limit" (used in top-down mode where gravity is off
+    // and negative Y velocity is intentional player movement, not falling).
+    if (this.properties.maxFallSpeed < 0) {
+      const vel = rb.linvel();
+      const ppu = this._getPPU();
+      const maxFallPhys = this.properties.maxFallSpeed / ppu;
+      if (vel.y < maxFallPhys) {
+        rb.setLinvel({ x: vel.x, y: maxFallPhys }, true);
+      }
     }
   }
 
@@ -117,6 +121,25 @@ export class CharacterMovement2D {
     }
   }
 
+  /**
+   * Apply vertical movement (for top-down mode where gravity is disabled).
+   * Works identically to moveHorizontal but on the Y axis.
+   */
+  moveVertical(direction: number, deltaTime: number, isRunning = false): void {
+    const rb = this._getRigidBody();
+    if (!rb) return;
+
+    const ppu = this._getPPU();
+    const targetSpeed = direction * ((isRunning ? this.properties.runSpeed : this.properties.moveSpeed) / ppu);
+    const accelRate = this.properties.acceleration / ppu;
+    const vel = rb.linvel();
+
+    const speedDiff = targetSpeed - vel.y;
+    const change = Math.sign(speedDiff) * Math.min(Math.abs(speedDiff), accelRate * deltaTime);
+    const newVelY = vel.y + change;
+    rb.setLinvel({ x: vel.x, y: newVelY }, true);
+  }
+
   /** Apply deceleration when no horizontal input is applied */
   decelerate(deltaTime: number): void {
     const rb = this._getRigidBody();
@@ -129,6 +152,19 @@ export class CharacterMovement2D {
     // Decelerate toward zero
     const newVelX = vel.x - Math.sign(vel.x) * Math.min(Math.abs(vel.x), decelRate * deltaTime);
     rb.setLinvel({ x: newVelX, y: vel.y }, true);
+  }
+
+  /** Apply deceleration on the Y axis (for top-down mode with no gravity) */
+  decelerateVertical(deltaTime: number): void {
+    const rb = this._getRigidBody();
+    if (!rb) return;
+
+    const ppu = this._getPPU();
+    const decelRate = this.properties.deceleration / ppu;
+    const vel = rb.linvel();
+
+    const newVelY = vel.y - Math.sign(vel.y) * Math.min(Math.abs(vel.y), decelRate * deltaTime);
+    rb.setLinvel({ x: vel.x, y: newVelY }, true);
   }
 
   jump(): void {

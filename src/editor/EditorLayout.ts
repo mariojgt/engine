@@ -1285,36 +1285,44 @@ export class EditorLayout {
     // Create tilemap renderer (adds THREE.js meshes to scene)
     this._tilemapRenderer = new TilemapRenderer(sm.root2D);
 
-    // If a tilemap is already selected, set it up in the renderer
-    const activeTm = this._tileEditorPanel.activeTilemap;
-    if (activeTm) {
-      let ts = sm.tilesets.get(activeTm.tilesetId) ?? null;
-      // Fallback: use the panel's activeTileset which may still have the image
-      if ((!ts || !ts.image) && this._tileEditorPanel.activeTileset?.assetId === activeTm.tilesetId) {
+    // Helper: push ALL tilemaps + tilesets to the renderer so every
+    // tileset's tiles are visible simultaneously — not just the active one.
+    const syncAllTilemaps = () => {
+      if (!this._tilemapRenderer) return;
+      // Ensure panel-held tileset images are synced back to SM
+      if (this._tileEditorPanel?.activeTileset?.image) {
         const panelTs = this._tileEditorPanel.activeTileset;
-        if (panelTs?.image) {
-          ts = panelTs;
-          sm.tilesets.set(ts.assetId, ts);
+        const smTs = sm.tilesets.get(panelTs.assetId);
+        if (!smTs || !smTs.image) {
+          sm.tilesets.set(panelTs.assetId, panelTs);
         }
       }
-      this._tilemapRenderer.setTilemap(activeTm, ts);
-    }
+      const allTilemaps = Array.from(sm.tilemaps.values());
+      const allTilesets = Array.from(sm.tilesets.values());
+      this._tilemapRenderer.setAllTilemaps(allTilemaps, allTilesets);
+    };
+
+    // Initial sync — render everything currently registered
+    syncAllTilemaps();
 
     // When tilemap data changes (layer added, tiles modified, etc.)  → persist / update
     this._tileEditorPanel.onTilemapChanged((tilemap) => {
       if (this._tilemapRenderer) {
+        // Ensure we have the tileset with image in SM
         let ts = sm.tilesets.get(tilemap.tilesetId) ?? null;
-        // If the SM tileset lost its image (e.g. after serialization round-trip),
-        // prefer the panel's activeTileset which retains the HTMLImageElement
         if ((!ts || !ts.image) && this._tileEditorPanel) {
           const panelTs = this._tileEditorPanel.activeTileset;
           if (panelTs && panelTs.assetId === tilemap.tilesetId && panelTs.image) {
             ts = panelTs;
-            // Restore the image-bearing tileset back into SM so future lookups work
             sm.tilesets.set(ts.assetId, ts);
           }
         }
-        this._tilemapRenderer.setTilemap(tilemap, ts);
+        if (ts) {
+          this._tilemapRenderer.addOrUpdateTilemap(tilemap, ts);
+        } else {
+          // Fallback: rebuild everything
+          syncAllTilemaps();
+        }
       }
     });
 
@@ -1329,17 +1337,7 @@ export class EditorLayout {
     this._tileEditorPanel.onPixelPerfectChanged((_enabled, _tileset) => {
       // The PPU may have changed — need a full rebuild so tile geometry
       // uses the correct world-unit sizes.
-      if (this._tilemapRenderer && this._tileEditorPanel) {
-        const tm = this._tileEditorPanel.activeTilemap;
-        if (tm) {
-          let ts = sm.tilesets.get(tm.tilesetId) ?? null;
-          if ((!ts || !ts.image) && this._tileEditorPanel.activeTileset?.image) {
-            ts = this._tileEditorPanel.activeTileset;
-            sm.tilesets.set(ts!.assetId, ts!);
-          }
-          this._tilemapRenderer.setTilemap(tm, ts);
-        }
-      }
+      syncAllTilemaps();
     });
 
     // Listen for Scene2DManager changes (new tilemaps / tilesets added externally)
@@ -1349,17 +1347,9 @@ export class EditorLayout {
         this._tileEditorPanel.setTilemaps(Array.from(sm.tilemaps.values()));
         if (sm.physics2D) this._tileEditorPanel.setPhysics2DWorld(sm.physics2D);
 
-        // Rebuild tilemap renderer when tileset images become available
+        // Rebuild all tilemaps when tileset images become available
         // (e.g. after fromJSON restores data URLs → images load asynchronously)
-        if (this._tilemapRenderer) {
-          const tm = this._tileEditorPanel.activeTilemap;
-          if (tm) {
-            const ts = sm.tilesets.get(tm.tilesetId) ?? null;
-            if (ts?.image) {
-              this._tilemapRenderer.setTilemap(tm, ts);
-            }
-          }
-        }
+        syncAllTilemaps();
       }
     });
 

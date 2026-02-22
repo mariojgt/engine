@@ -1632,10 +1632,13 @@ export class ProjectManager {
       };
       await fsWrite(filePath, JSON.stringify(newScene, null, 2));
 
-      // 3. Clear the editor scene
+      // 3. Clear the editor scene (including 2D data)
       this._clearScene();
 
-      // 4. Update active scene metadata
+      // 4. Notify scene mode so panels update (e.g. 2D panels are created/destroyed)
+      await this.onSceneModeDetected?.(sceneMode);
+
+      // 5. Update active scene metadata
       this._meta.activeScene = safeName;
       this._meta.modifiedAt = Date.now();
       await fsWrite(
@@ -1643,7 +1646,7 @@ export class ProjectManager {
         JSON.stringify(this._meta, null, 2),
       );
 
-      // 5. Notify listeners
+      // 6. Notify listeners
       this.onSceneChanged?.(safeName);
 
       console.log(`[ProjectManager] Created and switched to scene: ${safeName}`);
@@ -1850,6 +1853,13 @@ export class ProjectManager {
     const scene = this._engine.scene;
     while (scene.gameObjects.length > 0) {
       scene.removeGameObject(scene.gameObjects[0]);
+    }
+
+    // Also clear 2D scene data (tilemaps, tilesets, sprite sheets, actors)
+    // so stale content from the previous scene does not bleed through.
+    const scene2D = this.getScene2DManager?.();
+    if (scene2D) {
+      scene2D.clearSceneData();
     }
   }
 

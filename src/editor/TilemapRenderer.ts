@@ -2,22 +2,34 @@
 //  TilemapRenderer — Renders TilemapAsset layers into THREE.js
 //  meshes using instanced sprite quads from the tileset texture.
 //  Attaches to Scene2DManager.root2D.
+//
+//  Supports rendering MULTIPLE tilemaps simultaneously so that
+//  tiles from different tilesets coexist on the same scene.
+//  Each tilemap/layer combination gets its own THREE.Group.
 // ============================================================
 
 import * as THREE from 'three';
 import type { TilemapAsset, TilemapLayer, TilesetAsset } from '../engine/TilemapData';
 
 /**
- * Manages THREE.js mesh objects for a single TilemapAsset.
- * Each visible layer gets its own Mesh with InstancedBufferGeometry
- * (or a simple PlaneGeometry per tile for simplicity / correctness).
+ * Manages THREE.js mesh objects for one or more TilemapAssets.
+ * Each visible layer of each tilemap gets its own Mesh with merged
+ * geometry for performance.
  */
 export class TilemapRenderer {
   private _root: THREE.Group;
+
+  /**
+   * Layer groups keyed by a composite key: `${tilemapId}::${layerId}`.
+   * This ensures layers from different tilemaps never collide.
+   */
   private _layerGroups = new Map<string, THREE.Group>();
   private _textureCache = new Map<string, THREE.Texture>();
-  private _tilemap: TilemapAsset | null = null;
-  private _tileset: TilesetAsset | null = null;
+
+  /** All registered tilemaps (keyed by assetId) */
+  private _tilemaps = new Map<string, TilemapAsset>();
+  /** Tileset lookup (keyed by assetId) */
+  private _tilesets = new Map<string, TilesetAsset>();
 
   constructor(parentGroup: THREE.Group) {
     this._root = new THREE.Group();
@@ -25,14 +37,46 @@ export class TilemapRenderer {
     parentGroup.add(this._root);
   }
 
-  /** Set the active tilemap + tileset and rebuild all layers */
+  // ------------------------------------------------------------------
+  //  Legacy single-tilemap API (backwards-compatible)
+  // ------------------------------------------------------------------
+
+  /** Set a single tilemap + tileset (clears everything else). */
   setTilemap(tilemap: TilemapAsset | null, tileset: TilesetAsset | null): void {
-    this._tilemap = tilemap;
-    this._tileset = tileset;
+    this._tilemaps.clear();
+    this._tilesets.clear();
+    if (tilemap && tileset) {
+      this._tilemaps.set(tilemap.assetId, tilemap);
+      this._tilesets.set(tileset.assetId, tileset);
+    }
     this.rebuildAll();
   }
 
-  /** Full rebuild of all layer meshes */
+  // ------------------------------------------------------------------
+  //  Multi-tilemap API
+  // ------------------------------------------------------------------
+
+  /** Register / update all tilemaps and tilesets and rebuild the scene. */
+  setAllTilemaps(tilemaps: TilemapAsset[], tilesets: TilesetAsset[]): void {
+    this._tilemaps.clear();
+    this._tilesets.clear();
+    for (const tm of tilemaps) this._tilemaps.set(tm.assetId, tm);
+    for (const ts of tilesets) this._tilesets.set(ts.assetId, ts);
+    this.rebuildAll();
+  }
+
+  /** Add or update a single tilemap (and its tileset). Rebuilds only that tilemap. */
+  addOrUpdateTilemap(tilemap: TilemapAsset, tileset: TilesetAsset): void {
+    this._tilemaps.set(tilemap.assetId, tilemap);
+    this._tilesets.set(tileset.assetId, tileset);
+    this._rebuildTilemap(tilemap);
+  }
+
+  // ------------------------------------------------------------------
+  //  Full rebuild
+  // ------------------------------------------------------------------
+
+  /** Full rebuild of all layer meshes for every registered tilemap. */
   rebuildAll(): void {
     // Clear existing
     for (const [, group] of this._layerGroups) {
@@ -41,63 +85,119 @@ export class TilemapRenderer {
     }
     this._layerGroups.clear();
 
-    if (!this._tilemap || !this._tileset) return;
+    // Flush texture cache so textures get recreated from the latest
+    // HTMLImageElement (important after save/load when a new image is
+    // decoded with possibly corrected dimensions).
+    for (const [, tex] of this._textureCache) tex.dispose();
+    this._textureCache.clear();
 
-    for (const layer of this._tilemap.layers) {
-      this._buildLayer(layer);
+    for (const [, tilemap] of this._tilemaps) {
+      const tileset = this._tilesets.get(tilemap.tilesetId);
+      if (!tileset) continue;
+      for (const layer of tilemap.layers) {
+        this._buildLayer(tilemap, layer, tileset);
+      }
     }
   }
 
-  /** Rebuild a single layer (after painting) */
+  /** Rebuild all layers for a specific tilemap. */
+  private _rebuildTilemap(tilemap: TilemapAsset): void {
+    // Remove old groups for this tilemap
+    for (const layer of tilemap.layers) {
+      const key = `${tilemap.assetId}::${layer.layerId}`;
+      const existing = this._layerGroups.get(key);
+      if (existing) {
+        this._root.remove(existing);
+        this._disposeGroup(existing);
+        this._layerGroups.delete(key);
+      }
+    }
+
+    const tileset = this._tilesets.get(tilemap.tilesetId);
+    if (!tileset) return;
+
+    for (const layer of tilemap.layers) {
+      this._buildLayer(tilemap, layer, tileset);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  //  Single-layer rebuild (after painting)
+  // ------------------------------------------------------------------
+
+  /**
+   * Rebuild a single layer (after painting).
+   * Searches all registered tilemaps for a layer with the given ID.
+   */
   rebuildLayer(layerId: string): void {
-    if (!this._tilemap || !this._tileset) return;
+    for (const [, tilemap] of this._tilemaps) {
+      const layer = tilemap.layers.find(l => l.layerId === layerId);
+      if (!layer) continue;
 
-    // Remove old
-    const existing = this._layerGroups.get(layerId);
-    if (existing) {
-      this._root.remove(existing);
-      this._disposeGroup(existing);
-      this._layerGroups.delete(layerId);
+      const key = `${tilemap.assetId}::${layerId}`;
+      const existing = this._layerGroups.get(key);
+      if (existing) {
+        this._root.remove(existing);
+        this._disposeGroup(existing);
+        this._layerGroups.delete(key);
+      }
+
+      const tileset = this._tilesets.get(tilemap.tilesetId);
+      if (tileset) this._buildLayer(tilemap, layer, tileset);
+      return; // layer IDs are unique within a tilemap
     }
-
-    const layer = this._tilemap.layers.find(l => l.layerId === layerId);
-    if (layer) this._buildLayer(layer);
   }
 
-  /** Build THREE.js meshes for one layer */
-  private _buildLayer(layer: TilemapLayer): void {
-    if (!this._tileset) return;
+  // ------------------------------------------------------------------
+  //  Layer building
+  // ------------------------------------------------------------------
+
+  /** Build THREE.js meshes for one layer of a specific tilemap. */
+  private _buildLayer(tilemap: TilemapAsset, layer: TilemapLayer, ts: TilesetAsset): void {
+    const compositeKey = `${tilemap.assetId}::${layer.layerId}`;
 
     const group = new THREE.Group();
-    group.name = `TilemapLayer_${layer.name}`;
+    group.name = `TilemapLayer_${tilemap.assetName}_${layer.name}`;
     group.visible = layer.visible;
     // Use layer.z for render ordering via position.z
     group.position.z = layer.z * 0.001; // Small z offset to separate layers
 
-    const ts = this._tileset;
     const texture = this._getTexture(ts);
     if (!texture) {
       console.warn('[TilemapRenderer] No texture for tileset %s (image=%s)', ts.assetId, !!ts.image);
-      this._layerGroups.set(layer.layerId, group);
+      this._layerGroups.set(compositeKey, group);
       this._root.add(group);
       return;
     }
 
+    // Use the ACTUAL image dimensions for UV calculations rather than the
+    // stored textureWidth/textureHeight — this prevents stale values after
+    // save/load from causing stretched tiles.
+    const actualW = ts.image!.naturalWidth || ts.textureWidth;
+    const actualH = ts.image!.naturalHeight || ts.textureHeight;
+    const actualCols = Math.floor(actualW / ts.tileWidth) || ts.columns;
+
     const tileCount = Object.keys(layer.tiles).length;
-    console.log('[TilemapRenderer] Building layer "%s" — %d tiles, texture=%dx%d, ppu=%d',
-      layer.name, tileCount, ts.textureWidth, ts.textureHeight, ts.pixelsPerUnit);
+    console.log('[TilemapRenderer] Building layer "%s" (tilemap "%s") — %d tiles, texture=%dx%d (actual %dx%d), ppu=%d',
+      layer.name, tilemap.assetName, tileCount, ts.textureWidth, ts.textureHeight, actualW, actualH, ts.pixelsPerUnit);
 
     const ppu = ts.pixelsPerUnit || 100;
     const tileWorldW = ts.tileWidth / ppu;
     const tileWorldH = ts.tileHeight / ppu;
 
-    // UV dimensions for a single tile in the atlas
-    const uvTileW = ts.tileWidth / ts.textureWidth;
-    const uvTileH = ts.tileHeight / ts.textureHeight;
+    // UV dimensions for a single tile in the atlas — based on actual image size
+    const uvTileW = ts.tileWidth / actualW;
+    const uvTileH = ts.tileHeight / actualH;
+
+    // Half-texel inset to prevent atlas bleeding at tile edges.
+    // Without this, GPU sampling can pick up slivers of adjacent tiles
+    // causing visible seams and stretched-looking artifacts.
+    const halfTexelU = 0.5 / actualW;
+    const halfTexelV = 0.5 / actualH;
 
     const tileKeys = Object.keys(layer.tiles);
     if (tileKeys.length === 0) {
-      this._layerGroups.set(layer.layerId, group);
+      this._layerGroups.set(compositeKey, group);
       this._root.add(group);
       return;
     }
@@ -116,13 +216,14 @@ export class TilemapRenderer {
       const wx = cx * tileWorldW;
       const wy = cy * tileWorldH;
 
-      // UV coordinates for this tile in the atlas
-      const tileCol = tileId % ts.columns;
-      const tileRow = Math.floor(tileId / ts.columns);
-      const u0 = tileCol * uvTileW;
-      const v0 = 1 - (tileRow + 1) * uvTileH; // Flip Y for THREE.js UV
-      const u1 = u0 + uvTileW;
-      const v1 = v0 + uvTileH;
+      // UV coordinates for this tile in the atlas (using actual dimensions)
+      const tileCol = tileId % actualCols;
+      const tileRow = Math.floor(tileId / actualCols);
+      // Base UVs — flipY=true (THREE.js default): v=0→bottom, v=1→top of original
+      const u0 = tileCol * uvTileW + halfTexelU;
+      const v0 = 1 - (tileRow + 1) * uvTileH + halfTexelV;
+      const u1 = (tileCol + 1) * uvTileW - halfTexelU;
+      const v1 = 1 - tileRow * uvTileH - halfTexelV;
 
       // 4 vertices (quad)
       // Bottom-left
@@ -160,19 +261,23 @@ export class TilemapRenderer {
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `tiles_${layer.name}`;
+    mesh.name = `tiles_${tilemap.assetName}_${layer.name}`;
     mesh.renderOrder = layer.z;
     mesh.frustumCulled = false;
     group.add(mesh);
 
-    this._layerGroups.set(layer.layerId, group);
+    this._layerGroups.set(compositeKey, group);
     this._root.add(group);
   }
 
   /** Update layer visibility (when toggling in the layer list) */
   updateLayerVisibility(layerId: string, visible: boolean): void {
-    const group = this._layerGroups.get(layerId);
-    if (group) group.visible = visible;
+    // Check all tilemaps for this layer
+    for (const [key, group] of this._layerGroups) {
+      if (key.endsWith(`::${layerId}`)) {
+        group.visible = visible;
+      }
+    }
   }
 
   /** Get or create a THREE.Texture from the tileset's HTMLImageElement */
@@ -189,6 +294,11 @@ export class TilemapRenderer {
     tex.minFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;
     tex.colorSpace = THREE.SRGBColorSpace;
+    // Explicit: flipY=true matches our UV math (v=0→bottom, v=1→top)
+    tex.flipY = true;
+    // Clamp to edge prevents wrapping artifacts at atlas border
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.needsUpdate = true;
     this._textureCache.set(ts.assetId, tex);
     return tex;

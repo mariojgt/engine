@@ -1026,11 +1026,11 @@ export class TileEditorPanel {
       </div>
       <div style="${labelStyle}">
         <span>Tile Width (px)</span>
-        <input class="ts-tw" type="number" value="16" min="4" max="256" style="${inputStyle}">
+        <input class="ts-tw" type="number" value="32" min="4" max="256" style="${inputStyle}">
       </div>
       <div style="${labelStyle}">
         <span>Tile Height (px)</span>
-        <input class="ts-th" type="number" value="16" min="4" max="256" style="${inputStyle}">
+        <input class="ts-th" type="number" value="32" min="4" max="256" style="${inputStyle}">
       </div>
       <div style="${labelStyle}">
         <span>Pixels Per Unit</span>

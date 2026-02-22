@@ -2764,7 +2764,7 @@ function genAction(
       const scS = inputSrc.get(`${nodeId}.scale`);
       const x = xS ? rv(xS.nid, xS.ok) : '0'; const y = yS ? rv(yS.nid, yS.ok) : '0';
       const scale = scS ? rv(scS.nid, scS.ok) : '1';
-      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.moveHorizontal((${x}) * (${scale}), deltaTime); } }`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { var _sx = (${x}) * (${scale}); var _sy = (${y}) * (${scale}); if (Math.abs(_sx) > 0.001) _cm.moveHorizontal(_sx, deltaTime); else _cm.decelerate(deltaTime); if (Math.abs(_sy) > 0.001) _cm.moveVertical(_sy, deltaTime); else if (_cm.decelerateVertical) _cm.decelerateVertical(deltaTime); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2797,7 +2797,7 @@ function genAction(
       break;
     }
     case 'Stop Movement 2D': {
-      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setLinvel({x:0, y:_rb.rigidBody.linvel().y}, true); } }`);
+      lines.push(`{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.setLinvel({x:0, y:0}, true); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
