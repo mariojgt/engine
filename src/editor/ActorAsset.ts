@@ -9,8 +9,8 @@ import { BlueprintData, type VarType, type BlueprintVariable, type BlueprintFunc
   type BlueprintStructField, type BlueprintGraphData } from './BlueprintData';
 import type { CollisionConfig } from '../engine/CollisionTypes';
 import { defaultCollisionConfig } from '../engine/CollisionTypes';
-import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, CharacterRotationConfig, CameraModeSettings } from '../engine/CharacterPawnData';
-import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings } from '../engine/CharacterPawnData';
+import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, CharacterRotationConfig, CameraModeSettings, Camera2DConfig } from '../engine/CharacterPawnData';
+import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings, defaultCamera2DConfig } from '../engine/CharacterPawnData';
 import type { ControllerType } from '../engine/Controller';
 
 // ---- Actor type ----
@@ -185,7 +185,7 @@ export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
   type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh'
-    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap';
+    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap' | 'camera2d';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -235,12 +235,16 @@ export interface ActorComponentData {
   /** 2D collider dimensions */
   collider2dSize?: { width: number; height: number };
   collider2dRadius?: number;
+  /** When true, acts as a sensor/trigger (no physical response, fires overlap events) */
+  isTrigger?: boolean;
   /** 2D rigid body type (for type='rigidbody2d') */
   rigidbody2dType?: 'dynamic' | 'static' | 'kinematic';
   /** Tilemap asset ID (for type='tilemap') */
   tilemapAssetId?: string;
   /** Tileset asset ID (for type='tilemap') */
   tilesetAssetId?: string;
+  /** Camera 2D configuration (for type='camera2d' on characterPawn2D) */
+  camera2dConfig?: Camera2DConfig;
 }
 
 /** Configuration for skeletal mesh components */
@@ -322,6 +326,11 @@ export interface ActorAssetJSON {
 let _assetNextId = 1;
 function assetUid(): string {
   return 'actor_' + (_assetNextId++) + '_' + Date.now().toString(36);
+}
+
+let _compNextId = 1;
+function compUid(): string {
+  return 'comp_' + (_compNextId++) + '_' + Math.random().toString(36).slice(2, 6);
 }
 
 export class ActorAsset {
@@ -458,6 +467,7 @@ export class ActorAsset {
       light: c.light ? { ...defaultLightConfig(c.light.lightType), ...c.light } : undefined,
       springArm: c.springArm ? { ...defaultSpringArmConfig(), ...c.springArm } : undefined,
       camera: c.camera ? { ...defaultCameraConfig(c.camera.cameraMode), ...c.camera } : undefined,
+      camera2dConfig: c.camera2dConfig ? { ...defaultCamera2DConfig(), ...c.camera2dConfig } : undefined,
       skeletalMesh: c.skeletalMesh
         ? { strictSkeletonMatching: false, ...c.skeletalMesh }
         : undefined,
@@ -731,6 +741,20 @@ export class ActorAssetManager {
           freezeRotation: true,
         };
 
+        // Add built-in Camera 2D component so users can tweak FOV/zoom in the Actor Editor
+        const cam2dComp: ActorComponentData = {
+          id: compUid(),
+          type: 'camera2d',
+          meshType: 'cube',
+          name: 'Camera2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          hiddenInGame: true,
+          camera2dConfig: defaultCamera2DConfig(),
+        };
+        asset.components.push(cam2dComp);
+
       } else if (preset2D === 'topdown') {
         // Top-down: 4-directional movement (WASD), no gravity, no jump
         asset.blueprintData.eventGraph = {
@@ -775,6 +799,20 @@ export class ActorAssetManager {
           freezeRotation: true,
         };
 
+        // Add built-in Camera 2D component
+        const cam2dCompTD: ActorComponentData = {
+          id: compUid(),
+          type: 'camera2d',
+          meshType: 'cube',
+          name: 'Camera2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          hiddenInGame: true,
+          camera2dConfig: defaultCamera2DConfig(),
+        };
+        asset.components.push(cam2dCompTD);
+
       } else {
         // Blank: just BeginPlay + Tick
         asset.blueprintData.eventGraph = {
@@ -786,6 +824,19 @@ export class ActorAssetManager {
             connections: [],
           },
         };
+        // Add built-in Camera 2D component for blank preset too
+        const cam2dCompBlank: ActorComponentData = {
+          id: compUid(),
+          type: 'camera2d',
+          meshType: 'cube',
+          name: 'Camera2D',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          hiddenInGame: true,
+          camera2dConfig: defaultCamera2DConfig(),
+        };
+        asset.components.push(cam2dCompBlank);
       }
     }
     this._assets.set(asset.id, asset);

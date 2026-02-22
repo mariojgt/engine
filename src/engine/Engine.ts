@@ -66,6 +66,13 @@ export class Engine {
   /** Project-selected Game Instance class ID (from Project Settings) */
   public gameInstanceClassId: string | null = null;
 
+  /**
+   * Optional reference to the Scene2DManager so that Camera 2D blueprint
+   * nodes (which use __engine.scene2DManager.camera2D) work from any
+   * blueprint context at runtime.  Set by the editor before play starts.
+   */
+  public scene2DManager: any = null;
+
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
@@ -90,6 +97,7 @@ export class Engine {
         buildThreeMaterialFromAsset,
         projectManager: this.projectManager,
         gameInstance: this.gameInstance,
+        engine: this,
       };
     } else {
       this._cachedScriptContext.gameObject = go;
@@ -102,6 +110,7 @@ export class Engine {
       this._cachedScriptContext.meshAssetManager = MeshAssetManager.getInstance();
       this._cachedScriptContext.projectManager = this.projectManager;
       this._cachedScriptContext.gameInstance = this.gameInstance;
+      this._cachedScriptContext.engine = this;
     }
     return this._cachedScriptContext;
   }
@@ -282,7 +291,7 @@ export class Engine {
   /** Called when Stop is pressed — fires OnDestroy on all scripts */
   onPlayStopped(): void {
     const print = (v: any) => this.onPrint(v);
-    
+
     // Unbind runtime input to prevent interfering with editor
     this.input.unbindEvents();
 

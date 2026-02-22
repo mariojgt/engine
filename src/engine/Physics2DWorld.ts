@@ -17,6 +17,8 @@ export interface BodyEntry2D {
   rigidBody: any; // RAPIER2D.RigidBody
   actor: any;
   colliders: any[];
+  /** Maps collider handle → component name so selfComponentName can be included in events */
+  colliderNames: Map<number, string>;
 }
 
 export class Physics2DWorld {
@@ -190,13 +192,15 @@ export class Physics2DWorld {
         const eventType = isTrigger
           ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
           : (started ? 'collisionBegin2D' : 'collisionEnd2D');
-        entry1.actor.emit(eventType, { otherActor: entry2.actor, otherName: entry2.actor.name });
+        const selfName1 = entry1.colliderNames?.get(handle1) ?? '';
+        entry1.actor.emit(eventType, { otherActor: entry2.actor, otherName: entry2.actor.name, selfComponentName: selfName1 });
       }
       if (entry2?.actor?.emit && entry1?.actor) {
         const eventType = isTrigger
           ? (started ? 'triggerBegin2D' : 'triggerEnd2D')
           : (started ? 'collisionBegin2D' : 'collisionEnd2D');
-        entry2.actor.emit(eventType, { otherActor: entry1.actor, otherName: entry1.actor.name });
+        const selfName2 = entry2.colliderNames?.get(handle2) ?? '';
+        entry2.actor.emit(eventType, { otherActor: entry1.actor, otherName: entry1.actor.name, selfComponentName: selfName2 });
       }
     });
 
@@ -242,22 +246,28 @@ export class Physics2DWorld {
       rigidBody.lockRotations(true, true);
     }
 
-    const entry: BodyEntry2D = { rigidBody, actor, colliders: [] };
+    const entry: BodyEntry2D = { rigidBody, actor, colliders: [], colliderNames: new Map() };
     this.bodyMap.set(rigidBody.handle, entry);
     return rigidBody;
   }
 
-  addStaticBody(x: number, y: number): any {
+  addStaticBody(x: number, y: number, actor?: any): any {
     if (!this.world || !this._rapier) return null;
     const rbDesc = this._rapier.RigidBodyDesc.fixed().setTranslation(x, y);
-    return this.world.createRigidBody(rbDesc);
+    const rigidBody = this.world.createRigidBody(rbDesc);
+    // Register in bodyMap when an actor is provided so processEvents can resolve the actor
+    if (actor !== undefined && actor !== null) {
+      const entry: BodyEntry2D = { rigidBody, actor, colliders: [], colliderNames: new Map() };
+      this.bodyMap.set(rigidBody.handle, entry);
+    }
+    return rigidBody;
   }
 
   addKinematicBody(actor: any, x: number, y: number): any {
     if (!this.world || !this._rapier) return null;
     const rbDesc = this._rapier.RigidBodyDesc.kinematicPositionBased().setTranslation(x, y);
     const rigidBody = this.world.createRigidBody(rbDesc);
-    const entry: BodyEntry2D = { rigidBody, actor, colliders: [] };
+    const entry: BodyEntry2D = { rigidBody, actor, colliders: [], colliderNames: new Map() };
     this.bodyMap.set(rigidBody.handle, entry);
     return rigidBody;
   }
@@ -270,11 +280,13 @@ export class Physics2DWorld {
     restitution?: number;
     offsetX?: number;
     offsetY?: number;
+    name?: string;
   } = {}): any {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.cuboid(halfW, halfH)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.1); // reduced from 0.3 — prevents unnatural bouncing on landing
+      .setRestitution(options.restitution ?? 0.1) // reduced from 0.3 — prevents unnatural bouncing on landing
+      .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
@@ -283,7 +295,10 @@ export class Physics2DWorld {
     // Track the collider in the body's BodyEntry so _checkActorGrounded can
     // read the half-extents and produce a correctly-sized ground-check ray.
     const entry = this.bodyMap.get(rigidBody.handle);
-    if (entry) entry.colliders.push(collider);
+    if (entry) {
+      entry.colliders.push(collider);
+      if (options.name) entry.colliderNames.set(collider.handle, options.name);
+    }
     return collider;
   }
 
@@ -293,18 +308,23 @@ export class Physics2DWorld {
     restitution?: number;
     offsetX?: number;
     offsetY?: number;
+    name?: string;
   } = {}): any {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.ball(radius)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.1);
+      .setRestitution(options.restitution ?? 0.1)
+      .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
     }
     const collider = this.world.createCollider(desc, rigidBody);
     const entry = this.bodyMap.get(rigidBody.handle);
-    if (entry) entry.colliders.push(collider);
+    if (entry) {
+      entry.colliders.push(collider);
+      if (options.name) entry.colliderNames.set(collider.handle, options.name);
+    }
     return collider;
   }
 
@@ -314,18 +334,23 @@ export class Physics2DWorld {
     restitution?: number;
     offsetX?: number;
     offsetY?: number;
+    name?: string;
   } = {}): any {
     if (!this.world || !this._rapier) return null;
     const desc = this._rapier.ColliderDesc.capsule(halfHeight, radius)
       .setFriction(options.friction ?? 0.5)
-      .setRestitution(options.restitution ?? 0.1);
+      .setRestitution(options.restitution ?? 0.1)
+      .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
       desc.setTranslation(options.offsetX ?? 0, options.offsetY ?? 0);
     }
     const collider = this.world.createCollider(desc, rigidBody);
     const entry = this.bodyMap.get(rigidBody.handle);
-    if (entry) entry.colliders.push(collider);
+    if (entry) {
+      entry.colliders.push(collider);
+      if (options.name) entry.colliderNames.set(collider.handle, options.name);
+    }
     return collider;
   }
 

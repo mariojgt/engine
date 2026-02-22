@@ -160,6 +160,10 @@ async function main() {
   projectManager.getSceneMode = () => editor.getSceneMode();
   projectManager.getScene2DData = () => editor.scene2DManager.toJSON();
   projectManager.setScene2DData = (data: any) => editor.scene2DManager.fromJSON(data);
+  // Wire scene2DManager into the Engine so Camera 2D blueprint nodes
+  // (which use __engine.scene2DManager.camera2D) resolve at runtime
+  // from both actor-blueprint and AnimBP2D script contexts.
+  engine.scene2DManager = editor.scene2DManager;
 
   // Wire composition manager so environment actors (lights, sky, fog, etc.) are saved/loaded
   projectManager.setCompositionManager(editor.composition);
@@ -645,13 +649,45 @@ async function main() {
               return asset?.characterMovement2DConfig ?? undefined;
             })();
             const actor = editor.scene2DManager.spawnCharacterPawn2D(go, movConfig, editor.assetManager, editor.animBPManager);
-            if (actor && !firstPawnActor) firstPawnActor = actor;
+            if (actor && !firstPawnActor) {
+              firstPawnActor = actor;
+              // Apply Camera2D config: prefer the Camera2D component on the asset,
+              // fall back to characterMovement2DConfig.camera2D for legacy assets.
+              const pawnAsset = go.actorAssetId ? editor.assetManager.getAsset(go.actorAssetId) : null;
+              const cam2dComp = pawnAsset?.components?.find((c: any) => c.type === 'camera2d');
+              const camCfg = cam2dComp?.camera2dConfig ?? movConfig?.camera2D;
+              if (editor.scene2DManager.camera2D && camCfg) {
+                if ((camCfg.pixelsPerUnit ?? 0) > 0) {
+                  editor.scene2DManager.camera2D.setPixelsPerUnit(camCfg.pixelsPerUnit);
+                }
+                editor.scene2DManager.camera2D.setPixelPerfect(camCfg.pixelPerfect ?? false);
+                editor.scene2DManager.camera2D.setZoom(camCfg.defaultZoom ?? 1.0);
+              }
+            }
           }
         }
 
-        // Camera follows the first character pawn
+        // Spawn SpriteActors for all spriteActor game objects (simple 2D sprites
+        // with optional physics/collision but without character movement).
+        for (const go of engine.scene.gameObjects) {
+          if (go.actorType === 'spriteActor') {
+            editor.scene2DManager.spawnSpriteActor2D(go, editor.assetManager, editor.animBPManager);
+          }
+        }
+
+        // Camera follows the first character pawn using config smoothing / dead zone
         if (firstPawnActor && editor.scene2DManager.camera2D) {
-          editor.scene2DManager.camera2D.follow(firstPawnActor, 0.15, { x: 0.5, y: 0.5 });
+          const firstPawnGO = engine.scene.gameObjects.find(
+            g => g.actorType === 'characterPawn2D' && g.actorAssetId
+          );
+          const firstPawnAsset = firstPawnGO ? editor.assetManager.getAsset(firstPawnGO.actorAssetId!) : null;
+          const cam2dComp = firstPawnAsset?.components?.find((c: any) => c.type === 'camera2d');
+          const camCfg = cam2dComp?.camera2dConfig
+            ?? firstPawnAsset?.characterMovement2DConfig?.camera2D;
+          const smoothing  = camCfg?.followSmoothing ?? 0.15;
+          const deadZoneX  = camCfg?.deadZoneX       ?? 0.5;
+          const deadZoneY  = camCfg?.deadZoneY       ?? 0.5;
+          editor.scene2DManager.camera2D.follow(firstPawnActor, smoothing, { x: deadZoneX, y: deadZoneY });
         }
 
         // Log final physics world stats for debugging
@@ -747,7 +783,7 @@ async function main() {
       // Fallback relative restoration
       console.warn('[Editor] No pre-play state found, attempting partial restore...');
       const sceneWasRestored = await projectManager.restorePrePlayScene();
-      
+
       if (sceneWasRestored) {
         (engine.scene as any)._runtimeDestroyedGOs = [];
       } else {

@@ -84,6 +84,10 @@ export class Scene2DManager {
   private _actorAnimBPStates = new Map<SpriteActor, { currentStateId: string; abp: any }>();
   /** Per-actor compiled event graph script + run state for 2D AnimBP event graph execution */
   private _actorEventScripts = new Map<SpriteActor, { script: ScriptComponent | null; started: boolean; elapsed: number }>();
+  /** Separate ScriptComponent for each spriteActor's own blueprint (not AnimBP) */
+  private _actorBlueprintScripts = new Map<SpriteActor, { script: ScriptComponent | null; started: boolean; elapsed: number }>();
+  /** Actors queued for deferred destruction at end of frame — avoids mutating spriteActors mid-iteration */
+  private _pendingDestroy = new Set<SpriteActor>();
   /** Print function for 2D AnimBP event graphs — wire from editor Output Log so Print String nodes appear there */
   public printFn: ((v: any) => void) | null = null;
 
@@ -357,13 +361,18 @@ export class Scene2DManager {
     // Update runtime 2D actors (physics sync, character movement, animations)
     if (this.isPlaying) {
       for (const actor of this.spriteActors) {
+        if (this._pendingDestroy.has(actor)) continue; // skip actors queued for destruction
         actor.update(deltaTime);
         // Sync physics-derived variables and run the AnimBP 2D event graph
         // (BeginPlay + Tick nodes, Set/Get Anim Var, etc.)
         this._syncAnimBPVars(actor, deltaTime);
         // Evaluate AnimBP state machine transitions using synced variables
         this._evalAnimBPTransitions(actor);
+        // Run the actor's own blueprint event graph (BeginPlay, Tick, overlap events)
+        this._runActorBlueprintScript(actor, deltaTime);
       }
+      // Flush any actors that were queued for destruction during this frame
+      this._flushPendingDestroys();
     }
     this.debugDraw.update(deltaTime);
   }
@@ -423,6 +432,7 @@ export class Scene2DManager {
       colliderShape,
       colliderSize: { width: w, height: h },
       colliderRadius: _collider2dComp?.collider2dRadius,
+      componentName: _collider2dComp?.name || 'Collider2D',
       sortingLayer: _sprRendComp?.sortingLayer ?? 'Default',
       orderInLayer: _sprRendComp?.orderInLayer ?? 0,
       freezeRotation: movementConfig?.freezeRotation !== false, // default true
@@ -549,6 +559,15 @@ export class Scene2DManager {
       actor.orderInLayer  = _sprRendComp?.orderInLayer  ?? 0;
       actor.applySorting(this.sortingLayers);
 
+      // Pin the default sprite frame immediately so the mesh has the right
+      // size/UVs before the animator starts (avoids the full-texture strip on first frame).
+      const defaultSpriteData = _sprRendComp?.defaultSprite
+        ? sheet.sprites.find((s: any) => s.name === _sprRendComp.defaultSprite || s.spriteId === _sprRendComp.defaultSprite)
+        : sheet.sprites[0];
+      if (defaultSpriteData && sheet.texture) {
+        actor.spriteRenderer.setSprite(defaultSpriteData, sheet.texture);
+      }
+
       // Init animator with all available animations.
       // Use the ABP entry state's spriteAnimationName as the default clip so
       // the first frame shows the correct animation immediately.
@@ -567,6 +586,158 @@ export class Scene2DManager {
     })();
 
     console.log(`[Scene2DManager] Spawned 2D pawn "${go.name}" at (${spawnX.toFixed(3)}, ${spawnY.toFixed(3)}) size (${w.toFixed(2)}, ${h.toFixed(2)}) [topY=${topY?.toFixed(3) ?? 'n/a'}]`);
+    return actor;
+  }
+
+  /**
+   * Spawn a SpriteActor from a spriteActor game object.
+   * Attaches optional Rapier2D body + collider from the actor's rigidbody2d /
+   * collider2d components and runs the actor blueprint compiled code each tick.
+   */
+  spawnSpriteActor2D(
+    go: any, /* GameObject */
+    assetManager?: any,
+    animBPManager?: any,
+  ): SpriteActor | null {
+    if (!this.physics2D) return null;
+
+    // Hide the source 3D mesh so the cube/sphere is not rendered over the sprite.
+    if (go.mesh) {
+      this._hiddenGoMeshes.push({ mesh: go.mesh, wasVisible: go.mesh.visible });
+      go.mesh.visible = false;
+    }
+
+    const rawPos = go.mesh?.position ?? { x: 0, y: 0 };
+
+    const actorAsset          = assetManager?.getAsset?.(go.actorAssetId);
+    const collider2dComp      = actorAsset?.components?.find((c: any) => c.type === 'collider2d');
+    const rigidbody2dComp     = actorAsset?.components?.find((c: any) => c.type === 'rigidbody2d');
+    const sprRendComp         = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
+
+    // Determine physics body type: explicit rigidbody2d wins; if only a collider
+    // exists default to 'static'; if neither exists → no physics body.
+    const physicsBodyType: 'dynamic' | 'kinematic' | 'static' | undefined =
+      rigidbody2dComp?.rigidbody2dType ?? (collider2dComp ? 'static' : undefined);
+
+    const colliderShape: 'box' | 'circle' | 'capsule' =
+      (collider2dComp?.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule';
+    const w        = collider2dComp?.collider2dSize?.width  ?? 1.0;
+    const h        = collider2dComp?.collider2dSize?.height ?? 1.0;
+    const isTrigger = collider2dComp?.isTrigger ?? false;
+
+    const config: SpriteActorConfig = {
+      name:         go.name,
+      actorType:    'spriteActor',
+      position:     { x: rawPos.x, y: rawPos.y },
+      physicsBodyType,
+      colliderShape,
+      colliderSize: { width: w, height: h },
+      colliderRadius: collider2dComp?.collider2dRadius,
+      isTrigger,
+      componentName: collider2dComp?.name || 'Collider2D',
+      sortingLayer:  sprRendComp?.sortingLayer  ?? 'Default',
+      orderInLayer:  sprRendComp?.orderInLayer  ?? 0,
+      blueprintId:   go.actorAssetId ?? undefined,
+    };
+
+    const actor = new SpriteActor(config);
+    actor.id = go.id;
+    actor.spriteRenderer.material.color.setHex(0xffffff);
+    actor.spriteRenderer.material.transparent = true;
+    this.root2D.add(actor.group);
+
+    // Attach physics body + collider if a body type was resolved
+    if (physicsBodyType) {
+      actor.attachPhysicsBody(this.physics2D, config);
+    }
+
+    const rbComp = actor.getComponent('RigidBody2D');
+    if (!go._runtimeComponents) go._runtimeComponents = new Map();
+    if (rbComp) go._runtimeComponents.set('RigidBody2D', rbComp);
+    go._runtimeComponents.set('SpriteRenderer', actor.getComponent('SpriteRenderer'));
+
+    // Store the actor blueprint compiled code so _runActorBlueprintScript can pick it up
+    if (actorAsset?.compiledCode) {
+      (actor as any).__actorBlueprintCode = actorAsset.compiledCode;
+    }
+
+    // Register AnimBP if the sprite renderer references one
+    {
+      const abpId: string | undefined = sprRendComp?.animBlueprint2dId;
+      const abp = abpId
+        ? (animBPManager?.assets ?? []).find((a: any) => a.id === abpId)
+        : null;
+      if (abp) {
+        actor.animBlueprintId = abp.id;
+        this._actorAnimBPStates.set(actor, {
+          currentStateId: abp.stateMachine?.entryStateId ?? '',
+          abp,
+        });
+      }
+    }
+
+    this.spriteActors.push(actor);
+
+    // ── Load sprite sheet asynchronously (same pattern as spawnCharacterPawn2D) ──
+    (async () => {
+      const sheetId: string | undefined = sprRendComp?.spriteSheetId;
+      const sheet = sheetId ? this.spriteSheets.get(sheetId) : null;
+      if (!sheet) return;
+
+      if (!sheet.image || !(sheet.image as HTMLImageElement).complete || (sheet.image as HTMLImageElement).naturalWidth === 0) {
+        if (sheet.imageDataUrl) {
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => { sheet.image = img; resolve(); };
+            img.onerror = () => resolve();
+            img.src = sheet.imageDataUrl!;
+          });
+        }
+      }
+
+      if (sheet.image && !sheet.texture) {
+        const tex = new THREE.Texture(sheet.image as HTMLImageElement);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.flipY = false;
+        tex.needsUpdate = true;
+        sheet.texture = tex;
+      }
+
+      if (!this.spriteActors.includes(actor)) return; // stale — play stopped
+
+      actor.setSpriteSheet(sheet);
+      if (sprRendComp?.flipX) actor.spriteRenderer.flipX = true;
+      if (sprRendComp?.flipY) actor.spriteRenderer.flipY = true;
+      actor.sortingLayer = sprRendComp?.sortingLayer ?? 'Default';
+      actor.orderInLayer = sprRendComp?.orderInLayer ?? 0;
+      actor.applySorting(this.sortingLayers);
+
+      // Always render the default/first sprite frame immediately so the mesh
+      // is correctly sized and UV'd before the animator takes over.
+      // Without this the sprite sits at scale(1,1,1) with no UVs set, which
+      // shows a full-texture strip instead of the actual sprite frame.
+      const defaultSpriteData = sprRendComp?.defaultSprite
+        ? sheet.sprites.find((s: any) => s.name === sprRendComp.defaultSprite || s.spriteId === sprRendComp.defaultSprite)
+        : sheet.sprites[0];
+      if (defaultSpriteData && sheet.texture) {
+        actor.spriteRenderer.setSprite(defaultSpriteData, sheet.texture);
+      }
+
+      if (sheet.animations && sheet.animations.length > 0) {
+        const registeredEntry = this._actorAnimBPStates.get(actor);
+        const abpForAnim = registeredEntry?.abp ?? null;
+        const entryState = abpForAnim?.stateMachine?.states?.find(
+          (s: any) => s.id === abpForAnim.stateMachine.entryStateId,
+        );
+        const defaultAnim: string | undefined =
+          entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
+        actor.initAnimator(sheet.animations, defaultAnim);
+      }
+    })();
+
+    console.log(`[Scene2DManager] Spawned spriteActor "${go.name}" at (${rawPos.x.toFixed(3)}, ${rawPos.y.toFixed(3)}) physicsType=${physicsBodyType ?? 'none'} isTrigger=${isTrigger}`);
     return actor;
   }
 
@@ -937,7 +1108,9 @@ export class Scene2DManager {
       physics:      null,
       scene:        sceneShim,
       animInstance: { variables: varShim, asset: abp },
-      engine:       null,
+      // Expose a minimal engine shim so that Camera 2D blueprint nodes
+      // (which use __engine.scene2DManager.camera2D) work at runtime.
+      engine:       { scene2DManager: this },
       gameInstance: null,
     };
 
@@ -1084,11 +1257,90 @@ export class Scene2DManager {
     }
   }
 
+  /**
+   * Run the actor's own blueprint compiled code (BeginPlay / Tick / overlap events).
+   * This is separate from the AnimBP 2D event graph — it executes the actor blueprint
+   * that the user builds in the "Event Graph" tab of the Actor Editor.
+   * `gameObject` in the script context is the SpriteActor itself so that
+   * `gameObject.on('triggerBegin2D', ...)` registrations reach the physics event emitter.
+   */
+  private _runActorBlueprintScript(actor: SpriteActor, deltaTime: number): void {
+    const actorAny = actor as any;
+    const code: string | undefined = actorAny.__actorBlueprintCode;
+    if (!code) return;
+
+    let ev = this._actorBlueprintScripts.get(actor);
+    if (!ev) {
+      const sc = new ScriptComponent();
+      sc.code = code;
+      const ok = sc.compile();
+      ev = { script: ok ? sc : null, started: false, elapsed: 0 };
+      this._actorBlueprintScripts.set(actor, ev);
+      if (!ok) {
+        console.warn(`[Scene2DManager] Failed to compile actor blueprint for "${actor.name}".`);
+      }
+    }
+    if (!ev.script) return;
+
+    const self = this;
+    const sceneShim = {
+      get gameObjects() { return self.spriteActors as any[]; },
+      findById: (id: number) => self.spriteActors.find(a => (a as any).id === id) ?? null,
+    };
+
+    const ctx = {
+      gameObject:   actor as any,
+      deltaTime,
+      elapsedTime:  ev.elapsed,
+      print:        this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
+      physics:      null,
+      scene:        sceneShim,
+      animInstance: null,
+      engine:       { scene2DManager: this },
+      gameInstance: null,
+    };
+
+    if (!ev.started) {
+      console.log(`[Scene2DManager] ▶ BeginPlay (actor blueprint) for "${actor.name}"`);
+      ev.script.beginPlay(ctx);
+      ev.started = true;
+    }
+    ev.script.tick(ctx);
+    ev.elapsed += deltaTime;
+  }
+
+  /** Destroy a single SpriteActor at runtime (called by Destroy Actor blueprint node).
+   * Destruction is deferred to the end of the current frame so it is safe to call
+   * from inside physics event callbacks or blueprint tick code. */
+  despawnSpriteActor2D(actor: any): void {
+    if (!actor) return;
+    // Only queue actors that are actually managed at runtime
+    if (!this.spriteActors.includes(actor)) return;
+    this._pendingDestroy.add(actor as SpriteActor);
+  }
+
+  /** Execute all queued destructions — called once per frame after iteration completes. */
+  private _flushPendingDestroys(): void {
+    if (this._pendingDestroy.size === 0) return;
+    for (const actor of this._pendingDestroy) {
+      const idx = this.spriteActors.indexOf(actor);
+      if (idx !== -1) this.spriteActors.splice(idx, 1);
+      this.root2D.remove(actor.group);
+      actor.dispose(this.physics2D ?? undefined);
+      this._actorAnimBPStates.delete(actor);
+      this._actorEventScripts.delete(actor);
+      this._actorBlueprintScripts.delete(actor);
+    }
+    this._pendingDestroy.clear();
+  }
+
   /** Stop 2D play mode and clean up all runtime actors */
   stopPlay(): void {
     this.isPlaying = false;
     this.physics2D?.stop();
     this.camera2D?.stopFollow();
+    // Discard pending deferred destructions — stopPlay cleans everything up below
+    this._pendingDestroy.clear();
 
     // Remove sprite actor groups from scene
     for (const actor of this.spriteActors) {
@@ -1098,6 +1350,7 @@ export class Scene2DManager {
     this.spriteActors = [];
     this._actorAnimBPStates.clear();
     this._actorEventScripts.clear();
+    this._actorBlueprintScripts.clear();
 
     // Restore 3D GO meshes that were hidden when their 2D pawns were spawned
     for (const entry of this._hiddenGoMeshes) {

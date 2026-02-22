@@ -33,6 +33,8 @@ export interface SpriteActorConfig {
   colliderRadius?: number;
   /** Is trigger (sensor) */
   isTrigger?: boolean;
+  /** Name of this collider component (used as selfComponentName in trigger/collision events) */
+  componentName?: string;
   /** Enable continuous collision detection (prevents tunneling) */
   ccdEnabled?: boolean;
   /** Lock rotation */
@@ -189,6 +191,11 @@ export class SpriteActor {
 
   setSpriteSheet(sheet: SpriteSheetAsset): void {
     this.spriteRenderer.spriteSheet = sheet;
+    // Always sync pixelsPerUnit from the sprite sheet so setSprite() scales correctly.
+    // The actor's default of 100 is only a fallback when the sheet has no ppu.
+    if (sheet.pixelsPerUnit && sheet.pixelsPerUnit > 0) {
+      this.pixelsPerUnit = sheet.pixelsPerUnit;
+    }
     this.spriteRenderer.pixelsPerUnit = this.pixelsPerUnit;
     if (sheet.texture) {
       this.spriteRenderer.setTexture(sheet.texture);
@@ -252,7 +259,8 @@ export class SpriteActor {
     } else if (bodyType === 'kinematic') {
       rigidBody = physics.addKinematicBody(this, pos.x, pos.y);
     } else {
-      rigidBody = physics.addStaticBody(pos.x, pos.y);
+      // Static body — pass `this` so bodyMap registers the actor for event resolution
+      rigidBody = physics.addStaticBody(pos.x, pos.y, this);
     }
 
     if (!rigidBody) {
@@ -260,18 +268,19 @@ export class SpriteActor {
       return;
     }
 
+    const colliderName = config.componentName || '';
     // Add collider
     if (config.colliderShape === 'circle') {
       const radius = config.colliderRadius ?? 0.5;
-      physics.addCircleCollider(rigidBody, radius, { isTrigger: config.isTrigger });
+      physics.addCircleCollider(rigidBody, radius, { isTrigger: config.isTrigger, name: colliderName });
     } else if (config.colliderShape === 'capsule') {
       const w = config.colliderSize?.width ?? 0.5;
       const h = config.colliderSize?.height ?? 1;
-      physics.addCapsuleCollider(rigidBody, h / 2, w / 2, { isTrigger: config.isTrigger });
+      physics.addCapsuleCollider(rigidBody, h / 2, w / 2, { isTrigger: config.isTrigger, name: colliderName });
     } else {
       const w = config.colliderSize?.width ?? 1;
       const h = config.colliderSize?.height ?? 1;
-      physics.addBoxCollider(rigidBody, w / 2, h / 2, { isTrigger: config.isTrigger });
+      physics.addBoxCollider(rigidBody, w / 2, h / 2, { isTrigger: config.isTrigger, name: colliderName });
     }
 
     this.physicsBody = physics.bodyMap.get(rigidBody.handle) ?? null;

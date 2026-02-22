@@ -5,9 +5,12 @@
 // ============================================================
 
 import { defaultCharacterMovement2DProps, type CharacterMovement2DProperties } from '../engine/CharacterMovement2D';
+import { defaultCamera2DConfig, type Camera2DConfig } from '../engine/CharacterPawnData';
 
 export interface CharacterPad2DConfig {
   movement: CharacterMovement2DProperties;
+  /** 2D orthographic camera settings — zoom (FOV), pixels per unit, follow smoothing, dead zone. */
+  camera2D: Camera2DConfig;
   collider: {
     shape: 'capsule' | 'box' | 'circle';
     width: number;
@@ -37,6 +40,7 @@ export interface CharacterPad2DConfig {
 export function defaultCharacterPad2DConfig(): CharacterPad2DConfig {
   return {
     movement: defaultCharacterMovement2DProps(),
+    camera2D: defaultCamera2DConfig(),
     collider: { shape: 'capsule', width: 0.8, height: 1.8, offsetX: 0, offsetY: 0 },
     animationLinks: {
       animBlueprintId: '',
@@ -137,6 +141,16 @@ export class CharacterPad2DPanel {
     scroll.appendChild(this._numRow('Height', c.height, 'units', v => { c.height = v; this._emit(); }, 0.1));
     scroll.appendChild(this._numRow('Offset X', c.offsetX, '', v => { c.offsetX = v; this._emit(); }, 0.1));
     scroll.appendChild(this._numRow('Offset Y', c.offsetY, '', v => { c.offsetY = v; this._emit(); }, 0.1));
+
+    // CAMERA 2D section
+    scroll.appendChild(this._sectionHeader('CAMERA 2D'));
+    const cam = this._config.camera2D;
+    scroll.appendChild(this._numRow('Default Zoom', cam.defaultZoom, '(FOV)', v => { cam.defaultZoom = Math.max(0.05, v); this._emit(); }, 0.05));
+    scroll.appendChild(this._numRow('Pixels Per Unit', cam.pixelsPerUnit, 'px/unit', v => { cam.pixelsPerUnit = Math.max(1, v); this._emit(); }, 8));
+    scroll.appendChild(this._numRow('Follow Smoothing', cam.followSmoothing, '(0-1)', v => { cam.followSmoothing = Math.min(1, Math.max(0, v)); this._emit(); }, 0.01));
+    scroll.appendChild(this._numRow('Dead Zone X', cam.deadZoneX, 'units', v => { cam.deadZoneX = Math.max(0, v); this._emit(); }, 0.1));
+    scroll.appendChild(this._numRow('Dead Zone Y', cam.deadZoneY, 'units', v => { cam.deadZoneY = Math.max(0, v); this._emit(); }, 0.1));
+    scroll.appendChild(this._checkRow('Pixel Perfect', cam.pixelPerfect, v => { cam.pixelPerfect = v; this._emit(); }));
 
     // ANIMATION LINKS section
     scroll.appendChild(this._sectionHeader('ANIMATION LINKS'));

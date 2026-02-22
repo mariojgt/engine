@@ -342,6 +342,8 @@ import {
   SetAirControl2DNode,
   GetSpriteFacingDirection2DNode,
   GetCharacterSpeed2DNode,
+  // Spawning nodes
+  DestroyActorNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -695,6 +697,24 @@ function resolveValue(
     const posCode = keyEventCode(posKey);
     const negCode = keyEventCode(negKey);
     return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
+  }
+
+  // 2D Collision / Trigger event output data (label-based since classes may not be imported)
+  if (node.label === 'On Collision Begin 2D') {
+    if (outputKey === 'otherActor')        return '__otherActor';
+    if (outputKey === 'otherActorName')    return '__otherActorName';
+    if (outputKey === 'otherActorId')      return '__otherActorId';
+    if (outputKey === 'selfComponent')     return '__selfComponentName';
+    if (outputKey === 'normalX')           return '__normalX';
+    if (outputKey === 'normalY')           return '__normalY';
+    return '0';
+  }
+  if (node.label === 'On Collision End 2D' || node.label === 'On Trigger Begin 2D' || node.label === 'On Trigger End 2D') {
+    if (outputKey === 'otherActor')        return '__otherActor';
+    if (outputKey === 'otherActorName')    return '__otherActorName';
+    if (outputKey === 'otherActorId')      return '__otherActorId';
+    if (outputKey === 'selfComponent')     return '__selfComponentName';
+    return '0';
   }
 
   // Collision / Trigger event output data (variables set inside the callback closure)
@@ -1232,6 +1252,42 @@ function resolveValue(
     case 'Get Max Walk Speed 2D': {
       return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.moveSpeed : 0)';
     }
+    case 'Get Run Speed 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.runSpeed : 0)';
+    }
+    case 'Get Acceleration 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.acceleration : 0)';
+    }
+    case 'Get Deceleration 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.deceleration : 0)';
+    }
+    case 'Get Air Control 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.airControl : 0.8)';
+    }
+    case 'Get Jump Force 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.jumpForce : 600)';
+    }
+    case 'Get Coyote Time 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.coyoteTime : 0.1)';
+    }
+    case 'Get Jump Buffer Time 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.jumpBufferTime : 0.1)';
+    }
+    case 'Get Max Fall Speed 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.maxFallSpeed : -1200)';
+    }
+    case 'Get Jump Cut 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? !!gameObject.getComponent("CharacterMovement2D").properties.jumpCut : true)';
+    }
+    case 'Get Linear Drag 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.linearDrag : 0)';
+    }
+    case 'Get Freeze Rotation 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? !!gameObject.getComponent("CharacterMovement2D").properties.freezeRotation : true)';
+    }
+    case 'Get Gravity Multiplier 2D': {
+      return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").properties.gravityScale : 1)';
+    }
     case 'Get Jumps Remaining 2D': {
       return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").jumpsRemaining : 0)';
     }
@@ -1246,6 +1302,13 @@ function resolveValue(
     // ── 2D Camera getters ───────────────────────────────────
     case 'Get Camera Zoom 2D': {
       return '(__engine && __engine.physics2D ? (__engine.scene2DManager ? __engine.scene2DManager.camera2D.zoom : 1) : 1)';
+    }
+    case 'Get Camera FOV 2D': {
+      // FOV in 2D == zoom level (lower zoom = wider view)
+      return '(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.zoom : 1)';
+    }
+    case 'Get Camera Pixels Per Unit 2D': {
+      return '(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.pixelsPerUnit : 100)';
     }
     case 'Get Camera Position 2D': {
       if (outputKey === 'x') return '(__engine && __engine.scene2DManager && __engine.scene2DManager.camera2D ? __engine.scene2DManager.camera2D.camera.position.x : 0)';
@@ -2000,6 +2063,22 @@ function genAction(
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+    case 'Destroy Actor': {
+      const tS = inputSrc.get(`${nodeId}.target`);
+      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'null';
+      // Support both 2D SpriteActors (via scene2DManager) and 3D GameObjects (via __scene).
+      // In 2D blueprints __engine.scene2DManager is always available.
+      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.removeActor === 'function') { __scene.removeActor(__destroyTarget); } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Destroy Actor': {
+      const tS = inputSrc.get(`${nodeId}.target`);
+      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'null';
+      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.removeActor === 'function') { __scene.removeActor(__destroyTarget); } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
     case 'Print String': {
       const vS = inputSrc.get(`${nodeId}.value`);
       let v: string;
@@ -2549,6 +2628,66 @@ function genAction(
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+    case 'Set Run Speed 2D': {
+      const rsS = inputSrc.get(`${nodeId}.speed`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.runSpeed = ${rsS ? rv(rsS.nid, rsS.ok) : '600'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Acceleration 2D': {
+      const accS = inputSrc.get(`${nodeId}.accel`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.acceleration = ${accS ? rv(accS.nid, accS.ok) : '2000'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Deceleration 2D': {
+      const decS = inputSrc.get(`${nodeId}.decel`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.deceleration = ${decS ? rv(decS.nid, decS.ok) : '2000'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Jump Force 2D': {
+      const jfS = inputSrc.get(`${nodeId}.force`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.jumpForce = ${jfS ? rv(jfS.nid, jfS.ok) : '600'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Coyote Time 2D': {
+      const ctS = inputSrc.get(`${nodeId}.time`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.coyoteTime = ${ctS ? rv(ctS.nid, ctS.ok) : '0.1'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Jump Buffer Time 2D': {
+      const jbtS = inputSrc.get(`${nodeId}.time`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.jumpBufferTime = ${jbtS ? rv(jbtS.nid, jbtS.ok) : '0.1'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Max Fall Speed 2D': {
+      const mfsS = inputSrc.get(`${nodeId}.speed`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.maxFallSpeed = ${mfsS ? rv(mfsS.nid, mfsS.ok) : '-1200'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Jump Cut 2D': {
+      const jcS = inputSrc.get(`${nodeId}.enabled`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.jumpCut = !!(${jcS ? rv(jcS.nid, jcS.ok) : 'true'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Linear Drag 2D': {
+      const ldS = inputSrc.get(`${nodeId}.drag`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.linearDrag = ${ldS ? rv(ldS.nid, ldS.ok) : '0'}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Freeze Rotation 2D': {
+      const frS = inputSrc.get(`${nodeId}.frozen`);
+      lines.push(`{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm) { _cm.properties.freezeRotation = !!(${frS ? rv(frS.nid, frS.ok) : 'true'}); var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (_rb && _rb.rigidBody) { _rb.rigidBody.lockRotations(!!(${frS ? rv(frS.nid, frS.ok) : 'true'}), true); } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
 
     // ══════════════════════════════════════════════════════════
     //  2D CAMERA ACTION NODES
@@ -2601,6 +2740,19 @@ function genAction(
     case 'Set Camera Dead Zone 2D': {
       const wS = inputSrc.get(`${nodeId}.width`); const hS = inputSrc.get(`${nodeId}.height`);
       lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.deadZone = { width: ${wS ? rv(wS.nid, wS.ok) : '0.1'}, height: ${hS ? rv(hS.nid, hS.ok) : '0.1'} }; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera FOV 2D': {
+      // In 2D, FOV is equivalent to zoom level. Lower zoom = wider visible area.
+      const fovZS = inputSrc.get(`${nodeId}.zoom`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.setZoom(${fovZS ? rv(fovZS.nid, fovZS.ok) : '1'}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Camera Pixels Per Unit 2D': {
+      const ppuS = inputSrc.get(`${nodeId}.ppu`);
+      lines.push(`{ var _cam = __engine && __engine.scene2DManager && __engine.scene2DManager.camera2D; if (_cam) { _cam.setPixelsPerUnit(${ppuS ? rv(ppuS.nid, ppuS.ok) : '100'}); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2880,25 +3032,25 @@ function generateFullCode(
     for (const n of collBegin2D) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionBegin2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionBegin2D', function(__evt) { var __otherActor = __evt.otherActor || null; var __otherActorName = __evt.otherName || ''; var __otherActorId = (__evt.otherActor && __evt.otherActor.id) || 0; var __selfComponentName = __evt.selfComponentName || ''; var __normalX = __evt.normalX || 0; var __normalY = __evt.normalY || 0; ${body.join(' ')} }); }`);
       }
     }
     for (const n of collEnd2D) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionEnd2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('collisionEnd2D', function(__evt) { var __otherActor = __evt.otherActor || null; var __otherActorName = __evt.otherName || ''; var __otherActorId = (__evt.otherActor && __evt.otherActor.id) || 0; var __selfComponentName = __evt.selfComponentName || ''; ${body.join(' ')} }); }`);
       }
     }
     for (const n of trigBegin2D) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerBegin2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerBegin2D', function(__evt) { var __otherActor = __evt.otherActor || null; var __otherActorName = __evt.otherName || ''; var __otherActorId = (__evt.otherActor && __evt.otherActor.id) || 0; var __selfComponentName = __evt.selfComponentName || ''; ${body.join(' ')} }); }`);
       }
     }
     for (const n of trigEnd2D) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerEnd2D', function(__evt) { var __otherActorName = __evt.otherName || ''; ${body.join(' ')} }); }`);
+        beginPlayCode.push(`if (gameObject.on) { gameObject.on('triggerEnd2D', function(__evt) { var __otherActor = __evt.otherActor || null; var __otherActorName = __evt.otherName || ''; var __otherActorId = (__evt.otherActor && __evt.otherActor.id) || 0; var __selfComponentName = __evt.selfComponentName || ''; ${body.join(' ')} }); }`);;
       }
     }
     for (const n of animEvent2D) {
@@ -3579,11 +3731,17 @@ function showDragPinContextMenu(
     // --- Actor-type-specific nodes (Character, Camera, Physics, Transform) ---
     if (targetActorId && isObjectPin) {
       const isCharacter = targetActorType === 'characterPawn';
+      const isCharacter2D = targetActorType === 'characterPawn2D';
 
       // Collect relevant NODE_PALETTE categories for this actor type
       const relevantCategories = new Set(['Physics', 'Transform', 'Collision']);
       if (isCharacter) {
         relevantCategories.add('Character');
+      }
+      if (isCharacter2D) {
+        relevantCategories.add('Movement 2D');
+        relevantCategories.add('Camera 2D');
+        relevantCategories.add('Animation 2D');
       }
 
       for (const cat of relevantCategories) {

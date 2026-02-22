@@ -15,8 +15,8 @@ import { defaultCollisionConfig, defaultMeshCollisionConfig, defaultDimensionsFo
 import { ActorPreviewViewport } from './ActorPreviewViewport';
 import { mountNodeEditorForAsset } from './NodeEditorPanel';
 import type { MeshType, RootMeshType } from '../engine/Scene';
-import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig } from '../engine/CharacterPawnData';
-import type { CameraMode, SpringArmConfig, CameraComponentConfig } from '../engine/CharacterPawnData';
+import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultCamera2DConfig } from '../engine/CharacterPawnData';
+import type { CameraMode, SpringArmConfig, CameraComponentConfig, Camera2DConfig } from '../engine/CharacterPawnData';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createClassInfoBar, inheritanceBadgeHTML } from './InheritanceDialogsUI';
 import { TextureLibrary } from './TextureLibrary';
@@ -746,6 +746,7 @@ export class ActorEditorPanel {
         : comp.type === 'rigidbody2d' ? '⚙'
         : comp.type === 'collider2d' ? '▭'
         : comp.type === 'characterMovement2d' ? '🏃'
+        : comp.type === 'camera2d' ? '📷'
         : comp.type === 'tilemap' ? '🗺'
         : '🔹';
       const indent = comp.parentId ? true : false;
@@ -1661,6 +1662,11 @@ export class ActorEditorPanel {
           this._onAssetChanged();
           this._refreshPreview?.();
         }));
+      container.appendChild(this._makeCheckboxRow('Is Trigger', comp.isTrigger ?? false, (v) => {
+          comp.isTrigger = v;
+          this._asset.touch();
+          this._onAssetChanged();
+      }));
       if ((comp.collider2dShape ?? 'box') === 'circle') {
         if (comp.collider2dRadius === undefined) comp.collider2dRadius = 0.5;
         container.appendChild(this._makeNumberRow('Radius', comp.collider2dRadius, 0.05, 0.05, 20, (v) => {
@@ -1687,10 +1693,53 @@ export class ActorEditorPanel {
 
     } else if (comp.type === 'characterMovement2d') {
       // ---- Character Movement 2D ----
-      const info = document.createElement('div');
-      info.style.cssText = 'color:#888;font-size:11px;padding:6px 0;line-height:1.5;';
-      info.textContent = '2D movement speed, jump force and physics are configured via the Character Pad 2D settings.';
-      container.appendChild(info);
+      const notify = () => { this._asset.touch(); this._onAssetChanged(); };
+      const cfg = () => {
+        if (!this._asset.characterMovement2DConfig) {
+          this._asset.characterMovement2DConfig = {};
+        }
+        return this._asset.characterMovement2DConfig;
+      };
+      const mv = this._asset.characterMovement2DConfig ?? {};
+
+      // MOVEMENT section
+      const movHdr = document.createElement('div');
+      movHdr.className = 'physics-section-header';
+      movHdr.textContent = '🏃 Movement';
+      container.appendChild(movHdr);
+      container.appendChild(this._makeNumberRow('Move Speed',   mv.moveSpeed   ?? 300,  10,   0, 5000, v => { cfg().moveSpeed   = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Run Speed',    mv.runSpeed    ?? 600,  10,   0, 5000, v => { cfg().runSpeed    = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Acceleration', mv.acceleration ?? 2000, 50,  0, 20000, v => { cfg().acceleration = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Deceleration', mv.deceleration ?? 2000, 50,  0, 20000, v => { cfg().deceleration = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Air Control',  mv.airControl  ?? 0.8, 0.01, 0,     1, v => { cfg().airControl  = Math.min(1, Math.max(0, v)); notify(); }));
+
+      // JUMPING section
+      const jumpHdr = document.createElement('div');
+      jumpHdr.className = 'physics-section-header';
+      jumpHdr.style.marginTop = '10px';
+      jumpHdr.textContent = '⬆ Jumping';
+      container.appendChild(jumpHdr);
+      container.appendChild(this._makeNumberRow('Jump Force',     mv.jumpForce     ?? 600,   10, 0,    5000, v => { cfg().jumpForce     = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Max Jumps',      mv.maxJumps      ?? 2,      1, 0,      10, v => { cfg().maxJumps      = Math.round(v); notify(); }));
+      container.appendChild(this._makeNumberRow('Coyote Time',    mv.coyoteTime    ?? 0.1,  0.01, 0,    2, v => { cfg().coyoteTime    = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Jump Buffer',    mv.jumpBufferTime ?? 0.1, 0.01, 0,    2, v => { cfg().jumpBufferTime = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Max Fall Speed', mv.maxFallSpeed  ?? -1200,  10, -5000, 0, v => { cfg().maxFallSpeed  = v; notify(); }));
+      container.appendChild(this._makeCheckboxRow('Jump Cut', mv.jumpCut ?? true, v => { cfg().jumpCut = v; notify(); }));
+
+      // PHYSICS section
+      const physHdr = document.createElement('div');
+      physHdr.className = 'physics-section-header';
+      physHdr.style.marginTop = '10px';
+      physHdr.textContent = '⚙ Physics';
+      container.appendChild(physHdr);
+      container.appendChild(this._makeNumberRow('Gravity Scale',  mv.gravityScale  ?? 1.0,  0.1, -5, 10, v => { cfg().gravityScale  = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Linear Drag',    mv.linearDrag    ?? 0.0, 0.01,  0, 10, v => { cfg().linearDrag    = v; notify(); }));
+      container.appendChild(this._makeCheckboxRow('Freeze Rotation', mv.freezeRotation ?? true, v => { cfg().freezeRotation = v; notify(); }));
+
+    } else if (comp.type === 'camera2d') {
+      // ---- Camera 2D component ----
+      if (!comp.camera2dConfig) comp.camera2dConfig = defaultCamera2DConfig();
+      this._buildCamera2DSection(container, comp.camera2dConfig);
 
     } else {
       // ---- Mesh component properties (Static Mesh or Primitive) ----
@@ -1780,133 +1829,219 @@ export class ActorEditorPanel {
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
 
-    // ---- Mesh sub-header ----
-    const meshHeader = document.createElement('div');
-    meshHeader.className = 'context-menu-header';
-    meshHeader.textContent = '📦 Mesh';
-    menu.appendChild(meshHeader);
+    const is2DActor = this._asset.actorType === 'spriteActor' || this._asset.actorType === 'characterPawn2D';
 
-    // Static Mesh Component (imported mesh)
-    const staticMeshItem = document.createElement('div');
-    staticMeshItem.className = 'context-menu-item';
-    staticMeshItem.textContent = 'Static Mesh Component';
-    staticMeshItem.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      menu.remove();
-      this._addStaticMeshComponent();
-    });
-    menu.appendChild(staticMeshItem);
+    if (is2DActor) {
+      // ══════════════════════════════════════════════════════════
+      //  2D Actor Component Menu
+      // ══════════════════════════════════════════════════════════
 
-    const meshTypes: { label: string; type: MeshType }[] = [
-      { label: 'Cube Mesh', type: 'cube' },
-      { label: 'Sphere Mesh', type: 'sphere' },
-      { label: 'Cylinder Mesh', type: 'cylinder' },
-      { label: 'Plane Mesh', type: 'plane' },
-    ];
+      // ---- Sprite sub-header ----
+      const spriteHeader = document.createElement('div');
+      spriteHeader.className = 'context-menu-header';
+      spriteHeader.textContent = '🖼 Sprite';
+      menu.appendChild(spriteHeader);
 
-    for (const t of meshTypes) {
-      const item = document.createElement('div');
-      item.className = 'context-menu-item';
-      item.textContent = t.label;
-      item.addEventListener('click', (ev) => {
+      const addSpriteRenderer = document.createElement('div');
+      addSpriteRenderer.className = 'context-menu-item';
+      addSpriteRenderer.textContent = 'Sprite Renderer';
+      addSpriteRenderer.addEventListener('click', (ev) => {
         ev.stopPropagation();
         menu.remove();
-        this._addComponent(t.type);
+        this._addSpriteRendererComponent();
       });
-      menu.appendChild(item);
-    }
+      menu.appendChild(addSpriteRenderer);
 
-    // ---- Skeletal Mesh sub-header ----
-    const skeletalHeader = document.createElement('div');
-    skeletalHeader.className = 'context-menu-header';
-    skeletalHeader.textContent = '🦴 Skeletal Mesh';
-    menu.appendChild(skeletalHeader);
+      // ---- Physics 2D sub-header ----
+      const phys2DHeader = document.createElement('div');
+      phys2DHeader.className = 'context-menu-header';
+      phys2DHeader.textContent = '⚙ Physics 2D';
+      menu.appendChild(phys2DHeader);
 
-    const addSkeletalMesh = document.createElement('div');
-    addSkeletalMesh.className = 'context-menu-item';
-    addSkeletalMesh.textContent = 'Skeletal Mesh Component';
-    addSkeletalMesh.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      menu.remove();
-      this._addSkeletalMeshComponent();
-    });
-    menu.appendChild(addSkeletalMesh);
-
-    // ---- Trigger sub-header ----
-    const triggerHeader = document.createElement('div');
-    triggerHeader.className = 'context-menu-header';
-    triggerHeader.textContent = '⚡ Collision';
-    menu.appendChild(triggerHeader);
-
-    const triggerTypes: { label: string; shape: CollisionShapeType }[] = [
-      { label: 'Box Trigger', shape: 'box' },
-      { label: 'Sphere Trigger', shape: 'sphere' },
-      { label: 'Capsule Trigger', shape: 'capsule' },
-    ];
-
-    for (const t of triggerTypes) {
-      const item = document.createElement('div');
-      item.className = 'context-menu-item';
-      item.textContent = t.label;
-      item.addEventListener('click', (ev) => {
+      const addRigidbody2D = document.createElement('div');
+      addRigidbody2D.className = 'context-menu-item';
+      addRigidbody2D.textContent = 'RigidBody 2D';
+      addRigidbody2D.addEventListener('click', (ev) => {
         ev.stopPropagation();
         menu.remove();
-        this._addTriggerComponent(t.shape);
+        this._addRigidBody2DComponent();
       });
-      menu.appendChild(item);
-    }
+      menu.appendChild(addRigidbody2D);
 
-    // ---- Light sub-header ----
-    const lightHeader = document.createElement('div');
-    lightHeader.className = 'context-menu-header';
-    lightHeader.textContent = '💡 Light';
-    menu.appendChild(lightHeader);
+      // ---- Collider 2D sub-header ----
+      const coll2DHeader = document.createElement('div');
+      coll2DHeader.className = 'context-menu-header';
+      coll2DHeader.textContent = '▭ Collider 2D';
+      menu.appendChild(coll2DHeader);
 
-    const lightTypes: { label: string; lt: LightType }[] = [
-      { label: 'Directional Light', lt: 'directional' },
-      { label: 'Point Light',       lt: 'point' },
-      { label: 'Spot Light',        lt: 'spot' },
-      { label: 'Ambient Light',     lt: 'ambient' },
-      { label: 'Hemisphere Light',  lt: 'hemisphere' },
-    ];
+      const collider2DTypes: { label: string; shape: 'box' | 'circle' | 'capsule' }[] = [
+        { label: 'Box Collider 2D',     shape: 'box' },
+        { label: 'Circle Collider 2D',  shape: 'circle' },
+        { label: 'Capsule Collider 2D', shape: 'capsule' },
+      ];
+      for (const ct of collider2DTypes) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = ct.label;
+        item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addCollider2DComponent(ct.shape);
+        });
+        menu.appendChild(item);
+      }
 
-    for (const t of lightTypes) {
-      const item = document.createElement('div');
-      item.className = 'context-menu-item';
-      item.textContent = t.label;
-      item.addEventListener('click', (ev) => {
+      // ---- Camera 2D (only for characterPawn2D) ----
+      if (this._asset.actorType === 'characterPawn2D') {
+        const cam2DHeader = document.createElement('div');
+        cam2DHeader.className = 'context-menu-header';
+        cam2DHeader.textContent = '📷 Camera';
+        menu.appendChild(cam2DHeader);
+
+        const addCamera2D = document.createElement('div');
+        addCamera2D.className = 'context-menu-item';
+        addCamera2D.textContent = 'Camera 2D';
+        addCamera2D.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addCamera2DComponent();
+        });
+        menu.appendChild(addCamera2D);
+      }
+
+    } else {
+      // ══════════════════════════════════════════════════════════
+      //  3D Actor Component Menu (unchanged)
+      // ══════════════════════════════════════════════════════════
+
+      // ---- Mesh sub-header ----
+      const meshHeader = document.createElement('div');
+      meshHeader.className = 'context-menu-header';
+      meshHeader.textContent = '📦 Mesh';
+      menu.appendChild(meshHeader);
+
+      // Static Mesh Component (imported mesh)
+      const staticMeshItem = document.createElement('div');
+      staticMeshItem.className = 'context-menu-item';
+      staticMeshItem.textContent = 'Static Mesh Component';
+      staticMeshItem.addEventListener('click', (ev) => {
         ev.stopPropagation();
         menu.remove();
-        this._addLightComponent(t.lt);
+        this._addStaticMeshComponent();
       });
-      menu.appendChild(item);
+      menu.appendChild(staticMeshItem);
+
+      const meshTypes: { label: string; type: MeshType }[] = [
+        { label: 'Cube Mesh', type: 'cube' },
+        { label: 'Sphere Mesh', type: 'sphere' },
+        { label: 'Cylinder Mesh', type: 'cylinder' },
+        { label: 'Plane Mesh', type: 'plane' },
+      ];
+
+      for (const t of meshTypes) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = t.label;
+        item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addComponent(t.type);
+        });
+        menu.appendChild(item);
+      }
+
+      // ---- Skeletal Mesh sub-header ----
+      const skeletalHeader = document.createElement('div');
+      skeletalHeader.className = 'context-menu-header';
+      skeletalHeader.textContent = '🦴 Skeletal Mesh';
+      menu.appendChild(skeletalHeader);
+
+      const addSkeletalMesh = document.createElement('div');
+      addSkeletalMesh.className = 'context-menu-item';
+      addSkeletalMesh.textContent = 'Skeletal Mesh Component';
+      addSkeletalMesh.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        this._addSkeletalMeshComponent();
+      });
+      menu.appendChild(addSkeletalMesh);
+
+      // ---- Trigger sub-header ----
+      const triggerHeader = document.createElement('div');
+      triggerHeader.className = 'context-menu-header';
+      triggerHeader.textContent = '⚡ Collision';
+      menu.appendChild(triggerHeader);
+
+      const triggerTypes: { label: string; shape: CollisionShapeType }[] = [
+        { label: 'Box Trigger', shape: 'box' },
+        { label: 'Sphere Trigger', shape: 'sphere' },
+        { label: 'Capsule Trigger', shape: 'capsule' },
+      ];
+
+      for (const t of triggerTypes) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = t.label;
+        item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addTriggerComponent(t.shape);
+        });
+        menu.appendChild(item);
+      }
+
+      // ---- Light sub-header ----
+      const lightHeader = document.createElement('div');
+      lightHeader.className = 'context-menu-header';
+      lightHeader.textContent = '💡 Light';
+      menu.appendChild(lightHeader);
+
+      const lightTypes: { label: string; lt: LightType }[] = [
+        { label: 'Directional Light', lt: 'directional' },
+        { label: 'Point Light',       lt: 'point' },
+        { label: 'Spot Light',        lt: 'spot' },
+        { label: 'Ambient Light',     lt: 'ambient' },
+        { label: 'Hemisphere Light',  lt: 'hemisphere' },
+      ];
+
+      for (const t of lightTypes) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = t.label;
+        item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          menu.remove();
+          this._addLightComponent(t.lt);
+        });
+        menu.appendChild(item);
+      }
+
+      // ---- Camera sub-header ----
+      const cameraHeader = document.createElement('div');
+      cameraHeader.className = 'context-menu-header';
+      cameraHeader.textContent = '📷 Camera';
+      menu.appendChild(cameraHeader);
+
+      const addSpringArm = document.createElement('div');
+      addSpringArm.className = 'context-menu-item';
+      addSpringArm.textContent = 'Spring Arm (Camera Boom)';
+      addSpringArm.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        this._addSpringArmComponent();
+      });
+      menu.appendChild(addSpringArm);
+
+      const addCamera = document.createElement('div');
+      addCamera.className = 'context-menu-item';
+      addCamera.textContent = 'Camera';
+      addCamera.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        this._addCameraComponent();
+      });
+      menu.appendChild(addCamera);
     }
-
-    // ---- Camera sub-header ----
-    const cameraHeader = document.createElement('div');
-    cameraHeader.className = 'context-menu-header';
-    cameraHeader.textContent = '📷 Camera';
-    menu.appendChild(cameraHeader);
-
-    const addSpringArm = document.createElement('div');
-    addSpringArm.className = 'context-menu-item';
-    addSpringArm.textContent = 'Spring Arm (Camera Boom)';
-    addSpringArm.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      menu.remove();
-      this._addSpringArmComponent();
-    });
-    menu.appendChild(addSpringArm);
-
-    const addCamera = document.createElement('div');
-    addCamera.className = 'context-menu-item';
-    addCamera.textContent = 'Camera';
-    addCamera.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      menu.remove();
-      this._addCameraComponent();
-    });
-    menu.appendChild(addCamera);
 
     document.body.appendChild(menu);
 
@@ -2091,6 +2226,113 @@ export class ActorEditorPanel {
     }
 
     if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addSpriteRendererComponent(): void {
+    // Prevent duplicates
+    if (this._asset.components.some(c => c.type === 'spriteRenderer')) {
+      alert('This actor already has a Sprite Renderer component.');
+      return;
+    }
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'spriteRenderer',
+      meshType: 'plane',
+      name: 'SpriteRenderer',
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      hiddenInGame: false,
+      sortingLayer: 'Default',
+      orderInLayer: 0,
+      flipX: false,
+      flipY: false,
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addRigidBody2DComponent(): void {
+    // Prevent duplicates
+    if (this._asset.components.some(c => c.type === 'rigidbody2d')) {
+      alert('This actor already has a RigidBody 2D component.');
+      return;
+    }
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'rigidbody2d',
+      meshType: 'cube',
+      name: 'RigidBody2D',
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      hiddenInGame: true,
+      rigidbody2dType: 'dynamic',
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addCollider2DComponent(shape: 'box' | 'circle' | 'capsule'): void {
+    // Allow only one collider2d per actor
+    if (this._asset.components.some(c => c.type === 'collider2d')) {
+      alert('This actor already has a Collider 2D component. Remove the existing one first.');
+      return;
+    }
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'collider2d',
+      meshType: 'cube',
+      name: shape.charAt(0).toUpperCase() + shape.slice(1) + 'Collider2D',
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      hiddenInGame: true,
+      collider2dShape: shape,
+      collider2dSize: { width: 1.0, height: 1.0 },
+      collider2dRadius: 0.5,
+      isTrigger: false,
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._refreshPreview?.();
+    this._onAssetChanged();
+  }
+
+  private _addCamera2DComponent(): void {
+    // Prevent duplicates — only one Camera2D per pawn
+    if (this._asset.components.some(c => c.type === 'camera2d')) {
+      alert('This actor already has a Camera 2D component.');
+      return;
+    }
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'camera2d',
+      meshType: 'cube',
+      name: 'Camera2D',
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      hiddenInGame: true,
+      camera2dConfig: defaultCamera2DConfig(),
+    };
+    this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
     this._refreshComponentsList();
     this._refreshComponentProps();
     this._onAssetChanged();
@@ -2658,6 +2900,61 @@ export class ActorEditorPanel {
     container.appendChild(this._makeNumberRow('Pitch Max', cam.pitchMax, 1, 0, 90, (v) => {
       cam.pitchMax = v; notifyChanged();
       if (this._asset.characterPawnConfig) this._asset.characterPawnConfig.camera.pitchMax = v;
+    }));
+  }
+
+  // ================================================================
+  //  Camera 2D Component Properties Section builder
+  // ================================================================
+
+  private _buildCamera2DSection(container: HTMLElement, cam: Camera2DConfig): void {
+    const notify = () => { this._asset.touch(); this._onAssetChanged(); };
+
+    const header = document.createElement('div');
+    header.className = 'physics-section-header';
+    header.textContent = '📷 Camera 2D';
+    container.appendChild(header);
+
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#888;font-size:11px;padding:4px 0 8px;line-height:1.5;';
+    desc.textContent = 'Orthographic 2D camera. Default Zoom acts as FOV — lower = wider view, higher = zoomed in. Applied when Play starts.';
+    container.appendChild(desc);
+
+    // Zoom / FOV
+    const zoomHeader = document.createElement('div');
+    zoomHeader.className = 'physics-subsection-header';
+    zoomHeader.textContent = 'Zoom (Field of View)';
+    container.appendChild(zoomHeader);
+
+    container.appendChild(this._makeNumberRow('Default Zoom', cam.defaultZoom, 0.05, 0.05, 20, (v) => {
+      cam.defaultZoom = Math.max(0.05, v); notify();
+    }));
+
+    container.appendChild(this._makeNumberRow('Pixels Per Unit', cam.pixelsPerUnit, 8, 1, 1024, (v) => {
+      cam.pixelsPerUnit = Math.max(1, v); notify();
+    }));
+
+    container.appendChild(this._makeCheckboxRow('Pixel Perfect', cam.pixelPerfect, (v) => {
+      cam.pixelPerfect = v; notify();
+    }));
+
+    // Follow settings
+    const followHeader = document.createElement('div');
+    followHeader.className = 'physics-subsection-header';
+    followHeader.style.marginTop = '10px';
+    followHeader.textContent = 'Follow Settings';
+    container.appendChild(followHeader);
+
+    container.appendChild(this._makeNumberRow('Follow Smoothing', cam.followSmoothing, 0.01, 0, 1, (v) => {
+      cam.followSmoothing = Math.min(1, Math.max(0, v)); notify();
+    }));
+
+    container.appendChild(this._makeNumberRow('Dead Zone X', cam.deadZoneX, 0.1, 0, 20, (v) => {
+      cam.deadZoneX = Math.max(0, v); notify();
+    }));
+
+    container.appendChild(this._makeNumberRow('Dead Zone Y', cam.deadZoneY, 0.1, 0, 20, (v) => {
+      cam.deadZoneY = Math.max(0, v); notify();
     }));
   }
 

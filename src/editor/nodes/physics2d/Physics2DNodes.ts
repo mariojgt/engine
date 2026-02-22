@@ -4,7 +4,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, objectSocket, registerNode } from '../sockets';
 
 // ================================================================
 //  Line Trace 2D
@@ -213,10 +213,13 @@ registerNode('Set Linear Damping 2D', 'Physics 2D', () => new SetLinearDamping2D
 export class OnCollisionBegin2DNode extends ClassicPreset.Node {
   constructor() {
     super('On Collision Begin 2D');
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('otherName', new ClassicPreset.Output(strSocket, 'Other Actor'));
-    this.addOutput('normalX', new ClassicPreset.Output(numSocket, 'Normal X'));
-    this.addOutput('normalY', new ClassicPreset.Output(numSocket, 'Normal Y'));
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket,   '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket,    'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket,    'Other Actor ID'));
+    this.addOutput('selfComponent',  new ClassicPreset.Output(strSocket,    'Self Component'));
+    this.addOutput('normalX',        new ClassicPreset.Output(numSocket,    'Normal X'));
+    this.addOutput('normalY',        new ClassicPreset.Output(numSocket,    'Normal Y'));
   }
 }
 registerNode('On Collision Begin 2D', 'Physics 2D', () => new OnCollisionBegin2DNode());
@@ -227,8 +230,11 @@ registerNode('On Collision Begin 2D', 'Physics 2D', () => new OnCollisionBegin2D
 export class OnCollisionEnd2DNode extends ClassicPreset.Node {
   constructor() {
     super('On Collision End 2D');
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('otherName', new ClassicPreset.Output(strSocket, 'Other Actor'));
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket,   '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket,    'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket,    'Other Actor ID'));
+    this.addOutput('selfComponent',  new ClassicPreset.Output(strSocket,    'Self Component'));
   }
 }
 registerNode('On Collision End 2D', 'Physics 2D', () => new OnCollisionEnd2DNode());
@@ -239,8 +245,11 @@ registerNode('On Collision End 2D', 'Physics 2D', () => new OnCollisionEnd2DNode
 export class OnTriggerBegin2DNode extends ClassicPreset.Node {
   constructor() {
     super('On Trigger Begin 2D');
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('otherName', new ClassicPreset.Output(strSocket, 'Other Actor'));
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket,   '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket,    'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket,    'Other Actor ID'));
+    this.addOutput('selfComponent',  new ClassicPreset.Output(strSocket,    'Self Component'));
   }
 }
 registerNode('On Trigger Begin 2D', 'Physics 2D', () => new OnTriggerBegin2DNode());
@@ -251,8 +260,11 @@ registerNode('On Trigger Begin 2D', 'Physics 2D', () => new OnTriggerBegin2DNode
 export class OnTriggerEnd2DNode extends ClassicPreset.Node {
   constructor() {
     super('On Trigger End 2D');
-    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('otherName', new ClassicPreset.Output(strSocket, 'Other Actor'));
+    this.addOutput('exec',           new ClassicPreset.Output(execSocket,   '▶'));
+    this.addOutput('otherActor',     new ClassicPreset.Output(objectSocket, 'Other Actor'));
+    this.addOutput('otherActorName', new ClassicPreset.Output(strSocket,    'Other Actor Name'));
+    this.addOutput('otherActorId',   new ClassicPreset.Output(numSocket,    'Other Actor ID'));
+    this.addOutput('selfComponent',  new ClassicPreset.Output(strSocket,    'Self Component'));
   }
 }
 registerNode('On Trigger End 2D', 'Physics 2D', () => new OnTriggerEnd2DNode());

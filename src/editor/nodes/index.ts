@@ -623,6 +623,10 @@ export {
   SetCameraBounds2DNode,
   ClearCameraBounds2DNode,
   SetCameraDeadZone2DNode,
+  SetCameraFOV2DNode,
+  GetCameraFOV2DNode,
+  SetCamera2DPixelsPerUnitNode,
+  GetCamera2DPixelsPerUnitNode,
 } from './camera2d/Camera2DNodes';
 
 // ── Character Movement 2D Nodes ─────────────────────────────
@@ -647,6 +651,28 @@ export {
   SetAirControl2DNode,
   GetSpriteFacingDirection2DNode,
   GetCharacterSpeed2DNode,
+  SetRunSpeed2DNode,
+  GetRunSpeed2DNode,
+  SetAcceleration2DNode,
+  GetAcceleration2DNode,
+  SetDeceleration2DNode,
+  GetDeceleration2DNode,
+  SetJumpForce2DNode,
+  GetJumpForce2DNode,
+  SetCoyoteTime2DNode,
+  GetCoyoteTime2DNode,
+  SetJumpBufferTime2DNode,
+  GetJumpBufferTime2DNode,
+  SetMaxFallSpeed2DNode,
+  GetMaxFallSpeed2DNode,
+  SetJumpCut2DNode,
+  GetJumpCut2DNode,
+  SetLinearDrag2DNode,
+  GetLinearDrag2DNode,
+  SetFreezeRotation2DNode,
+  GetFreezeRotation2DNode,
+  GetAirControl2DNode,
+  GetGravityMultiplier2DNode,
 } from './character2d/Character2DNodes';
 
 // ── Tilemap Nodes ───────────────────────────────────────────

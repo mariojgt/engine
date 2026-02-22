@@ -94,6 +94,42 @@ export function defaultCameraConfig(mode: CameraMode = 'firstPerson'): CameraCom
   };
 }
 
+// ---- 2D Orthographic Camera Configuration ----
+
+/**
+ * Camera configuration for 2D orthographic (side-scroller / top-down) pawns.
+ * "Field of View" in 2D is controlled by zoom: lower zoom = wider view.
+ */
+export interface Camera2DConfig {
+  /**
+   * Default zoom level at play start (1.0 = 1:1 view).
+   * Works as the 2D equivalent of FOV — decrease to widen the view,
+   * increase to zoom in.
+   */
+  defaultZoom: number;
+  /** Pixels per world unit — determines how many screen pixels equal 1 unit. */
+  pixelsPerUnit: number;
+  /** Camera lag smoothing applied when following the pawn (0 = instant snap, values near 1 = heavy lag). */
+  followSmoothing: number;
+  /** Dead zone half-width (world units) — camera won't move until pawn leaves this region horizontally. */
+  deadZoneX: number;
+  /** Dead zone half-height (world units) — camera won't move until pawn leaves this region vertically. */
+  deadZoneY: number;
+  /** When true, zoom is constrained to integer multiples to prevent sub-pixel blurring. */
+  pixelPerfect: boolean;
+}
+
+export function defaultCamera2DConfig(): Camera2DConfig {
+  return {
+    defaultZoom: 1.0,
+    pixelsPerUnit: 100,
+    followSmoothing: 0.15,
+    deadZoneX: 0.5,
+    deadZoneY: 0.5,
+    pixelPerfect: false,
+  };
+}
+
 // ---- Spring Arm (Camera Boom) Configuration ----
 
 export interface SpringArmConfig {

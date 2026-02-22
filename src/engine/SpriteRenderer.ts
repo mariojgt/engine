@@ -186,6 +186,10 @@ export class SpriteAnimator {
   setSpriteSheet(sheet: SpriteSheetAsset): void {
     this.spriteSheet = sheet;
     this.spriteRenderer.spriteSheet = sheet;
+    // Keep the renderer's pixelsPerUnit in sync with the sheet.
+    if (sheet.pixelsPerUnit && sheet.pixelsPerUnit > 0) {
+      this.spriteRenderer.pixelsPerUnit = sheet.pixelsPerUnit;
+    }
     if (sheet.texture) {
       this.spriteRenderer.setTexture(sheet.texture);
     }

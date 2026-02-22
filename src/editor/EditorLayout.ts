@@ -40,7 +40,7 @@ import { Scene2DManager, type SceneMode } from './Scene2DManager';
 import { SortingLayersPanel } from './SortingLayersPanel';
 import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
-import { CharacterPad2DPanel } from './CharacterPad2DPanel';
+
 import { TilemapRenderer } from './TilemapRenderer';
 
 // Store renderers by panel id for reliable element access
@@ -119,7 +119,6 @@ export class EditorLayout {
 
   private _tileEditorPanel: TileEditorPanel | null = null;
   private _tilemapRenderer: TilemapRenderer | null = null;
-  private _charPad2DPanel: CharacterPad2DPanel | null = null;
   private _current2DMode: SceneMode = '3D';
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
@@ -1141,16 +1140,6 @@ export class EditorLayout {
       this._initTileEditorPanel('tile-editor-2d');
     } catch (_e) {}
 
-    // Character 2D Pad (tab alongside Properties)
-    try {
-      this._api.addPanel({
-        id: 'character-pad-2d',
-        title: '🏃 Character 2D',
-        component: 'default',
-        position: { referencePanel: 'properties' },
-      });
-      this._initCharacterPad2DPanel('character-pad-2d');
-    } catch (_e) {}
   }
 
   /** Close all 2D-specific panels */
@@ -1158,7 +1147,6 @@ export class EditorLayout {
     const ids2D = [
       'sorting-layers-2d',
       'tile-editor-2d',
-      'character-pad-2d',
     ];
     for (const id of ids2D) {
       try {
@@ -1175,7 +1163,6 @@ export class EditorLayout {
       this._tilemapRenderer.dispose();
       this._tilemapRenderer = null;
     }
-    this._charPad2DPanel = null;
   }
 
   private _initSortingLayersPanel(panelId: string): void {
@@ -1292,13 +1279,6 @@ export class EditorLayout {
     if (this._viewport) {
       this._viewport.setTileEditorPanel(this._tileEditorPanel);
     }
-  }
-
-  private _initCharacterPad2DPanel(panelId: string): void {
-    const renderer = rendererMap.get(panelId);
-    if (!renderer) return;
-    const el = renderer.element;
-    this._charPad2DPanel = new CharacterPad2DPanel(el);
   }
 
   /** Get the current scene mode */

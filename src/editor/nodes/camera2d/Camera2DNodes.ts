@@ -165,3 +165,56 @@ export class SetCameraDeadZone2DNode extends ClassicPreset.Node {
   }
 }
 registerNode('Set Camera Dead Zone 2D', 'Camera 2D', () => new SetCameraDeadZone2DNode());
+
+// ================================================================
+//  Set Camera FOV 2D
+//  Controls how much of the world is visible. Lower zoom = wider
+//  view (wider "FOV"). This drives Camera2D.setZoom().
+// ================================================================
+export class SetCameraFOV2DNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Camera FOV 2D');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('zoom', new ClassicPreset.Input(numSocket, 'Zoom (FOV)'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+registerNode('Set Camera FOV 2D', 'Camera 2D', () => new SetCameraFOV2DNode());
+
+// ================================================================
+//  Get Camera FOV 2D
+//  Returns the current zoom / FOV of the 2D orthographic camera.
+// ================================================================
+export class GetCameraFOV2DNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Camera FOV 2D');
+    this.addOutput('zoom', new ClassicPreset.Output(numSocket, 'Zoom (FOV)'));
+  }
+}
+registerNode('Get Camera FOV 2D', 'Camera 2D', () => new GetCameraFOV2DNode());
+
+// ================================================================
+//  Set Camera Pixels Per Unit 2D
+//  Changes how many screen pixels represent one world unit,
+//  adjusting the render scale of the 2D scene.
+// ================================================================
+export class SetCamera2DPixelsPerUnitNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Camera Pixels Per Unit 2D');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('ppu', new ClassicPreset.Input(numSocket, 'Pixels Per Unit'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+registerNode('Set Camera Pixels Per Unit 2D', 'Camera 2D', () => new SetCamera2DPixelsPerUnitNode());
+
+// ================================================================
+//  Get Camera Pixels Per Unit 2D
+// ================================================================
+export class GetCamera2DPixelsPerUnitNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Camera Pixels Per Unit 2D');
+    this.addOutput('ppu', new ClassicPreset.Output(numSocket, 'Pixels Per Unit'));
+  }
+}
+registerNode('Get Camera Pixels Per Unit 2D', 'Camera 2D', () => new GetCamera2DPixelsPerUnitNode());
