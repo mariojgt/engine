@@ -7,6 +7,7 @@ import { DirectionalLightActor } from './scene/SceneActors';
 import type { Camera2D } from '../engine/Camera2D';
 import type { Scene2DManager } from './Scene2DManager';
 import type { TileEditorPanel, TileTool } from './TileEditorPanel';
+import type { TilemapRenderer } from './TilemapRenderer';
 
 /* Viewport sub-systems */
 import { ViewportCameraController } from './viewport/ViewportCameraController';
@@ -72,6 +73,7 @@ export class ViewportPanel {
 
   /* Tile painting state */
   private _tileEditorPanel: TileEditorPanel | null = null;
+  private _tilemapRenderer: TilemapRenderer | null = null;
   private _isTilePainting = false;
   private _tilePaintMouseDown = false;
   private _tilePaintStartWorld: { x: number; y: number } | null = null;
@@ -978,6 +980,11 @@ export class ViewportPanel {
     this._tileEditorPanel = panel;
   }
 
+  /** Set the tilemap renderer so animated tile UVs can be updated each frame */
+  setTilemapRenderer(renderer: TilemapRenderer | null): void {
+    this._tilemapRenderer = renderer;
+  }
+
   /** Enable/disable 2D play mode (blocks editing, keeps 2D rendering active) */
   set2DPlayMode(playing: boolean): void {
     this._isPlaying2D = playing;
@@ -1244,6 +1251,11 @@ export class ViewportPanel {
 
     // Update 2D manager (camera follow, physics step, etc.)
     this._scene2DManager.update(deltaTime);
+
+    // Advance animated tile UVs
+    if (this._tilemapRenderer) {
+      this._tilemapRenderer.update(deltaTime);
+    }
 
     // Disable 3D post-processing effects for flat 2D tile rendering
     const savedToneMapping = this._renderer.toneMapping;

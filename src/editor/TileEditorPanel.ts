@@ -4,8 +4,8 @@
 //  Rectangle/Line/Pick tools. Real-time collision rebuild.
 // ============================================================
 
-import type { TilemapAsset, TilemapLayer, TilesetAsset } from '../engine/TilemapData';
-import { TilemapCollisionBuilder, createDefaultTilemap, createTilesetFromImage } from '../engine/TilemapData';
+import type { TilemapAsset, TilemapLayer, TilesetAsset, AnimatedTileDef } from '../engine/TilemapData';
+import { TilemapCollisionBuilder, createDefaultTilemap, createTilesetFromImage, encodeAnimatedTileId, decodeAnimatedTileIndex, isAnimatedTileId } from '../engine/TilemapData';
 import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export type TileTool = 'paint' | 'erase' | 'fill' | 'select' | 'rect' | 'line' | 'pick' | 'moveLayer';
@@ -32,6 +32,10 @@ export class TileEditorPanel {
   private _selectionRect = { col: 0, row: 0, w: 1, h: 1 };
   private _palDragStart: { col: number; row: number } | null = null;
   private _palDragging = false;
+
+  // Animated tile painting mode
+  // When >= 0, the user is painting an animated tile instead of a normal tile.
+  private _activeAnimTileIndex = -1;
 
   // Palette canvas
   private _paletteCanvas: HTMLCanvasElement;
@@ -70,6 +74,7 @@ export class TileEditorPanel {
   private _tileInfoEl: HTMLElement | null = null;
   private _actionBarEl: HTMLElement | null = null;
   private _emptyStateEl: HTMLElement | null = null;
+  private _animTilesListEl: HTMLElement | null = null;
 
   constructor(container: HTMLElement, scene2D?: any) {
     this._container = container;
@@ -201,6 +206,22 @@ export class TileEditorPanel {
     root.appendChild(this._brushOptionsEl);
     this._renderBrushOptions();
 
+    // Animated Tiles section
+    const animSection = document.createElement('div');
+    animSection.style.cssText = 'border-top:1px solid #313244;padding:6px 10px;';
+    const animHeader = document.createElement('div');
+    animHeader.style.cssText = 'font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px;';
+    animHeader.innerHTML = `<span>ANIMATED TILES</span><span style="flex:1"></span>`;
+    const addAnimBtn = document.createElement('button');
+    addAnimBtn.textContent = '+ Animated Tile';
+    addAnimBtn.style.cssText = 'background:#45475a;color:#cdd6f4;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:10px;';
+    addAnimBtn.onclick = () => this._showAnimatedTileDialog();
+    animHeader.appendChild(addAnimBtn);
+    animSection.appendChild(animHeader);
+    this._animTilesListEl = document.createElement('div');
+    animSection.appendChild(this._animTilesListEl);
+    root.appendChild(animSection);
+
     // Layers section
     const layerSection = document.createElement('div');
     layerSection.style.cssText = 'border-top:1px solid #313244;padding:6px 10px;';
@@ -231,6 +252,7 @@ export class TileEditorPanel {
     this._renderTileInfo();
     this._renderEmptyState();
     this._renderTileScaleSettings();
+    this._renderAnimatedTilesList();
   }
 
   private _renderDropdowns(): void {
@@ -473,6 +495,16 @@ export class TileEditorPanel {
   private _renderTileInfo(): void {
     if (!this._tileInfoEl || !this._activeTileset) return;
     const ts = this._activeTileset;
+
+    // Animated tile selected — show that instead of normal tile info
+    if (this._activeAnimTileIndex >= 0) {
+      const anim = ts.animatedTiles?.[this._activeAnimTileIndex];
+      if (anim) {
+        this._tileInfoEl.innerHTML = `<span style="color:#89b4fa">Animated:</span> "${anim.name}" — ${anim.frames.length} frames [${anim.frames.join(', ')}] · ${anim.frameDurationMs}ms`;
+        return;
+      }
+    }
+
     const { col: selCol, row: selRow, w: selW, h: selH } = this._selectionRect;
     if (selW > 1 || selH > 1) {
       // Multi-tile selection
@@ -531,6 +563,11 @@ export class TileEditorPanel {
     if (!cell) return;
     this._palDragStart = cell;
     this._palDragging = true;
+    // Deselect any animated tile when user picks from the palette
+    if (this._activeAnimTileIndex >= 0) {
+      this._activeAnimTileIndex = -1;
+      this._renderAnimatedTilesList();
+    }
     // Immediately set a 1×1 selection at the click point
     this._selectionRect = { col: cell.col, row: cell.row, w: 1, h: 1 };
     this._selectedTileId = cell.row * this._activeTileset!.columns + cell.col;
@@ -597,11 +634,11 @@ export class TileEditorPanel {
     const cellX = Math.floor(worldX / (this._activeTileset.tileWidth / ppu));
     const cellY = Math.floor(worldY / (this._activeTileset.tileHeight / ppu));
 
-    const stamp = this.getSelectionStamp();
+    const stamp = this.getEffectiveStamp();
     const stampH = stamp.length;
     const stampW = stamp[0]?.length ?? 1;
 
-    console.log(`[TileEditor.paintAt] world=(${worldX.toFixed(3)}, ${worldY.toFixed(3)}) cell=(${cellX}, ${cellY}) stamp=${stampW}×${stampH} tool=${this._activeTool} ppu=${ppu}`);
+    console.log(`[TileEditor.paintAt] world=(${worldX.toFixed(3)}, ${worldY.toFixed(3)}) cell=(${cellX}, ${cellY}) stamp=${stampW}×${stampH} tool=${this._activeTool} ppu=${ppu} animIdx=${this._activeAnimTileIndex}`);
 
     for (let dy = 0; dy < stampH; dy++) {
       for (let dx = 0; dx < stampW; dx++) {
@@ -640,7 +677,7 @@ export class TileEditorPanel {
     const cellY = Math.floor(worldY / (this._activeTileset.tileHeight / ppu));
     const startKey = `${cellX},${cellY}`;
     const targetId = this._activeLayer.tiles[startKey] ?? null;
-    const fillId = this._selectedTileId;
+    const fillId = this.getEffectivePaintTileId();
     if (targetId === fillId) return;
 
     const layer = this._activeLayer;
@@ -687,7 +724,7 @@ export class TileEditorPanel {
     const minCY = Math.min(startCY, endCY);
     const maxCY = Math.max(startCY, endCY);
 
-    const stamp = this.getSelectionStamp();
+    const stamp = this.getEffectiveStamp();
     const stampH = stamp.length;
     const stampW = stamp[0]?.length ?? 1;
 
@@ -732,7 +769,7 @@ export class TileEditorPanel {
     const ex = Math.floor(x2 / tileWorldW);
     const ey = Math.floor(y2 / tileWorldH);
 
-    const stamp = this.getSelectionStamp();
+    const stamp = this.getEffectiveStamp();
     const stampH = stamp.length;
     const stampW = stamp[0]?.length ?? 1;
 
@@ -1165,6 +1202,90 @@ export class TileEditorPanel {
     }
     section.appendChild(ppuRow);
 
+    // ── Tile Grid Size (manual resize) ──
+    const gridHeader = document.createElement('div');
+    gridHeader.style.cssText = 'font-weight:600;margin-top:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;';
+    gridHeader.innerHTML = `<span>TILE GRID</span><span style="opacity:0.4;font-size:10px;font-weight:normal">${ts.columns}×${ts.rows} = ${ts.columns * ts.rows} tiles</span>`;
+    section.appendChild(gridHeader);
+
+    // Tile Width
+    const twRow = document.createElement('div');
+    twRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;';
+    twRow.innerHTML = `<span style="font-size:11px;opacity:0.7;width:90px">Tile Width</span>`;
+    const twInput = document.createElement('input');
+    twInput.type = 'number';
+    twInput.value = String(ts.tileWidth);
+    twInput.min = '1';
+    twInput.max = '1024';
+    twInput.style.cssText = inputStyle;
+    twRow.appendChild(twInput);
+    const twPx = document.createElement('span');
+    twPx.textContent = 'px';
+    twPx.style.cssText = 'font-size:10px;opacity:0.5;';
+    twRow.appendChild(twPx);
+    section.appendChild(twRow);
+
+    // Tile Height
+    const thRow = document.createElement('div');
+    thRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;';
+    thRow.innerHTML = `<span style="font-size:11px;opacity:0.7;width:90px">Tile Height</span>`;
+    const thInput = document.createElement('input');
+    thInput.type = 'number';
+    thInput.value = String(ts.tileHeight);
+    thInput.min = '1';
+    thInput.max = '1024';
+    thInput.style.cssText = inputStyle;
+    thRow.appendChild(thInput);
+    const thPx = document.createElement('span');
+    thPx.textContent = 'px';
+    thPx.style.cssText = 'font-size:10px;opacity:0.5;';
+    thRow.appendChild(thPx);
+    section.appendChild(thRow);
+
+    // Apply handler for both inputs
+    const applyGridResize = () => {
+      const newW = Math.max(1, parseInt(twInput.value) || ts.tileWidth);
+      const newH = Math.max(1, parseInt(thInput.value) || ts.tileHeight);
+      if (newW === ts.tileWidth && newH === ts.tileHeight) return;
+
+      const imgW = ts.image?.naturalWidth ?? ts.textureWidth;
+      const imgH = ts.image?.naturalHeight ?? ts.textureHeight;
+      const newCols = Math.max(1, Math.floor(imgW / newW));
+      const newRows = Math.max(1, Math.floor(imgH / newH));
+      const newTotal = newCols * newRows;
+
+      ts.tileWidth = newW;
+      ts.tileHeight = newH;
+      ts.columns = newCols;
+      ts.rows = newRows;
+
+      // Rebuild TileDefData array to match the new grid
+      const newTiles: { tileId: number; tags: string[]; collision: 'none' | 'full' | 'top' | 'bottom' | 'left' | 'right' }[] = [];
+      for (let i = 0; i < newTotal; i++) {
+        // Preserve existing tile data where possible
+        const existing = ts.tiles[i];
+        newTiles.push(existing ?? { tileId: i, tags: [], collision: 'none' as const });
+      }
+      ts.tiles = newTiles;
+
+      // Clamp selection to new bounds
+      if (this._selectedTileId >= newTotal) this._selectedTileId = 0;
+      this._selectionRect = { col: 0, row: 0, w: 1, h: 1 };
+
+      // Rebuild pixel-perfect grid if active
+      if (this._pixelPerfect) this._applyPixelPerfect();
+
+      this._renderTileScaleSettings();
+      this._renderPalette();
+      this._renderTileInfo();
+      this._emitChanged();
+      this._onLayerPainted?.(this._activeTilemap?.assetId ?? '', this._activeLayer?.layerId ?? '');
+      console.log(`[TileEditor] Grid resized to ${newW}×${newH}px → ${newCols}×${newRows} = ${newTotal} tiles`);
+    };
+
+    twInput.onchange = applyGridResize;
+    thInput.onchange = applyGridResize;
+
     // ── Info row ──
     const infoRow = document.createElement('div');
     infoRow.style.cssText = 'font-size:10px;opacity:0.6;';
@@ -1385,6 +1506,396 @@ export class TileEditorPanel {
   get selectionRect(): { col: number; row: number; w: number; h: number } { return this._selectionRect; }
   /** All tilesets known to this panel (for image sync). */
   get allTilesets(): readonly TilesetAsset[] { return this._tilesets; }
+  /** Index of the animated tile currently selected for painting (-1 = none). */
+  get activeAnimatedTileIndex(): number { return this._activeAnimTileIndex; }
+
+  // ---- Animated Tiles ----
+
+  /** Get the animated tiles array from the active tileset (creates if needed). */
+  private _getAnimatedTiles(): AnimatedTileDef[] {
+    if (!this._activeTileset) return [];
+    if (!this._activeTileset.animatedTiles) this._activeTileset.animatedTiles = [];
+    return this._activeTileset.animatedTiles;
+  }
+
+  /** Render the list of animated tiles in the panel. */
+  private _renderAnimatedTilesList(): void {
+    if (!this._animTilesListEl) return;
+    this._animTilesListEl.innerHTML = '';
+
+    const anims = this._activeTileset?.animatedTiles ?? [];
+    if (anims.length === 0) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'opacity:0.4;font-size:10px;padding:4px 0;';
+      hint.textContent = 'No animated tiles defined. Select tiles and click "+ Animated Tile".';
+      this._animTilesListEl.appendChild(hint);
+      return;
+    }
+
+    for (let i = 0; i < anims.length; i++) {
+      const anim = anims[i];
+      const row = document.createElement('div');
+      const isActive = this._activeAnimTileIndex === i;
+      row.style.cssText = `display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:11px;margin-bottom:2px;${isActive ? 'background:#45475a;border:1px solid #89b4fa;' : 'background:#313244;border:1px solid transparent;'}`;
+
+      // Thumbnail: draw first frame of the animation
+      const thumb = document.createElement('canvas');
+      thumb.width = 24;
+      thumb.height = 24;
+      thumb.style.cssText = 'image-rendering:pixelated;border:1px solid #585b70;border-radius:2px;flex-shrink:0;';
+      this._drawTileThumbnail(thumb, anim.frames[0] ?? 0);
+      row.appendChild(thumb);
+
+      // Name + frame count
+      const info = document.createElement('div');
+      info.style.cssText = 'flex:1;overflow:hidden;';
+      info.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${anim.name}</div>
+        <div style="opacity:0.5;font-size:10px;">${anim.frames.length} frames · ${anim.frameDurationMs}ms</div>`;
+      row.appendChild(info);
+
+      // Select for painting
+      row.onclick = () => {
+        if (this._activeAnimTileIndex === i) {
+          this._activeAnimTileIndex = -1; // deselect
+        } else {
+          this._activeAnimTileIndex = i;
+        }
+        this._renderAnimatedTilesList();
+        this._renderTileInfo();
+      };
+
+      // Edit button
+      const editBtn = document.createElement('button');
+      editBtn.innerHTML = iconHTML(Icons.Settings, 'xs', ICON_COLORS.muted);
+      editBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:2px;';
+      editBtn.title = 'Edit animated tile';
+      editBtn.onclick = (e) => { e.stopPropagation(); this._showAnimatedTileDialog(i); };
+      row.appendChild(editBtn);
+
+      // Delete button
+      const delBtn = document.createElement('button');
+      delBtn.innerHTML = iconHTML(Icons.Trash2, 'xs', '#f38ba8');
+      delBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:2px;';
+      delBtn.title = 'Delete animated tile';
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete animated tile "${anim.name}"?`)) return;
+        this._deleteAnimatedTile(i);
+      };
+      row.appendChild(delBtn);
+
+      this._animTilesListEl.appendChild(row);
+    }
+  }
+
+  /** Draw a single tile thumbnail on a small canvas. */
+  private _drawTileThumbnail(canvas: HTMLCanvasElement, tileId: number): void {
+    const ts = this._activeTileset;
+    if (!ts?.image) return;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const col = tileId % ts.columns;
+    const row = Math.floor(tileId / ts.columns);
+    ctx.drawImage(ts.image, col * ts.tileWidth, row * ts.tileHeight, ts.tileWidth, ts.tileHeight, 0, 0, canvas.width, canvas.height);
+  }
+
+  /** Delete an animated tile definition and fixup layer references. */
+  private _deleteAnimatedTile(index: number): void {
+    const anims = this._getAnimatedTiles();
+    if (index < 0 || index >= anims.length) return;
+
+    // Remove references from all tilemap layers that used this animated tile
+    const encodedId = encodeAnimatedTileId(index);
+    for (const tm of this._tilemaps) {
+      if (tm.tilesetId !== this._activeTileset?.assetId) continue;
+      for (const layer of tm.layers) {
+        for (const key of Object.keys(layer.tiles)) {
+          const val = layer.tiles[key];
+          if (val === encodedId) {
+            // Replace with first frame so the tile doesn't disappear
+            layer.tiles[key] = anims[index].frames[0] ?? 0;
+          } else if (isAnimatedTileId(val)) {
+            // Shift down indices above the removed one
+            const ai = decodeAnimatedTileIndex(val);
+            if (ai > index) {
+              layer.tiles[key] = encodeAnimatedTileId(ai - 1);
+            }
+          }
+        }
+      }
+    }
+
+    anims.splice(index, 1);
+    if (this._activeAnimTileIndex >= anims.length) this._activeAnimTileIndex = -1;
+    if (this._activeAnimTileIndex === index) this._activeAnimTileIndex = -1;
+    this._renderAnimatedTilesList();
+    this._emitChanged();
+  }
+
+  /**
+   * Show a dialog to create or edit an animated tile.
+   * If editIndex is provided, edits the existing entry; otherwise creates a new one.
+   */
+  private _showAnimatedTileDialog(editIndex?: number): void {
+    const ts = this._activeTileset;
+    if (!ts) { alert('Import a tileset first.'); return; }
+
+    const existing = editIndex !== undefined ? (ts.animatedTiles?.[editIndex] ?? null) : null;
+
+    // Default frames: use current palette selection if creating new
+    let initialFrames: number[] = [];
+    if (existing) {
+      initialFrames = [...existing.frames];
+    } else {
+      // Use current multi-tile selection as starting frames
+      const stamp = this.getSelectionStamp();
+      for (const row of stamp) {
+        for (const id of row) {
+          if (id >= 0) initialFrames.push(id);
+        }
+      }
+    }
+
+    // Create modal
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'background:#1e1e2e;border:1px solid #45475a;border-radius:8px;padding:24px;min-width:520px;max-width:680px;color:#cdd6f4;font-family:Inter,sans-serif;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.5);max-height:85vh;overflow-y:auto;';
+
+    const inputStyle = 'background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:4px 8px;font-size:12px;';
+    const labelStyle = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;';
+
+    dialog.innerHTML = `
+      <div style="font-weight:600;font-size:14px;margin-bottom:12px">${existing ? 'Edit' : 'New'} Animated Tile</div>
+      <div style="${labelStyle}">
+        <span>Name</span>
+        <input class="at-name" value="${existing?.name ?? 'AnimTile_' + Date.now().toString(36)}" style="${inputStyle}width:200px;">
+      </div>
+      <div style="${labelStyle}">
+        <span>Frame Duration (ms)</span>
+        <input class="at-dur" type="number" value="${existing?.frameDurationMs ?? 200}" min="16" max="10000" style="${inputStyle}width:80px;">
+      </div>
+      <div style="${labelStyle}">
+        <span>Loop</span>
+        <input class="at-loop" type="checkbox" ${existing?.loop !== false ? 'checked' : ''} style="accent-color:#89b4fa;">
+      </div>
+      <div style="font-weight:600;margin-bottom:4px;margin-top:8px;">Frames (tile IDs — drag to reorder)</div>
+      <div style="font-size:10px;opacity:0.5;margin-bottom:6px;">Click a tile in the mini-palette below to add it. Right-click a frame to remove it.</div>
+      <div class="at-frames" style="display:flex;flex-wrap:wrap;gap:4px;min-height:40px;background:#313244;border:1px solid #45475a;border-radius:4px;padding:6px;margin-bottom:10px;"></div>
+      <div style="font-weight:600;margin-bottom:4px;">Tile Palette <span style="opacity:0.5;font-size:10px;">(click to add frame)</span></div>
+      <div class="at-palette-wrap" style="max-height:320px;overflow:auto;border:1px solid #45475a;border-radius:4px;margin-bottom:14px;"></div>
+      <div class="at-preview" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+        <span style="font-weight:600;">Preview:</span>
+        <canvas class="at-preview-canvas" width="48" height="48" style="image-rendering:pixelated;border:1px solid #45475a;border-radius:4px;"></canvas>
+        <button class="at-preview-btn" style="background:#45475a;color:#cdd6f4;border:none;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;">▶ Play</button>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="at-cancel" style="background:#45475a;color:#cdd6f4;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;">Cancel</button>
+        <button class="at-ok" style="background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;">${existing ? 'Save' : 'Create'}</button>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const nameInput = dialog.querySelector('.at-name') as HTMLInputElement;
+    const durInput = dialog.querySelector('.at-dur') as HTMLInputElement;
+    const loopInput = dialog.querySelector('.at-loop') as HTMLInputElement;
+    const framesContainer = dialog.querySelector('.at-frames') as HTMLElement;
+    const paletteWrap = dialog.querySelector('.at-palette-wrap') as HTMLElement;
+    const previewCanvas = dialog.querySelector('.at-preview-canvas') as HTMLCanvasElement;
+    const previewBtn = dialog.querySelector('.at-preview-btn') as HTMLButtonElement;
+    const cancelBtn = dialog.querySelector('.at-cancel') as HTMLButtonElement;
+    const okBtn = dialog.querySelector('.at-ok') as HTMLButtonElement;
+
+    let frames = [...initialFrames];
+    let previewTimer: ReturnType<typeof setInterval> | null = null;
+    let previewFrame = 0;
+    let previewPlaying = false;
+
+    // ── Render frame thumbnails ──
+    const renderFrames = () => {
+      framesContainer.innerHTML = '';
+      if (frames.length === 0) {
+        framesContainer.innerHTML = '<div style="opacity:0.4;font-size:11px;">No frames added yet</div>';
+        return;
+      }
+      frames.forEach((tileId, idx) => {
+        const thumb = document.createElement('canvas');
+        thumb.width = 32;
+        thumb.height = 32;
+        thumb.style.cssText = 'image-rendering:pixelated;border:1px solid #585b70;border-radius:3px;cursor:grab;background:#1e1e2e;';
+        thumb.title = `Frame ${idx + 1}: Tile #${tileId} (right-click to remove)`;
+        this._drawTileThumbnail(thumb, tileId);
+
+        // Right-click to remove
+        thumb.oncontextmenu = (e) => {
+          e.preventDefault();
+          frames.splice(idx, 1);
+          renderFrames();
+        };
+
+        // Drag reorder
+        thumb.draggable = true;
+        thumb.ondragstart = (e) => {
+          e.dataTransfer!.setData('text/plain', String(idx));
+          thumb.style.opacity = '0.4';
+        };
+        thumb.ondragend = () => { thumb.style.opacity = '1'; };
+        thumb.ondragover = (e) => { e.preventDefault(); thumb.style.borderColor = '#89b4fa'; };
+        thumb.ondragleave = () => { thumb.style.borderColor = '#585b70'; };
+        thumb.ondrop = (e) => {
+          e.preventDefault();
+          thumb.style.borderColor = '#585b70';
+          const fromIdx = parseInt(e.dataTransfer!.getData('text/plain'));
+          if (isNaN(fromIdx) || fromIdx === idx) return;
+          const [moved] = frames.splice(fromIdx, 1);
+          frames.splice(idx, 0, moved);
+          renderFrames();
+        };
+
+        framesContainer.appendChild(thumb);
+      });
+    };
+    renderFrames();
+
+    // ── Mini palette ──
+    const miniPal = document.createElement('canvas');
+    miniPal.style.cssText = 'image-rendering:pixelated;cursor:pointer;display:block;';
+    if (ts.image) {
+      const zoom = 2;
+      miniPal.width = ts.image.naturalWidth * zoom;
+      miniPal.height = ts.image.naturalHeight * zoom;
+      const ctx = miniPal.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(ts.image, 0, 0, miniPal.width, miniPal.height);
+
+      // Draw grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
+      for (let c = 0; c <= ts.columns; c++) {
+        const x = c * ts.tileWidth * zoom;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, miniPal.height); ctx.stroke();
+      }
+      for (let r = 0; r <= ts.rows; r++) {
+        const y = r * ts.tileHeight * zoom;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(miniPal.width, y); ctx.stroke();
+      }
+
+      miniPal.onclick = (e) => {
+        const rect = miniPal.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const col = Math.floor(mx / (ts.tileWidth * zoom));
+        const row = Math.floor(my / (ts.tileHeight * zoom));
+        if (col < 0 || col >= ts.columns || row < 0 || row >= ts.rows) return;
+        const tileId = row * ts.columns + col;
+        frames.push(tileId);
+        renderFrames();
+      };
+    }
+    paletteWrap.appendChild(miniPal);
+
+    // ── Preview animation ──
+    const drawPreview = () => {
+      if (frames.length === 0) return;
+      const ctx = previewCanvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, 48, 48);
+      const tileId = frames[previewFrame % frames.length];
+      if (ts.image) {
+        const col = tileId % ts.columns;
+        const row = Math.floor(tileId / ts.columns);
+        ctx.drawImage(ts.image, col * ts.tileWidth, row * ts.tileHeight, ts.tileWidth, ts.tileHeight, 0, 0, 48, 48);
+      }
+    };
+    drawPreview();
+
+    previewBtn.onclick = () => {
+      if (previewPlaying) {
+        if (previewTimer) clearInterval(previewTimer);
+        previewTimer = null;
+        previewPlaying = false;
+        previewBtn.textContent = '▶ Play';
+      } else {
+        previewPlaying = true;
+        previewBtn.textContent = '⏸ Pause';
+        previewFrame = 0;
+        drawPreview();
+        previewTimer = setInterval(() => {
+          previewFrame = (previewFrame + 1) % Math.max(1, frames.length);
+          drawPreview();
+        }, parseInt(durInput.value) || 200);
+      }
+    };
+
+    // Close handlers
+    const close = () => {
+      if (previewTimer) clearInterval(previewTimer);
+      document.body.removeChild(overlay);
+    };
+    cancelBtn.onclick = close;
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    okBtn.onclick = () => {
+      const name = nameInput.value.trim() || 'AnimTile';
+      const dur = parseInt(durInput.value) || 200;
+      const loop = loopInput.checked;
+
+      if (frames.length < 2) {
+        alert('An animated tile needs at least 2 frames.');
+        return;
+      }
+
+      const animDef: AnimatedTileDef = { name, frames: [...frames], frameDurationMs: dur, loop };
+
+      if (!this._activeTileset!.animatedTiles) this._activeTileset!.animatedTiles = [];
+
+      if (editIndex !== undefined) {
+        this._activeTileset!.animatedTiles![editIndex] = animDef;
+      } else {
+        this._activeTileset!.animatedTiles!.push(animDef);
+        // Auto-select the new animated tile for painting
+        this._activeAnimTileIndex = this._activeTileset!.animatedTiles!.length - 1;
+      }
+
+      this._renderAnimatedTilesList();
+      this._renderTileInfo();
+      this._emitChanged();
+      close();
+      console.log(`[TileEditor] ${existing ? 'Updated' : 'Created'} animated tile "${name}" — ${frames.length} frames, ${dur}ms, loop=${loop}`);
+    };
+  }
+
+  /**
+   * Returns the tile ID to stamp for painting.
+   * If an animated tile is selected, returns the encoded animated tile ID.
+   * Otherwise returns the normal selectedTileId.
+   */
+  getEffectivePaintTileId(): number {
+    if (this._activeAnimTileIndex >= 0) {
+      const anims = this._activeTileset?.animatedTiles ?? [];
+      if (this._activeAnimTileIndex < anims.length) {
+        return encodeAnimatedTileId(this._activeAnimTileIndex);
+      }
+    }
+    return this._selectedTileId;
+  }
+
+  /**
+   * Returns the effective stamp for painting.
+   * If an animated tile is selected, returns a 1×1 stamp with the encoded ID.
+   * Otherwise delegates to getSelectionStamp().
+   */
+  getEffectiveStamp(): number[][] {
+    if (this._activeAnimTileIndex >= 0) {
+      const anims = this._activeTileset?.animatedTiles ?? [];
+      if (this._activeAnimTileIndex < anims.length) {
+        return [[encodeAnimatedTileId(this._activeAnimTileIndex)]];
+      }
+    }
+    return this.getSelectionStamp();
+  }
 
   dispose(): void {
     if (this._collisionRebuildTimer) clearTimeout(this._collisionRebuildTimer);

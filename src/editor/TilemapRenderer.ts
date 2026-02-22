@@ -9,7 +9,25 @@
 // ============================================================
 
 import * as THREE from 'three';
-import type { TilemapAsset, TilemapLayer, TilesetAsset } from '../engine/TilemapData';
+import type { TilemapAsset, TilemapLayer, TilesetAsset, AnimatedTileDef } from '../engine/TilemapData';
+import { isAnimatedTileId, decodeAnimatedTileIndex } from '../engine/TilemapData';
+
+/**
+ * Info about a single animated-tile quad inside a layer mesh.
+ * Used by `update()` to swap UVs each frame without rebuilding geometry.
+ */
+interface AnimQuadInfo {
+  /** Index into the UV buffer attribute where this quad's 8 floats start (4 vertices × 2 components). */
+  uvOffset: number;
+  /** The AnimatedTileDef that drives this quad. */
+  anim: AnimatedTileDef;
+  /** Tileset-derived constants for quick UV math. */
+  actualCols: number;
+  uvTileW: number;
+  uvTileH: number;
+  halfTexelU: number;
+  halfTexelV: number;
+}
 
 /**
  * Manages THREE.js mesh objects for one or more TilemapAssets.
@@ -30,6 +48,11 @@ export class TilemapRenderer {
   private _tilemaps = new Map<string, TilemapAsset>();
   /** Tileset lookup (keyed by assetId) */
   private _tilesets = new Map<string, TilesetAsset>();
+
+  /** Animated quad tracking per composite layer key. */
+  private _animQuads = new Map<string, AnimQuadInfo[]>();
+  /** Elapsed time accumulator in milliseconds for animation cycling. */
+  private _animTime = 0;
 
   constructor(parentGroup: THREE.Group) {
     this._root = new THREE.Group();
@@ -87,6 +110,7 @@ export class TilemapRenderer {
       this._disposeGroup(group);
     }
     this._layerGroups.clear();
+    this._animQuads.clear();
 
     // Selectively invalidate texture cache — only dispose textures whose
     // source image has changed (or whose tileset is no longer registered).
@@ -165,6 +189,7 @@ export class TilemapRenderer {
         this._root.remove(existing);
         this._disposeGroup(existing);
         this._layerGroups.delete(key);
+        this._animQuads.delete(key);
       }
 
       const tileset = this._tilesets.get(tilemap.tilesetId);
@@ -234,9 +259,25 @@ export class TilemapRenderer {
     const indices: number[] = [];
     let vertexOffset = 0;
 
+    // Track animated quads in this layer for runtime UV cycling
+    const layerAnimQuads: AnimQuadInfo[] = [];
+    const animDefs = ts.animatedTiles ?? [];
+
     for (const key of tileKeys) {
-      const tileId = layer.tiles[key];
+      let tileId = layer.tiles[key];
       const [cx, cy] = key.split(',').map(Number);
+
+      // If this is an animated tile reference, resolve to the first frame
+      let animDef: AnimatedTileDef | null = null;
+      if (isAnimatedTileId(tileId)) {
+        const animIdx = decodeAnimatedTileIndex(tileId);
+        if (animIdx >= 0 && animIdx < animDefs.length) {
+          animDef = animDefs[animIdx];
+          tileId = animDef.frames[0] ?? 0; // render first frame initially
+        } else {
+          tileId = 0; // fallback — animation index out of range
+        }
+      }
 
       // World position of tile (bottom-left corner)
       const wx = cx * tileWorldW;
@@ -250,6 +291,9 @@ export class TilemapRenderer {
       const v0 = 1 - (tileRow + 1) * uvTileH + halfTexelV;
       const u1 = (tileCol + 1) * uvTileW - halfTexelU;
       const v1 = 1 - tileRow * uvTileH - halfTexelV;
+
+      // Record the UV buffer offset BEFORE pushing UVs so update() knows where to write
+      const uvBufferOffset = uvs.length; // byte offset = index in the flat array
 
       // 4 vertices (quad)
       // Bottom-left
@@ -265,12 +309,32 @@ export class TilemapRenderer {
       positions.push(wx, wy + tileWorldH, 0);
       uvs.push(u0, v1);
 
+      // Track animated quad for runtime UV cycling
+      if (animDef) {
+        layerAnimQuads.push({
+          uvOffset: uvBufferOffset,
+          anim: animDef,
+          actualCols,
+          uvTileW,
+          uvTileH,
+          halfTexelU,
+          halfTexelV,
+        });
+      }
+
       // Two triangles
       indices.push(
         vertexOffset, vertexOffset + 1, vertexOffset + 2,
         vertexOffset, vertexOffset + 2, vertexOffset + 3,
       );
       vertexOffset += 4;
+    }
+
+    // Store (or clear) animated quad list for this layer
+    if (layerAnimQuads.length > 0) {
+      this._animQuads.set(compositeKey, layerAnimQuads);
+    } else {
+      this._animQuads.delete(compositeKey);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -302,6 +366,72 @@ export class TilemapRenderer {
     for (const [key, group] of this._layerGroups) {
       if (key.endsWith(`::${layerId}`)) {
         group.visible = visible;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  //  Animation update — call each frame with deltaTime in seconds
+  // ------------------------------------------------------------------
+
+  /**
+   * Advance animated tile UVs.  Call this once per render frame.
+   * @param deltaTime  Elapsed time since last frame in **seconds**.
+   */
+  update(deltaTime: number): void {
+    if (this._animQuads.size === 0) return;
+
+    this._animTime += deltaTime * 1000; // accumulate in ms
+
+    for (const [compositeKey, quads] of this._animQuads) {
+      const group = this._layerGroups.get(compositeKey);
+      if (!group || !group.visible) continue;
+
+      // The first (and typically only) Mesh child holds the merged geometry
+      const mesh = group.children[0] as THREE.Mesh | undefined;
+      if (!mesh?.geometry) continue;
+
+      const uvAttr = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute;
+      if (!uvAttr) continue;
+
+      let dirty = false;
+
+      for (const q of quads) {
+        const { anim, uvOffset, actualCols, uvTileW, uvTileH, halfTexelU, halfTexelV } = q;
+        if (anim.frames.length < 2) continue;
+
+        // Determine current frame index based on accumulated time
+        const totalDuration = anim.frameDurationMs * anim.frames.length;
+        let elapsed = this._animTime % totalDuration;
+        if (!anim.loop && this._animTime >= totalDuration) {
+          elapsed = totalDuration - anim.frameDurationMs; // stick on last frame
+        }
+        const frameIdx = Math.floor(elapsed / anim.frameDurationMs) % anim.frames.length;
+        const tileId = anim.frames[frameIdx];
+
+        // Compute UVs for this frame's tile ID
+        const tileCol = tileId % actualCols;
+        const tileRow = Math.floor(tileId / actualCols);
+        const u0 = tileCol * uvTileW + halfTexelU;
+        const v0 = 1 - (tileRow + 1) * uvTileH + halfTexelV;
+        const u1 = (tileCol + 1) * uvTileW - halfTexelU;
+        const v1 = 1 - tileRow * uvTileH - halfTexelV;
+
+        // Each quad has 4 vertices × 2 UV components = 8 floats
+        // Layout: BL(u0,v0) BR(u1,v0) TR(u1,v1) TL(u0,v1)
+        const arr = uvAttr.array as Float32Array;
+        const o = uvOffset; // offset in floats
+        if (arr[o + 0] !== u0 || arr[o + 1] !== v0) {
+          arr[o + 0] = u0; arr[o + 1] = v0; // BL
+          arr[o + 2] = u1; arr[o + 3] = v0; // BR
+          arr[o + 4] = u1; arr[o + 5] = v1; // TR
+          arr[o + 6] = u0; arr[o + 7] = v1; // TL
+          dirty = true;
+        }
+      }
+
+      if (dirty) {
+        uvAttr.needsUpdate = true;
       }
     }
   }
@@ -351,6 +481,7 @@ export class TilemapRenderer {
       this._disposeGroup(group);
     }
     this._layerGroups.clear();
+    this._animQuads.clear();
     for (const [, tex] of this._textureCache) tex.dispose();
     this._textureCache.clear();
     this._root.parent?.remove(this._root);

@@ -2,6 +2,42 @@
 //  TilemapData — Data structures for tilesets and tilemaps
 // ============================================================
 
+// ============================================================
+//  Animated Tiles — A sequence of tile IDs that cycle at runtime.
+//  Encoded in layer.tiles as negative IDs: -(animIndex + 1).
+//  E.g. the first animated tile (index 0) is stored as -1.
+// ============================================================
+
+/** Minimum ID value used for animated tile encoding (negative). */
+export const ANIMATED_TILE_OFFSET = -1;
+
+/** Convert an animatedTiles array index to the value stored in layer.tiles */
+export function encodeAnimatedTileId(animIndex: number): number {
+  return -(animIndex + 1);
+}
+
+/** Convert a layer.tiles value back to an animatedTiles array index. Returns -1 if not animated. */
+export function decodeAnimatedTileIndex(tileId: number): number {
+  return tileId < 0 ? -(tileId + 1) : -1;
+}
+
+/** Returns true if the tile value represents an animated tile. */
+export function isAnimatedTileId(tileId: number): boolean {
+  return tileId < 0;
+}
+
+/** A single animated tile definition: a named sequence of frames from the tileset atlas. */
+export interface AnimatedTileDef {
+  /** Display name for the animated tile */
+  name: string;
+  /** Ordered list of regular tileIds from the tileset that form the animation frames */
+  frames: number[];
+  /** Duration of each frame in milliseconds */
+  frameDurationMs: number;
+  /** Whether the animation loops. Defaults to true. */
+  loop: boolean;
+}
+
 export interface TilesetAsset {
   assetId: string;
   assetType: 'tileset';
@@ -15,6 +51,8 @@ export interface TilesetAsset {
   rows: number;
   pixelsPerUnit: number;
   tiles: TileDefData[];
+  /** Animated tile definitions. Index in this array is used with encodeAnimatedTileId(). */
+  animatedTiles?: AnimatedTileDef[];
   image?: HTMLImageElement;
   /** Base-64 data URL of the source image — persisted so tilesets survive save/load */
   imageDataUrl?: string;

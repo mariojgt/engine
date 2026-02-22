@@ -1381,6 +1381,7 @@ export class EditorLayout {
     // Connect tile editor to viewport for painting
     if (this._viewport) {
       this._viewport.setTileEditorPanel(this._tileEditorPanel);
+      this._viewport.setTilemapRenderer(this._tilemapRenderer);
     }
   }
 
