@@ -353,6 +353,7 @@ export class PhysicsWorld {
     // Sync physics → Three.js
     for (const go of scene.gameObjects) {
       if (go.rigidBody) {
+        if (go.rigidBody.isSleeping()) continue;
         const pos = go.rigidBody.translation();
         const rot = go.rigidBody.rotation();
         go.mesh.position.set(pos.x, pos.y, pos.z);

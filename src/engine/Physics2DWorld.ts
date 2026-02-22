@@ -99,7 +99,13 @@ export class Physics2DWorld {
   }
 
   syncToThreeJS(): void {
-    this.bodyMap.forEach(({ rigidBody, actor }) => {
+    if (!this.world) return;
+
+    this.world.forEachActiveRigidBody((rigidBody: any) => {
+      const entry = this.bodyMap.get(rigidBody.handle);
+      if (!entry) return;
+
+      const { actor } = entry;
       if (!rigidBody.isDynamic() && !rigidBody.isKinematic()) return;
       // Guard against stale WASM handles — should not happen if removeActorBody is
       // called correctly, but a try-catch prevents a freed body from crashing the loop.
