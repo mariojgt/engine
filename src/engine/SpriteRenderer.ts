@@ -61,6 +61,10 @@ export class SpriteRenderer {
   public currentSprite: SpriteData | null = null;
   public spriteSheet: SpriteSheetAsset | null = null;
   public pixelsPerUnit = 100;
+  /** Visual scale multiplier applied on top of the sprite pixel-to-world size */
+  public spriteScale: { x: number; y: number } = { x: 1, y: 1 };
+  /** Visual offset in world units applied to the mesh position */
+  public spriteOffset: { x: number; y: number } = { x: 0, y: 0 };
 
   constructor(pixelsPerUnit = 100) {
     this.pixelsPerUnit = pixelsPerUnit;
@@ -115,15 +119,15 @@ export class SpriteRenderer {
     uvArray[6] = uMax; uvArray[7] = vMax;   // top-right
     uvAttr.needsUpdate = true;
 
-    // Scale mesh to match sprite pixel size in world units
-    const worldW = sprite.width / this.pixelsPerUnit;
-    const worldH = sprite.height / this.pixelsPerUnit;
+    // Scale mesh to match sprite pixel size in world units, with optional visual scale
+    const worldW = (sprite.width / this.pixelsPerUnit) * this.spriteScale.x;
+    const worldH = (sprite.height / this.pixelsPerUnit) * this.spriteScale.y;
     this.mesh.scale.set(worldW, worldH, 1);
 
-    // Adjust position based on pivot
+    // Adjust position based on pivot + optional visual offset
     const pivotOffX = (sprite.pivot.x - 0.5) * worldW;
     const pivotOffY = (sprite.pivot.y - 0.5) * worldH;
-    this.mesh.position.set(-pivotOffX, -pivotOffY, 0);
+    this.mesh.position.set(-pivotOffX + this.spriteOffset.x, -pivotOffY + this.spriteOffset.y, 0);
   }
 
   setFlipX(flip: boolean): void {

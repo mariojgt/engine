@@ -521,11 +521,17 @@ export class ActorEditorPanel {
       drawChecker();
       const baseScale = Math.min((canvas.width * 0.85) / sw, (canvas.height * 0.85) / sh);
       _lastDrawScale = baseScale * zoom;
-      const dw = sw * _lastDrawScale;
-      const dh = sh * _lastDrawScale;
+      // Apply sprite scale from the component (default 1×1)
+      const sprScaleX = sprComp?.spriteScale?.x ?? 1;
+      const sprScaleY = sprComp?.spriteScale?.y ?? 1;
+      const dw = sw * _lastDrawScale * sprScaleX;
+      const dh = sh * _lastDrawScale * sprScaleY;
+      // Apply sprite offset (in world units → pixels via ppu * drawScale)
+      const offXPx = (sprComp?.spriteOffset?.x ?? 0) * _lastDrawPpu * _lastDrawScale;
+      const offYPx = (sprComp?.spriteOffset?.y ?? 0) * _lastDrawPpu * _lastDrawScale;
       ctx.drawImage(img, sx, sy, sw, sh,
-        (canvas.width - dw) / 2 + panX,
-        (canvas.height - dh) / 2 + panY,
+        (canvas.width - dw) / 2 + panX + offXPx,
+        (canvas.height - dh) / 2 + panY - offYPx,
         dw, dh);
     };
 
@@ -1572,6 +1578,50 @@ export class ActorEditorPanel {
         this._onAssetChanged();
       }));
 
+      // Sprite Scale
+      if (!comp.spriteScale) comp.spriteScale = { x: 1, y: 1 };
+      const scaleHeader = document.createElement('div');
+      scaleHeader.className = 'prop-section-title';
+      scaleHeader.style.cssText = 'font-size:10px;padding:6px 0 2px 0;color:#8899aa;';
+      scaleHeader.textContent = 'Sprite Scale';
+      container.appendChild(scaleHeader);
+      container.appendChild(this._makeNumberRow('Scale X', comp.spriteScale.x, 0.05, 0.01, 10, (v) => {
+        if (!comp.spriteScale) comp.spriteScale = { x: 1, y: 1 };
+        comp.spriteScale.x = v;
+        this._asset.touch();
+        this._refreshPreview?.();
+        this._onAssetChanged();
+      }));
+      container.appendChild(this._makeNumberRow('Scale Y', comp.spriteScale.y, 0.05, 0.01, 10, (v) => {
+        if (!comp.spriteScale) comp.spriteScale = { x: 1, y: 1 };
+        comp.spriteScale.y = v;
+        this._asset.touch();
+        this._refreshPreview?.();
+        this._onAssetChanged();
+      }));
+
+      // Sprite Offset
+      if (!comp.spriteOffset) comp.spriteOffset = { x: 0, y: 0 };
+      const offsetHeader = document.createElement('div');
+      offsetHeader.className = 'prop-section-title';
+      offsetHeader.style.cssText = 'font-size:10px;padding:6px 0 2px 0;color:#8899aa;';
+      offsetHeader.textContent = 'Sprite Offset';
+      container.appendChild(offsetHeader);
+      container.appendChild(this._makeNumberRow('Offset X', comp.spriteOffset.x, 0.01, -5, 5, (v) => {
+        if (!comp.spriteOffset) comp.spriteOffset = { x: 0, y: 0 };
+        comp.spriteOffset.x = v;
+        this._asset.touch();
+        this._refreshPreview?.();
+        this._onAssetChanged();
+      }));
+      container.appendChild(this._makeNumberRow('Offset Y', comp.spriteOffset.y, 0.01, -5, 5, (v) => {
+        if (!comp.spriteOffset) comp.spriteOffset = { x: 0, y: 0 };
+        comp.spriteOffset.y = v;
+        this._asset.touch();
+        this._refreshPreview?.();
+        this._onAssetChanged();
+      }));
+
       // Sorting
       container.appendChild(this._makeDropdownRow('Sorting Layer', comp.sortingLayer ?? 'Default',
         ['Default', 'Background', 'Foreground', 'UI'], (v) => {
@@ -2305,6 +2355,8 @@ export class ActorEditorPanel {
       orderInLayer: 0,
       flipX: false,
       flipY: false,
+      spriteScale: { x: 1, y: 1 },
+      spriteOffset: { x: 0, y: 0 },
     };
     this._asset.components.push(comp);
     this._asset.touch();

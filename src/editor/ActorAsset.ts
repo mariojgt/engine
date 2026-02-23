@@ -228,6 +228,10 @@ export interface ActorComponentData {
   flipX?: boolean;
   /** Flip sprite vertically (for type='spriteRenderer') */
   flipY?: boolean;
+  /** Sprite visual scale multiplier (for type='spriteRenderer') — default {x:1,y:1} */
+  spriteScale?: { x: number; y: number };
+  /** Sprite visual offset in world units (for type='spriteRenderer') — default {x:0,y:0} */
+  spriteOffset?: { x: number; y: number };
   /** 2D Animation Blueprint asset ID (for type='spriteRenderer') */
   animBlueprint2dId?: string;
   /** 2D collider shape (for type='collider2d') */
