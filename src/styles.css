@@ -9216,5 +9216,315 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ================================================================
+   31. FEATHER SELECT — Custom Dropdown Replacement
+   ================================================================ */
+
+/* ── Wrapper ── */
+.fe-select {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  min-width: 0;
+}
+
+/* ── Trigger / Display Button ── */
+.fe-select__display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  transition: all 160ms ease;
+  outline: none;
+  overflow: hidden;
+}
+
+.fe-select__display:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.fe-select__display:focus-visible {
+  border-color: var(--accent-blue, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.fe-select--open .fe-select__display {
+  border-color: var(--accent-blue, #3b82f6);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+.fe-select--disabled .fe-select__display {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: default;
+}
+
+.fe-select__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.fe-select__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 200ms ease;
+}
+
+.fe-select--open .fe-select__chevron {
+  transform: rotate(180deg);
+  color: var(--accent-blue, #3b82f6);
+}
+
+/* ── Dropdown ── */
+.fe-select__dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 99999;
+  min-width: 100%;
+  max-height: 280px;
+  background: rgba(28, 28, 32, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: feSelectDropIn 140ms ease forwards;
+}
+
+.fe-select__dropdown--above {
+  animation: feSelectDropInUp 140ms ease forwards;
+}
+
+.fe-select__dropdown--closing {
+  animation: feSelectDropOut 100ms ease forwards;
+  pointer-events: none;
+}
+
+@keyframes feSelectDropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes feSelectDropInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes feSelectDropOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* ── Search ── */
+.fe-select__search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.fe-select__search-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.fe-select__search {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 0;
+  min-width: 0;
+}
+
+.fe-select__search::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Option List ── */
+.fe-select__list {
+  overflow-y: auto;
+  max-height: 240px;
+  padding: 4px;
+  scroll-behavior: smooth;
+}
+
+/* Thin scrollbar for option list */
+.fe-select__list::-webkit-scrollbar {
+  width: 5px;
+}
+.fe-select__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fe-select__list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.fe-select__list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Single Option ── */
+.fe-select__option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: background 80ms ease;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fe-select__option:hover,
+.fe-select__option--highlight {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.fe-select__option--active {
+  color: var(--accent-blue, #3b82f6);
+  font-weight: 500;
+}
+
+.fe-select__option--active .fe-select__check {
+  color: var(--accent-blue, #3b82f6);
+}
+
+.fe-select__option--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: default;
+}
+
+.fe-select__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  color: transparent;
+}
+
+.fe-select__option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.fe-select__match {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── Group Labels ── */
+.fe-select__group-label {
+  padding: 6px 8px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+/* ── Empty State ── */
+.fe-select__empty {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: center;
+  user-select: none;
+}
+
+/* ── Divider ── */
+.fe-select__divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Sizing Variants — inherit from context ── */
+
+/* Make FeatherSelect fill like the original selects did */
+.fe-select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Fix selects inside flex rows, property panels, etc. */
+.prop-row .fe-select,
+.prop-field .fe-select,
+.settings-field .fe-select,
+.detail-row .fe-select,
+.condition-row .fe-select,
+.transition-prop .fe-select {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Prevent z-index stacking issues inside dockview panels */
+.dv-view .fe-select__dropdown {
+  z-index: 999999;
+}
+
+/* ================================================================
    END — FEATHER ENGINE UI/UX ENHANCEMENTS
    ================================================================ */

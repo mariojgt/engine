@@ -1,5 +1,6 @@
 import './styles.css';
 import 'dockview-core/dist/styles/dockview.css';
+import { initFeatherSelect } from './editor/FeatherSelect';
 import { Engine } from './engine';
 import { EditorLayout } from './editor/EditorLayout';
 import { OutputLog } from './editor/OutputLog';
@@ -23,6 +24,9 @@ import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
 async function main() {
   const app = document.getElementById('app')!;
   app.innerHTML = '';
+
+  // Initialize custom select dropdowns (auto-upgrades all <select> elements)
+  initFeatherSelect();
 
   // Scene state backup for play mode isolation
   let prePlaySceneState: SceneJSON | null = null;
