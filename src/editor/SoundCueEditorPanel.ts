@@ -146,7 +146,8 @@ export class SoundCueEditorPanel {
       `background-image:
         linear-gradient(rgba(48,54,61,0.25) 1px, transparent 1px),
         linear-gradient(90deg, rgba(48,54,61,0.25) 1px, transparent 1px);` +
-      `background-size:${GRID}px ${GRID}px;`;
+      `background-size:${GRID * this._zoom}px ${GRID * this._zoom}px;` +
+      `background-position:${this._panX}px ${this._panY}px;`;
     graph.addEventListener('contextmenu', e => this._showCtxMenu(e));
     graph.addEventListener('mousedown', e => this._onGraphDown(e));
     graph.addEventListener('wheel', e => this._onWheel(e), { passive: false });
@@ -227,9 +228,13 @@ export class SoundCueEditorPanel {
   // ============================================================
 
   private _renderNodes(): void {
-    if (!this._nodeLayer) return;
+    if (!this._nodeLayer || !this._graphEl) return;
     this._nodeLayer.innerHTML = '';
     this._nodeEls.clear();
+
+    // Update background grid
+    this._graphEl.style.backgroundSize = `${GRID * this._zoom}px ${GRID * this._zoom}px`;
+    this._graphEl.style.backgroundPosition = `${this._panX}px ${this._panY}px`;
 
     for (const n of this._cue.nodes) {
       const el = this._mkNode(n);
@@ -245,17 +250,18 @@ export class SoundCueEditorPanel {
     const el = document.createElement('div');
     el.dataset.nodeId = node.id;
     el.style.cssText =
-      `position:absolute;left:${node.x + this._panX}px;top:${node.y + this._panY}px;` +
-      `width:${NODE_W}px;background:#1c2128;border-radius:8px;user-select:none;` +
+      `position:absolute;left:${node.x * this._zoom + this._panX}px;top:${node.y * this._zoom + this._panY}px;` +
+      `width:${NODE_W * this._zoom}px;background:#1c2128;border-radius:${8 * this._zoom}px;user-select:none;` +
       `border:${sel ? 2 : 1}px solid ${sel ? c : c + '55'};` +
-      `box-shadow:${sel ? `0 0 16px ${c}44,` : ''}0 4px 12px rgba(0,0,0,0.5);z-index:${sel ? 10 : 1};`;
+      `box-shadow:${sel ? `0 0 ${16 * this._zoom}px ${c}44,` : ''}0 ${4 * this._zoom}px ${12 * this._zoom}px rgba(0,0,0,0.5);z-index:${sel ? 10 : 1};` +
+      `transform-origin: top left;`;
 
     /* Header */
     const hdr = document.createElement('div');
     hdr.style.cssText =
       `background:linear-gradient(135deg, ${c}44, ${c}22);` +
-      `border-bottom:1px solid ${c}44;padding:6px 12px;font-size:11px;font-weight:700;` +
-      `color:${c};border-radius:7px 7px 0 0;cursor:grab;display:flex;align-items:center;` +
+      `border-bottom:1px solid ${c}44;padding:${6 * this._zoom}px ${12 * this._zoom}px;font-size:${11 * this._zoom}px;font-weight:700;` +
+      `color:${c};border-radius:${7 * this._zoom}px ${7 * this._zoom}px 0 0;cursor:grab;display:flex;align-items:center;` +
       'justify-content:space-between;';
     hdr.innerHTML = `<span>${LABELS[node.type]}</span>`;
 
@@ -263,7 +269,7 @@ export class SoundCueEditorPanel {
     if (node.type !== 'output') {
       const del = document.createElement('span');
       del.textContent = '✕';
-      del.style.cssText = 'cursor:pointer;font-size:13px;opacity:0.5;';
+      del.style.cssText = `cursor:pointer;font-size:${13 * this._zoom}px;opacity:0.5;`;
       del.addEventListener('mouseenter', () => del.style.opacity = '1');
       del.addEventListener('mouseleave', () => del.style.opacity = '0.5');
       del.addEventListener('mousedown', (e) => {
@@ -283,7 +289,7 @@ export class SoundCueEditorPanel {
 
     /* Body */
     const body = document.createElement('div');
-    body.style.cssText = `padding:${BODY_PAD}px;position:relative;min-height:42px;`;
+    body.style.cssText = `padding:${BODY_PAD * this._zoom}px;position:relative;min-height:${42 * this._zoom}px;`;
 
     switch (node.type) {
       case 'output':     this._bodyOutput(node as SCOutputNode, body); break;
@@ -306,10 +312,10 @@ export class SoundCueEditorPanel {
     pin.dataset.nodeId = nodeId;
     pin.dataset.idx = String(idx);
     pin.style.cssText =
-      `position:absolute;left:${-PIN_R - 1}px;top:${y}px;width:${PIN_R * 2}px;height:${PIN_R * 2}px;` +
-      'background:#58a6ff;border:2px solid #0d1117;border-radius:50%;cursor:crosshair;z-index:5;' +
+      `position:absolute;left:${(-PIN_R - 1) * this._zoom}px;top:${y * this._zoom}px;width:${PIN_R * 2 * this._zoom}px;height:${PIN_R * 2 * this._zoom}px;` +
+      `background:#58a6ff;border:${2 * this._zoom}px solid #0d1117;border-radius:50%;cursor:crosshair;z-index:5;` +
       'transition:box-shadow 0.15s;';
-    pin.addEventListener('mouseenter', () => pin.style.boxShadow = '0 0 8px #58a6ff');
+    pin.addEventListener('mouseenter', () => pin.style.boxShadow = `0 0 ${8 * this._zoom}px #58a6ff`);
     pin.addEventListener('mouseleave', () => pin.style.boxShadow = 'none');
     pin.addEventListener('mouseup', (e) => {
       e.stopPropagation();
@@ -318,7 +324,7 @@ export class SoundCueEditorPanel {
     parent.appendChild(pin);
 
     const lbl = document.createElement('span');
-    lbl.style.cssText = `position:absolute;left:${PIN_R + 8}px;top:${y + 1}px;font-size:10px;color:#8b949e;pointer-events:none;white-space:nowrap;`;
+    lbl.style.cssText = `position:absolute;left:${(PIN_R + 8) * this._zoom}px;top:${(y + 1) * this._zoom}px;font-size:${10 * this._zoom}px;color:#8b949e;pointer-events:none;white-space:nowrap;`;
     lbl.textContent = label;
     parent.appendChild(lbl);
   }
@@ -328,10 +334,10 @@ export class SoundCueEditorPanel {
     pin.className = 'sc-pin sc-pin-out';
     pin.dataset.nodeId = nodeId;
     pin.style.cssText =
-      `position:absolute;right:${-PIN_R - 1}px;top:${y}px;width:${PIN_R * 2}px;height:${PIN_R * 2}px;` +
-      'background:#3fb950;border:2px solid #0d1117;border-radius:50%;cursor:crosshair;z-index:5;' +
+      `position:absolute;right:${(-PIN_R - 1) * this._zoom}px;top:${y * this._zoom}px;width:${PIN_R * 2 * this._zoom}px;height:${PIN_R * 2 * this._zoom}px;` +
+      `background:#3fb950;border:${2 * this._zoom}px solid #0d1117;border-radius:50%;cursor:crosshair;z-index:5;` +
       'transition:box-shadow 0.15s;';
-    pin.addEventListener('mouseenter', () => pin.style.boxShadow = '0 0 8px #3fb950');
+    pin.addEventListener('mouseenter', () => pin.style.boxShadow = `0 0 ${8 * this._zoom}px #3fb950`);
     pin.addEventListener('mouseleave', () => pin.style.boxShadow = 'none');
     pin.addEventListener('mousedown', (e) => {
       e.stopPropagation();
@@ -340,7 +346,7 @@ export class SoundCueEditorPanel {
     parent.appendChild(pin);
 
     const lbl = document.createElement('span');
-    lbl.style.cssText = `position:absolute;right:${PIN_R + 8}px;top:${y + 1}px;font-size:10px;color:#8b949e;pointer-events:none;text-align:right;white-space:nowrap;`;
+    lbl.style.cssText = `position:absolute;right:${(PIN_R + 8) * this._zoom}px;top:${(y + 1) * this._zoom}px;font-size:${10 * this._zoom}px;color:#8b949e;pointer-events:none;text-align:right;white-space:nowrap;`;
     lbl.textContent = label;
     parent.appendChild(lbl);
   }
@@ -350,7 +356,7 @@ export class SoundCueEditorPanel {
   private _bodyOutput(n: SCOutputNode, body: HTMLElement): void {
     this._inPin(body, n.id, 0, 'Audio In', 4);
     const info = document.createElement('div');
-    info.style.cssText = 'margin-left:24px;font-size:10px;color:#8b949e;line-height:1.8;';
+    info.style.cssText = `margin-left:${24 * this._zoom}px;font-size:${10 * this._zoom}px;color:#8b949e;line-height:1.8;`;
     info.innerHTML =
       `Bus: <b style="color:#c9d1d9">${n.bus}</b><br>` +
       `Vol: <b style="color:#c9d1d9">${n.volume.toFixed(2)}</b>  ·  Pitch: <b style="color:#c9d1d9">${n.pitch.toFixed(2)}</b><br>` +
@@ -366,8 +372,8 @@ export class SoundCueEditorPanel {
     /* Sound picker button */
     const picker = document.createElement('div');
     picker.style.cssText =
-      'margin-right:24px;margin-bottom:6px;background:#0d1117;border:1px solid #30363d;' +
-      'border-radius:4px;padding:4px 8px;font-size:10px;cursor:pointer;overflow:hidden;' +
+      `margin-right:${24 * this._zoom}px;margin-bottom:${6 * this._zoom}px;background:#0d1117;border:${1 * this._zoom}px solid #30363d;` +
+      `border-radius:${4 * this._zoom}px;padding:${4 * this._zoom}px ${8 * this._zoom}px;font-size:${10 * this._zoom}px;cursor:pointer;overflow:hidden;` +
       'text-overflow:ellipsis;white-space:nowrap;transition:border-color 0.15s;';
     picker.style.color = snd ? '#c9d1d9' : '#484f58';
     picker.textContent = snd ? snd.assetName : '— select sound —';
@@ -380,12 +386,12 @@ export class SoundCueEditorPanel {
     if (snd?.thumbnail) {
       const img = document.createElement('img');
       img.src = snd.thumbnail;
-      img.style.cssText = 'width:calc(100% - 24px);height:28px;border-radius:4px;margin-bottom:4px;opacity:0.7;display:block;';
+      img.style.cssText = `width:calc(100% - ${24 * this._zoom}px);height:${28 * this._zoom}px;border-radius:${4 * this._zoom}px;margin-bottom:${4 * this._zoom}px;opacity:0.7;display:block;`;
       body.appendChild(img);
     }
 
     const info = document.createElement('div');
-    info.style.cssText = 'font-size:10px;color:#8b949e;line-height:1.7;margin-right:24px;';
+    info.style.cssText = `font-size:${10 * this._zoom}px;color:#8b949e;line-height:1.7;margin-right:${24 * this._zoom}px;`;
     info.innerHTML = `Vol: <b style="color:#c9d1d9">${n.volume.toFixed(2)}</b>  ·  Pitch: <b style="color:#c9d1d9">${n.pitchMin.toFixed(2)} – ${n.pitchMax.toFixed(2)}</b>`;
     if (snd) info.innerHTML += `<br>${SoundLibrary.formatDuration(snd.metadata.duration)} · ${snd.metadata.format.toUpperCase()}`;
     body.appendChild(info);
@@ -399,14 +405,14 @@ export class SoundCueEditorPanel {
       this._inPin(body, n.id, i, `In ${i + 1} (w:${w})`, i * PIN_SPACING);
     }
     this._outPin(body, n.id, Math.max(0, Math.floor(((cnt - 1) * PIN_SPACING) / 2)));
-    body.style.minHeight = `${cnt * PIN_SPACING + 4}px`;
+    body.style.minHeight = `${(cnt * PIN_SPACING + 4) * this._zoom}px`;
   }
 
   private _bodyModulator(n: SCModulatorNode, body: HTMLElement): void {
     this._inPin(body, n.id, 0, 'Audio In', 4);
     this._outPin(body, n.id, 4);
     const info = document.createElement('div');
-    info.style.cssText = 'margin:6px 24px 0;font-size:10px;color:#8b949e;line-height:1.7;text-align:center;';
+    info.style.cssText = `margin:${6 * this._zoom}px ${24 * this._zoom}px 0;font-size:${10 * this._zoom}px;color:#8b949e;line-height:1.7;text-align:center;`;
     info.innerHTML =
       `Vol: <b style="color:#c9d1d9">${n.volumeMin.toFixed(2)} – ${n.volumeMax.toFixed(2)}</b><br>` +
       `Pitch: <b style="color:#c9d1d9">${n.pitchMin.toFixed(2)} – ${n.pitchMax.toFixed(2)}</b>`;
@@ -420,7 +426,7 @@ export class SoundCueEditorPanel {
       this._inPin(body, n.id, i, `In ${i + 1}`, i * PIN_SPACING);
     }
     this._outPin(body, n.id, Math.max(0, Math.floor(((cnt - 1) * PIN_SPACING) / 2)));
-    body.style.minHeight = `${cnt * PIN_SPACING + 4}px`;
+    body.style.minHeight = `${(cnt * PIN_SPACING + 4) * this._zoom}px`;
   }
 
   // ============================================================
@@ -479,7 +485,7 @@ export class SoundCueEditorPanel {
       const cnt = Math.max(conns.length + 1, 2);
       py = HDR_H + BODY_PAD + Math.max(0, Math.floor(((cnt - 1) * PIN_SPACING) / 2)) + PIN_R;
     }
-    return { x: n.x + NODE_W + this._panX, y: n.y + py + this._panY };
+    return { x: (n.x + NODE_W) * this._zoom + this._panX, y: (n.y + py) * this._zoom + this._panY };
   }
 
   private _inPinPos(nodeId: string, idx: number): Vec2 | null {
@@ -491,7 +497,7 @@ export class SoundCueEditorPanel {
     } else {
       py = HDR_H + BODY_PAD + 4 + PIN_R;
     }
-    return { x: n.x + this._panX, y: n.y + py + this._panY };
+    return { x: n.x * this._zoom + this._panX, y: (n.y + py) * this._zoom + this._panY };
   }
 
   // ============================================================
@@ -525,8 +531,8 @@ export class SoundCueEditorPanel {
         n.y = this._drag.oy + (e.clientY - this._drag.sy) / this._zoom;
         const el = this._nodeEls.get(n.id);
         if (el) {
-          el.style.left = `${n.x + this._panX}px`;
-          el.style.top  = `${n.y + this._panY}px`;
+          el.style.left = `${n.x * this._zoom + this._panX}px`;
+          el.style.top  = `${n.y * this._zoom + this._panY}px`;
         }
         this._renderConns();
         this._updateTmpConn(e);
@@ -564,9 +570,37 @@ export class SoundCueEditorPanel {
 
   private _onWheel(e: WheelEvent): void {
     e.preventDefault();
-    // Pan with wheel (zoom is less useful for node editors, pan is king)
-    this._panX -= e.deltaX;
-    this._panY -= e.deltaY;
+    
+    if (e.ctrlKey || e.metaKey) {
+      // Zoom
+      const zoomSpeed = 0.001;
+      const delta = -e.deltaY * zoomSpeed;
+      const newZoom = Math.max(0.2, Math.min(3.0, this._zoom + delta));
+      
+      // Zoom towards mouse cursor
+      if (this._graphEl) {
+        const rect = this._graphEl.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        // Calculate mouse position in world space before zoom
+        const worldX = (mx - this._panX) / this._zoom;
+        const worldY = (my - this._panY) / this._zoom;
+        
+        this._zoom = newZoom;
+        
+        // Adjust pan to keep mouse over the same world position
+        this._panX = mx - worldX * this._zoom;
+        this._panY = my - worldY * this._zoom;
+      } else {
+        this._zoom = newZoom;
+      }
+    } else {
+      // Pan
+      this._panX -= e.deltaX;
+      this._panY -= e.deltaY;
+    }
+    
     this._renderNodes();
     this._renderConns();
   }
@@ -667,8 +701,8 @@ export class SoundCueEditorPanel {
     this._hideCtxMenu();
 
     const rect = this._graphEl!.getBoundingClientRect();
-    const cx = e.clientX - rect.left - this._panX;
-    const cy = e.clientY - rect.top - this._panY;
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
 
     const menu = document.createElement('div');
     menu.style.cssText =
@@ -811,8 +845,8 @@ export class SoundCueEditorPanel {
   }
 
   private _addNode(type: SCNodeType, x?: number, y?: number): void {
-    const cx = x ?? (200 - this._panX + Math.random() * 60);
-    const cy = y ?? (150 - this._panY + Math.random() * 60);
+    const cx = x !== undefined ? (x - this._panX) / this._zoom : (200 - this._panX) / this._zoom + Math.random() * 60;
+    const cy = y !== undefined ? (y - this._panY) / this._zoom : (150 - this._panY) / this._zoom + Math.random() * 60;
 
     let node: SCNode;
     switch (type) {
