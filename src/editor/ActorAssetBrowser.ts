@@ -52,6 +52,10 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   soundCue:     { color: '#FF5722', icon: Icons.Volume2,      label: 'Sound Cue' },
 };
 
+function escapeCtxHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 interface AssetCardInfo {
   id: string;
   name: string;
@@ -1723,11 +1727,200 @@ export class ActorAssetBrowser {
   //  Context Menus
   // ============================================================
 
-  // ── Empty space menu (Create New + Import) ──
+  // ── Empty space menu (Create New + Import) — Unreal-style with search & submenus ──
   private _showEmptyContextMenu(e: MouseEvent | Event): void {
     this._closeContextMenu();
+
+    // ── Collect all menu items into categories ──
+    interface CbMenuItem { icon: string; label: string; action: () => void; keywords?: string }
+    interface CbMenuCategory { id: string; label: string; icon: string; color: string; items: CbMenuItem[] }
+
+    const categories: CbMenuCategory[] = [];
+
+    // Blueprints
+    const bpItems: CbMenuItem[] = [
+      { icon: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint), label: 'Actor Blueprint', action: () => this._createNewAsset(), keywords: 'actor bp blueprint class' },
+      { icon: iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor), label: 'Character Pawn', action: () => this._createNewAsset('characterPawn'), keywords: 'character pawn player' },
+      { icon: iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor), label: 'Player Controller', action: () => this._createNewAsset('playerController'), keywords: 'player controller input' },
+      { icon: iconHTML(Icons.Camera, 12, ICON_COLORS.actor), label: 'AI Controller', action: () => this._createNewAsset('aiController'), keywords: 'ai controller npc' },
+    ];
+    if (this._widgetBPManager) {
+      bpItems.push({
+        icon: iconHTML(Icons.Palette, 12, ICON_COLORS.widget), label: 'Widget Blueprint', keywords: 'widget ui umg hud',
+        action: async () => {
+          const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
+          if (name) {
+            const wbp = this._widgetBPManager!.createAsset(name);
+            this._folderManager.setAssetLocation(wbp.id, 'widget', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(wbp.id);
+            if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
+          }
+        }
+      });
+    }
+    if (this._animBPManager) {
+      bpItems.push({
+        icon: iconHTML(Icons.Clapperboard, 12, ICON_COLORS.light), label: 'Animation Blueprint (3D)', keywords: 'animation 3d anim bp',
+        action: async () => {
+          const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
+          if (name) {
+            const abp = this._animBPManager!.createAsset(name);
+            this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(abp.id);
+            if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+          }
+        }
+      });
+      bpItems.push({
+        icon: iconHTML(Icons.Clapperboard, 12, '#34d399'), label: 'Animation Blueprint (2D)', keywords: 'animation 2d anim bp sprite',
+        action: async () => {
+          const name = await this._showNameDialog('New 2D Animation Blueprint', 'ABP2D_NewAnimBP');
+          if (name) {
+            const abp = this._animBPManager!.createAsset2D(name);
+            this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(abp.id);
+            if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
+          }
+        }
+      });
+    }
+    if (this._gameInstanceManager) {
+      bpItems.push({
+        icon: iconHTML(Icons.Circle, 12, ICON_COLORS.blueprint), label: 'Game Instance', keywords: 'game instance global singleton',
+        action: async () => {
+          const name = await this._showNameDialog('New Game Instance', 'GI_Default');
+          if (name) {
+            const gi = this._gameInstanceManager!.createAsset(name);
+            this._folderManager.setAssetLocation(gi.id, 'gameInstance', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(gi.id);
+            if (this._onOpenGameInstance) this._onOpenGameInstance(gi);
+          }
+        }
+      });
+    }
+    categories.push({ id: 'blueprints', label: 'Blueprints', icon: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint), color: ICON_COLORS.blueprint, items: bpItems });
+
+    // Data
+    const dataItems: CbMenuItem[] = [];
+    if (this._structManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.FileText, 12, '#a78bfa'), label: 'Structure', keywords: 'struct data type',
+        action: async () => {
+          const name = await this._showNameDialog('New Structure', 'F_NewStruct');
+          if (name) {
+            const sa = this._structManager!.createStructure(name);
+            this._folderManager.setAssetLocation(sa.id, 'structure', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(sa.id);
+            if (this._onOpenStructure) this._onOpenStructure(sa);
+          }
+        }
+      });
+      dataItems.push({
+        icon: iconHTML(Icons.List, 12, ICON_COLORS.muted), label: 'Enumeration', keywords: 'enum list values',
+        action: async () => {
+          const name = await this._showNameDialog('New Enum', 'E_NewEnum');
+          if (name) {
+            const ea = this._structManager!.createEnum(name);
+            this._folderManager.setAssetLocation(ea.id, 'enum', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(ea.id);
+            if (this._onOpenEnum) this._onOpenEnum(ea);
+          }
+        }
+      });
+    }
+    if (this._saveGameManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.Save, 12, '#FF7043'), label: 'Save Game Object', keywords: 'save game persist storage',
+        action: async () => {
+          const name = await this._showNameDialog('New Save Game', 'SG_NewSaveGame');
+          if (name) {
+            const sg = this._saveGameManager!.createAsset(name);
+            this._folderManager.setAssetLocation(sg.id, 'saveGame', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(sg.id);
+            if (this._onOpenSaveGame) this._onOpenSaveGame(sg);
+          }
+        }
+      });
+    }
+    if (dataItems.length > 0) {
+      categories.push({ id: 'data', label: 'Data', icon: iconHTML(Icons.FileText, 12, '#a78bfa'), color: '#a78bfa', items: dataItems });
+    }
+
+    // Materials
+    if (this._meshManager) {
+      categories.push({
+        id: 'materials', label: 'Materials', icon: iconHTML(Icons.CircleDot, 12, ICON_COLORS.material), color: ICON_COLORS.material,
+        items: [{
+          icon: iconHTML(Icons.CircleDot, 12, ICON_COLORS.material), label: 'Material', keywords: 'material shader pbr',
+          action: async () => {
+            const name = await this._showNameDialog('New Material', 'M_NewMaterial');
+            if (name) {
+              const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+              const newMat: MaterialAssetJSON = {
+                assetId: matId, assetName: name, meshAssetId: '',
+                materialData: {
+                  type: 'PBR', baseColor: '#808080', metalness: 0, roughness: 0.8,
+                  emissive: '#000000', emissiveIntensity: 0, opacity: 1, doubleSided: false,
+                  alphaMode: 'OPAQUE', baseColorMap: null, normalMap: null,
+                  metallicRoughnessMap: null, emissiveMap: null, occlusionMap: null,
+                },
+              };
+              this._meshManager!.allMaterials.push(newMat);
+              this._folderManager.setAssetLocation(matId, 'material', this._currentFolderId);
+              this._selectedIds.clear(); this._selectedIds.add(matId);
+              this._refreshGrid();
+              this._onOpenMaterial?.(newMat);
+            }
+          }
+        }]
+      });
+    }
+
+    // 2D Assets
+    categories.push({
+      id: '2d', label: '2D Assets', icon: iconHTML(Icons.Image, 12, '#4fc3f7'), color: '#4fc3f7',
+      items: [
+        { icon: iconHTML(Icons.Image, 12, '#4fc3f7'), label: 'Sprite Actor', action: () => this._createNewAsset('spriteActor'), keywords: 'sprite 2d actor' },
+        { icon: iconHTML(Icons.PersonStanding, 12, '#66bb6a'), label: 'Character Pawn 2D', action: () => this._createNewAsset('characterPawn2D'), keywords: 'character 2d pawn' },
+        { icon: iconHTML(Icons.Layers, 12, '#8d6e63'), label: 'Tilemap Actor', action: () => this._createNewAsset('tilemapActor'), keywords: 'tilemap tile map' },
+        { icon: iconHTML(Icons.Layers, 12, '#7e57c2'), label: 'Parallax Layer', action: () => this._createNewAsset('parallaxLayer'), keywords: 'parallax layer scroll' },
+      ]
+    });
+
+    // Audio
+    const audioItems: CbMenuItem[] = [];
+    const soundLib = SoundLibrary.instance;
+    if (soundLib) {
+      audioItems.push({
+        icon: iconHTML(Icons.Volume2, 12, '#FF5722'), label: 'Sound Cue', keywords: 'sound cue audio music sfx',
+        action: async () => {
+          const name = await this._showNameDialog('New Sound Cue', 'SC_NewSoundCue');
+          if (name) {
+            const cue = soundLib.createCue(name);
+            this._folderManager.setAssetLocation(cue.assetId, 'soundCue', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(cue.assetId);
+            this._refreshGrid();
+            this._onOpenSoundCue?.(cue);
+          }
+        }
+      });
+    }
+    if (audioItems.length > 0) {
+      categories.push({ id: 'audio', label: 'Audio', icon: iconHTML(Icons.Volume2, 12, '#FF5722'), color: '#FF5722', items: audioItems });
+    }
+
+    // Import
+    const importItems: CbMenuItem[] = [];
+    if (this._meshManager) {
+      importItems.push({ icon: iconHTML(Icons.Upload, 12, ICON_COLORS.muted), label: 'Import Mesh…', action: () => this._triggerMeshFileImport(), keywords: 'import mesh fbx obj 3d' });
+    }
+    importItems.push({ icon: iconHTML(Icons.Image, 12, '#4ade80'), label: 'Import Texture…', action: () => this._triggerTextureImport(), keywords: 'import texture image png' });
+    importItems.push({ icon: iconHTML(Icons.Volume2, 12, '#E91E63'), label: 'Import Audio…', action: () => this._triggerAudioImport(), keywords: 'import audio sound wav mp3' });
+    categories.push({ id: 'import', label: 'Import', icon: iconHTML(Icons.Upload, 12, ICON_COLORS.muted), color: ICON_COLORS.muted, items: importItems });
+
+    // ── Build the menu DOM ──
     const menu = document.createElement('div');
-    menu.className = 'context-menu';
+    menu.className = 'cb-ctx-menu';
     if (e instanceof MouseEvent) {
       menu.style.left = e.clientX + 'px';
       menu.style.top = e.clientY + 'px';
@@ -1737,213 +1930,309 @@ export class ActorAssetBrowser {
       menu.style.top = rect.bottom + 2 + 'px';
     }
 
-    // ── Folder ──
-    this._addMenuItem(menu, iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder) + ' New Folder', async () => {
-      const name = await this._showNameDialog('New Folder', 'NewFolder');
-      if (name) {
-        this._folderManager.createFolder(name, this._currentFolderId);
-        this._expandedFolders.add(this._currentFolderId);
+    // Search bar
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'cb-ctx-search-wrap';
+    const searchIcon = document.createElement('span');
+    searchIcon.className = 'cb-ctx-search-icon';
+    searchIcon.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+    const searchInput = document.createElement('input');
+    searchInput.className = 'cb-ctx-search';
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search actions…';
+    searchInput.autocomplete = 'off';
+    searchInput.spellcheck = false;
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchInput);
+    menu.appendChild(searchWrap);
+
+    // Body area (scrollable)
+    const body = document.createElement('div');
+    body.className = 'cb-ctx-body';
+    menu.appendChild(body);
+
+    // Active submenu tracking
+    let activeSubmenu: HTMLElement | null = null;
+    let activeCatId: string | null = null;
+    let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const clearSubmenu = () => {
+      if (activeSubmenu) { activeSubmenu.remove(); activeSubmenu = null; }
+      activeCatId = null;
+      body.querySelectorAll('.cb-ctx-cat--active').forEach(el => el.classList.remove('cb-ctx-cat--active'));
+    };
+
+    // ── Render default (category) view ──
+    const renderCategories = () => {
+      body.innerHTML = '';
+      clearSubmenu();
+
+      // New Folder — always at top
+      const folderItem = document.createElement('div');
+      folderItem.className = 'cb-ctx-item';
+      folderItem.innerHTML = `${iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder)} <span>New Folder</span>`;
+      folderItem.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        this._closeContextMenu();
+        const name = await this._showNameDialog('New Folder', 'NewFolder');
+        if (name) {
+          this._folderManager.createFolder(name, this._currentFolderId);
+          this._expandedFolders.add(this._currentFolderId);
+        }
+      });
+      body.appendChild(folderItem);
+
+      const sep = document.createElement('div');
+      sep.className = 'cb-ctx-sep';
+      body.appendChild(sep);
+
+      // Category rows with submenus
+      for (const cat of categories) {
+        const row = document.createElement('div');
+        row.className = 'cb-ctx-cat';
+        row.setAttribute('data-cat', cat.id);
+
+        const left = document.createElement('div');
+        left.className = 'cb-ctx-cat-left';
+        left.innerHTML = `<span class="cb-ctx-cat-dot" style="background:${cat.color}"></span> <span>${cat.label}</span>`;
+
+        const arrow = document.createElement('span');
+        arrow.className = 'cb-ctx-cat-arrow';
+        arrow.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+
+        const badge = document.createElement('span');
+        badge.className = 'cb-ctx-cat-badge';
+        badge.textContent = String(cat.items.length);
+
+        row.appendChild(left);
+        row.appendChild(badge);
+        row.appendChild(arrow);
+
+        // Show submenu on hover
+        row.addEventListener('mouseenter', () => {
+          if (hoverTimeout) clearTimeout(hoverTimeout);
+          hoverTimeout = setTimeout(() => {
+            if (activeCatId === cat.id) return;
+            clearSubmenu();
+            activeCatId = cat.id;
+            row.classList.add('cb-ctx-cat--active');
+            showSubmenu(cat, row);
+          }, 80);
+        });
+
+        // Click also opens submenu immediately
+        row.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (hoverTimeout) clearTimeout(hoverTimeout);
+          if (activeCatId === cat.id) return;
+          clearSubmenu();
+          activeCatId = cat.id;
+          row.classList.add('cb-ctx-cat--active');
+          showSubmenu(cat, row);
+        });
+
+        body.appendChild(row);
+      }
+    };
+
+    // ── Show a flyout submenu ──
+    const showSubmenu = (cat: CbMenuCategory, anchor: HTMLElement) => {
+      const sub = document.createElement('div');
+      sub.className = 'cb-ctx-submenu';
+
+      const subHeader = document.createElement('div');
+      subHeader.className = 'cb-ctx-sub-header';
+      subHeader.innerHTML = `<span class="cb-ctx-cat-dot" style="background:${cat.color}"></span> ${cat.label}`;
+      sub.appendChild(subHeader);
+
+      for (const item of cat.items) {
+        const row = document.createElement('div');
+        row.className = 'cb-ctx-item';
+        row.innerHTML = `${item.icon} <span>${item.label}</span>`;
+        row.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this._closeContextMenu();
+          item.action();
+        });
+        sub.appendChild(row);
+      }
+
+      // Position submenu to the right of the anchor
+      menu.appendChild(sub);
+      activeSubmenu = sub;
+
+      requestAnimationFrame(() => {
+        const menuRect = menu.getBoundingClientRect();
+        const anchorRect = anchor.getBoundingClientRect();
+        const subRect = sub.getBoundingClientRect();
+
+        // Vertical: align top with the category row
+        let top = anchorRect.top - menuRect.top - 4;
+        // Keep within viewport
+        if (anchorRect.top + subRect.height > window.innerHeight - 8) {
+          top = Math.max(0, window.innerHeight - 8 - subRect.height - menuRect.top);
+        }
+        sub.style.top = top + 'px';
+
+        // Horizontal: to the right, or flip left if no space
+        if (menuRect.right + subRect.width + 4 > window.innerWidth) {
+          sub.style.right = '100%';
+          sub.style.left = 'auto';
+          sub.style.marginRight = '2px';
+        } else {
+          sub.style.left = '100%';
+          sub.style.right = 'auto';
+          sub.style.marginLeft = '2px';
+        }
+      });
+
+      // Keep submenu alive when hovering it
+      sub.addEventListener('mouseenter', () => {
+        if (hoverTimeout) clearTimeout(hoverTimeout);
+      });
+      sub.addEventListener('mouseleave', () => {
+        hoverTimeout = setTimeout(() => clearSubmenu(), 200);
+      });
+    };
+
+    // ── Search filtering ──
+    const renderSearchResults = (query: string) => {
+      body.innerHTML = '';
+      clearSubmenu();
+      const lc = query.toLowerCase();
+      let count = 0;
+
+      for (const cat of categories) {
+        const matches = cat.items.filter(it =>
+          it.label.toLowerCase().includes(lc) ||
+          (it.keywords && it.keywords.toLowerCase().includes(lc)) ||
+          cat.label.toLowerCase().includes(lc)
+        );
+        if (matches.length === 0) continue;
+
+        // Category label
+        const header = document.createElement('div');
+        header.className = 'cb-ctx-search-cat';
+        header.innerHTML = `<span class="cb-ctx-cat-dot" style="background:${cat.color}"></span> ${cat.label}`;
+        body.appendChild(header);
+
+        for (const item of matches) {
+          const row = document.createElement('div');
+          row.className = 'cb-ctx-item';
+
+          // Highlight matched text in label
+          const idx = item.label.toLowerCase().indexOf(lc);
+          let labelHtml = item.label;
+          if (idx >= 0) {
+            labelHtml = escapeCtxHtml(item.label.slice(0, idx))
+              + `<mark class="cb-ctx-match">${escapeCtxHtml(item.label.slice(idx, idx + lc.length))}</mark>`
+              + escapeCtxHtml(item.label.slice(idx + lc.length));
+          } else {
+            labelHtml = escapeCtxHtml(item.label);
+          }
+          row.innerHTML = `${item.icon} <span>${labelHtml}</span>`;
+
+          row.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._closeContextMenu();
+            item.action();
+          });
+          body.appendChild(row);
+          count++;
+        }
+      }
+
+      // Also show "New Folder" if it matches
+      if ('new folder'.includes(lc) || 'folder'.includes(lc)) {
+        const row = document.createElement('div');
+        row.className = 'cb-ctx-item';
+        row.innerHTML = `${iconHTML(Icons.FolderPlus, 12, ICON_COLORS.folder)} <span>New Folder</span>`;
+        row.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          this._closeContextMenu();
+          const name = await this._showNameDialog('New Folder', 'NewFolder');
+          if (name) {
+            this._folderManager.createFolder(name, this._currentFolderId);
+            this._expandedFolders.add(this._currentFolderId);
+          }
+        });
+        body.insertBefore(row, body.firstChild);
+        count++;
+      }
+
+      if (count === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'cb-ctx-empty';
+        empty.textContent = 'No matching actions';
+        body.appendChild(empty);
+      }
+    };
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      if (q.length === 0) renderCategories();
+      else renderSearchResults(q);
+    });
+    searchInput.addEventListener('mousedown', (ev) => ev.stopPropagation());
+
+    // Initial render
+    renderCategories();
+
+    // ── Keyboard navigation ──
+    let hlIdx = -1;
+    const getItems = () => Array.from(body.querySelectorAll('.cb-ctx-item, .cb-ctx-cat')) as HTMLElement[];
+
+    const setHl = (idx: number) => {
+      const items = getItems();
+      items.forEach(el => el.classList.remove('cb-ctx-hl'));
+      if (idx >= 0 && idx < items.length) {
+        hlIdx = idx;
+        items[idx].classList.add('cb-ctx-hl');
+        items[idx].scrollIntoView({ block: 'nearest' });
+      }
+    };
+
+    menu.addEventListener('keydown', (ev) => {
+      const items = getItems();
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        setHl(Math.min(hlIdx + 1, items.length - 1));
+      } else if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        setHl(Math.max(hlIdx - 1, 0));
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        if (hlIdx >= 0 && hlIdx < items.length) items[hlIdx].click();
+      } else if (ev.key === 'ArrowRight') {
+        // Open submenu for highlighted category
+        if (hlIdx >= 0 && hlIdx < items.length && items[hlIdx].classList.contains('cb-ctx-cat')) {
+          items[hlIdx].click();
+        }
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._closeContextMenu();
       }
     });
 
-    this._addMenuSeparator(menu);
+    // Prevent menu from closing when interacting with it
+    menu.addEventListener('mousedown', (ev) => ev.stopPropagation());
 
-    // ── Blueprints ──
-    const bpHeader = document.createElement('div');
-    bpHeader.className = 'context-menu-header';
-    bpHeader.textContent = 'BLUEPRINTS';
-    menu.appendChild(bpHeader);
-
-    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint) + ' Actor Blueprint', () => this._createNewAsset());
-    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor) + ' Character Pawn', () => this._createNewAsset('characterPawn'));
-    this._addMenuItem(menu, iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor) + ' Player Controller', () => this._createNewAsset('playerController'));
-    this._addMenuItem(menu, iconHTML(Icons.Camera, 12, ICON_COLORS.actor) + ' AI Controller', () => this._createNewAsset('aiController'));
-
-    if (this._widgetBPManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Palette, 12, ICON_COLORS.widget) + ' Widget Blueprint', async () => {
-        const name = await this._showNameDialog('New Widget Blueprint', 'WBP_NewWidget');
-        if (name) {
-          const wbp = this._widgetBPManager!.createAsset(name);
-          this._folderManager.setAssetLocation(wbp.id, 'widget', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(wbp.id);
-          if (this._onOpenWidgetBP) this._onOpenWidgetBP(wbp);
-        }
-      });
-    }
-
-    if (this._animBPManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, ICON_COLORS.light) + ' Animation Blueprint (3D)', async () => {
-        const name = await this._showNameDialog('New Animation Blueprint', 'ABP_NewAnimBP');
-        if (name) {
-          const abp = this._animBPManager!.createAsset(name);
-          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(abp.id);
-          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
-        }
-      });
-      this._addMenuItem(menu, iconHTML(Icons.Clapperboard, 12, '#34d399') + ' Animation Blueprint (2D)', async () => {
-        const name = await this._showNameDialog('New 2D Animation Blueprint', 'ABP2D_NewAnimBP');
-        if (name) {
-          const abp = this._animBPManager!.createAsset2D(name);
-          this._folderManager.setAssetLocation(abp.id, 'animBP', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(abp.id);
-          if (this._onOpenAnimBP) this._onOpenAnimBP(abp);
-        }
-      });
-    }
-
-    if (this._gameInstanceManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Circle, 12, ICON_COLORS.blueprint) + ' Game Instance', async () => {
-        const name = await this._showNameDialog('New Game Instance', 'GI_Default');
-        if (name) {
-          const gi = this._gameInstanceManager!.createAsset(name);
-          this._folderManager.setAssetLocation(gi.id, 'gameInstance', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(gi.id);
-          if (this._onOpenGameInstance) this._onOpenGameInstance(gi);
-        }
-      });
-    }
-
-    // ── Data ──
-    if (this._structManager) {
-      this._addMenuSeparator(menu);
-      const dataHeader = document.createElement('div');
-      dataHeader.className = 'context-menu-header';
-      dataHeader.textContent = 'DATA';
-      menu.appendChild(dataHeader);
-
-      this._addMenuItem(menu, iconHTML(Icons.FileText, 12, '#a78bfa') + ' Structure', async () => {
-        const name = await this._showNameDialog('New Structure', 'F_NewStruct');
-        if (name) {
-          const sa = this._structManager!.createStructure(name);
-          this._folderManager.setAssetLocation(sa.id, 'structure', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(sa.id);
-          if (this._onOpenStructure) this._onOpenStructure(sa);
-        }
-      });
-
-      this._addMenuItem(menu, iconHTML(Icons.List, 12, ICON_COLORS.muted) + ' Enumeration', async () => {
-        const name = await this._showNameDialog('New Enum', 'E_NewEnum');
-        if (name) {
-          const ea = this._structManager!.createEnum(name);
-          this._folderManager.setAssetLocation(ea.id, 'enum', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(ea.id);
-          if (this._onOpenEnum) this._onOpenEnum(ea);
-        }
-      });
-    }
-
-    // ── Save Game ──
-    if (this._saveGameManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Save, 12, '#FF7043') + ' Save Game Object', async () => {
-        const name = await this._showNameDialog('New Save Game', 'SG_NewSaveGame');
-        if (name) {
-          const sg = this._saveGameManager!.createAsset(name);
-          this._folderManager.setAssetLocation(sg.id, 'saveGame', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(sg.id);
-          if (this._onOpenSaveGame) this._onOpenSaveGame(sg);
-        }
-      });
-    }
-
-    // ── Materials ──
-    if (this._meshManager) {
-      this._addMenuSeparator(menu);
-      const matHeader = document.createElement('div');
-      matHeader.className = 'context-menu-header';
-      matHeader.textContent = 'MATERIALS';
-      menu.appendChild(matHeader);
-
-      this._addMenuItem(menu, iconHTML(Icons.CircleDot, 12, ICON_COLORS.material) + ' Material', async () => {
-        const name = await this._showNameDialog('New Material', 'M_NewMaterial');
-        if (name) {
-          const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-          const newMat: MaterialAssetJSON = {
-            assetId: matId,
-            assetName: name,
-            meshAssetId: '',
-            materialData: {
-              type: 'PBR',
-              baseColor: '#808080',
-              metalness: 0,
-              roughness: 0.8,
-              emissive: '#000000',
-              emissiveIntensity: 0,
-              opacity: 1,
-              doubleSided: false,
-              alphaMode: 'OPAQUE',
-              baseColorMap: null,
-              normalMap: null,
-              metallicRoughnessMap: null,
-              emissiveMap: null,
-              occlusionMap: null,
-            },
-          };
-          this._meshManager!.allMaterials.push(newMat);
-          this._folderManager.setAssetLocation(matId, 'material', this._currentFolderId);
-          this._selectedIds.clear();
-          this._selectedIds.add(matId);
-          this._refreshGrid();
-          this._onOpenMaterial?.(newMat);
-        }
-      });
-    }
-
-    // ── 2D Assets ──
-    this._addMenuSeparator(menu);
-    const twoDHeader = document.createElement('div');
-    twoDHeader.className = 'context-menu-header';
-    twoDHeader.textContent = '2D ASSETS';
-    menu.appendChild(twoDHeader);
-
-    this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4fc3f7') + ' Sprite Actor', () => this._createNewAsset('spriteActor'));
-    this._addMenuItem(menu, iconHTML(Icons.PersonStanding, 12, '#66bb6a') + ' Character Pawn 2D', () => this._createNewAsset('characterPawn2D'));
-    this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#8d6e63') + ' Tilemap Actor', () => this._createNewAsset('tilemapActor'));
-    this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#7e57c2') + ' Parallax Layer', () => this._createNewAsset('parallaxLayer'));
-
-    // ── Audio ──
-    this._addMenuSeparator(menu);
-    const audioHeader = document.createElement('div');
-    audioHeader.className = 'context-menu-header';
-    audioHeader.textContent = 'AUDIO';
-    menu.appendChild(audioHeader);
-
-    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#FF5722') + ' Sound Cue', async () => {
-      const soundLib = SoundLibrary.instance;
-      if (!soundLib) return;
-      const name = await this._showNameDialog('New Sound Cue', 'SC_NewSoundCue');
-      if (name) {
-        const cue = soundLib.createCue(name);
-        this._folderManager.setAssetLocation(cue.assetId, 'soundCue', this._currentFolderId);
-        this._selectedIds.clear();
-        this._selectedIds.add(cue.assetId);
-        this._refreshGrid();
-        this._onOpenSoundCue?.(cue);
-      }
-    });
-
-    // ── Import ──
-    this._addMenuSeparator(menu);
-    const impHeader = document.createElement('div');
-    impHeader.className = 'context-menu-header';
-    impHeader.textContent = 'IMPORT';
-    menu.appendChild(impHeader);
-
-    if (this._meshManager) {
-      this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
-    }
-    this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4ade80') + ' Import Texture…', () => this._triggerTextureImport());
-    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#E91E63') + ' Import Audio…', () => this._triggerAudioImport());
-
+    // ── Position & show ──
     document.body.appendChild(menu);
     this._contextMenu = menu;
+
+    // Keep within viewport
+    requestAnimationFrame(() => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        menu.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+      }
+      if (rect.bottom > window.innerHeight - 8) {
+        menu.style.top = Math.max(8, window.innerHeight - rect.height - 8) + 'px';
+      }
+      searchInput.focus();
+    });
   }
 
   // ── Actor context menu ──

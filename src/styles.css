@@ -9216,6 +9216,260 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ================================================================
+   31.5  CONTENT BROWSER CONTEXT MENU — Unreal-style with submenus
+   ================================================================ */
+
+.cb-ctx-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 230px;
+  max-width: 260px;
+  background: rgba(24, 24, 28, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  animation: cbCtxIn 120ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cbCtxIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* ── Search bar ── */
+.cb-ctx-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.cb-ctx-search-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.28);
+  flex-shrink: 0;
+}
+
+.cb-ctx-search {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 0;
+  min-width: 0;
+}
+
+.cb-ctx-search::placeholder {
+  color: rgba(255, 255, 255, 0.22);
+  font-style: italic;
+}
+
+/* ── Body (scrollable item area) ── */
+.cb-ctx-body {
+  padding: 4px;
+  max-height: 380px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.cb-ctx-body::-webkit-scrollbar { width: 4px; }
+.cb-ctx-body::-webkit-scrollbar-track { background: transparent; }
+.cb-ctx-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+.cb-ctx-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ── Separator ── */
+.cb-ctx-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 3px 8px;
+}
+
+/* ── Regular item ── */
+.cb-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: #d4d4d8;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 80ms ease;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cb-ctx-item:hover,
+.cb-ctx-item.cb-ctx-hl {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cb-ctx-item:active {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.cb-ctx-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ── Category row (with submenu arrow) ── */
+.cb-ctx-cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  font-size: 12px;
+  color: #d4d4d8;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 80ms ease;
+  user-select: none;
+  position: relative;
+}
+
+.cb-ctx-cat:hover,
+.cb-ctx-cat.cb-ctx-hl,
+.cb-ctx-cat--active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cb-ctx-cat-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cb-ctx-cat-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.cb-ctx-cat-badge {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.25);
+  margin-left: auto;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.cb-ctx-cat-arrow {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  transition: color 100ms ease, transform 100ms ease;
+}
+
+.cb-ctx-cat:hover .cb-ctx-cat-arrow,
+.cb-ctx-cat--active .cb-ctx-cat-arrow {
+  color: rgba(255, 255, 255, 0.5);
+  transform: translateX(1px);
+}
+
+/* ── Flyout submenu ── */
+.cb-ctx-submenu {
+  position: absolute;
+  min-width: 200px;
+  max-width: 260px;
+  background: rgba(28, 28, 32, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 4px;
+  z-index: 100000;
+  animation: cbSubIn 100ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cbSubIn {
+  from { opacity: 0; transform: translateX(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+.cb-ctx-sub-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  margin-bottom: 3px;
+  user-select: none;
+}
+
+.cb-ctx-submenu .cb-ctx-item {
+  padding: 5px 10px;
+}
+
+/* ── Search results: category label ── */
+.cb-ctx-search-cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+.cb-ctx-search-cat:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding-top: 8px;
+}
+
+/* ── Search highlight ── */
+.cb-ctx-match {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── Empty state ── */
+.cb-ctx-empty {
+  padding: 16px 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.25);
+  text-align: center;
+  user-select: none;
+}
+
+/* ================================================================
    31. FEATHER SELECT — Custom Dropdown Replacement
    ================================================================ */
 
