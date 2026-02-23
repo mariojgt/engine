@@ -29,8 +29,8 @@ const EMPTY_CLASS = 'fe-select__empty';
 const DIVIDER_CLASS = 'fe-select__divider';
 const GROUP_CLASS = 'fe-select__group-label';
 
-// Minimum option count to show search
-const SEARCH_THRESHOLD = 8;
+// Minimum option count to show search (0 = always show)
+const SEARCH_THRESHOLD = 0;
 
 // SVG chevron icon
 const CHEVRON_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
