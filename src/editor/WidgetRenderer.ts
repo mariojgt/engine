@@ -665,22 +665,106 @@ export class WidgetRenderer {
     const props = widget.sliderProps;
     if (!props) return;
 
-    const trackH = Math.max(4, rect.height * 0.3);
-    const trackY = rect.y + (rect.height - trackH) / 2;
-
-    ctx.fillStyle = props.trackColor || '#444';
-    ctx.fillRect(rect.x, trackY, rect.width, trackH);
-
     const val = Math.max(0, Math.min(1, props.value || 0));
-    ctx.fillStyle = props.fillColor || '#2a9d8f';
-    ctx.fillRect(rect.x, trackY, rect.width * val, trackH);
+    const isVertical = props.orientation === 'Vertical';
+    
+    // Determine dimensions
+    let trackRect: WidgetRect;
+    let fillRect: WidgetRect;
+    let handlePos: { x: number, y: number };
+    let handleSize = props.handleSize || { width: rect.height * 0.7, height: rect.height * 0.7 };
 
-    // Handle
-    ctx.fillStyle = props.handleColor || '#fff';
-    const hx = rect.x + rect.width * val;
-    ctx.beginPath();
-    ctx.arc(hx, rect.y + rect.height / 2, rect.height * 0.35, 0, Math.PI * 2);
-    ctx.fill();
+    if (isVertical) {
+      // Logic for vertical slider... simplified for now as similar logic
+      const trackW = Math.max(4, rect.width * 0.3);
+      trackRect = {
+        x: rect.x + (rect.width - trackW) / 2,
+        y: rect.y,
+        width: trackW,
+        height: rect.height
+      };
+      fillRect = {
+        x: trackRect.x,
+        y: rect.y + rect.height * (1 - val),
+        width: trackW,
+        height: rect.height * val
+      };
+      handlePos = {
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height * (1 - val)
+      };
+    } else {
+      const trackH = Math.max(4, rect.height * 0.3);
+      trackRect = {
+        x: rect.x,
+        y: rect.y + (rect.height - trackH) / 2,
+        width: rect.width,
+        height: trackH
+      };
+      fillRect = {
+        x: trackRect.x,
+        y: trackRect.y,
+        width: trackRect.width * val,
+        height: trackH
+      };
+      handlePos = {
+        x: rect.x + rect.width * val,
+        y: rect.y + rect.height / 2
+      };
+    }
+
+    // 1. Draw Track
+    if (props.trackTexture) {
+      const img = this._getCachedImage(props.trackTexture);
+      if (img) {
+         if (props.trackNineSlice?.enabled) {
+           this._renderNineSlice(ctx, img, trackRect, props.trackNineSlice.margins);
+         } else {
+           ctx.drawImage(img, trackRect.x, trackRect.y, trackRect.width, trackRect.height);
+         }
+      }
+    } else {
+      ctx.fillStyle = props.trackColor || '#444';
+      ctx.fillRect(trackRect.x, trackRect.y, trackRect.width, trackRect.height);
+    }
+
+    // 2. Draw Fill
+    if (props.fillTexture) {
+      const img = this._getCachedImage(props.fillTexture);
+      if (img) {
+         if (props.fillNineSlice?.enabled) {
+           this._renderNineSlice(ctx, img, fillRect, props.fillNineSlice.margins);
+         } else {
+           // Clip or stretch? usually stretch for fill bars unless it's a progress bar style
+           ctx.drawImage(img, fillRect.x, fillRect.y, fillRect.width, fillRect.height);
+         }
+      }
+    } else {
+      ctx.fillStyle = props.fillColor || '#2a9d8f';
+      ctx.fillRect(fillRect.x, fillRect.y, fillRect.width, fillRect.height);
+    }
+
+    // 3. Draw Handle
+    if (props.handleTexture) {
+      const img = this._getCachedImage(props.handleTexture);
+      if (img) {
+        // Center image on handlePos
+        const hRect = {
+          x: handlePos.x - handleSize.width / 2,
+          y: handlePos.y - handleSize.height / 2,
+          width: handleSize.width,
+          height: handleSize.height
+        };
+        ctx.drawImage(img, hRect.x, hRect.y, hRect.width, hRect.height);
+      }
+    } else {
+      ctx.fillStyle = props.handleColor || '#fff';
+      ctx.beginPath();
+      // Default circular handle
+      const radius = Math.min(handleSize.width, handleSize.height) / 2;
+      ctx.arc(handlePos.x, handlePos.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // ---- Image processing ----

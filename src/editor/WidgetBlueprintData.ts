@@ -394,6 +394,24 @@ export interface SliderProperties {
   handleColor: string;
   /** Orientation */
   orientation: 'Horizontal' | 'Vertical';
+  /** Track texture asset ID */
+  trackTexture?: string;
+  /** Fill texture asset ID */
+  fillTexture?: string;
+  /** Handle texture asset ID */
+  handleTexture?: string;
+  /** Track 9-slice */
+  trackNineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Fill 9-slice */
+  fillNineSlice?: {
+    enabled: boolean;
+    margins: { top: number; right: number; bottom: number; left: number };
+  };
+  /** Handle size override */
+  handleSize?: { width: number; height: number };
 }
 
 export interface TextBoxProperties {

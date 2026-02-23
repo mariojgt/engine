@@ -3109,7 +3109,7 @@ export class WidgetBlueprintEditorPanel {
   // ============================================================
 
   private _rebuildProperties(): void {
-    if (!this._propsEl) return;
+    if (!this._propsEl) { console.warn('[WBP] No _propsEl'); return; }
     this._propsEl.innerHTML = '';
 
     if (!this._selectedWidgetId) {
@@ -3121,8 +3121,18 @@ export class WidgetBlueprintEditorPanel {
     }
 
     const widget = this._asset.getWidget(this._selectedWidgetId);
-    if (!widget) return;
+    if (!widget) {
+      console.warn('[WBP] getWidget returned null for id:', this._selectedWidgetId);
+      const errEl = document.createElement('div');
+      errEl.style.cssText = 'color:#ff5555;font-size:11px;padding:8px;';
+      errEl.textContent = `Widget not found: ${this._selectedWidgetId}`;
+      this._propsEl.appendChild(errEl);
+      return;
+    }
 
+    console.log('[WBP] Building props for widget:', widget.name, widget.type);
+
+    try {
     // ── Widget info ──
     this._addPropHeader('Widget');
     this._addPropRow('Name', this._makeTextInput(widget.name, (v) => {
@@ -3145,28 +3155,57 @@ export class WidgetBlueprintEditorPanel {
       this._asset.touch();
     }));
 
-    // ── Slot / Layout ──
-    this._addPropHeader('Slot');
-    this._addPropRow('Offset X', this._makeNumberInput(widget.slot.offsetX, -9999, 9999, 1, (v) => {
-      widget.slot.offsetX = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Offset Y', this._makeNumberInput(widget.slot.offsetY, -9999, 9999, 1, (v) => {
-      widget.slot.offsetY = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Size X', this._makeNumberInput(widget.slot.sizeX, 0, 9999, 1, (v) => {
-      widget.slot.sizeX = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Size Y', this._makeNumberInput(widget.slot.sizeY, 0, 9999, 1, (v) => {
-      widget.slot.sizeY = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Z-Order', this._makeNumberInput(widget.slot.zOrder, -999, 999, 1, (v) => {
-      widget.slot.zOrder = v;
-      this._asset.touch();
-    }));
+    // ══════════════════════════════════════════════════════
+    //  TYPE-SPECIFIC PROPERTIES (shown first, like UE)
+    // ══════════════════════════════════════════════════════
+    this._buildTypeSpecificProps(widget);
+
+    // ── Events ──
+    const supportedEvents = this._getSupportedEvents(widget.type);
+    if (supportedEvents.length > 0) {
+      this._addPropHeader('Events');
+      for (const evt of supportedEvents) {
+        const row = document.createElement('div');
+        row.className = 'prop-row';
+        const label = document.createElement('span');
+        label.className = 'prop-label';
+        label.textContent = evt.label;
+
+        const btn = document.createElement('button');
+        btn.textContent = 'View / Bind';
+        btn.className = 'wbp-prop-btn';
+        btn.style.cssText = 'flex:1;min-width:0;padding:2px 8px;font-size:11px;background:#2a2a2a;border:1px solid #444;border-radius:3px;color:#ddd;cursor:pointer;';
+        btn.addEventListener('click', () => {
+          this._switchTab('eventGraph');
+          console.log(`[WBP] User wants to bind event: ${evt.label} for widget ${widget.name}`);
+        });
+
+        row.appendChild(label);
+        row.appendChild(btn);
+        this._propsEl.appendChild(row);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════
+    //  LAYOUT (collapsible section)
+    // ══════════════════════════════════════════════════════
+    this._addCollapsibleSection('Slot', true, (container) => {
+      this._addPropRowTo(container, 'Offset X', this._makeNumberInput(widget.slot.offsetX, -9999, 9999, 1, (v) => {
+        widget.slot.offsetX = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Offset Y', this._makeNumberInput(widget.slot.offsetY, -9999, 9999, 1, (v) => {
+        widget.slot.offsetY = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Size X', this._makeNumberInput(widget.slot.sizeX, 0, 9999, 1, (v) => {
+        widget.slot.sizeX = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Size Y', this._makeNumberInput(widget.slot.sizeY, 0, 9999, 1, (v) => {
+        widget.slot.sizeY = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Z-Order', this._makeNumberInput(widget.slot.zOrder, -999, 999, 1, (v) => {
+        widget.slot.zOrder = v; this._asset.touch();
+      }));
+    });
 
     // ── Parent-specific slot properties ──
     const parentWidget = this._asset.getParent(this._selectedWidgetId!);
@@ -3174,208 +3213,236 @@ export class WidgetBlueprintEditorPanel {
       const parentType = parentWidget.type;
 
       // Padding (applicable to all container children)
-      this._addPropHeader('Padding');
-      this._addPropRow('Left', this._makeNumberInput(widget.slot.padding.left, 0, 999, 1, (v) => {
-        widget.slot.padding.left = v; this._asset.touch(); this._layoutEngine.clearCache();
-      }));
-      this._addPropRow('Top', this._makeNumberInput(widget.slot.padding.top, 0, 999, 1, (v) => {
-        widget.slot.padding.top = v; this._asset.touch(); this._layoutEngine.clearCache();
-      }));
-      this._addPropRow('Right', this._makeNumberInput(widget.slot.padding.right, 0, 999, 1, (v) => {
-        widget.slot.padding.right = v; this._asset.touch(); this._layoutEngine.clearCache();
-      }));
-      this._addPropRow('Bottom', this._makeNumberInput(widget.slot.padding.bottom, 0, 999, 1, (v) => {
-        widget.slot.padding.bottom = v; this._asset.touch(); this._layoutEngine.clearCache();
-      }));
+      this._addCollapsibleSection('Padding', true, (container) => {
+        this._addPropRowTo(container, 'Left', this._makeNumberInput(widget.slot.padding.left, 0, 999, 1, (v) => {
+          widget.slot.padding.left = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRowTo(container, 'Top', this._makeNumberInput(widget.slot.padding.top, 0, 999, 1, (v) => {
+          widget.slot.padding.top = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRowTo(container, 'Right', this._makeNumberInput(widget.slot.padding.right, 0, 999, 1, (v) => {
+          widget.slot.padding.right = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+        this._addPropRowTo(container, 'Bottom', this._makeNumberInput(widget.slot.padding.bottom, 0, 999, 1, (v) => {
+          widget.slot.padding.bottom = v; this._asset.touch(); this._layoutEngine.clearCache();
+        }));
+      });
 
       if (parentType === 'VerticalBox' || parentType === 'HorizontalBox') {
-        // Box slot properties
-        this._addPropHeader('Box Slot');
-        this._addPropRow('Size Mode', this._makeSelect(
-          ['Auto', 'Fill', 'Custom'] as SizeMode[],
-          widget.slot.sizeMode,
-          (v) => { widget.slot.sizeMode = v as SizeMode; this._asset.touch(); this._layoutEngine.clearCache(); this._rebuildProperties(); },
-        ));
-        if (widget.slot.sizeMode === 'Fill') {
-          this._addPropRow('Fill Weight', this._makeNumberInput(widget.slot.fillWeight, 0, 10, 0.1, (v) => {
-            widget.slot.fillWeight = v; this._asset.touch(); this._layoutEngine.clearCache();
-          }));
-        }
-        this._addPropRow('H Align', this._makeSelect(
-          ['Left', 'Center', 'Right', 'Fill'],
-          widget.slot.hAlign ?? 'Left',
-          (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
-        ));
-        this._addPropRow('V Align', this._makeSelect(
-          ['Top', 'Center', 'Bottom', 'Fill'],
-          widget.slot.vAlign ?? 'Top',
-          (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
-        ));
+        this._addCollapsibleSection('Box Slot', true, (container) => {
+          this._addPropRowTo(container, 'Size Mode', this._makeSelect(
+            ['Auto', 'Fill', 'Custom'] as SizeMode[],
+            widget.slot.sizeMode,
+            (v) => { widget.slot.sizeMode = v as SizeMode; this._asset.touch(); this._layoutEngine.clearCache(); this._rebuildProperties(); },
+          ));
+          if (widget.slot.sizeMode === 'Fill') {
+            this._addPropRowTo(container, 'Fill Weight', this._makeNumberInput(widget.slot.fillWeight, 0, 10, 0.1, (v) => {
+              widget.slot.fillWeight = v; this._asset.touch(); this._layoutEngine.clearCache();
+            }));
+          }
+          this._addPropRowTo(container, 'H Align', this._makeSelect(
+            ['Left', 'Center', 'Right', 'Fill'],
+            widget.slot.hAlign ?? 'Left',
+            (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+          ));
+          this._addPropRowTo(container, 'V Align', this._makeSelect(
+            ['Top', 'Center', 'Bottom', 'Fill'],
+            widget.slot.vAlign ?? 'Top',
+            (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+          ));
+        });
       }
 
       if (parentType === 'Overlay') {
-        // Overlay slot properties
-        this._addPropHeader('Overlay Slot');
-        this._addPropRow('H Align', this._makeSelect(
-          ['Left', 'Center', 'Right', 'Fill'],
-          widget.slot.hAlign ?? 'Fill',
-          (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
-        ));
-        this._addPropRow('V Align', this._makeSelect(
-          ['Top', 'Center', 'Bottom', 'Fill'],
-          widget.slot.vAlign ?? 'Fill',
-          (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
-        ));
+        this._addCollapsibleSection('Overlay Slot', true, (container) => {
+          this._addPropRowTo(container, 'H Align', this._makeSelect(
+            ['Left', 'Center', 'Right', 'Fill'],
+            widget.slot.hAlign ?? 'Fill',
+            (v) => { widget.slot.hAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+          ));
+          this._addPropRowTo(container, 'V Align', this._makeSelect(
+            ['Top', 'Center', 'Bottom', 'Fill'],
+            widget.slot.vAlign ?? 'Fill',
+            (v) => { widget.slot.vAlign = v as any; this._asset.touch(); this._layoutEngine.clearCache(); },
+          ));
+        });
       }
 
       if (parentType === 'GridPanel') {
-        // Grid panel slot properties
-        this._addPropHeader('Grid Slot');
-        this._addPropRow('Row', this._makeNumberInput((widget.slot as any).gridRow ?? 0, 0, 99, 1, (v) => {
-          (widget.slot as any).gridRow = v; this._asset.touch(); this._layoutEngine.clearCache();
-        }));
-        this._addPropRow('Column', this._makeNumberInput((widget.slot as any).gridCol ?? 0, 0, 99, 1, (v) => {
-          (widget.slot as any).gridCol = v; this._asset.touch(); this._layoutEngine.clearCache();
-        }));
-        this._addPropRow('Row Span', this._makeNumberInput((widget.slot as any).gridRowSpan ?? 1, 1, 20, 1, (v) => {
-          (widget.slot as any).gridRowSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
-        }));
-        this._addPropRow('Col Span', this._makeNumberInput((widget.slot as any).gridColSpan ?? 1, 1, 20, 1, (v) => {
-          (widget.slot as any).gridColSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
-        }));
+        this._addCollapsibleSection('Grid Slot', true, (container) => {
+          this._addPropRowTo(container, 'Row', this._makeNumberInput((widget.slot as any).gridRow ?? 0, 0, 99, 1, (v) => {
+            (widget.slot as any).gridRow = v; this._asset.touch(); this._layoutEngine.clearCache();
+          }));
+          this._addPropRowTo(container, 'Column', this._makeNumberInput((widget.slot as any).gridCol ?? 0, 0, 99, 1, (v) => {
+            (widget.slot as any).gridCol = v; this._asset.touch(); this._layoutEngine.clearCache();
+          }));
+          this._addPropRowTo(container, 'Row Span', this._makeNumberInput((widget.slot as any).gridRowSpan ?? 1, 1, 20, 1, (v) => {
+            (widget.slot as any).gridRowSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
+          }));
+          this._addPropRowTo(container, 'Col Span', this._makeNumberInput((widget.slot as any).gridColSpan ?? 1, 1, 20, 1, (v) => {
+            (widget.slot as any).gridColSpan = v; this._asset.touch(); this._layoutEngine.clearCache();
+          }));
+        });
       }
 
       if (parentType === 'CanvasPanel') {
-        // Canvas panel slot: show anchor details
-        this._addPropHeader('Canvas Slot');
-        this._addPropRow('Alignment X', this._makeNumberInput(widget.slot.alignment.x, 0, 1, 0.1, (v) => {
-          widget.slot.alignment.x = v; this._asset.touch();
-        }));
-        this._addPropRow('Alignment Y', this._makeNumberInput(widget.slot.alignment.y, 0, 1, 0.1, (v) => {
-          widget.slot.alignment.y = v; this._asset.touch();
-        }));
-        this._addPropRow('Auto Size', this._makeCheckbox(widget.slot.autoSize, (v) => {
-          widget.slot.autoSize = v; this._asset.touch();
-        }));
+        this._addCollapsibleSection('Canvas Slot', true, (container) => {
+          this._addPropRowTo(container, 'Alignment X', this._makeNumberInput(widget.slot.alignment.x, 0, 1, 0.1, (v) => {
+            widget.slot.alignment.x = v; this._asset.touch();
+          }));
+          this._addPropRowTo(container, 'Alignment Y', this._makeNumberInput(widget.slot.alignment.y, 0, 1, 0.1, (v) => {
+            widget.slot.alignment.y = v; this._asset.touch();
+          }));
+          this._addPropRowTo(container, 'Auto Size', this._makeCheckbox(widget.slot.autoSize, (v) => {
+            widget.slot.autoSize = v; this._asset.touch();
+          }));
+        });
       }
     }
 
     // ── Anchor Presets (Visual 9-Point Grid + Stretch Presets) ──
-    this._addPropHeader('Anchor');
+    this._addCollapsibleSection('Anchor', true, (anchorContainer) => {
 
-    // Build visual anchor preset grid
-    const anchorGridContainer = document.createElement('div');
-    anchorGridContainer.style.cssText = 'display:flex;gap:8px;padding:4px;flex:1;';
+      // Build visual anchor preset grid
+      const anchorGridContainer = document.createElement('div');
+      anchorGridContainer.style.cssText = 'display:flex;gap:8px;padding:4px;flex:1;';
 
-    // 9-Point Anchor Grid
-    const pointGrid = document.createElement('div');
-    pointGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,20px);grid-template-rows:repeat(3,20px);gap:2px;background:#111;border:1px solid #333;border-radius:3px;padding:3px;';
+      // 9-Point Anchor Grid
+      const pointGrid = document.createElement('div');
+      pointGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,20px);grid-template-rows:repeat(3,20px);gap:2px;background:#111;border:1px solid #333;border-radius:3px;padding:3px;';
 
-    const pointPresets = [
-      { key: 'TopLeft',     row: 0, col: 0 },
-      { key: 'TopCenter',   row: 0, col: 1 },
-      { key: 'TopRight',    row: 0, col: 2 },
-      { key: 'CenterLeft',  row: 1, col: 0 },
-      { key: 'Center',      row: 1, col: 1 },
-      { key: 'CenterRight', row: 1, col: 2 },
-      { key: 'BottomLeft',  row: 2, col: 0 },
-      { key: 'BottomCenter',row: 2, col: 1 },
-      { key: 'BottomRight', row: 2, col: 2 },
-    ];
+      const pointPresets = [
+        { key: 'TopLeft',     row: 0, col: 0 },
+        { key: 'TopCenter',   row: 0, col: 1 },
+        { key: 'TopRight',    row: 0, col: 2 },
+        { key: 'CenterLeft',  row: 1, col: 0 },
+        { key: 'Center',      row: 1, col: 1 },
+        { key: 'CenterRight', row: 1, col: 2 },
+        { key: 'BottomLeft',  row: 2, col: 0 },
+        { key: 'BottomCenter',row: 2, col: 1 },
+        { key: 'BottomRight', row: 2, col: 2 },
+      ];
 
-    const anchorPresetNames = Object.keys(AnchorPresets) as Array<keyof typeof AnchorPresets>;
-    const currentPreset = anchorPresetNames.find(name => {
-      const p = AnchorPresets[name];
-      return p.minX === widget.slot.anchor.minX && p.minY === widget.slot.anchor.minY &&
-             p.maxX === widget.slot.anchor.maxX && p.maxY === widget.slot.anchor.maxY;
-    }) ?? 'Custom';
+      const anchorPresetNames = Object.keys(AnchorPresets) as Array<keyof typeof AnchorPresets>;
+      const currentPreset = anchorPresetNames.find(name => {
+        const p = AnchorPresets[name];
+        return p.minX === widget.slot.anchor.minX && p.minY === widget.slot.anchor.minY &&
+               p.maxX === widget.slot.anchor.maxX && p.maxY === widget.slot.anchor.maxY;
+      }) ?? 'Custom';
 
-    for (const pp of pointPresets) {
-      const cell = document.createElement('div');
-      const isActive = currentPreset === pp.key;
-      cell.style.cssText = `width:20px;height:20px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;background:${isActive ? '#ffb400' : '#222'};border:1px solid ${isActive ? '#ffb400' : '#444'};transition:background 0.1s;`;
-      // Draw a small dot showing anchor position
-      const dot = document.createElement('div');
-      dot.style.cssText = `width:6px;height:6px;border-radius:50%;background:${isActive ? '#000' : '#888'};`;
-      cell.appendChild(dot);
-      cell.title = pp.key;
-      cell.addEventListener('mouseenter', () => { if (!isActive) cell.style.background = '#333'; });
-      cell.addEventListener('mouseleave', () => { if (!isActive) cell.style.background = '#222'; });
-      cell.addEventListener('click', () => {
-        if (pp.key in AnchorPresets) {
-          widget.slot.anchor = { ...AnchorPresets[pp.key as keyof typeof AnchorPresets] };
-          this._asset.touch();
-          this._rebuildProperties();
-        }
-      });
-      pointGrid.appendChild(cell);
-    }
+      for (const pp of pointPresets) {
+        const cell = document.createElement('div');
+        const isActive = currentPreset === pp.key;
+        cell.style.cssText = `width:20px;height:20px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;background:${isActive ? '#ffb400' : '#222'};border:1px solid ${isActive ? '#ffb400' : '#444'};transition:background 0.1s;`;
+        const dot = document.createElement('div');
+        dot.style.cssText = `width:6px;height:6px;border-radius:50%;background:${isActive ? '#000' : '#888'};`;
+        cell.appendChild(dot);
+        cell.title = pp.key;
+        cell.addEventListener('mouseenter', () => { if (!isActive) cell.style.background = '#333'; });
+        cell.addEventListener('mouseleave', () => { if (!isActive) cell.style.background = '#222'; });
+        cell.addEventListener('click', () => {
+          if (pp.key in AnchorPresets) {
+            widget.slot.anchor = { ...AnchorPresets[pp.key as keyof typeof AnchorPresets] };
+            this._asset.touch();
+            this._rebuildProperties();
+          }
+        });
+        pointGrid.appendChild(cell);
+      }
 
-    // Stretch presets (vertical strip on right)
-    const stretchCol = document.createElement('div');
-    stretchCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+      // Stretch presets
+      const stretchCol = document.createElement('div');
+      stretchCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
 
-    const stretchPresets = [
-      { key: 'StretchTop',    label: '↔ Top',    icon: '─' },
-      { key: 'StretchBottom', label: '↔ Bottom', icon: '─' },
-      { key: 'StretchLeft',   label: '↕ Left',   icon: '│' },
-      { key: 'StretchRight',  label: '↕ Right',  icon: '│' },
-      { key: 'StretchFull',   label: '⬚ Full',   icon: '☐' },
-    ];
+      const stretchPresets = [
+        { key: 'StretchTop',    label: '↔ Top',    icon: '─' },
+        { key: 'StretchBottom', label: '↔ Bottom', icon: '─' },
+        { key: 'StretchLeft',   label: '↕ Left',   icon: '│' },
+        { key: 'StretchRight',  label: '↕ Right',  icon: '│' },
+        { key: 'StretchFull',   label: '⬚ Full',   icon: '☐' },
+      ];
 
-    for (const sp of stretchPresets) {
-      const btn = document.createElement('div');
-      const isActive = currentPreset === sp.key;
-      btn.style.cssText = `padding:2px 6px;font-size:9px;border-radius:3px;cursor:pointer;text-align:center;background:${isActive ? '#ffb400' : '#222'};color:${isActive ? '#000' : '#aaa'};border:1px solid ${isActive ? '#ffb400' : '#444'};white-space:nowrap;`;
-      btn.textContent = sp.label;
-      btn.title = sp.key;
-      btn.addEventListener('mouseenter', () => { if (!isActive) btn.style.background = '#333'; });
-      btn.addEventListener('mouseleave', () => { if (!isActive) btn.style.background = '#222'; });
-      btn.addEventListener('click', () => {
-        if (sp.key in AnchorPresets) {
-          widget.slot.anchor = { ...AnchorPresets[sp.key as keyof typeof AnchorPresets] };
-          this._asset.touch();
-          this._rebuildProperties();
-        }
-      });
-      stretchCol.appendChild(btn);
-    }
+      for (const sp of stretchPresets) {
+        const btn = document.createElement('div');
+        const isActive = currentPreset === sp.key;
+        btn.style.cssText = `padding:2px 6px;font-size:9px;border-radius:3px;cursor:pointer;text-align:center;background:${isActive ? '#ffb400' : '#222'};color:${isActive ? '#000' : '#aaa'};border:1px solid ${isActive ? '#ffb400' : '#444'};white-space:nowrap;`;
+        btn.textContent = sp.label;
+        btn.title = sp.key;
+        btn.addEventListener('mouseenter', () => { if (!isActive) btn.style.background = '#333'; });
+        btn.addEventListener('mouseleave', () => { if (!isActive) btn.style.background = '#222'; });
+        btn.addEventListener('click', () => {
+          if (sp.key in AnchorPresets) {
+            widget.slot.anchor = { ...AnchorPresets[sp.key as keyof typeof AnchorPresets] };
+            this._asset.touch();
+            this._rebuildProperties();
+          }
+        });
+        stretchCol.appendChild(btn);
+      }
 
-    anchorGridContainer.appendChild(pointGrid);
-    anchorGridContainer.appendChild(stretchCol);
-    this._propsEl.appendChild(anchorGridContainer);
+      anchorGridContainer.appendChild(pointGrid);
+      anchorGridContainer.appendChild(stretchCol);
+      anchorContainer.appendChild(anchorGridContainer);
 
-    // Manual anchor values (collapsible)
-    this._addPropRow('Min X', this._makeNumberInput(widget.slot.anchor.minX, 0, 1, 0.05, (v) => {
-      widget.slot.anchor.minX = v; this._asset.touch(); this._layoutEngine.clearCache();
-    }));
-    this._addPropRow('Min Y', this._makeNumberInput(widget.slot.anchor.minY, 0, 1, 0.05, (v) => {
-      widget.slot.anchor.minY = v; this._asset.touch(); this._layoutEngine.clearCache();
-    }));
-    this._addPropRow('Max X', this._makeNumberInput(widget.slot.anchor.maxX, 0, 1, 0.05, (v) => {
-      widget.slot.anchor.maxX = v; this._asset.touch(); this._layoutEngine.clearCache();
-    }));
-    this._addPropRow('Max Y', this._makeNumberInput(widget.slot.anchor.maxY, 0, 1, 0.05, (v) => {
-      widget.slot.anchor.maxY = v; this._asset.touch(); this._layoutEngine.clearCache();
-    }));
+      // Manual anchor values
+      this._addPropRowTo(anchorContainer, 'Min X', this._makeNumberInput(widget.slot.anchor.minX, 0, 1, 0.05, (v) => {
+        widget.slot.anchor.minX = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRowTo(anchorContainer, 'Min Y', this._makeNumberInput(widget.slot.anchor.minY, 0, 1, 0.05, (v) => {
+        widget.slot.anchor.minY = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRowTo(anchorContainer, 'Max X', this._makeNumberInput(widget.slot.anchor.maxX, 0, 1, 0.05, (v) => {
+        widget.slot.anchor.maxX = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+      this._addPropRowTo(anchorContainer, 'Max Y', this._makeNumberInput(widget.slot.anchor.maxY, 0, 1, 0.05, (v) => {
+        widget.slot.anchor.maxY = v; this._asset.touch(); this._layoutEngine.clearCache();
+      }));
+    });
 
     // ── Render Transform ──
-    this._addPropHeader('Transform');
-    this._addPropRow('Translate X', this._makeNumberInput(widget.renderTranslation.x, -9999, 9999, 1, (v) => {
-      widget.renderTranslation.x = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Translate Y', this._makeNumberInput(widget.renderTranslation.y, -9999, 9999, 1, (v) => {
-      widget.renderTranslation.y = v;
-      this._asset.touch();
-    }));
-    this._addPropRow('Angle', this._makeNumberInput(widget.renderAngle, -360, 360, 1, (v) => {
-      widget.renderAngle = v;
-      this._asset.touch();
-    }));
+    this._addCollapsibleSection('Transform', true, (container) => {
+      this._addPropRowTo(container, 'Translate X', this._makeNumberInput(widget.renderTranslation.x, -9999, 9999, 1, (v) => {
+        widget.renderTranslation.x = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Translate Y', this._makeNumberInput(widget.renderTranslation.y, -9999, 9999, 1, (v) => {
+        widget.renderTranslation.y = v; this._asset.touch();
+      }));
+      this._addPropRowTo(container, 'Angle', this._makeNumberInput(widget.renderAngle, -360, 360, 1, (v) => {
+        widget.renderAngle = v; this._asset.touch();
+      }));
+    });
 
-    // ── Type-specific properties ──
-    this._buildTypeSpecificProps(widget);
+    } catch (e: any) {
+      console.error('[WidgetBlueprintEditor] Error building props:', e);
+      const errEl = document.createElement('div');
+      errEl.style.cssText = 'color:#ff5555;font-size:11px;padding:8px;white-space:pre-wrap;background:#2a1010;border:1px solid #a33;border-radius:4px;margin:4px;';
+      errEl.textContent = `Error: ${e?.message ?? e}\n${e?.stack ?? ''}`;
+      this._propsEl?.appendChild(errEl);
+    }
+  }
+
+  private _getSupportedEvents(type: WidgetType): Array<{ label: string; nodeType: string }> {
+    const events: Array<{ label: string; nodeType: string }> = [];
+    switch (type) {
+      case 'Button':
+        events.push({ label: 'On Clicked', nodeType: 'Button OnClicked' });
+        events.push({ label: 'On Pressed', nodeType: 'Button OnPressed' });
+        events.push({ label: 'On Released', nodeType: 'Button OnReleased' });
+        events.push({ label: 'On Hovered', nodeType: 'Button OnHovered' });
+        events.push({ label: 'On Unhovered', nodeType: 'Button OnUnhovered' });
+        break;
+      case 'CheckBox':
+        events.push({ label: 'On Check State Changed', nodeType: 'CheckBox OnCheckStateChanged' });
+        break;
+      case 'Slider':
+        events.push({ label: 'On Value Changed', nodeType: 'Slider OnValueChanged' });
+        break;
+      case 'TextBox':
+        events.push({ label: 'On Text Changed', nodeType: 'TextBox OnTextChanged' });
+        events.push({ label: 'On Text Committed', nodeType: 'TextBox OnTextCommitted' });
+        break;
+    }
+    return events;
   }
 
   private _buildTypeSpecificProps(widget: WidgetNodeJSON): void {
@@ -3929,6 +3996,45 @@ export class WidgetBlueprintEditorPanel {
             widget.sliderProps!.handleColor = v;
             this._asset.touch();
           }));
+
+          // --- Slider Images ---
+          this._addPropHeader('Slider Images');
+          this._addPropRow('Track Image', this._makeTexturePicker(widget.sliderProps.trackTexture, (id) => {
+            widget.sliderProps!.trackTexture = id;
+            this._asset.touch();
+          }));
+          this._addPropRow('Fill Image', this._makeTexturePicker(widget.sliderProps.fillTexture, (id) => {
+            widget.sliderProps!.fillTexture = id;
+            this._asset.touch();
+          }));
+          this._addPropRow('Handle Image', this._makeTexturePicker(widget.sliderProps.handleTexture, (id) => {
+            widget.sliderProps!.handleTexture = id;
+            this._asset.touch();
+          }));
+
+          // --- Handle Size ---
+          this._addPropHeader('Handle Size');
+          const hSize = widget.sliderProps.handleSize ?? { width: 24, height: 24 };
+          this._addPropRow('Width', this._makeNumberInput(hSize.width, 1, 200, 1, (v) => {
+            if (!widget.sliderProps!.handleSize) widget.sliderProps!.handleSize = { width: 24, height: 24 };
+            widget.sliderProps!.handleSize.width = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Height', this._makeNumberInput(hSize.height, 1, 200, 1, (v) => {
+            if (!widget.sliderProps!.handleSize) widget.sliderProps!.handleSize = { width: 24, height: 24 };
+            widget.sliderProps!.handleSize.height = v;
+            this._asset.touch();
+          }));
+
+          // --- 9-Slice ---
+          this._addPropHeader('Track 9-Slice');
+          this._makeNineSliceEditor(widget.sliderProps.trackNineSlice, (s) => {
+            widget.sliderProps!.trackNineSlice = s;
+          });
+          this._addPropHeader('Fill 9-Slice');
+          this._makeNineSliceEditor(widget.sliderProps.fillNineSlice, (s) => {
+            widget.sliderProps!.fillNineSlice = s;
+          });
         }
         break;
 
@@ -4202,6 +4308,65 @@ export class WidgetBlueprintEditorPanel {
     el.appendChild(txt);
 
     this._propsEl.appendChild(el);
+  }
+
+  /**
+   * Creates a collapsible section with a toggle header.
+   * The `builder` callback receives the content container to populate with rows.
+   */
+  private _addCollapsibleSection(label: string, startCollapsed: boolean, builder: (container: HTMLElement) => void): void {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'wbp-collapsible-section';
+
+    const header = document.createElement('div');
+    header.className = 'wbp-prop-header';
+    header.style.cursor = 'pointer';
+    header.style.userSelect = 'none';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'wbp-prop-header-arrow';
+    arrow.innerHTML = startCollapsed
+      ? iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted)
+      : iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
+    header.appendChild(arrow);
+
+    const txt = document.createElement('span');
+    txt.textContent = label;
+    header.appendChild(txt);
+
+    const content = document.createElement('div');
+    content.style.display = startCollapsed ? 'none' : '';
+
+    // Build the content right away so properties are always in DOM
+    builder(content);
+
+    let collapsed = startCollapsed;
+    header.addEventListener('click', () => {
+      collapsed = !collapsed;
+      content.style.display = collapsed ? 'none' : '';
+      arrow.innerHTML = collapsed
+        ? iconHTML(Icons.ChevronRight, 'sm', ICON_COLORS.muted)
+        : iconHTML(Icons.ChevronDown, 'sm', ICON_COLORS.muted);
+    });
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(content);
+    this._propsEl.appendChild(wrapper);
+  }
+
+  /** Add a prop row to a specific container (used by collapsible sections) */
+  private _addPropRowTo(container: HTMLElement, label: string, input: HTMLElement): void {
+    const row = document.createElement('div');
+    row.className = 'wbp-prop-row';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'wbp-prop-label';
+    lbl.textContent = label;
+    lbl.title = label;
+
+    row.appendChild(lbl);
+    row.appendChild(input);
+    container.appendChild(row);
   }
 
   private _addPropRow(label: string, input: HTMLElement): void {
