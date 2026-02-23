@@ -15,6 +15,7 @@ import { TilemapCollisionBuilder } from '../engine/TilemapData';
 import { SpriteActor, type SpriteActorConfig } from '../engine/SpriteActor';
 import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/CharacterMovement2D';
 import { ScriptComponent } from '../engine/ScriptComponent';
+import { DragSelectionComponent } from '../engine/DragSelectionComponent';
 
 export type SceneMode = '2D' | '3D';
 
@@ -110,6 +111,8 @@ export class Scene2DManager {
   private _pendingDestroy = new Set<SpriteActor>();
   /** Print function for 2D AnimBP event graphs — wire from editor Output Log so Print String nodes appear there */
   public printFn: ((v: any) => void) | null = null;
+  /** DOM element used for 2D rendering (exposed for DragSelectionComponent canvas binding) */
+  public _domElement: HTMLElement | null = null;
   /** Cached asset managers populated on first spawn so runtime blueprint spawning can use them */
   private _cachedAssetManager: any = null;
   private _cachedAnimBPManager: any = null;
@@ -147,6 +150,7 @@ export class Scene2DManager {
 
   async switchTo2D(threeScene: THREE.Scene, domElement: HTMLElement, config?: Scene2DConfig): Promise<void> {
     this.sceneMode = '2D';
+    this._domElement = domElement;
     // Preserve config restored by fromJSON(); only use default for brand-new scenes
     if (config) {
       this.config = config;
@@ -1269,6 +1273,7 @@ export class Scene2DManager {
     const sceneShim = {
       get gameObjects() { return self.spriteActors as any[]; },
       findById: (id: number) => self.spriteActors.find(a => (a as any).id === id) ?? null,
+      destroyActor: (actor: any) => self.despawnSpriteActor2D(actor),
     };
 
     const ctx = {
@@ -1283,7 +1288,7 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
       gameInstance: null,
     };
 
@@ -1478,6 +1483,7 @@ export class Scene2DManager {
     const sceneShim = {
       get gameObjects() { return self.spriteActors as any[]; },
       findById: (id: number) => self.spriteActors.find(a => (a as any).id === id) ?? null,
+      destroyActor: (actor: any) => self.despawnSpriteActor2D(actor),
     };
 
     const ctx = {
@@ -1488,7 +1494,7 @@ export class Scene2DManager {
       physics:      null,
       scene:        sceneShim,
       animInstance: null,
-      engine:       { scene2DManager: this },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
       gameInstance: null,
     };
 

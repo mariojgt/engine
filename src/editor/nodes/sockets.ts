@@ -97,6 +97,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Physics 2D':    '#EF6C00',
   'Camera 2D':     '#5C6BC0',
   'Tilemap':       '#8D6E63',
+  'Selection':     '#00ACC1',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -134,6 +135,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Physics 2D':    return iconHTML(Icons.Circle, 10, ICON_COLORS.secondary);
     case 'Camera 2D':     return iconHTML(Icons.Camera, 10, ICON_COLORS.camera);
     case 'Tilemap':       return iconHTML(Icons.Grid, 10, ICON_COLORS.secondary);
+    case 'Selection':     return iconHTML(Icons.Box, 10, '#00ACC1');
     // Phase 1 categories
     case 'Audio':          return iconHTML(Icons.Circle, 10, '#E91E63');
     case 'Gamepad':        return iconHTML(Icons.Gamepad2, 10, '#00BFA5');

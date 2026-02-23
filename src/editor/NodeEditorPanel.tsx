@@ -356,6 +356,22 @@ import {
   SaveGameToSlotNode,
   LoadGameFromSlotNode,
   DeleteGameInSlotNode,
+  // Flow Control (extended)
+  ForEachLoopNode,
+  ForEachLoopWithBreakNode,
+  // Drag Selection nodes
+  EnableDragSelectionNode,
+  DisableDragSelectionNode,
+  SetDragSelectionEnabledNode,
+  OnDragSelectionCompleteNode,
+  GetSelectedActorsNode,
+  GetSelectedActorAtIndexNode,
+  SetDragSelectionClassFilterNode,
+  AddDragSelectionClassFilterNode,
+  ClearDragSelectionClassFilterNode,
+  SetDragSelectionStyleNode,
+  IsDragSelectingNode,
+  GetDragSelectionCountNode,
 } from './nodes';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
@@ -1140,6 +1156,28 @@ function resolveValue(
     case 'Get Delta Time': return 'deltaTime';
     case 'Event Tick':
       return outputKey === 'dt' ? 'deltaTime' : '0';
+    // For Loop / For Each Loop data outputs
+    case 'For Loop':
+      if (outputKey === 'index') return '__i';
+      return '0';
+    case 'For Each Loop': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'element') return `__fe_el_${uid}`;
+      if (outputKey === 'index') return `__fe_i_${uid}`;
+      return '0';
+    }
+    case 'For Each Loop with Break': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'element') return `__fe_el_${uid}`;
+      if (outputKey === 'index') return `__fe_i_${uid}`;
+      return '0';
+    }
+    // On Drag Selection Complete data outputs
+    case 'On Drag Selection Complete': {
+      if (outputKey === 'selectedActors') return '(__dragSelectedActors || [])';
+      if (outputKey === 'count') return '(__dragSelectedCount || 0)';
+      return '0';
+    }
     case 'Get Actor Position': return `gameObject.position.${outputKey}`;
     case 'Get Actor Rotation': return `gameObject.rotation.${outputKey}`;
     case 'Get Actor Scale':    return `gameObject.scale.${outputKey}`;
@@ -1582,6 +1620,26 @@ function resolveValue(
     }
     case 'Get Save Slot Count': {
       return `(__engine && __engine.saveLoad ? __engine.saveLoad.getSaveSlotCount() : 0)`;
+    }
+
+    // ── Drag Selection value nodes ───────────────────────────
+    case 'Is Drag Selecting': {
+      return '(gameObject.__dragSelection ? gameObject.__dragSelection.isDragging : false)';
+    }
+    case 'Get Drag Selection Count': {
+      return '(gameObject.__dragSelection ? gameObject.__dragSelection.getSelectedCount() : 0)';
+    }
+    case 'Get Selected Actors': {
+      if (outputKey === 'actors') return '(gameObject.__dragSelection ? gameObject.__dragSelection.getSelectedActors() : [])';
+      if (outputKey === 'count') return '(gameObject.__dragSelection ? gameObject.__dragSelection.getSelectedCount() : 0)';
+      return '[]';
+    }
+    case 'Get Selected Actor At Index': {
+      const idxS = inputSrc.get(`${nodeId}.index`);
+      const idx = idxS ? rv(idxS.nid, idxS.ok) : '0';
+      if (outputKey === 'actor') return `(gameObject.__dragSelection ? gameObject.__dragSelection.getSelectedActorAt(${idx}) : null)`;
+      if (outputKey === 'valid') return `(!!(gameObject.__dragSelection ? gameObject.__dragSelection.getSelectedActorAt(${idx}) : null))`;
+      return 'null';
     }
 
     default: return '0';
@@ -2283,7 +2341,7 @@ function genAction(
       const targetExpr = tS ? rv(tS.nid, tS.ok) : 'gameObject';
       // Support both 2D SpriteActors (via scene2DManager) and 3D GameObjects (via __scene).
       // In 2D blueprints __engine.scene2DManager is always available.
-      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.removeActor === 'function') { __scene.removeActor(__destroyTarget); } } }`);
+      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.destroyActor === 'function') { __scene.destroyActor(__destroyTarget); } } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -2468,6 +2526,28 @@ function genAction(
       lines.push(`for (let __i = 0; __i < ${count}; __i++) {`);
       lines.push(...we(nodeId, 'body').map(l => '  ' + l));
       lines.push('}');
+      lines.push(...we(nodeId, 'done'));
+      break;
+    }
+    case 'For Each Loop': {
+      const arrS = inputSrc.get(`${nodeId}.array`);
+      const arr = arrS ? rv(arrS.nid, arrS.ok) : '[]';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __arr_${uid} = ${arr} || []; for (var __fe_i_${uid} = 0; __fe_i_${uid} < __arr_${uid}.length; __fe_i_${uid}++) {`);
+      lines.push(`  var __fe_el_${uid} = __arr_${uid}[__fe_i_${uid}]; var __i = __fe_i_${uid};`);
+      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+      lines.push('} }');
+      lines.push(...we(nodeId, 'done'));
+      break;
+    }
+    case 'For Each Loop with Break': {
+      const arrS = inputSrc.get(`${nodeId}.array`);
+      const arr = arrS ? rv(arrS.nid, arrS.ok) : '[]';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __arr_${uid} = ${arr} || []; var __fe_brk_${uid} = false; for (var __fe_i_${uid} = 0; __fe_i_${uid} < __arr_${uid}.length && !__fe_brk_${uid}; __fe_i_${uid}++) {`);
+      lines.push(`  var __fe_el_${uid} = __arr_${uid}[__fe_i_${uid}]; var __i = __fe_i_${uid};`);
+      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+      lines.push('} }');
       lines.push(...we(nodeId, 'done'));
       break;
     }
@@ -3304,6 +3384,78 @@ function genAction(
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+
+    // ── Drag Selection action nodes ──────────────────────────
+    case 'Enable Drag Selection': {
+      const mbS = inputSrc.get(`${nodeId}.mouseButton`);
+      const mbC = node.controls['mouseButton'] as ClassicPreset.InputControl<'number'> | undefined;
+      const mb = mbS ? rv(mbS.nid, mbS.ok) : (mbC ? String(mbC.value ?? 0) : '0');
+      lines.push(`{ if (!gameObject.__dragSelection) { var _DSC = __engine && __engine._DragSelectionComponent; if (_DSC) { gameObject.__dragSelection = new _DSC(); } else { console.warn('[DragSelection] DragSelectionComponent class not found on engine — drag selection will not work'); gameObject.__dragSelection = { enabled: true, mouseButton: 0, classFilter: [], selectionColor: 'rgba(0,120,215,0.25)', selectionBorderColor: 'rgba(0,120,215,0.8)', selectionBorderWidth: 1, selectionBorderStyle: 'solid', selectionBorderRadius: 0, selectionOpacity: 1, onSelectionComplete: null, _lastResult: null, isDragging: false, getSelectedCount: function(){ return this._lastResult ? this._lastResult.actors.length : 0; }, getSelectedActors: function(){ return this._lastResult ? this._lastResult.actors : []; }, getSelectedActorAt: function(i){ return this._lastResult ? (this._lastResult.actors[i] || null) : null; }, init: function(){}, destroy: function(){}, setClassFilter: function(c){ this.classFilter = Array.isArray(c) ? c : [c]; }, addClassFilter: function(c){ if (this.classFilter.indexOf(c) < 0) this.classFilter.push(c); }, clearClassFilter: function(){ this.classFilter = []; } }; } } if (gameObject.__dragSelection) { gameObject.__dragSelection.mouseButton = ${mb}; var _canvas = __engine && __engine._playCanvas; if (_canvas && typeof gameObject.__dragSelection.init === 'function') { gameObject.__dragSelection.init(_canvas, __scene, __engine); } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Disable Drag Selection': {
+      lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.destroy(); gameObject.__dragSelection = null; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Drag Selection Enabled': {
+      const enS = inputSrc.get(`${nodeId}.enabled`);
+      const en = enS ? rv(enS.nid, enS.ok) : 'true';
+      lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.enabled = ${en}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Drag Selection Class Filter': {
+      const cnS = inputSrc.get(`${nodeId}.className`);
+      const actorCtrl = node.controls['actorClass'] as any;
+      // If the string pin is wired, use the dynamic value (with runtime lookup).
+      // Otherwise, if the dropdown was used, the control value IS the actorAssetId.
+      if (cnS) {
+        const cn = rv(cnS.nid, cnS.ok);
+        lines.push(`{ if (gameObject.__dragSelection) { var _cn = ${cn}; if (_cn && typeof _cn === 'string') { if (__scene) { var _a = __scene.gameObjects.find(function(g){return g.name === _cn || g.actorAssetId === _cn;}); gameObject.__dragSelection.setClassFilter(_a && _a.actorAssetId ? [_a.actorAssetId] : [_cn]); } else { gameObject.__dragSelection.setClassFilter([_cn]); } } else { gameObject.__dragSelection.setClassFilter([]); } } }`);
+      } else if (actorCtrl && actorCtrl.value) {
+        lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.setClassFilter(["${actorCtrl.value}"]); } }`);
+      } else {
+        lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.setClassFilter([]); } }`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Drag Selection Class Filter': {
+      const cnS = inputSrc.get(`${nodeId}.className`);
+      const actorCtrl = node.controls['actorClass'] as any;
+      if (cnS) {
+        const cn = rv(cnS.nid, cnS.ok);
+        lines.push(`{ if (gameObject.__dragSelection) { var _cn = ${cn}; if (__scene) { var _a = __scene.gameObjects.find(function(g){return g.name === _cn || g.actorAssetId === _cn;}); gameObject.__dragSelection.addClassFilter(_a && _a.actorAssetId ? _a.actorAssetId : _cn); } else { gameObject.__dragSelection.addClassFilter(_cn); } } }`);
+      } else if (actorCtrl && actorCtrl.value) {
+        lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.addClassFilter("${actorCtrl.value}"); } }`);
+      }
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Drag Selection Class Filter': {
+      lines.push(`{ if (gameObject.__dragSelection) { gameObject.__dragSelection.clearClassFilter(); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Drag Selection Style': {
+      const fcS = inputSrc.get(`${nodeId}.fillColor`);
+      const bcS = inputSrc.get(`${nodeId}.borderColor`);
+      const bwS = inputSrc.get(`${nodeId}.borderWidth`);
+      const bsS = inputSrc.get(`${nodeId}.borderStyle`);
+      const brS = inputSrc.get(`${nodeId}.borderRadius`);
+      const opS = inputSrc.get(`${nodeId}.opacity`);
+      const fc = fcS ? rv(fcS.nid, fcS.ok) : '"rgba(0, 120, 215, 0.25)"';
+      const bc = bcS ? rv(bcS.nid, bcS.ok) : '"rgba(0, 120, 215, 0.8)"';
+      const bw = bwS ? rv(bwS.nid, bwS.ok) : '1';
+      const bs = bsS ? rv(bsS.nid, bsS.ok) : '"solid"';
+      const br = brS ? rv(brS.nid, brS.ok) : '0';
+      const op = opS ? rv(opS.nid, opS.ok) : '1';
+      lines.push(`{ if (gameObject.__dragSelection) { var _ds = gameObject.__dragSelection; _ds.selectionColor = ${fc}; _ds.selectionBorderColor = ${bc}; _ds.selectionBorderWidth = ${bw}; _ds.selectionBorderStyle = ${bs}; _ds.selectionBorderRadius = ${br}; _ds.selectionOpacity = ${op}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
   }
   return lines;
 }
@@ -3434,6 +3586,23 @@ function generateFullCode(
 
     // Cleanup in onDestroy
     onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
+  }
+
+  // ── Drag Selection Complete event nodes ─────────────────────
+  const dragSelCompleteNodes = nodes.filter(n => n.label === 'On Drag Selection Complete');
+  if (dragSelCompleteNodes.length > 0) {
+    for (const dsEvt of dragSelCompleteNodes) {
+      const body = walkExec(dsEvt.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        // Wire the onSelectionComplete callback — the DragSelectionComponent
+        // will call this when a drag selection finishes.
+        beginPlayCode.push(`(function() { var __ds_cb_${dsEvt.id.replace(/[^a-zA-Z0-9]/g,'_')} = function(__dsResult) { var __dragSelectedActors = __dsResult ? __dsResult.actors : []; var __dragSelectedCount = __dragSelectedActors.length; ${body.join(' ')} }; if (!gameObject.__dragSelCallbacks) gameObject.__dragSelCallbacks = []; gameObject.__dragSelCallbacks.push(__ds_cb_${dsEvt.id.replace(/[^a-zA-Z0-9]/g,'_')}); })();`);
+      }
+    }
+    // In beginPlay, wire callbacks to the component when it's initialised
+    beginPlayCode.push(`(function() { var _wireDSCB = function() { if (gameObject.__dragSelection && gameObject.__dragSelCallbacks) { gameObject.__dragSelection.onSelectionComplete = function(result) { for (var _ci = 0; _ci < gameObject.__dragSelCallbacks.length; _ci++) { gameObject.__dragSelCallbacks[_ci](result); } }; } }; _wireDSCB(); var _origInit = gameObject.__origDSInit; if (!_origInit) { gameObject.__origDSInit = true; var _intv = setInterval(function() { if (gameObject.__dragSelection) { _wireDSCB(); clearInterval(_intv); } }, 100); __inputCleanup = __inputCleanup || []; __inputCleanup.push(function() { clearInterval(_intv); }); } })();`);
+    // Cleanup drag selection on destroy
+    onDestroyCode.push('if (gameObject.__dragSelection) { gameObject.__dragSelection.destroy(); gameObject.__dragSelection = null; }');
   }
 
   // ── 2D Collision / Trigger / Animation event nodes ──────────
@@ -5444,6 +5613,24 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   // Spawning nodes
   if (node instanceof SpawnActorFromClassNode) return 'SpawnActorFromClassNode';
 
+  // ForEachLoop nodes
+  if (node instanceof ForEachLoopNode) return 'ForEachLoopNode';
+  if (node instanceof ForEachLoopWithBreakNode) return 'ForEachLoopWithBreakNode';
+
+  // Drag Selection nodes
+  if (node instanceof EnableDragSelectionNode) return 'EnableDragSelectionNode';
+  if (node instanceof DisableDragSelectionNode) return 'DisableDragSelectionNode';
+  if (node instanceof SetDragSelectionEnabledNode) return 'SetDragSelectionEnabledNode';
+  if (node instanceof OnDragSelectionCompleteNode) return 'OnDragSelectionCompleteNode';
+  if (node instanceof GetSelectedActorsNode) return 'GetSelectedActorsNode';
+  if (node instanceof GetSelectedActorAtIndexNode) return 'GetSelectedActorAtIndexNode';
+  if (node instanceof SetDragSelectionClassFilterNode) return 'SetDragSelectionClassFilterNode';
+  if (node instanceof AddDragSelectionClassFilterNode) return 'AddDragSelectionClassFilterNode';
+  if (node instanceof ClearDragSelectionClassFilterNode) return 'ClearDragSelectionClassFilterNode';
+  if (node instanceof SetDragSelectionStyleNode) return 'SetDragSelectionStyleNode';
+  if (node instanceof IsDragSelectingNode) return 'IsDragSelectingNode';
+  if (node instanceof GetDragSelectionCountNode) return 'GetDragSelectionCountNode';
+
   return 'Unknown';
 }
 
@@ -5470,6 +5657,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
       controls[key] = { id: (ctrl as TextureSelectControl).value, name: (ctrl as TextureSelectControl).displayName };
+    } else if (ctrl instanceof ActorClassSelectControl) {
+      controls[key] = { id: (ctrl as ActorClassSelectControl).value, name: (ctrl as ActorClassSelectControl).displayName };
     } else if (ctrl instanceof ClassicPreset.InputControl) {
       controls[key] = (ctrl as ClassicPreset.InputControl<'number' | 'text'>).value;
     }
@@ -6328,6 +6517,34 @@ function createNodeFromData(
     case 'SetAirControl2DNode':              return new SetAirControl2DNode();
     case 'GetSpriteFacingDirection2DNode':   return new GetSpriteFacingDirection2DNode();
     case 'GetCharacterSpeed2DNode':          return new GetCharacterSpeed2DNode();
+
+    // ForEachLoop nodes
+    case 'ForEachLoopNode':                    return new ForEachLoopNode();
+    case 'ForEachLoopWithBreakNode':           return new ForEachLoopWithBreakNode();
+
+    // Drag Selection nodes
+    case 'EnableDragSelectionNode':            return new EnableDragSelectionNode();
+    case 'DisableDragSelectionNode':           return new DisableDragSelectionNode();
+    case 'SetDragSelectionEnabledNode':        return new SetDragSelectionEnabledNode();
+    case 'OnDragSelectionCompleteNode':        return new OnDragSelectionCompleteNode();
+    case 'GetSelectedActorsNode':              return new GetSelectedActorsNode();
+    case 'GetSelectedActorAtIndexNode':        return new GetSelectedActorAtIndexNode();
+    case 'SetDragSelectionClassFilterNode': {
+      const n = new SetDragSelectionClassFilterNode();
+      const ac = n.controls['actorClass'] as ActorClassSelectControl | undefined;
+      if (ac && d.controls?.actorClass) { ac.setValue(d.controls.actorClass.id || '', d.controls.actorClass.name || ''); }
+      return n;
+    }
+    case 'AddDragSelectionClassFilterNode': {
+      const n = new AddDragSelectionClassFilterNode();
+      const ac = n.controls['actorClass'] as ActorClassSelectControl | undefined;
+      if (ac && d.controls?.actorClass) { ac.setValue(d.controls.actorClass.id || '', d.controls.actorClass.name || ''); }
+      return n;
+    }
+    case 'ClearDragSelectionClassFilterNode':  return new ClearDragSelectionClassFilterNode();
+    case 'SetDragSelectionStyleNode':          return new SetDragSelectionStyleNode();
+    case 'IsDragSelectingNode':                return new IsDragSelectingNode();
+    case 'GetDragSelectionCountNode':          return new GetDragSelectionCountNode();
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);

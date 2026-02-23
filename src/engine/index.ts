@@ -25,3 +25,4 @@ export { CharacterMovement2D, defaultCharacterMovement2DProps, type CharacterMov
 export { SortingLayerManager, DEFAULT_SORTING_LAYERS, type SortingLayerData } from './SortingLayers';
 export { TilemapCollisionBuilder, createDefaultTilemap, type TilesetAsset, type TilemapAsset, type TilemapLayer, type TileDefData, type MergedRect } from './TilemapData';
 export { SpriteActor, type SpriteActorConfig } from './SpriteActor';
+export { DragSelectionComponent, type DragSelectionResult } from './DragSelectionComponent';

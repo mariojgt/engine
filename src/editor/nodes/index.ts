@@ -649,3 +649,25 @@ export {
   LineTraceByChannelNode, SphereTraceByChannelNode, BoxTraceNode,
   BreakHitResultNode,
 } from './collision/TraceNodes';
+
+// ── For Each Loop Nodes ─────────────────────────────────────
+export {
+  ForEachLoopNode,
+  ForEachLoopWithBreakNode,
+} from './flow-control/ForEachLoopNode';
+
+// ── Drag Selection Nodes ────────────────────────────────────
+export {
+  EnableDragSelectionNode,
+  DisableDragSelectionNode,
+  SetDragSelectionEnabledNode,
+  OnDragSelectionCompleteNode,
+  GetSelectedActorsNode,
+  GetSelectedActorAtIndexNode,
+  SetDragSelectionClassFilterNode,
+  AddDragSelectionClassFilterNode,
+  ClearDragSelectionClassFilterNode,
+  SetDragSelectionStyleNode,
+  IsDragSelectingNode,
+  GetDragSelectionCountNode,
+} from './selection/DragSelectionNodes';

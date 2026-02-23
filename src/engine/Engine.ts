@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { InputManager } from './InputManager';
 import { Scene } from './Scene';
 import { PhysicsWorld } from './PhysicsWorld';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
@@ -14,22 +13,22 @@ import { UIManager } from './UIManager';
 import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
 import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { GameInstance } from './GameInstance';
-import type { Physics2DWorld } from './Physics2DWorld';
-import { AudioEngine } from './AudioSystem';
-import { SaveLoadSystem } from './SaveLoadSystem';
+import { DragSelectionComponent } from './DragSelectionComponent';
 
 export class Engine {
   public scene: Scene;
   public physics: PhysicsWorld;
-  public physics2D: Physics2DWorld | null = null;
-  public input: InputManager;
   public characterControllers: CharacterControllerManager = new CharacterControllerManager();
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
   public uiManager: UIManager = new UIManager();
-  public audio: AudioEngine = new AudioEngine();
-  public saveLoad: SaveLoadSystem = new SaveLoadSystem();
+
+  /** Exposed DragSelectionComponent class for runtime instantiation by blueprint code */
+  public _DragSelectionComponent = DragSelectionComponent;
+
+  /** Play-mode canvas reference for drag selection and other overlay components */
+  public _playCanvas: HTMLCanvasElement | null = null;
 
   /** All controllers created this play session (for central cleanup) */
   private _activeControllers: Controller[] = [];
@@ -67,56 +66,31 @@ export class Engine {
   /** Game Instance blueprint manager — set by editor for creating runtime instances */
   public gameInstanceManager: any = null;
 
-  /** Project-selected Game Instance class ID (from Project Settings) */
+  /** Configured Game Instance class ID from Project Settings (like UE's Game Instance Class) */
   public gameInstanceClassId: string | null = null;
-
-  /**
-   * Optional reference to the Scene2DManager so that Camera 2D blueprint
-   * nodes (which use __engine.scene2DManager.camera2D) work from any
-   * blueprint context at runtime.  Set by the editor before play starts.
-   */
-  public scene2DManager: any = null;
 
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
-    this.input = new InputManager();
   }
 
-  private _cachedScriptContext: ScriptContext | null = null;
-
-  /** Get a cached ScriptContext with all runtime helpers to avoid GC allocations */
-  private _getCachedCtx(go: import('./GameObject').GameObject, dt: number, elapsed: number, print: (v: any) => void): ScriptContext {
-    if (!this._cachedScriptContext) {
-      this._cachedScriptContext = {
-        gameObject: go,
-        deltaTime: dt,
-        elapsedTime: elapsed,
-        print,
-        physics: this.physics,
-        scene: this.scene,
-        uiManager: this.uiManager,
-        meshAssetManager: MeshAssetManager.getInstance(),
-        loadMeshFromAsset,
-        buildThreeMaterialFromAsset,
-        projectManager: this.projectManager,
-        gameInstance: this.gameInstance,
-        engine: this,
-      };
-    } else {
-      this._cachedScriptContext.gameObject = go;
-      this._cachedScriptContext.deltaTime = dt;
-      this._cachedScriptContext.elapsedTime = elapsed;
-      this._cachedScriptContext.print = print;
-      this._cachedScriptContext.physics = this.physics;
-      this._cachedScriptContext.scene = this.scene;
-      this._cachedScriptContext.uiManager = this.uiManager;
-      this._cachedScriptContext.meshAssetManager = MeshAssetManager.getInstance();
-      this._cachedScriptContext.projectManager = this.projectManager;
-      this._cachedScriptContext.gameInstance = this.gameInstance;
-      this._cachedScriptContext.engine = this;
-    }
-    return this._cachedScriptContext;
+  /** Build a ScriptContext with all runtime helpers */
+  private _buildCtx(go: import('./GameObject').GameObject, dt: number, elapsed: number, print: (v: any) => void): ScriptContext {
+    return {
+      gameObject: go,
+      deltaTime: dt,
+      elapsedTime: elapsed,
+      print,
+      physics: this.physics,
+      scene: this.scene,
+      uiManager: this.uiManager,
+      meshAssetManager: MeshAssetManager.getInstance(),
+      loadMeshFromAsset,
+      buildThreeMaterialFromAsset,
+      projectManager: this.projectManager,
+      gameInstance: this.gameInstance,
+      engine: this,
+    };
   }
 
   async init(): Promise<void> {
@@ -130,24 +104,17 @@ export class Engine {
     this._playStarted = true;
     const print = (v: any) => this.onPrint(v);
 
-    // Bind input to the canvas
-    if (canvas) {
-      this.input.unbindEvents();
-      this.input.bindEvents(canvas);
-    }
-
-    // ── 0. Initialize audio engine ──
-    this.audio.init();
-
-    // ── 0. Initialize save/load system (async — populates cache from disk) ──
-    if (this.projectManager?.projectPath) {
-      this.saveLoad.initialize(this.projectManager.projectPath);
-    }
-
-    // ── 0a. Initialize UI overlay ──
+    // ── 0. Initialize UI overlay ──
     if (canvas) {
       this.uiManager.init(canvas);
+      this._playCanvas = canvas;
     }
+
+    // ── 0a. Wire runtime references into Scene so spawnActorFromClass / destroyActor work ──
+    this.scene._runtimePhysics = this.physics;
+    this.scene._runtimeUiManager = this.uiManager;
+    this.scene._runtimePrint = (v: any) => this.onPrint(v);
+    this.scene._runtimeEngine = this;
 
     // ── 0b. Apply PlayerStart spawn position to character/spectator pawns ──
     if (this.playerStartTransform) {
@@ -261,40 +228,48 @@ export class Engine {
       }
     }
 
+    // ── 3. Initialize Game Instance BEFORE any BeginPlay ──
+    // Must happen first so every blueprint can access __gameInstance in BeginPlay.
+    // Uses the class ID configured in Project Settings (like UE's Game Instance Class).
+    // Falls back to the first available Game Instance blueprint if none is configured.
+    if (!this.gameInstance && this.gameInstanceManager) {
+      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
+      let targetAsset = null;
+      if (this.gameInstanceClassId) {
+        targetAsset = assets.find((a: any) => a.id === this.gameInstanceClassId) || null;
+        if (!targetAsset) {
+          console.warn(`[Engine] Configured Game Instance class "${this.gameInstanceClassId}" not found — falling back`);
+        }
+      }
+      if (!targetAsset && assets.length > 0) {
+        targetAsset = assets[0];
+      }
+      if (targetAsset) {
+        this.gameInstance = new GameInstance(targetAsset);
+        console.log(`[Engine] Created Game Instance from "${targetAsset.name}" (id: ${targetAsset.id})`);
+      }
+    }
+    // Fire BeginPlay on Game Instance first (so its variables are ready for other scripts)
+    if (this.gameInstance) {
+      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
+      const giCtx = this._buildCtx(dummyGO, 0, 0, print);
+      this.gameInstance.beginPlay(giCtx);
+    }
+
+    // ── 4. Fire BeginPlay on all actor & controller scripts ──
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx = this._getCachedCtx(go, 0, 0, print);
+        const ctx = this._buildCtx(go, 0, 0, print);
         script.beginPlay(ctx);
       }
     }
     // Fire BeginPlay on controller blueprint scripts
     for (const { go, script } of this._controllerScripts) {
       scriptCount++;
-      const ctx = this._getCachedCtx(go, 0, 0, print);
+      const ctx = this._buildCtx(go, 0, 0, print);
       script.beginPlay(ctx);
-    }
-
-    // ── 4. Initialize Game Instance (persistent across scene loads) ──
-    if (!this.gameInstance && this.gameInstanceManager) {
-      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
-      if (assets.length > 0) {
-        let selectedAsset = assets[0];
-        if (this.gameInstanceClassId) {
-          const found = assets.find(a => a.id === this.gameInstanceClassId);
-          if (found) selectedAsset = found;
-        }
-
-        this.gameInstance = new GameInstance(selectedAsset);
-        console.log(`[Engine] Created Game Instance from "${selectedAsset.name}"`);
-      }
-    }
-    // Fire BeginPlay on Game Instance (only once, even across scene reloads)
-    if (this.gameInstance) {
-      const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-      const giCtx = this._getCachedCtx(dummyGO, 0, 0, print);
-      this.gameInstance.beginPlay(giCtx);
     }
 
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
@@ -303,22 +278,18 @@ export class Engine {
   /** Called when Stop is pressed — fires OnDestroy on all scripts */
   onPlayStopped(): void {
     const print = (v: any) => this.onPrint(v);
-
-    // Unbind runtime input to prevent interfering with editor
-    this.input.unbindEvents();
-
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
       for (const script of go.scripts) {
         scriptCount++;
-        const ctx = this._getCachedCtx(go, 0, this._elapsedTime, print);
+        const ctx = this._buildCtx(go, 0, this._elapsedTime, print);
         script.onDestroy(ctx);
         script.reset();
       }
     }
     // OnDestroy for controller scripts
     for (const { go, script } of this._controllerScripts) {
-      const ctx = this._getCachedCtx(go, 0, this._elapsedTime, print);
+      const ctx = this._buildCtx(go, 0, this._elapsedTime, print);
       script.onDestroy(ctx);
       script.reset();
     }
@@ -334,25 +305,46 @@ export class Engine {
       go.characterController = null;
       go.aiController = null;
       go.controller = null;
+
+      // Dispose AnimationInstance(s) so their event-graph scripts are properly reset
+      const instances = (go as any)._animationInstances as AnimationInstance[] | undefined;
+      if (instances) {
+        for (const inst of instances) {
+          inst.dispose();
+        }
+      }
     }
 
     // Destroy UI overlay
     this.uiManager.destroy();
 
-    // Destroy audio engine (stops all sounds, closes AudioContext)
-    this.audio.destroy();
-
-    // Flush pending save writes and clear save cache
-    this.saveLoad.shutdown();
+    // Clean up drag selection components on all game objects
+    for (const go of this.scene.gameObjects) {
+      if ((go as any).__dragSelection) {
+        (go as any).__dragSelection.destroy();
+        (go as any).__dragSelection = null;
+      }
+      (go as any).__dragSelCallbacks = null;
+    }
+    this._playCanvas = null;
 
     // Destroy Game Instance (only when play fully stops, not on scene transitions)
     if (this.gameInstance) {
       const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-      const giCtx = this._getCachedCtx(dummyGO, 0, this._elapsedTime, print);
+      const giCtx = this._buildCtx(dummyGO, 0, this._elapsedTime, print);
       this.gameInstance.onDestroy(giCtx);
       this.gameInstance = null;
       console.log('[Engine] Game Instance destroyed');
     }
+
+    // Clear runtime references from Scene
+    this.scene._runtimePhysics = null;
+    this.scene._runtimeUiManager = null;
+    this.scene._runtimePrint = null;
+    this.scene._runtimeEngine = null;
+
+    // Clear update callbacks (may have been registered during play)
+    this._onUpdate = [];
 
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
@@ -360,9 +352,6 @@ export class Engine {
   }
 
   update(): void {
-    // Reset per-frame input deltas
-    this.input.update();
-
     const dt = this._clock.getDelta();
 
     // Run scripts on all game objects (tick)
@@ -370,28 +359,24 @@ export class Engine {
       this._elapsedTime += dt;
       const print = (v: any) => this.onPrint(v);
       for (const go of this.scene.gameObjects) {
+        // Skip destroyed actors and actors with tick disabled
+        if (go.isDestroyed || !go.__tickEnabled) continue;
         for (const script of go.scripts) {
-          const ctx = this._getCachedCtx(go, dt, this._elapsedTime, print);
+          const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
           script.tick(ctx);
-        }
-        // Update generic components
-        for (const comp of go.components) {
-          if (comp.enabled && comp.update) {
-            const ctx = this._getCachedCtx(go, dt, this._elapsedTime, print);
-            comp.update(ctx);
-          }
         }
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
-        const ctx = this._getCachedCtx(go, dt, this._elapsedTime, print);
+        if (go.isDestroyed) continue;
+        const ctx = this._buildCtx(go, dt, this._elapsedTime, print);
         script.tick(ctx);
       }
 
       // Tick Game Instance (persistent across scene loads)
       if (this.gameInstance) {
         const dummyGO = this.scene.gameObjects[0] ?? ({ mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' } as any);
-        const giCtx = this._getCachedCtx(dummyGO, dt, this._elapsedTime, print);
+        const giCtx = this._buildCtx(dummyGO, dt, this._elapsedTime, print);
         this.gameInstance.tick(giCtx);
       }
 
@@ -431,7 +416,7 @@ export class Engine {
     }
 
     // Step physics
-    this.physics.step(this.scene);
+    this.physics.step(this.scene, dt);
 
     // Notify update listeners
     for (const cb of this._onUpdate) cb(dt);
