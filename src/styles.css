@@ -7591,3 +7591,1630 @@ button:focus-visible {
   pointer-events: none;
   z-index: 10;
 }
+
+/* ================================================================
+   FEATHER ENGINE — UI/UX ENHANCEMENT LAYER
+   Glassmorphism · Refined Colors · Better Forms · Micro-animations
+   ================================================================ */
+
+/* ── Enhanced Design Tokens ────────────────────────────────────── */
+:root {
+  /* Glassmorphism surfaces */
+  --glass-bg:            rgba(28, 28, 31, 0.72);
+  --glass-bg-heavy:      rgba(24, 24, 27, 0.85);
+  --glass-bg-light:      rgba(39, 39, 42, 0.55);
+  --glass-border:        rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(255, 255, 255, 0.12);
+  --glass-blur:          blur(16px);
+  --glass-blur-heavy:    blur(24px);
+  --glass-blur-light:    blur(10px);
+
+  /* Enhanced accent palette */
+  --accent-gradient:     linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  --accent-glow:         0 0 20px rgba(59, 130, 246, 0.25), 0 0 40px rgba(59, 130, 246, 0.08);
+  --accent-glow-sm:      0 0 8px rgba(59, 130, 246, 0.2);
+
+  /* Refined surface gradients */
+  --surface-gradient:    linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%);
+  --surface-shine:       linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 40%);
+  --surface-inner-glow:  inset 0 1px 0 rgba(255,255,255,0.06);
+
+  /* Better shadows for depth */
+  --shadow-glass:        0 4px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.06);
+  --shadow-glass-lg:     0 8px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255,255,255,0.06);
+  --shadow-float:        0 12px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-inset-soft:   inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-btn-hover:    0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255,255,255,0.06);
+
+  /* Input specific */
+  --input-bg-glass:      rgba(0, 0, 0, 0.25);
+  --input-bg-focus:      rgba(59, 130, 246, 0.06);
+  --input-border:        rgba(255, 255, 255, 0.08);
+  --input-border-hover:  rgba(255, 255, 255, 0.15);
+  --input-border-focus:  rgba(59, 130, 246, 0.6);
+  --input-ring-focus:    0 0 0 3px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.1);
+
+  /* Noise texture for glass depth */
+  --noise-texture:       url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* ================================================================
+   1. GLASSMORPHISM TOOLBAR
+   ================================================================ */
+
+.toolbar {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+  box-shadow: 0 1px 0 0 rgba(0,0,0,0.3), var(--surface-inner-glow) !important;
+}
+
+.toolbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--surface-shine);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.toolbar-title {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+}
+
+/* ── Improved Toolbar Buttons ── */
+.toolbar-btn {
+  border-radius: var(--radius-md) !important;
+  transition: all 180ms var(--ease-out) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.toolbar-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(255,255,255,0.08) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 180ms var(--ease-out);
+  pointer-events: none;
+}
+
+.toolbar-btn:hover::before {
+  opacity: 1;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: var(--glass-border-strong) !important;
+  box-shadow: var(--shadow-btn-hover) !important;
+  transform: translateY(-0.5px);
+}
+
+.toolbar-btn:active {
+  transform: scale(0.97) translateY(0) !important;
+  box-shadow: none !important;
+}
+
+/* ── Enhanced Play/Stop Buttons ── */
+.toolbar-btn.play {
+  background: linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(34,197,94,0.06) 100%) !important;
+  border-color: rgba(34,197,94,0.25) !important;
+  box-shadow: 0 0 16px rgba(34,197,94,0.1), var(--surface-inner-glow) !important;
+  backdrop-filter: blur(8px);
+}
+
+.toolbar-btn.play:hover {
+  background: linear-gradient(135deg, rgba(34,197,94,0.3) 0%, rgba(34,197,94,0.1) 100%) !important;
+  border-color: rgba(34,197,94,0.5) !important;
+  box-shadow: 0 0 24px rgba(34,197,94,0.2), 0 2px 8px rgba(0,0,0,0.3) !important;
+  transform: translateY(-1px) !important;
+}
+
+.toolbar-btn.stop {
+  background: linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(239,68,68,0.06) 100%) !important;
+  border-color: rgba(239,68,68,0.25) !important;
+  box-shadow: 0 0 16px rgba(239,68,68,0.1), var(--surface-inner-glow) !important;
+}
+
+.toolbar-btn.stop:hover {
+  background: linear-gradient(135deg, rgba(239,68,68,0.3) 0%, rgba(239,68,68,0.1) 100%) !important;
+  box-shadow: 0 0 24px rgba(239,68,68,0.2), 0 2px 8px rgba(0,0,0,0.3) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Toolbar separator subtle gradient */
+.toolbar-separator {
+  background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.06) 20%, rgba(255,255,255,0.06) 80%, transparent 100%) !important;
+  width: 1px;
+  height: 20px;
+}
+
+/* ================================================================
+   2. GLASSMORPHISM DROPDOWN MENUS
+   ================================================================ */
+
+.toolbar-dropdown-content {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-glass-lg) !important;
+  padding: 6px !important;
+  overflow: hidden;
+}
+
+.toolbar-dropdown-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--surface-shine);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.toolbar-dropdown-content.show {
+  animation: glass-dropdown-in 200ms var(--ease-spring) !important;
+}
+
+@keyframes glass-dropdown-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.toolbar-dropdown-item {
+  border-radius: var(--radius-md) !important;
+  padding: 8px 14px !important;
+  margin: 1px 0 !important;
+  font-weight: var(--font-medium) !important;
+  transition: all 150ms var(--ease-out) !important;
+  position: relative;
+}
+
+.toolbar-dropdown-item:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+  color: #fff !important;
+  transform: translateX(2px);
+}
+
+.toolbar-dropdown-item .shortcut {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 2px 6px !important;
+  font-size: 10px !important;
+  backdrop-filter: blur(4px);
+}
+
+.toolbar-dropdown-divider {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent) !important;
+  margin: 6px 12px !important;
+}
+
+/* ================================================================
+   3. GLASSMORPHISM CONTEXT MENUS
+   ================================================================ */
+
+.context-menu {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-float) !important;
+  padding: 6px !important;
+  animation: glass-ctx-in 180ms var(--ease-spring) !important;
+}
+
+.context-menu::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--surface-shine);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+@keyframes glass-ctx-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-4px); filter: blur(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+
+.context-menu-item {
+  border-radius: var(--radius-md) !important;
+  padding: 7px 12px !important;
+  margin: 1px 2px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.context-menu-item:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  transform: translateX(2px);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+.context-menu-divider,
+.context-menu-separator {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent) !important;
+  margin: 4px 8px !important;
+}
+
+.context-menu-header {
+  color: var(--color-text-muted) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.08em !important;
+  padding: 6px 12px 4px !important;
+  border-top: 1px solid rgba(255,255,255,0.04) !important;
+}
+
+/* ================================================================
+   4. ENHANCED FORM INPUTS — GLASSMORPHISM STYLE
+   ================================================================ */
+
+/* ── Text / Number Inputs ── */
+.prop-input,
+.mybp-dialog-input,
+.scene-dialog-input,
+.project-dialog-input,
+.cb-dialog-input,
+.struct-field-input,
+.enum-value-input,
+.import-row-input,
+.wbp-prop-input,
+.outliner-search-input,
+.char2d-field input[type="number"],
+.char2d-field input[type="text"] {
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  transition: all 200ms var(--ease-out) !important;
+  font-size: var(--text-sm) !important;
+}
+
+.prop-input:hover,
+.mybp-dialog-input:hover,
+.scene-dialog-input:hover,
+.project-dialog-input:hover,
+.cb-dialog-input:hover,
+.struct-field-input:hover,
+.enum-value-input:hover,
+.import-row-input:hover,
+.wbp-prop-input:hover,
+.outliner-search-input:hover,
+.char2d-field input[type="number"]:hover,
+.char2d-field input[type="text"]:hover {
+  border-color: var(--input-border-hover) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+}
+
+.prop-input:focus,
+.mybp-dialog-input:focus,
+.scene-dialog-input:focus,
+.project-dialog-input:focus,
+.cb-dialog-input:focus,
+.struct-field-input:focus,
+.enum-value-input:focus,
+.import-row-input:focus,
+.wbp-prop-input:focus,
+.outliner-search-input:focus,
+.char2d-field input[type="number"]:focus,
+.char2d-field input[type="text"]:focus {
+  border-color: var(--input-border-focus) !important;
+  box-shadow: var(--input-ring-focus) !important;
+  background: var(--input-bg-focus) !important;
+  outline: none !important;
+}
+
+/* ── Enhanced Select / Dropdowns ── */
+.prop-select,
+.mybp-dialog-select,
+.struct-field-select,
+.import-row-select,
+.wbp-prop-select,
+.wbp-tb-select,
+.wbp-dt-select,
+.bs-detail-select,
+.anim-bs-config-row select,
+.import-dialog-title-line select {
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  padding: 0 28px 0 10px !important;
+  cursor: pointer !important;
+  transition: all 200ms var(--ease-out) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+  background-size: 12px !important;
+}
+
+.prop-select:hover,
+.mybp-dialog-select:hover,
+.struct-field-select:hover,
+.import-row-select:hover,
+.wbp-prop-select:hover,
+.wbp-tb-select:hover,
+.wbp-dt-select:hover,
+.bs-detail-select:hover {
+  border-color: var(--input-border-hover) !important;
+  background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.prop-select:focus,
+.mybp-dialog-select:focus,
+.struct-field-select:focus,
+.import-row-select:focus,
+.wbp-prop-select:focus {
+  border-color: var(--input-border-focus) !important;
+  box-shadow: var(--input-ring-focus) !important;
+  outline: none !important;
+}
+
+/* Custom select option styling (where browser allows) */
+.prop-select option,
+.mybp-dialog-select option,
+.struct-field-select option {
+  background: #27272a;
+  color: #fafafa;
+  padding: 8px;
+}
+
+/* ── Enhanced Color Inputs ── */
+.prop-color-input,
+.wbp-prop-color-swatch {
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-inset-soft), 0 1px 3px rgba(0,0,0,0.2) !important;
+  transition: all 200ms var(--ease-out) !important;
+  cursor: pointer !important;
+}
+
+.prop-color-input:hover,
+.wbp-prop-color-swatch:hover {
+  border-color: var(--input-border-hover) !important;
+  box-shadow: var(--shadow-inset-soft), 0 2px 8px rgba(0,0,0,0.3) !important;
+  transform: scale(1.05);
+}
+
+/* ── Enhanced Checkboxes ── */
+.prop-checkbox,
+.wbp-prop-check,
+.import-row-checkbox,
+.char2d-field input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  background: var(--input-bg-glass) !important;
+  border: 1.5px solid var(--input-border) !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 200ms var(--ease-out) !important;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.prop-checkbox:hover,
+.wbp-prop-check:hover,
+.import-row-checkbox:hover {
+  border-color: var(--input-border-hover) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+}
+
+.prop-checkbox:checked,
+.wbp-prop-check:checked,
+.import-row-checkbox:checked,
+.char2d-field input[type="checkbox"]:checked {
+  background: var(--color-blue) !important;
+  border-color: var(--color-blue) !important;
+  box-shadow: var(--accent-glow-sm) !important;
+}
+
+.prop-checkbox:checked::after,
+.wbp-prop-check:checked::after,
+.import-row-checkbox:checked::after,
+.char2d-field input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ── Range Sliders ── */
+.cb-thumb-slider,
+input[type="range"] {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  height: 4px !important;
+  background: rgba(255,255,255,0.08) !important;
+  border-radius: 2px !important;
+  outline: none !important;
+}
+
+.cb-thumb-slider::-webkit-slider-thumb,
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  background: var(--color-blue) !important;
+  cursor: pointer !important;
+  border: 2px solid rgba(255,255,255,0.2) !important;
+  box-shadow: 0 0 8px rgba(59,130,246,0.3) !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.cb-thumb-slider::-webkit-slider-thumb:hover,
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2) !important;
+  box-shadow: 0 0 14px rgba(59,130,246,0.5) !important;
+}
+
+/* ================================================================
+   5. ENHANCED SEARCH INPUTS
+   ================================================================ */
+
+/* ── Blueprint Context Search ── */
+.bp-context-search {
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 8px 12px 8px 32px !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  transition: all 200ms var(--ease-out) !important;
+  position: relative;
+}
+
+.bp-context-search:focus {
+  border-color: var(--input-border-focus) !important;
+  box-shadow: var(--input-ring-focus) !important;
+  background: var(--input-bg-focus) !important;
+}
+
+/* ── Content Browser Search ── */
+.cb-search-wrap {
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  height: 26px !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  transition: all 200ms var(--ease-out) !important;
+  gap: 6px !important;
+}
+
+.cb-search-wrap:hover {
+  border-color: var(--input-border-hover) !important;
+}
+
+.cb-search-wrap:focus-within {
+  border-color: var(--input-border-focus) !important;
+  box-shadow: var(--input-ring-focus) !important;
+  background: var(--input-bg-focus) !important;
+}
+
+/* ── Widget Blueprint Search ── */
+.wbp-search-box {
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  transition: all 200ms var(--ease-out) !important;
+  margin: 6px 8px !important;
+}
+
+.wbp-search-box:focus-within {
+  border-color: var(--input-border-focus) !important;
+  box-shadow: var(--input-ring-focus) !important;
+  background: var(--input-bg-focus) !important;
+}
+
+/* ── Outliner Search ── */
+.outliner-search {
+  padding: 8px !important;
+  background: transparent !important;
+}
+
+.outliner-search-input {
+  padding: 6px 10px 6px 30px !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--input-bg-glass) !important;
+  font-size: 11px !important;
+}
+
+/* ================================================================
+   6. GLASSMORPHISM PANELS & HEADERS
+   ================================================================ */
+
+/* ── Panel Headers ── */
+.panel-header {
+  background: rgba(28, 28, 31, 0.6) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+  box-shadow: var(--surface-inner-glow) !important;
+  position: relative;
+}
+
+.panel-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59,130,246,0.15), transparent);
+  pointer-events: none;
+}
+
+/* ── Property Group Headers ── */
+.prop-group-header {
+  background: rgba(39, 39, 42, 0.5) !important;
+  backdrop-filter: blur(6px) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  border-left: 2px solid transparent !important;
+  border-radius: var(--radius-md) !important;
+  transition: all 200ms var(--ease-out) !important;
+}
+
+.prop-group-header:hover {
+  background: rgba(39, 39, 42, 0.7) !important;
+  border-left-color: var(--color-blue) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+}
+
+/* ── Physics Section Headers ── */
+.physics-section {
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+}
+
+.physics-section-header {
+  background: rgba(39, 39, 42, 0.5) !important;
+  transition: all 200ms var(--ease-out) !important;
+}
+
+.physics-section-header:hover {
+  background: rgba(39, 39, 42, 0.7) !important;
+}
+
+/* ================================================================
+   7. GLASSMORPHISM DIALOGS & MODALS
+   ================================================================ */
+
+/* ── Dialog Overlays ── */
+.mybp-dialog-overlay,
+.scene-dialog-overlay,
+.project-dialog-overlay,
+.import-dialog-overlay,
+.cb-dialog-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(8px) saturate(0.8) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(0.8) !important;
+}
+
+/* ── Dialog Cards ── */
+.mybp-dialog,
+.scene-dialog,
+.import-dialog,
+.import-progress-dialog,
+.cb-dialog {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-float), 0 0 80px rgba(0,0,0,0.3) !important;
+  overflow: hidden;
+}
+
+.mybp-dialog::before,
+.scene-dialog::before,
+.import-dialog::before,
+.cb-dialog::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--surface-shine);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* ── Project Dialog ── */
+.project-dialog {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-float), 0 0 120px rgba(59,130,246,0.08) !important;
+}
+
+.project-dialog-header {
+  background: rgba(0,0,0,0.2) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.project-dialog-title {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Dialog Buttons ── */
+.mybp-dialog-btn.ok,
+.scene-dialog-btn.confirm,
+.project-dialog-btn.primary,
+.import-dialog-btn-import,
+.cb-dialog-btn-primary {
+  background: var(--accent-gradient) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: var(--font-semibold) !important;
+  box-shadow: 0 2px 12px rgba(59,130,246,0.3) !important;
+  transition: all 200ms var(--ease-out) !important;
+  border-radius: var(--radius-md) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.mybp-dialog-btn.ok:hover,
+.scene-dialog-btn.confirm:hover,
+.project-dialog-btn.primary:hover,
+.import-dialog-btn-import:hover,
+.cb-dialog-btn-primary:hover {
+  box-shadow: 0 4px 20px rgba(59,130,246,0.4) !important;
+  transform: translateY(-1px) !important;
+  filter: brightness(1.1) !important;
+}
+
+.mybp-dialog-btn.ok:active,
+.scene-dialog-btn.confirm:active,
+.project-dialog-btn.primary:active,
+.import-dialog-btn-import:active,
+.cb-dialog-btn-primary:active {
+  transform: translateY(0) scale(0.98) !important;
+  box-shadow: 0 1px 6px rgba(59,130,246,0.2) !important;
+}
+
+.mybp-dialog-btn.cancel,
+.scene-dialog-btn.cancel,
+.import-dialog-btn-cancel,
+.cb-dialog-btn {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  transition: all 200ms var(--ease-out) !important;
+}
+
+.mybp-dialog-btn.cancel:hover,
+.scene-dialog-btn.cancel:hover,
+.import-dialog-btn-cancel:hover,
+.cb-dialog-btn:hover {
+  background: rgba(255,255,255,0.08) !important;
+  border-color: var(--glass-border-strong) !important;
+}
+
+/* ================================================================
+   8. GLASSMORPHISM NODE EDITOR PALETTE
+   ================================================================ */
+
+.bp-context-menu {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-float) !important;
+  animation: glass-ctx-in 180ms var(--ease-spring) !important;
+}
+
+.bp-context-search {
+  margin: 8px !important;
+  background: var(--input-bg-glass) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+}
+
+.bp-context-item {
+  border-radius: var(--radius-sm) !important;
+  transition: all 120ms var(--ease-out) !important;
+  margin: 0 6px !important;
+}
+
+.bp-context-item:hover,
+.bp-context-item.highlighted {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-left-color: var(--color-blue) !important;
+  transform: translateX(2px);
+}
+
+/* ================================================================
+   9. ENHANCED SCROLLBARS
+   ================================================================ */
+
+::-webkit-scrollbar {
+  width: 7px !important;
+  height: 7px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent !important;
+  margin: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  background-clip: padding-box !important;
+  transition: background 0.3s !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  background-clip: padding-box !important;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(59, 130, 246, 0.3) !important;
+  background-clip: padding-box !important;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+/* ================================================================
+   10. ENHANCED CONTENT BROWSER
+   ================================================================ */
+
+/* ── Toolbar ── */
+.cb-toolbar {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+/* ── Filter Bar ── */
+.cb-filter-bar {
+  background: rgba(28, 28, 31, 0.5) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* ── Filter Pills ── */
+.cb-filter-pill {
+  background: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 12px !important;
+  color: var(--color-blue) !important;
+  font-weight: var(--font-medium) !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.cb-filter-pill:hover {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+/* ── Asset Cards ── */
+.cb-card {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  transition: all 200ms var(--ease-spring) !important;
+  background: rgba(255,255,255,0.02) !important;
+}
+
+.cb-card:hover {
+  background: rgba(255,255,255,0.06) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(59,130,246,0.08) !important;
+}
+
+.cb-card.selected {
+  border-color: var(--color-blue) !important;
+  background: rgba(59, 130, 246, 0.08) !important;
+  box-shadow: 0 0 0 1px var(--color-blue), 0 4px 16px rgba(59,130,246,0.15) !important;
+}
+
+.cb-card-thumb {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid rgba(255,255,255,0.05) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+  overflow: hidden;
+}
+
+/* ── Tree Items ── */
+.cb-tree-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 4px !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.cb-tree-item:hover {
+  background: rgba(255,255,255,0.05) !important;
+}
+
+.cb-tree-item.selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  box-shadow: inset 3px 0 0 var(--color-blue) !important;
+}
+
+/* ── Breadcrumbs ── */
+.cb-breadcrumb-item {
+  border-radius: var(--radius-sm) !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.cb-breadcrumb-item:hover {
+  background: rgba(255,255,255,0.08) !important;
+}
+
+/* ── Status Bar ── */
+.cb-status-bar {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: blur(8px) !important;
+  border-top: 1px solid var(--glass-border) !important;
+}
+
+/* ── Toolbar Actions ── */
+.cb-toolbar-action-primary {
+  background: var(--accent-gradient) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 1px 6px rgba(59,130,246,0.25) !important;
+  transition: all 180ms var(--ease-out) !important;
+}
+
+.cb-toolbar-action-primary:hover {
+  box-shadow: 0 2px 12px rgba(59,130,246,0.4) !important;
+  transform: translateY(-0.5px) !important;
+  filter: brightness(1.1) !important;
+}
+
+/* ================================================================
+   11. VIEWPORT TOOLBAR GLASSMORPHISM
+   ================================================================ */
+
+.viewport-toolbar {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
+}
+
+.vp-tb-btn {
+  border-radius: var(--radius-sm) !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.vp-tb-btn:hover {
+  background: rgba(255,255,255,0.08) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
+}
+
+.vp-tb-btn.vp-active {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  box-shadow: var(--accent-glow-sm) !important;
+}
+
+.vp-tb-dropdown-content {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-glass-lg) !important;
+  padding: 4px !important;
+}
+
+.vp-tb-dd-item {
+  border-radius: var(--radius-sm) !important;
+  padding: 5px 12px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.vp-tb-dd-item:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+/* Viewport Stats Overlay */
+.viewport-stats {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-glass) !important;
+}
+
+/* Viewport Notifications */
+.vp-notification {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-glass) !important;
+}
+
+/* ================================================================
+   12. ENHANCED OUTPUT LOG
+   ================================================================ */
+
+.output-log {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border-top: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.3) !important;
+}
+
+.output-log-header {
+  background: rgba(0, 0, 0, 0.2) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.output-log-entry:hover {
+  background: rgba(59, 130, 246, 0.06) !important;
+}
+
+/* ================================================================
+   13. ENHANCED MY BLUEPRINT SIDEBAR
+   ================================================================ */
+
+.my-blueprint-sidebar {
+  background: rgba(28, 28, 31, 0.7) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-right: 1px solid var(--glass-border) !important;
+}
+
+.mybp-title {
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.mybp-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 4px !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.mybp-item:hover {
+  background: rgba(255,255,255,0.05) !important;
+}
+
+.mybp-item.active {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-left-color: var(--color-blue) !important;
+  box-shadow: inset 0 0 12px rgba(59,130,246,0.05) !important;
+}
+
+.mybp-add-btn {
+  border-radius: var(--radius-sm) !important;
+  width: 22px !important;
+  height: 22px !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.mybp-add-btn:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: var(--color-blue) !important;
+  transform: scale(1.1);
+}
+
+/* ================================================================
+   14. ENHANCED SCENE PICKER
+   ================================================================ */
+
+.scene-picker-list {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  overflow: hidden;
+}
+
+.scene-picker-item {
+  transition: all 150ms var(--ease-out) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.03) !important;
+}
+
+.scene-picker-item:hover {
+  background: rgba(255,255,255,0.05) !important;
+}
+
+.scene-picker-item.active {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.scene-picker-badge {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 12px !important;
+}
+
+/* ================================================================
+   15. ENHANCED WORLD OUTLINER
+   ================================================================ */
+
+.outliner-item,
+.outliner-go-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 4px !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.outliner-item:hover,
+.outliner-go-item:hover {
+  background: rgba(255,255,255,0.05) !important;
+}
+
+.outliner-item.selected,
+.outliner-go-item.selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-left: 2px solid var(--color-blue) !important;
+  box-shadow: inset 0 0 12px rgba(59,130,246,0.05) !important;
+}
+
+.outliner-category-header {
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 4px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.outliner-category-header:hover {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+/* ================================================================
+   16. DOCK POSITION MENU & FLOATING
+   ================================================================ */
+
+.dock-position-menu {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-glass-lg) !important;
+}
+
+.dock-menu-item {
+  border-radius: var(--radius-sm) !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.dock-menu-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+.dock-menu-item:active {
+  background: rgba(59, 130, 246, 0.18) !important;
+}
+
+/* ── Floating Panels ── */
+.dockview-theme-dark .dv-floating-groupview {
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-float), 0 0 0 1px rgba(59,130,246,0.08) !important;
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+}
+
+/* ================================================================
+   17. ENHANCED TAB BARS
+   ================================================================ */
+
+.graph-tab-bar,
+.actor-editor-tab-bar,
+.content-browser-tab-bar,
+.anim-bp-tab-bar,
+.wbp-panel-tabs,
+.import-tab-bar {
+  background: rgba(24, 24, 27, 0.7) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+.graph-tab,
+.content-browser-tab,
+.anim-bp-tab,
+.wbp-panel-tab,
+.import-tab-btn {
+  transition: all 180ms var(--ease-out) !important;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+  position: relative;
+}
+
+.graph-tab:hover,
+.content-browser-tab:hover,
+.anim-bp-tab:hover,
+.wbp-panel-tab:hover,
+.import-tab-btn:hover {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+.graph-tab.active,
+.content-browser-tab.active,
+.anim-bp-tab.active,
+.wbp-panel-tab.active,
+.import-tab-btn.active {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+/* Active tab glow line */
+.graph-tab.active::after,
+.content-browser-tab.active::after,
+.wbp-panel-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: var(--color-blue);
+  border-radius: 1px 1px 0 0;
+  box-shadow: 0 0 8px rgba(59,130,246,0.4);
+}
+
+/* ================================================================
+   18. NODE EDITOR ENHANCEMENTS
+   ================================================================ */
+
+/* ── Node Cards ── */
+.fe-node .node,
+.fe-node [data-testid="node"],
+.rete-node {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4), var(--surface-inner-glow) !important;
+}
+
+.fe-node:hover .node,
+.fe-node:hover [data-testid="node"],
+.rete-node:hover {
+  box-shadow: 0 6px 28px rgba(0,0,0,0.5), var(--surface-inner-glow) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
+
+.fe-selected .fe-node .node,
+.fe-selected .fe-node [data-testid="node"] {
+  border-color: var(--color-blue) !important;
+  box-shadow: 0 0 0 1px var(--color-blue), 0 4px 24px rgba(59,130,246,0.2), 0 0 48px rgba(59,130,246,0.08) !important;
+}
+
+.fe-node-cat-strip {
+  background: rgba(39, 39, 42, 0.6) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+/* ── Minimap ── */
+.fe-minimap {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--shadow-glass) !important;
+}
+
+/* ================================================================
+   19. IMPROVED COMPILATION / STATUS BUTTONS
+   ================================================================ */
+
+.ae-compile-btn.ae-compile-ok {
+  background: linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%) !important;
+  border: 1px solid rgba(34,197,94,0.2) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.ae-compile-btn.ae-compile-dirty {
+  background: linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%) !important;
+  border: 1px solid rgba(245,158,11,0.2) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.ae-compile-btn.ae-compile-error {
+  background: linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.04) 100%) !important;
+  border: 1px solid rgba(239,68,68,0.2) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.ae-save-btn {
+  background: linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(59,130,246,0.04) 100%) !important;
+  border: 1px solid rgba(59,130,246,0.2) !important;
+  border-radius: var(--radius-md) !important;
+  transition: all 180ms var(--ease-out) !important;
+}
+
+.ae-save-btn:hover {
+  box-shadow: var(--accent-glow-sm) !important;
+  transform: translateY(-0.5px);
+}
+
+/* ================================================================
+   20. ENHANCED PROGRESS BARS
+   ================================================================ */
+
+.import-progress-bar-bg {
+  background: rgba(255,255,255,0.06) !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+  height: 8px !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+}
+
+.import-progress-bar {
+  background: var(--accent-gradient) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 12px rgba(59,130,246,0.3) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.import-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  animation: progress-shimmer 1.5s infinite;
+}
+
+@keyframes progress-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* ================================================================
+   21. ENHANCED XYZ LABELS & VARIABLE DOTS
+   ================================================================ */
+
+.prop-xyz-label {
+  border-radius: var(--radius-sm) !important;
+  font-size: 9px !important;
+  padding: 2px 0 !important;
+  transition: all 150ms var(--ease-out) !important;
+}
+
+.prop-xyz-label.x { background: rgba(239,68,68,0.5) !important; box-shadow: 0 1px 4px rgba(239,68,68,0.2); }
+.prop-xyz-label.y { background: rgba(34,197,94,0.5) !important; box-shadow: 0 1px 4px rgba(34,197,94,0.2); }
+.prop-xyz-label.z { background: rgba(59,130,246,0.5) !important; box-shadow: 0 1px 4px rgba(59,130,246,0.2); }
+
+/* Variable type dots with glow */
+.mybp-var-dot {
+  box-shadow: 0 0 6px currentColor;
+  transition: all 200ms var(--ease-out) !important;
+}
+
+.mybp-item:hover .mybp-var-dot {
+  transform: scale(1.15);
+  box-shadow: 0 0 10px currentColor;
+}
+
+/* ================================================================
+   22. DOCKVIEW TAB REFINEMENTS
+   ================================================================ */
+
+.dockview-theme-dark .tab {
+  transition: all 180ms var(--ease-out) !important;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+}
+
+.dockview-theme-dark .tab:hover:not(.active-tab) {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+.dockview-theme-dark .tab.active-tab {
+  background: rgba(59, 130, 246, 0.06) !important;
+  border-bottom: 2px solid var(--color-blue) !important;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.1) !important;
+}
+
+/* ================================================================
+   23. FOCUSED GLOW EFFECT FOR ACTIVE TAB WIDGETS
+   ================================================================ */
+
+/* Dockview active group subtle indicator */
+.dockview-theme-dark .groupview.active-group .tabs-container {
+  box-shadow: inset 0 -1px 0 rgba(59,130,246,0.2) !important;
+}
+
+/* ================================================================
+   24. WIDGET BLUEPRINT EDITOR ENHANCEMENTS
+   ================================================================ */
+
+.wbp-toolbar {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  box-shadow: var(--surface-inner-glow) !important;
+}
+
+.wbp-designer-toolbar {
+  background: rgba(28, 28, 31, 0.6) !important;
+  backdrop-filter: blur(6px) !important;
+}
+
+/* ── Mode Toggle ── */
+.wbp-tb-mode {
+  border-radius: var(--radius-md) !important;
+  transition: all 180ms var(--ease-out) !important;
+}
+
+.wbp-tb-mode-designer {
+  border-radius: var(--radius-md) 0 0 var(--radius-md) !important;
+}
+
+.wbp-tb-mode-graph {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0 !important;
+}
+
+.wbp-tb-mode-active {
+  background: var(--accent-gradient) !important;
+  border-color: transparent !important;
+  box-shadow: 0 1px 8px rgba(59,130,246,0.3) !important;
+}
+
+/* ── Hierarchy Rows ── */
+.wbp-hier-row {
+  border-radius: var(--radius-sm) !important;
+  margin: 0 4px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.wbp-hier-row:hover {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+.wbp-hier-row.selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  box-shadow: inset 3px 0 0 var(--color-blue) !important;
+}
+
+/* ── Palette Items ── */
+.wbp-palette-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 0 4px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.wbp-palette-item:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+  transform: translateX(2px);
+}
+
+/* ================================================================
+   25. IMPROVED ASSET CARDS IN GRID
+   ================================================================ */
+
+.asset-card {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  transition: all 200ms var(--ease-spring) !important;
+}
+
+.asset-card:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+  transform: translateY(-2px) scale(1.02) !important;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3) !important;
+}
+
+.asset-card.selected {
+  border-color: var(--color-blue) !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 0 0 1px var(--color-blue), 0 4px 12px rgba(59,130,246,0.15) !important;
+}
+
+.asset-card-icon {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+  box-shadow: var(--shadow-inset-soft) !important;
+}
+
+/* ================================================================
+   26. ENHANCED DRAG & DROP
+   ================================================================ */
+
+.asset-drag-ghost {
+  background: var(--accent-gradient) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.3), 0 0 0 1px rgba(255,255,255,0.1) !important;
+  backdrop-filter: blur(4px) !important;
+  font-weight: var(--font-semibold) !important;
+}
+
+.mesh-drop-zone {
+  border: 2px dashed rgba(255,255,255,0.08) !important;
+  border-radius: var(--radius-lg) !important;
+  transition: all 250ms var(--ease-out) !important;
+  background: rgba(0,0,0,0.1) !important;
+}
+
+.mesh-drop-zone:hover {
+  border-color: rgba(59,130,246,0.3) !important;
+  background: rgba(59,130,246,0.04) !important;
+}
+
+.mesh-drop-zone.drag-over {
+  border-color: var(--color-blue) !important;
+  background: rgba(59,130,246,0.08) !important;
+  box-shadow: inset 0 0 30px rgba(59,130,246,0.08), 0 0 0 1px var(--color-blue) !important;
+}
+
+/* ================================================================
+   27. GLOBAL MICRO-ANIMATION REFINEMENTS
+   ================================================================ */
+
+/* Smooth hover for all clickable tree/list items */
+.content-browser-item,
+.sorting-layer-item,
+.tile-layer-item,
+.folder-tree-item {
+  transition: all 150ms var(--ease-out) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+/* Subtle pulse for recording/play states */
+@keyframes enhanced-stop-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(239,68,68,0.1); }
+  50% { box-shadow: 0 0 24px rgba(239,68,68,0.25); }
+}
+
+.toolbar-btn.stop {
+  animation: enhanced-stop-pulse 2s ease-in-out infinite !important;
+}
+
+/* ── Viewport play mode enhanced glow ── */
+.viewport-container.play-mode {
+  box-shadow: inset 0 0 0 2px var(--color-green), inset 0 0 30px rgba(34,197,94,0.06) !important;
+  animation: play-mode-glow 3s ease-in-out infinite;
+}
+
+@keyframes play-mode-glow {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--color-green), inset 0 0 30px rgba(34,197,94,0.04); }
+  50% { box-shadow: inset 0 0 0 2px var(--color-green), inset 0 0 40px rgba(34,197,94,0.08); }
+}
+
+/* ── Enhanced selection highlight ── */
+::selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: #fff !important;
+}
+
+/* ── Focus ring refinement ── */
+*:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.6) !important;
+  outline-offset: 2px !important;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Tooltip-style hover previews ── */
+.cb-preview-tooltip {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-float) !important;
+}
+
+/* ================================================================
+   28. PRESET CARDS & SPECIAL INTERACTIONS
+   ================================================================ */
+
+.cb-preset-card {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border: 2px solid rgba(255,255,255,0.06) !important;
+  border-radius: var(--radius-xl) !important;
+  transition: all 250ms var(--ease-spring) !important;
+  backdrop-filter: blur(4px);
+}
+
+.cb-preset-card:hover {
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  background: rgba(59, 130, 246, 0.06) !important;
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.1) !important;
+}
+
+.cb-preset-card.selected {
+  border-color: var(--color-blue) !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 0 0 1px var(--color-blue), 0 4px 20px rgba(59,130,246,0.2) !important;
+}
+
+/* ================================================================
+   29. VIEWPORT CONTEXT MENU GLASSMORPHISM
+   ================================================================ */
+
+.vp-context-menu {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur-heavy) !important;
+  -webkit-backdrop-filter: var(--glass-blur-heavy) !important;
+  border: 1px solid var(--glass-border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-float) !important;
+  padding: 4px !important;
+  animation: glass-ctx-in 180ms var(--ease-spring) !important;
+}
+
+.vp-ctx-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 2px !important;
+  transition: all 120ms var(--ease-out) !important;
+}
+
+.vp-ctx-item:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+.vp-ctx-separator {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent) !important;
+  margin: 4px 8px !important;
+}
+
+/* ================================================================
+   30. ANIMATION BLUEPRINT EDITOR GLASS
+   ================================================================ */
+
+.anim-graph-props {
+  background: rgba(28, 28, 31, 0.7) !important;
+  backdrop-filter: blur(6px) !important;
+  border-left: 1px solid var(--glass-border) !important;
+}
+
+.anim-rule-group {
+  border: 1px solid rgba(255,255,255,0.05) !important;
+  border-radius: var(--radius-md) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+.anim-bs-card {
+  border: 1px solid rgba(255,255,255,0.05) !important;
+  border-radius: var(--radius-lg) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+  transition: all 200ms var(--ease-out) !important;
+}
+
+.anim-bs-card:hover {
+  border-color: rgba(255,255,255,0.1) !important;
+}
+
+/* ================================================================
+   END — FEATHER ENGINE UI/UX ENHANCEMENTS
+   ================================================================ */
