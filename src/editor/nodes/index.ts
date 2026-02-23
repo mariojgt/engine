@@ -612,6 +612,7 @@ export {
 
 // ── Audio Nodes ─────────────────────────────────────────────
 export {
+  SoundCueSelectControl,
   PlaySound2DNode,
   PlaySoundAtLocationNode,
   StopSoundNode,
@@ -654,6 +655,7 @@ export {
 export {
   ForEachLoopNode,
   ForEachLoopWithBreakNode,
+  ForEachActorLoopNode,
 } from './flow-control/ForEachLoopNode';
 
 // ── Drag Selection Nodes ────────────────────────────────────

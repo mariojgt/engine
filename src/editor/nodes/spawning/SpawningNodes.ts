@@ -17,6 +17,7 @@ import {
   registerNode,
   getClassRefSocket,
 } from '../sockets';
+import { SoundCueSelectControl } from '../audio/AudioNodes';
 import { socketForType } from '../variables/VariableNodes';
 import type { VarType } from '../../BlueprintData';
 
@@ -180,10 +181,13 @@ registerNode('Spawn Emitter at Location', 'Spawning', () => new SpawnEmitterAtLo
 //  Plays a sound effect at a world position.
 // ============================================================
 export class SpawnSoundAtLocationNode extends ClassicPreset.Node {
-  constructor() {
+  soundCueId: string = '';
+
+  constructor(cueId: string = '', cueName: string = '(none)') {
     super('Spawn Sound at Location');
+    this.soundCueId = cueId;
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('sound', new ClassicPreset.Input(strSocket, 'Sound'));
+    this.addControl('soundCue', new SoundCueSelectControl(cueId, cueName));
     this.addInput('locX', new ClassicPreset.Input(numSocket, 'Location X'));
     this.addInput('locY', new ClassicPreset.Input(numSocket, 'Location Y'));
     this.addInput('locZ', new ClassicPreset.Input(numSocket, 'Location Z'));

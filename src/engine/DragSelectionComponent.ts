@@ -85,6 +85,8 @@ export class DragSelectionComponent {
   private _canvas: HTMLCanvasElement | null = null;
   private _overlayEl: HTMLDivElement | null = null;
   private _lastResult: DragSelectionResult | null = null;
+  private _destroyed = false;
+  private _initialised = false;
 
   // Scene & camera refs (set at init)
   private _scene: any = null;       // engine Scene
@@ -107,6 +109,14 @@ export class DragSelectionComponent {
    * @param engine  The engine Engine (has scene2DManager, playerControllers)
    */
   init(canvas: HTMLCanvasElement, scene: any, engine: any): void {
+    // If already initialised, tear down previous listeners first to avoid
+    // leaking duplicate handlers (e.g. if init() is called more than once).
+    if (this._initialised) {
+      this._removeListeners();
+    }
+
+    this._destroyed = false;
+    this._initialised = true;
     this._canvas = canvas;
     this._scene = scene;
     this._engine = engine;
@@ -114,13 +124,15 @@ export class DragSelectionComponent {
     // Create the overlay element — append to document.body with fixed
     // positioning so it's always correctly placed over the canvas
     // regardless of the canvas's DOM hierarchy.
-    this._overlayEl = document.createElement('div');
-    this._overlayEl.style.position = 'fixed';
-    this._overlayEl.style.pointerEvents = 'none';
-    this._overlayEl.style.zIndex = '10000'; // above everything
-    this._overlayEl.style.display = 'none';
-    this._overlayEl.style.boxSizing = 'border-box';
-    document.body.appendChild(this._overlayEl);
+    if (!this._overlayEl) {
+      this._overlayEl = document.createElement('div');
+      this._overlayEl.style.position = 'fixed';
+      this._overlayEl.style.pointerEvents = 'none';
+      this._overlayEl.style.zIndex = '10000'; // above everything
+      this._overlayEl.style.display = 'none';
+      this._overlayEl.style.boxSizing = 'border-box';
+      document.body.appendChild(this._overlayEl);
+    }
 
     this._applyOverlayStyle();
 
@@ -141,17 +153,16 @@ export class DragSelectionComponent {
 
   /** Tear down — remove listeners and overlay */
   destroy(): void {
-    if (this._canvas && this._onMouseDown) {
-      this._canvas.removeEventListener('mousedown', this._onMouseDown);
-    }
-    if (this._onMouseMove) {
-      document.removeEventListener('mousemove', this._onMouseMove);
-    }
-    if (this._onMouseUp) {
-      document.removeEventListener('mouseup', this._onMouseUp);
-    }
-    if (this._overlayEl && this._overlayEl.parentElement) {
-      this._overlayEl.parentElement.removeChild(this._overlayEl);
+    this._destroyed = true;
+    this._initialised = false;
+    this._isDragging = false;
+    this._mouseDown = false;
+    this._removeListeners();
+    if (this._overlayEl) {
+      this._overlayEl.style.display = 'none';
+      if (this._overlayEl.parentElement) {
+        this._overlayEl.parentElement.removeChild(this._overlayEl);
+      }
     }
     this._overlayEl = null;
     this._canvas = null;
@@ -161,6 +172,22 @@ export class DragSelectionComponent {
     this._lastResult = null;
     this.onSelectionComplete = null;
     this.onSelectionUpdated = null;
+  }
+
+  /** Remove event listeners from canvas and document */
+  private _removeListeners(): void {
+    if (this._canvas && this._onMouseDown) {
+      this._canvas.removeEventListener('mousedown', this._onMouseDown);
+    }
+    if (this._onMouseMove) {
+      document.removeEventListener('mousemove', this._onMouseMove);
+    }
+    if (this._onMouseUp) {
+      document.removeEventListener('mouseup', this._onMouseUp);
+    }
+    this._onMouseDown = null;
+    this._onMouseMove = null;
+    this._onMouseUp = null;
   }
 
   // ================================================================
@@ -211,6 +238,7 @@ export class DragSelectionComponent {
   // ================================================================
 
   private _handleMouseDown(e: MouseEvent): void {
+    if (this._destroyed || !this._initialised) return;
     if (!this.enabled) return;
     if (e.button !== this.mouseButton) return;
 
@@ -224,6 +252,7 @@ export class DragSelectionComponent {
   }
 
   private _handleMouseMove(e: MouseEvent): void {
+    if (this._destroyed || !this._initialised) return;
     if (!this.enabled || !this._mouseDown) return;
 
     const canvasRect = this._canvas!.getBoundingClientRect();
@@ -250,6 +279,7 @@ export class DragSelectionComponent {
   }
 
   private _handleMouseUp(e: MouseEvent): void {
+    if (this._destroyed || !this._initialised) return;
     if (!this.enabled) return;
     if (e.button !== this.mouseButton) return;
 

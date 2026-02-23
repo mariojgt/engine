@@ -22,6 +22,7 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
 import { TextureLibrary } from './TextureLibrary';
 import { FontLibrary } from './FontLibrary';
+import { SoundLibrary } from './SoundLibrary';
 import {
   serializeScene,
   deserializeScene,
@@ -107,6 +108,8 @@ const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
+const SOUNDS_DIR = 'Sounds';
+const SOUND_CUES_DIR = 'SoundCues';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const FOLDER_STRUCTURE_FILE = 'Config/folders.json';
@@ -373,6 +376,9 @@ export class ProjectManager {
       // Load font library
       await this._loadFonts();
 
+      // Load sound library (imported audio + sound cues)
+      await this._loadSounds();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -464,6 +470,10 @@ export class ProjectManager {
       // Save font library
       await this._saveFonts();
       console.log('[ProjectManager]   ✓ fonts');
+
+      // Save sound library (imported audio + sound cues)
+      await this._saveSounds();
+      console.log('[ProjectManager]   ✓ sounds & sound cues');
 
       // Save folder structure
       await this._saveFolderStructure();
@@ -1352,6 +1362,126 @@ export class ProjectManager {
 
     if (allTextures.length > 0) {
       await texLib.importAll(allTextures);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Sounds & Sound Cues
+  // ============================================================
+
+  private async _saveSounds(): Promise<void> {
+    if (!this._projectPath) return;
+    const soundLib = SoundLibrary.instance;
+    if (!soundLib) return;
+
+    // Save imported sound assets
+    const soundDir = `${this._projectPath}/${SOUNDS_DIR}`;
+    const sounds = soundLib.exportAllSounds();
+    for (const asset of sounds) {
+      const safeName = asset.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${soundDir}/${safeName}_${asset.assetId}.json`,
+        JSON.stringify(asset, null, 2),
+      );
+    }
+    const soundIndex = sounds.map(a => ({
+      id: a.assetId,
+      name: a.assetName,
+      file: `${a.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${a.assetId}.json`,
+    }));
+    await fsWrite(`${soundDir}/_index.json`, JSON.stringify(soundIndex, null, 2));
+
+    // Save sound cues
+    const cueDir = `${this._projectPath}/${SOUND_CUES_DIR}`;
+    const cues = soundLib.exportAllCues();
+    for (const cue of cues) {
+      const safeName = cue.assetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${cueDir}/${safeName}_${cue.assetId}.json`,
+        JSON.stringify(cue, null, 2),
+      );
+    }
+    const cueIndex = cues.map(c => ({
+      id: c.assetId,
+      name: c.assetName,
+      file: `${c.assetName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${c.assetId}.json`,
+    }));
+    await fsWrite(`${cueDir}/_index.json`, JSON.stringify(cueIndex, null, 2));
+  }
+
+  private async _loadSounds(): Promise<void> {
+    if (!this._projectPath) return;
+    const soundLib = SoundLibrary.instance;
+    if (!soundLib) return;
+
+    // Load imported sound assets
+    const soundDir = `${this._projectPath}/${SOUNDS_DIR}`;
+    if (await fsExists(soundDir)) {
+      const indexPath = `${soundDir}/_index.json`;
+      const allSounds: any[] = [];
+
+      if (await fsExists(indexPath)) {
+        const indexRaw = await fsRead(indexPath);
+        const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+        for (const entry of index) {
+          try {
+            const raw = await fsRead(`${soundDir}/${entry.file}`);
+            allSounds.push(JSON.parse(raw));
+          } catch (e) {
+            console.warn(`Failed to load sound ${entry.name}:`, e);
+          }
+        }
+      } else {
+        const fileNames = await fsListDir(soundDir, '.json');
+        for (const name of fileNames) {
+          if (name === '_index.json') continue;
+          try {
+            const raw = await fsRead(`${soundDir}/${name}`);
+            allSounds.push(JSON.parse(raw));
+          } catch (e) {
+            console.warn(`Failed to load sound file ${name}:`, e);
+          }
+        }
+      }
+
+      if (allSounds.length > 0) {
+        await soundLib.importAllSounds(allSounds);
+      }
+    }
+
+    // Load sound cues
+    const cueDir = `${this._projectPath}/${SOUND_CUES_DIR}`;
+    if (await fsExists(cueDir)) {
+      const indexPath = `${cueDir}/_index.json`;
+      const allCues: any[] = [];
+
+      if (await fsExists(indexPath)) {
+        const indexRaw = await fsRead(indexPath);
+        const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+        for (const entry of index) {
+          try {
+            const raw = await fsRead(`${cueDir}/${entry.file}`);
+            allCues.push(JSON.parse(raw));
+          } catch (e) {
+            console.warn(`Failed to load sound cue ${entry.name}:`, e);
+          }
+        }
+      } else {
+        const fileNames = await fsListDir(cueDir, '.json');
+        for (const name of fileNames) {
+          if (name === '_index.json') continue;
+          try {
+            const raw = await fsRead(`${cueDir}/${name}`);
+            allCues.push(JSON.parse(raw));
+          } catch (e) {
+            console.warn(`Failed to load sound cue file ${name}:`, e);
+          }
+        }
+      }
+
+      if (allCues.length > 0) {
+        soundLib.importAllCues(allCues);
+      }
     }
   }
 

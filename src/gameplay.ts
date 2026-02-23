@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { RenderPipeline } from './engine/RenderPipeline';
+import { SoundLibrary } from './editor/SoundLibrary';
 
 console.log('[Gameplay] Gameplay window script loaded');
 
@@ -121,6 +122,16 @@ async function startGameplay(sceneData: any): Promise<void> {
   engine.onPrint = (msg: any) => {
     console.log('[Game]', msg);
   };
+
+  // Hydrate Sound Library from editor data and wire the Sound Cue resolver
+  if (!SoundLibrary.instance) new SoundLibrary();
+  if (sceneData?.soundData) {
+    if (sceneData.soundData.sounds) SoundLibrary.instance!.importAllSounds(sceneData.soundData.sounds);
+    if (sceneData.soundData.cues) SoundLibrary.instance!.importAllCues(sceneData.soundData.cues);
+  }
+  engine.audio.setSoundCueResolver((cueId: string) => {
+    return SoundLibrary.instance?.resolveCueToSoundURL(cueId) ?? null;
+  });
 
   // Deserialize scene from editor
   if (sceneData && sceneData.gameObjects) {

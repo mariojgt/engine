@@ -13,6 +13,7 @@ import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
 import { TextureLibrary } from './editor/TextureLibrary';
+import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
 import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
@@ -90,6 +91,17 @@ async function main() {
   new TextureLibrary();
   new FontLibrary();
 
+  // Create sound library (singletons for audio asset management)
+  new SoundLibrary();
+
+  // Wire Sound Cue resolver into the audio engine so blueprint nodes
+  // that reference cue IDs get resolved to actual sound URLs at runtime.
+  engine.audio.setSoundCueResolver((cueId: string) => {
+    const lib = SoundLibrary.instance;
+    if (!lib) return null;
+    return lib.resolveCueToSoundURL(cueId);
+  });
+
   // Create project manager
   const projectManager = new ProjectManager(engine, editor.assetManager);
 
@@ -129,6 +141,9 @@ async function main() {
   const saveGameManager = new SaveGameAssetManager();
   projectManager.setSaveGameManager(saveGameManager);
   editor.setSaveGameManager(saveGameManager);
+
+  // Wire up sound library callbacks into content browser
+  editor.setSoundLibraryCallbacks();
 
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);
@@ -583,6 +598,11 @@ async function main() {
                 meshType: actorAsset?.rootMeshType || 'cube',
               };
             }),
+            // Include Sound Cue + Sound data so the gameplay window can resolve cue IDs
+            soundData: {
+              sounds: SoundLibrary.instance?.exportAllSounds() ?? [],
+              cues: SoundLibrary.instance?.exportAllCues() ?? [],
+            },
           };
 
           console.log('[Editor] Sending', sceneData.gameObjects.length, 'game objects to gameplay window');

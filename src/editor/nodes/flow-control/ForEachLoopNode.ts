@@ -14,7 +14,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, objectSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, objectSocket, actorArraySocket, actorRefSocket, registerNode } from '../sockets';
 
 export class ForEachLoopNode extends ClassicPreset.Node {
   constructor() {
@@ -45,3 +45,21 @@ export class ForEachLoopWithBreakNode extends ClassicPreset.Node {
   }
 }
 registerNode('For Each Loop with Break', 'Flow Control', () => new ForEachLoopWithBreakNode());
+
+// ============================================================
+//  For Each Actor — Typed variant that accepts Actor Array input
+//  and outputs Actor Reference elements. Makes the blueprint
+//  visually clear about the types involved (like UE).
+// ============================================================
+export class ForEachActorLoopNode extends ClassicPreset.Node {
+  constructor() {
+    super('For Each Actor');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('array', new ClassicPreset.Input(actorArraySocket, 'Actor Array'));
+    this.addOutput('body', new ClassicPreset.Output(execSocket, 'Loop Body'));
+    this.addOutput('element', new ClassicPreset.Output(actorRefSocket, 'Actor'));
+    this.addOutput('index', new ClassicPreset.Output(numSocket, 'Index'));
+    this.addOutput('done', new ClassicPreset.Output(execSocket, 'Completed'));
+  }
+}
+registerNode('For Each Actor', 'Selection', () => new ForEachActorLoopNode());

@@ -9,6 +9,7 @@ import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
 import { defaultPhysicsConfig, ALL_COLLISION_CHANNELS } from './ActorAsset';
 import type { PhysicsConfig, PhysicsBodyType, ColliderShapeType, CombineMode, CollisionChannel } from './ActorAsset';
 import { createIconSpan, Icons, ICON_COLORS } from './icons';
+import { DEFAULT_SORTING_LAYERS } from '../engine/SortingLayers';
 
 export class PropertiesPanel {
   public container: HTMLElement;
@@ -17,6 +18,7 @@ export class PropertiesPanel {
   private _current: GameObject | null = null;
   private _composition: SceneCompositionManager | null = null;
   private _currentCompositionActorId: string | null = null;
+  private _scene2DManager: any = null;
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -34,6 +36,9 @@ export class PropertiesPanel {
       // If a composition actor is active, don't override with empty state
     });
   }
+
+  /** Set Scene2DManager for sorting layer access (called from EditorLayout) */
+  setScene2DManager(sm: any): void { this._scene2DManager = sm; }
 
   /** Set the composition manager reference (called from EditorLayout) */
   setCompositionManager(comp: SceneCompositionManager | null): void {
@@ -781,11 +786,20 @@ export class PropertiesPanel {
 
     // Sprite section
     const spriteRows: HTMLElement[] = [];
-    spriteRows.push(this._createTextRow('Sorting Layer', ud.__sortingLayer ?? 'Default', (v) => {
-      if (go.mesh) go.mesh.userData.__sortingLayer = v;
+    // Build sorting layer dropdown from Scene2DManager or defaults
+    const slNames = (this._scene2DManager?.sortingLayers?.layers ?? DEFAULT_SORTING_LAYERS).map((l: any) => l.name) as string[];
+    const slOptions = slNames.map((n: string) => ({ label: n, value: n }));
+    spriteRows.push(this._createSelectRow('Sorting Layer', ud.__sortingLayer ?? 'Default', slOptions, (v: string) => {
+      if (go.mesh) {
+        go.mesh.userData.__sortingLayer = v;
+        this._applySortingToPreview(go);
+      }
     }));
     spriteRows.push(this._createNumberRow('Order in Layer', ud.__orderInLayer ?? 0, -1000, 1000, 1, (v) => {
-      if (go.mesh) go.mesh.userData.__orderInLayer = v;
+      if (go.mesh) {
+        go.mesh.userData.__orderInLayer = v;
+        this._applySortingToPreview(go);
+      }
     }));
     spriteRows.push(this._createCheckboxRow('Flip X', ud.__flipX ?? false, (v) => {
       if (go.mesh) go.mesh.userData.__flipX = v;
@@ -1196,5 +1210,16 @@ export class PropertiesPanel {
     if (this._current) {
       this._showProperties(this._current);
     }
+  }
+
+  /** Apply sorting to the 2D edit-preview actor for this game object */
+  private _applySortingToPreview(go: GameObject): void {
+    const sm = this._scene2DManager;
+    if (!sm) return;
+    const previewActor = sm._editPreviewActors?.get(go.id);
+    if (!previewActor) return;
+    previewActor.sortingLayer = go.mesh?.userData?.__sortingLayer ?? 'Default';
+    previewActor.orderInLayer = go.mesh?.userData?.__orderInLayer ?? 0;
+    previewActor.applySorting(sm.sortingLayers);
   }
 }

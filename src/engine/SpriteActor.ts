@@ -262,6 +262,7 @@ export class SpriteActor {
     const layer = layerManager.getLayer(this.sortingLayer);
     if (layer) {
       this.mesh.position.z = layer.z + this.orderInLayer * 0.01;
+      this.mesh.renderOrder = layer.z + this.orderInLayer;
       this.mesh.visible = layer.visible && this.visible;
     }
   }

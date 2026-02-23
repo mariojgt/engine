@@ -349,6 +349,7 @@ import {
   ActorClassSelectControl,
   RefreshNodesControl,
   // Audio nodes
+  SoundCueSelectControl,
   PlaySound2DNode,
   PlaySoundAtLocationNode,
   // Save/Load nodes (UE-style)
@@ -359,6 +360,7 @@ import {
   // Flow Control (extended)
   ForEachLoopNode,
   ForEachLoopWithBreakNode,
+  ForEachActorLoopNode,
   // Drag Selection nodes
   EnableDragSelectionNode,
   DisableDragSelectionNode,
@@ -373,6 +375,7 @@ import {
   IsDragSelectingNode,
   GetDragSelectionCountNode,
 } from './nodes';
+import { SoundLibrary } from './SoundLibrary';
 import { TextureLibrary } from './TextureLibrary';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
@@ -1167,6 +1170,12 @@ function resolveValue(
       return '0';
     }
     case 'For Each Loop with Break': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'element') return `__fe_el_${uid}`;
+      if (outputKey === 'index') return `__fe_i_${uid}`;
+      return '0';
+    }
+    case 'For Each Actor': {
       const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
       if (outputKey === 'element') return `__fe_el_${uid}`;
       if (outputKey === 'index') return `__fe_i_${uid}`;
@@ -2551,6 +2560,17 @@ function genAction(
       lines.push(...we(nodeId, 'done'));
       break;
     }
+    case 'For Each Actor': {
+      const arrS = inputSrc.get(`${nodeId}.array`);
+      const arr = arrS ? rv(arrS.nid, arrS.ok) : '[]';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __arr_${uid} = ${arr} || []; for (var __fe_i_${uid} = 0; __fe_i_${uid} < __arr_${uid}.length; __fe_i_${uid}++) {`);
+      lines.push(`  var __fe_el_${uid} = __arr_${uid}[__fe_i_${uid}]; var __i = __fe_i_${uid};`);
+      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+      lines.push('} }');
+      lines.push(...we(nodeId, 'done'));
+      break;
+    }
     case 'Delay': {
       const dS = inputSrc.get(`${nodeId}.duration`);
       const duration = dS ? rv(dS.nid, dS.ok) : '1';
@@ -3179,13 +3199,14 @@ function genAction(
     // ── Audio Nodes ─────────────────────────────────────────
     case 'Play Sound 2D': {
       const sS = inputSrc.get(`${nodeId}.sound`);
+      const _scCtrl2D = node.controls['soundCue'] as SoundCueSelectControl | undefined;
       const volS = inputSrc.get(`${nodeId}.volume`);
       const pitS = inputSrc.get(`${nodeId}.pitch`);
       const loopS = inputSrc.get(`${nodeId}.loop`);
       const busS = inputSrc.get(`${nodeId}.bus`);
       const stS = inputSrc.get(`${nodeId}.startTime`);
       const fiS = inputSrc.get(`${nodeId}.fadeIn`);
-      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const sound = sS ? rv(sS.nid, sS.ok) : JSON.stringify(_scCtrl2D?.value || '');
       const vol = volS ? rv(volS.nid, volS.ok) : '1';
       const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
       const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
@@ -3193,12 +3214,13 @@ function genAction(
       const st = stS ? rv(stS.nid, stS.ok) : '0';
       const fi = fiS ? rv(fiS.nid, fiS.ok) : '0';
       const varName = `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSound2D(${sound}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, startTime: ${st}, fadeInDuration: ${fi} }).then(function(id) { ${varName} = id; }); }`);
+      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSoundCue2D(${sound}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, startTime: ${st}, fadeInDuration: ${fi} }).then(function(id) { ${varName} = id; }); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Play Sound at Location': {
       const sS = inputSrc.get(`${nodeId}.sound`);
+      const _scCtrlLoc = node.controls['soundCue'] as SoundCueSelectControl | undefined;
       const lxS = inputSrc.get(`${nodeId}.locX`);
       const lyS = inputSrc.get(`${nodeId}.locY`);
       const lzS = inputSrc.get(`${nodeId}.locZ`);
@@ -3208,7 +3230,7 @@ function genAction(
       const busS = inputSrc.get(`${nodeId}.bus`);
       const mdS = inputSrc.get(`${nodeId}.maxDistance`);
       const stS = inputSrc.get(`${nodeId}.startTime`);
-      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const sound = sS ? rv(sS.nid, sS.ok) : JSON.stringify(_scCtrlLoc?.value || '');
       const lx = lxS ? rv(lxS.nid, lxS.ok) : '0';
       const ly = lyS ? rv(lyS.nid, lyS.ok) : '0';
       const lz = lzS ? rv(lzS.nid, lzS.ok) : '0';
@@ -3219,27 +3241,28 @@ function genAction(
       const md = mdS ? rv(mdS.nid, mdS.ok) : '50';
       const st = stS ? rv(stS.nid, stS.ok) : '0';
       const varName = `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSoundAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, maxDistance: ${md}, startTime: ${st} }).then(function(id) { ${varName} = id; }); }`);
+      lines.push(`var ${varName} = -1; if (__engine && __engine.audio) { __engine.audio.playSoundCueAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, loop: ${loop}, bus: ${bus}, maxDistance: ${md}, startTime: ${st} }).then(function(id) { ${varName} = id; }); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Spawn Sound at Location': {
       // Legacy node — map to the same code as Play Sound at Location
       const sS = inputSrc.get(`${nodeId}.sound`);
+      const _scCtrlSpawn = node.controls['soundCue'] as SoundCueSelectControl | undefined;
       const lxS = inputSrc.get(`${nodeId}.locX`);
       const lyS = inputSrc.get(`${nodeId}.locY`);
       const lzS = inputSrc.get(`${nodeId}.locZ`);
       const volS = inputSrc.get(`${nodeId}.volume`);
       const pitS = inputSrc.get(`${nodeId}.pitch`);
       const stS = inputSrc.get(`${nodeId}.startTime`);
-      const sound = sS ? rv(sS.nid, sS.ok) : '""';
+      const sound = sS ? rv(sS.nid, sS.ok) : JSON.stringify(_scCtrlSpawn?.value || '');
       const lx = lxS ? rv(lxS.nid, lxS.ok) : '0';
       const ly = lyS ? rv(lyS.nid, lyS.ok) : '0';
       const lz = lzS ? rv(lzS.nid, lzS.ok) : '0';
       const vol = volS ? rv(volS.nid, volS.ok) : '1';
       const pit = pitS ? rv(pitS.nid, pitS.ok) : '1';
       const st = stS ? rv(stS.nid, stS.ok) : '0';
-      lines.push(`if (__engine && __engine.audio) { __engine.audio.playSoundAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, startTime: ${st} }); }`);
+      lines.push(`if (__engine && __engine.audio) { __engine.audio.playSoundCueAtLocation(${sound}, {x:${lx},y:${ly},z:${lz}}, { volume: ${vol}, pitch: ${pit}, startTime: ${st} }); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -5616,6 +5639,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   // ForEachLoop nodes
   if (node instanceof ForEachLoopNode) return 'ForEachLoopNode';
   if (node instanceof ForEachLoopWithBreakNode) return 'ForEachLoopWithBreakNode';
+  if (node instanceof ForEachActorLoopNode) return 'ForEachActorLoopNode';
 
   // Drag Selection nodes
   if (node instanceof EnableDragSelectionNode) return 'EnableDragSelectionNode';
@@ -5657,6 +5681,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
       controls[key] = { id: (ctrl as TextureSelectControl).value, name: (ctrl as TextureSelectControl).displayName };
+    } else if (ctrl instanceof SoundCueSelectControl) {
+      controls[key] = { id: (ctrl as SoundCueSelectControl).value, name: (ctrl as SoundCueSelectControl).displayName };
     } else if (ctrl instanceof ActorClassSelectControl) {
       controls[key] = { id: (ctrl as ActorClassSelectControl).value, name: (ctrl as ActorClassSelectControl).displayName };
     } else if (ctrl instanceof ClassicPreset.InputControl) {
@@ -6521,6 +6547,7 @@ function createNodeFromData(
     // ForEachLoop nodes
     case 'ForEachLoopNode':                    return new ForEachLoopNode();
     case 'ForEachLoopWithBreakNode':           return new ForEachLoopWithBreakNode();
+    case 'ForEachActorLoopNode':               return new ForEachActorLoopNode();
 
     // Drag Selection nodes
     case 'EnableDragSelectionNode':            return new EnableDragSelectionNode();
@@ -6664,6 +6691,50 @@ async function createGraphEditor(
         const color = socketColor(sock);
         return (props: any) => {
           const isExec = sock.name === 'Exec';
+          const isArray = sock.name === 'ActorArray';
+          const isActorRef = sock.name === 'ActorRef';
+
+          // Array sockets render as a diamond (rotated square) like UE
+          if (isArray) {
+            return React.createElement('div', {
+              className: 'socket socket-array',
+              title: 'Actor Array',
+              'data-socket-type': sock.name,
+              style: {
+                background: color,
+                width: 10,
+                height: 10,
+                borderRadius: '2px',
+                border: '2px solid rgba(0,0,0,0.35)',
+                display: 'inline-block',
+                cursor: 'pointer',
+                boxSizing: 'border-box' as const,
+                transform: 'rotate(45deg)',
+                transition: 'box-shadow 0.15s ease, transform 0.1s ease',
+              },
+            });
+          }
+
+          // Actor ref sockets render as a slightly larger circle with a ring
+          if (isActorRef) {
+            return React.createElement('div', {
+              className: 'socket socket-actor-ref',
+              title: 'Actor Reference',
+              'data-socket-type': sock.name,
+              style: {
+                background: color,
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.4)',
+                display: 'inline-block',
+                cursor: 'pointer',
+                boxSizing: 'border-box' as const,
+                transition: 'box-shadow 0.15s ease, transform 0.1s ease',
+              },
+            });
+          }
+
           return React.createElement('div', {
             className: `socket${isExec ? ' socket-exec' : ''}`,
             title: sock.name,
@@ -7388,6 +7459,189 @@ async function createGraphEditor(
                   React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching textures'),
                 textures.length === 0 &&
                   React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No textures imported yet'),
+              ),
+            );
+          };
+        }
+
+        // ── Sound Cue Select Control ────────────────────────────────
+        if (data.payload instanceof SoundCueSelectControl) {
+          const ctrl = data.payload as SoundCueSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            // Gather Sound Cues from the SoundLibrary singleton
+            const cues: { id: string; name: string; info: string }[] = [];
+            const lib = SoundLibrary.instance;
+            if (lib) {
+              for (const cue of lib.allCues) {
+                const wpCount = (cue.nodes || []).filter((nd: any) => nd.type === 'wavePlayer').length;
+                const nodeCount = (cue.nodes || []).length;
+                cues.push({
+                  id: cue.assetId,
+                  name: cue.assetName,
+                  info: `${wpCount} sound${wpCount !== 1 ? 's' : ''} · ${nodeCount} nodes`,
+                });
+              }
+            }
+            const filtered = search
+              ? cues.filter(cu => cu.name.toLowerCase().includes(search.toLowerCase()))
+              : cues;
+
+            // Close on outside click
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            React.useEffect(() => {
+              setSelected(ctrl.displayName || '(none)');
+            }, [ctrl.displayName]);
+
+            const dropdownStyle: any = {
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              maxHeight: 200,
+              overflowY: 'auto',
+              background: '#1a1a2e',
+              border: '1px solid #4a9eff',
+              borderRadius: '0 0 4px 4px',
+              zIndex: 9999,
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 160 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              // Button showing current selection
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#e0e0e0',
+                  border: open ? '1px solid #4a9eff' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
+              ),
+              // Dropdown panel
+              open && React.createElement('div', { style: dropdownStyle },
+                // Search input
+                React.createElement('input', {
+                  type: 'text',
+                  placeholder: 'Search sound cues...',
+                  value: search,
+                  autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%',
+                    padding: '5px 8px',
+                    background: '#141422',
+                    color: '#e0e0e0',
+                    border: 'none',
+                    borderBottom: '1px solid #333',
+                    fontSize: 11,
+                    outline: 'none',
+                    boxSizing: 'border-box' as const,
+                  },
+                }),
+                // Option: (none)
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '(none)');
+                    setSelected('(none)');
+                    setOpen(false);
+                    setSearch('');
+                    // Sync parent node soundCueId
+                    const parentNode = (ctrl as any).__parentNode;
+                    if (parentNode) parentNode.soundCueId = '';
+                  },
+                  style: {
+                    padding: '5px 8px',
+                    fontSize: 11,
+                    color: '#888',
+                    fontStyle: 'italic' as const,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid #222',
+                  },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                // Sound Cue options
+                ...filtered.map(cue =>
+                  React.createElement('div', {
+                    key: cue.id,
+                    onClick: () => {
+                      ctrl.setValue(cue.id, cue.name);
+                      setSelected(cue.name);
+                      setOpen(false);
+                      setSearch('');
+                      // Sync parent node soundCueId
+                      const parentNode = (ctrl as any).__parentNode;
+                      if (parentNode) parentNode.soundCueId = cue.id;
+                    },
+                    style: {
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      color: cue.id === ctrl.value ? '#4a9eff' : '#e0e0e0',
+                      fontWeight: cue.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    // Sound icon
+                    React.createElement('span', {
+                      style: { flexShrink: 0, display: 'flex', alignItems: 'center' },
+                      dangerouslySetInnerHTML: { __html: iconHTML(Icons.Volume2, 14, cue.id === ctrl.value ? '#4a9eff' : '#888') },
+                    }),
+                    // Name + info
+                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } },
+                      React.createElement('span', {
+                        style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+                      }, cue.name),
+                      React.createElement('span', {
+                        style: { fontSize: 9, color: '#666' },
+                      }, cue.info),
+                    ),
+                  ),
+                ),
+                filtered.length === 0 && cues.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching sound cues'),
+                cues.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No sound cues created yet'),
               ),
             );
           };

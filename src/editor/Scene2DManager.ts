@@ -1074,10 +1074,15 @@ export class Scene2DManager {
       this.root2D.add(actor.group);
       this._editPreviewActors.set(go.id, actor);
 
+      // Apply sorting from the actor asset (or per-instance override in userData)
+      const actorAsset = assetManager?.getAsset?.(go.actorAssetId);
+      const sprComp = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
+      actor.sortingLayer = go.mesh?.userData?.__sortingLayer ?? sprComp?.sortingLayer ?? 'Default';
+      actor.orderInLayer = go.mesh?.userData?.__orderInLayer ?? sprComp?.orderInLayer ?? 0;
+      actor.applySorting(this.sortingLayers);
+
       // Load the sprite sheet and show the first / default sprite asynchronously
       (async () => {
-        const actorAsset = assetManager?.getAsset?.(go.actorAssetId);
-        const sprComp = actorAsset?.components?.find((c: any) => c.type === 'spriteRenderer');
         const sheetId: string | undefined = sprComp?.spriteSheetId;
         const sheet = sheetId ? this.spriteSheets.get(sheetId) : null;
         if (!sheet) return;
@@ -1548,6 +1553,54 @@ export class Scene2DManager {
 
     // Remove sprite actor groups from scene
     for (const actor of this.spriteActors) {
+      // Run onDestroy for blueprint scripts so __inputCleanup, intervals etc. are cleaned up
+      const bpEv = this._actorBlueprintScripts.get(actor);
+      if (bpEv?.script && bpEv.started) {
+        try {
+          const self = this;
+          const destroyCtx = {
+            gameObject: actor as any,
+            deltaTime: 0,
+            elapsedTime: bpEv.elapsed,
+            print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
+            physics: null,
+            scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            animInstance: null,
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+            gameInstance: null,
+          };
+          bpEv.script.onDestroy(destroyCtx);
+        } catch (err) {
+          console.error(`[Scene2DManager] Error running onDestroy for "${actor.name}":`, err);
+        }
+      }
+      const evEv = this._actorEventScripts.get(actor);
+      if (evEv?.script && evEv.started) {
+        try {
+          const self = this;
+          const destroyCtx = {
+            gameObject: actor as any,
+            deltaTime: 0,
+            elapsedTime: evEv.elapsed,
+            print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
+            physics: null,
+            scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            animInstance: null,
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+            gameInstance: null,
+          };
+          evEv.script.onDestroy(destroyCtx);
+        } catch (err) {
+          console.error(`[Scene2DManager] Error running onDestroy event script for "${actor.name}":`, err);
+        }
+      }
+
+      // Clean up drag selection components before disposing
+      if ((actor as any).__dragSelection) {
+        (actor as any).__dragSelection.destroy();
+        (actor as any).__dragSelection = null;
+      }
+      (actor as any).__dragSelCallbacks = null;
       this.root2D.remove(actor.group);
       try {
         actor.dispose(this.physics2D ?? undefined);

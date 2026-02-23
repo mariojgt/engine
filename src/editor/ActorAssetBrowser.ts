@@ -23,6 +23,7 @@ import { ContentFolderManager, type AssetType, type FolderNode } from './Content
 import { importMeshFile, detectFileContent } from './MeshImporter';
 import { showImportDialog, showImportProgress, showTextureImportDialog } from './ImportDialog';
 import { TextureLibrary } from './TextureLibrary';
+import { SoundLibrary, type SoundCueData, type SoundAssetData } from './SoundLibrary';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS, createIcon } from './icons';
@@ -47,6 +48,8 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   saveGame:     { color: '#FF7043', icon: Icons.Save,         label: 'Save Game' },
   texture:      { color: '#4ade80', icon: Icons.Image,        label: 'Texture' },
   animation:    { color: '#fbbf24', icon: Icons.Play,         label: 'Animation' },
+  sound:        { color: '#E91E63', icon: Icons.Volume2,      label: 'Sound' },
+  soundCue:     { color: '#FF5722', icon: Icons.Volume2,      label: 'Sound Cue' },
 };
 
 interface AssetCardInfo {
@@ -91,6 +94,7 @@ export class ActorAssetBrowser {
   private _onOpenGameInstance: ((asset: GameInstanceBlueprintAsset) => void) | null = null;
   private _onOpenSaveGame: ((asset: SaveGameAsset) => void) | null = null;
   private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
+  private _onOpenSoundCue: ((cue: SoundCueData) => void) | null = null;
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
   private _onShowInHierarchy: ((id: string, kind: 'actor' | 'widget') => void) | null = null;
@@ -229,6 +233,15 @@ export class ActorAssetBrowser {
     this._saveGameManager = mgr;
     this._onOpenSaveGame = onOpenSaveGame;
     mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setSoundLibraryCallbacks(onOpenSoundCue: (cue: SoundCueData) => void): void {
+    this._onOpenSoundCue = onOpenSoundCue;
+    const soundLib = SoundLibrary.instance;
+    if (soundLib) {
+      soundLib.onChanged(() => this._refreshGrid());
+    }
     this._refreshGrid();
   }
 
@@ -1267,6 +1280,41 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'sound': {
+        const sndLib = SoundLibrary.instance;
+        if (!sndLib) return null;
+        const snd = sndLib.getSound(assetId);
+        if (!snd) return null;
+        const dur = SoundLibrary.formatDuration(snd.metadata.duration);
+        return {
+          id: snd.assetId, name: snd.assetName, type: assetType,
+          typeColor: meta.color, typeLabel: 'Sound',
+          icon: meta.icon, iconColor: meta.color,
+          thumbnail: snd.thumbnail || null,
+          subtitle: `${dur} · ${snd.metadata.format.toUpperCase()} · ${snd.category}`,
+          onOpen: () => {},
+          onContextMenu: (e) => this._showSoundContextMenu(e, snd),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'soundCue': {
+        const sndLib = SoundLibrary.instance;
+        if (!sndLib) return null;
+        const cue = sndLib.getCue(assetId);
+        if (!cue) return null;
+        const wpCount = (cue.nodes || []).filter((n: any) => n.type === 'wavePlayer').length;
+        const nodeCount = (cue.nodes || []).length;
+        return {
+          id: cue.assetId, name: cue.assetName, type: assetType,
+          typeColor: meta.color, typeLabel: 'Sound Cue',
+          icon: meta.icon, iconColor: meta.color,
+          thumbnail: null,
+          subtitle: `${wpCount} sound${wpCount !== 1 ? 's' : ''} · ${nodeCount} nodes`,
+          onOpen: () => this._onOpenSoundCue?.(cue),
+          onContextMenu: (e) => this._showSoundCueContextMenu(e, cue),
+          dragKind: null, dragPayload: null,
+        };
+      }
       default:
         return null;
     }
@@ -1860,6 +1908,27 @@ export class ActorAssetBrowser {
     this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#8d6e63') + ' Tilemap Actor', () => this._createNewAsset('tilemapActor'));
     this._addMenuItem(menu, iconHTML(Icons.Layers, 12, '#7e57c2') + ' Parallax Layer', () => this._createNewAsset('parallaxLayer'));
 
+    // ── Audio ──
+    this._addMenuSeparator(menu);
+    const audioHeader = document.createElement('div');
+    audioHeader.className = 'context-menu-header';
+    audioHeader.textContent = 'AUDIO';
+    menu.appendChild(audioHeader);
+
+    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#FF5722') + ' Sound Cue', async () => {
+      const soundLib = SoundLibrary.instance;
+      if (!soundLib) return;
+      const name = await this._showNameDialog('New Sound Cue', 'SC_NewSoundCue');
+      if (name) {
+        const cue = soundLib.createCue(name);
+        this._folderManager.setAssetLocation(cue.assetId, 'soundCue', this._currentFolderId);
+        this._selectedIds.clear();
+        this._selectedIds.add(cue.assetId);
+        this._refreshGrid();
+        this._onOpenSoundCue?.(cue);
+      }
+    });
+
     // ── Import ──
     this._addMenuSeparator(menu);
     const impHeader = document.createElement('div');
@@ -1871,6 +1940,7 @@ export class ActorAssetBrowser {
       this._addMenuItem(menu, iconHTML(Icons.Upload, 12, ICON_COLORS.muted) + ' Import Mesh…', () => this._triggerMeshFileImport());
     }
     this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4ade80') + ' Import Texture…', () => this._triggerTextureImport());
+    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#E91E63') + ' Import Audio…', () => this._triggerAudioImport());
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
@@ -2309,6 +2379,7 @@ export class ActorAssetBrowser {
 
     this._addMenuItem(menu, iconHTML(Icons.Box, 12, ICON_COLORS.mesh) + ' Import Mesh…', () => this._triggerMeshFileImport());
     this._addMenuItem(menu, iconHTML(Icons.Image, 12, '#4ade80') + ' Import Texture…', () => this._triggerTextureImport());
+    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#E91E63') + ' Import Audio…', () => this._triggerAudioImport());
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
@@ -2332,9 +2403,11 @@ export class ActorAssetBrowser {
   private _handleFileDrop(fileList: FileList): void {
     const meshFiles: File[] = [];
     const imageFiles: File[] = [];
+    const audioFiles: File[] = [];
     for (let i = 0; i < fileList.length; i++) {
       const f = fileList[i];
       if (this._isImageFile(f.name)) imageFiles.push(f);
+      else if (this._isAudioFile(f.name)) audioFiles.push(f);
       else meshFiles.push(f);
     }
     if (meshFiles.length > 0) {
@@ -2343,11 +2416,17 @@ export class ActorAssetBrowser {
       this._handleMeshFileDrop(dt.files);
     }
     if (imageFiles.length > 0) this._handleTextureFileDrop(imageFiles);
+    if (audioFiles.length > 0) this._handleAudioFileDrop(audioFiles);
   }
 
   private _isImageFile(filename: string): boolean {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tga', 'tiff', 'tif', 'ico'].includes(ext);
+  }
+
+  private _isAudioFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ['mp3', 'wav', 'ogg', 'flac', 'webm', 'aac', 'm4a', 'wma'].includes(ext);
   }
 
   private async _handleTextureFileDrop(files: File[]): Promise<void> {
@@ -2636,6 +2715,186 @@ export class ActorAssetBrowser {
       input.focus();
       input.select();
     });
+  }
+
+  // ============================================================
+  //  Audio Import Pipeline
+  // ============================================================
+
+  private _triggerAudioImport(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mp3,.wav,.ogg,.flac,.webm,.aac,.m4a';
+    input.multiple = true;
+    input.style.position = 'absolute';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    input.addEventListener('change', () => {
+      if (input.files && input.files.length > 0) {
+        const files: File[] = [];
+        for (let i = 0; i < input.files.length; i++) files.push(input.files[i]);
+        this._handleAudioFileDrop(files);
+      }
+      input.remove();
+    });
+    const cleanup = () => {
+      setTimeout(() => {
+        if (input.parentNode && (!input.files || input.files.length === 0)) input.remove();
+      }, 300);
+      window.removeEventListener('focus', cleanup);
+    };
+    window.addEventListener('focus', cleanup);
+    input.click();
+  }
+
+  private async _handleAudioFileDrop(files: File[]): Promise<void> {
+    const soundLib = SoundLibrary.instance;
+    if (!soundLib) return;
+
+    for (const file of files) {
+      try {
+        const asset = await soundLib.importFromFile(file);
+        this._folderManager.setAssetLocation(asset.assetId, 'sound', this._currentFolderId);
+        this._selectedIds.clear();
+        this._selectedIds.add(asset.assetId);
+      } catch (err) {
+        console.error(`[ContentBrowser] Failed to import audio file: ${file.name}`, err);
+      }
+    }
+    this._refreshGrid();
+  }
+
+  // ============================================================
+  //  Sound / Sound Cue Context Menus
+  // ============================================================
+
+  private _showSoundContextMenu(e: MouseEvent, sound: SoundAssetData): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Play, 12, '#60a5fa') + ' Preview', () => {
+      const audio = new Audio(sound.storedData);
+      audio.volume = sound.settings.defaultVolume;
+      audio.play().catch(() => {});
+    });
+
+    this._addMenuItem(menu, iconHTML(Icons.Volume2, 12, '#FF5722') + ' Create Sound Cue from This', async () => {
+      const soundLib = SoundLibrary.instance;
+      if (!soundLib) return;
+      const name = await this._showNameDialog('New Sound Cue', `SC_${sound.assetName}`);
+      if (name) {
+        const cue = soundLib.createCue(name);
+        // Add a Wave Player node for this sound, wired to the output
+        const wpId = 'scn_' + Date.now().toString(36) + '_wp';
+        cue.nodes.push({
+          id: wpId, type: 'wavePlayer' as const,
+          x: 150, y: 200,
+          soundAssetId: sound.assetId,
+          volume: 1.0, pitchMin: 1.0, pitchMax: 1.0,
+        });
+        const outNode = cue.nodes.find(n => n.type === 'output');
+        if (outNode) {
+          cue.connections.push({
+            id: 'scc_' + Date.now().toString(36) + '_c',
+            fromNodeId: wpId, toNodeId: outNode.id, toInputIndex: 0,
+          });
+        }
+        soundLib.updateCue(cue);
+        this._folderManager.setAssetLocation(cue.assetId, 'soundCue', this._currentFolderId);
+        this._selectedIds.clear();
+        this._selectedIds.add(cue.assetId);
+        this._refreshGrid();
+        this._onOpenSoundCue?.(cue);
+      }
+    });
+
+    this._addMenuSeparator(menu);
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Sound', sound.assetName);
+      if (newName) {
+        sound.assetName = newName;
+        this._refreshGrid();
+      }
+    });
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete sound "${sound.assetName}"?`)) {
+        const soundLib = SoundLibrary.instance;
+        soundLib?.removeSound(sound.assetId);
+        this._folderManager.removeAssetLocation(sound.assetId, 'sound');
+        this._selectedIds.delete(sound.assetId);
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  private _showSoundCueContextMenu(e: MouseEvent, cue: SoundCueData): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.FileText, 12, ICON_COLORS.muted) + ' Open Editor', () => {
+      this._onOpenSoundCue?.(cue);
+    });
+
+    this._addMenuItem(menu, iconHTML(Icons.Play, 12, '#60a5fa') + ' Preview', () => {
+      const soundLib = SoundLibrary.instance;
+      if (!soundLib) return;
+      const resolved = soundLib.resolveCueToSoundURL(cue.assetId);
+      if (resolved) {
+        const audio = new Audio(resolved.url);
+        audio.volume = Math.min(1, resolved.volume);
+        audio.playbackRate = resolved.pitch;
+        audio.play().catch(() => {});
+      }
+    });
+
+    this._addMenuSeparator(menu);
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Sound Cue', cue.assetName);
+      if (newName) {
+        cue.assetName = newName;
+        SoundLibrary.instance?.updateCue(cue);
+        this._refreshGrid();
+      }
+    });
+
+    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate', () => {
+      const soundLib = SoundLibrary.instance;
+      if (!soundLib) return;
+      const dup = soundLib.createCue(cue.assetName + '_Copy');
+      // Deep-clone the node graph
+      dup.nodes = JSON.parse(JSON.stringify(cue.nodes || []));
+      dup.connections = JSON.parse(JSON.stringify(cue.connections || []));
+      soundLib.updateCue(dup);
+      this._folderManager.setAssetLocation(dup.assetId, 'soundCue', this._currentFolderId);
+      this._refreshGrid();
+    });
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete sound cue "${cue.assetName}"?`)) {
+        SoundLibrary.instance?.deleteCue(cue.assetId);
+        this._folderManager.removeAssetLocation(cue.assetId, 'soundCue');
+        this._selectedIds.delete(cue.assetId);
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
   }
 
   // ============================================================

@@ -3,7 +3,7 @@
 //  Manages hierarchical folder organization for all asset types
 // ============================================================
 
-export type AssetType = 'actor' | 'structure' | 'enum' | 'mesh' | 'animBP' | 'widget' | 'material' | 'texture' | 'animation' | 'gameInstance' | 'saveGame';
+export type AssetType = 'actor' | 'structure' | 'enum' | 'mesh' | 'animBP' | 'widget' | 'material' | 'texture' | 'animation' | 'gameInstance' | 'saveGame' | 'sound' | 'soundCue';
 
 export interface FolderNode {
   id: string;
@@ -277,5 +277,6 @@ export class ContentFolderManager {
     this.createFolder('Widgets', this._rootFolderId);
     this.createFolder('Animations', this._rootFolderId);
     this.createFolder('Materials', this._rootFolderId);
+    this.createFolder('Audio', this._rootFolderId);
   }
 }

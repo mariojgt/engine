@@ -3,6 +3,12 @@
 //
 //  All nodes are UI-only definitions.  Code generation is
 //  handled centrally in NodeEditorPanel.tsx genAction()/resolveValue().
+//
+//  Sound Cue workflow:
+//    - Import MP3/WAV/OGG audio files → SoundAsset (in SoundLibrary)
+//    - Create a Sound Cue → SoundCueData (references SoundAssets)
+//    - In blueprints, nodes accept a Sound Cue ID (string)
+//    - At runtime, the engine resolves the cue to an audio URL
 // ============================================================
 
 import { ClassicPreset } from 'rete';
@@ -15,13 +21,36 @@ import {
 } from '../sockets';
 
 // ============================================================
-//  Play Sound 2D — plays a non-spatial sound
+//  SoundCueSelectControl — dropdown picker for Sound Cue assets
+// ============================================================
+export class SoundCueSelectControl extends ClassicPreset.Control {
+  public value: string;        // Sound Cue asset ID
+  public displayName: string;  // human-readable name
+
+  constructor(initialId: string = '', initialName: string = '(none)') {
+    super();
+    this.value = initialId;
+    this.displayName = initialName;
+  }
+
+  setValue(id: string, name: string) {
+    this.value = id;
+    this.displayName = name;
+  }
+}
+
+// ============================================================
+//  Play Sound 2D — plays a non-spatial sound from a Sound Cue
 // ============================================================
 export class PlaySound2DNode extends ClassicPreset.Node {
-  constructor() {
+  /** Selected Sound Cue asset ID (set by dropdown control) */
+  soundCueId: string = '';
+
+  constructor(cueId: string = '', cueName: string = '(none)') {
     super('Play Sound 2D');
+    this.soundCueId = cueId;
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('sound', new ClassicPreset.Input(strSocket, 'Sound URL'));
+    this.addControl('soundCue', new SoundCueSelectControl(cueId, cueName));
     this.addInput('volume', new ClassicPreset.Input(numSocket, 'Volume'));
     this.addInput('pitch', new ClassicPreset.Input(numSocket, 'Pitch'));
     this.addInput('loop', new ClassicPreset.Input(boolSocket, 'Loop'));
@@ -36,13 +65,17 @@ export class PlaySound2DNode extends ClassicPreset.Node {
 registerNode('Play Sound 2D', 'Audio', () => new PlaySound2DNode());
 
 // ============================================================
-//  Play Sound at Location — plays a spatial 3D sound
+//  Play Sound at Location — plays a spatial sound from a Sound Cue
 // ============================================================
 export class PlaySoundAtLocationNode extends ClassicPreset.Node {
-  constructor() {
+  /** Selected Sound Cue asset ID (set by dropdown control) */
+  soundCueId: string = '';
+
+  constructor(cueId: string = '', cueName: string = '(none)') {
     super('Play Sound at Location');
+    this.soundCueId = cueId;
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
-    this.addInput('sound', new ClassicPreset.Input(strSocket, 'Sound URL'));
+    this.addControl('soundCue', new SoundCueSelectControl(cueId, cueName));
     this.addInput('locX', new ClassicPreset.Input(numSocket, 'Location X'));
     this.addInput('locY', new ClassicPreset.Input(numSocket, 'Location Y'));
     this.addInput('locZ', new ClassicPreset.Input(numSocket, 'Location Z'));

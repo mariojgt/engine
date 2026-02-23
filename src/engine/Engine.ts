@@ -14,6 +14,7 @@ import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAss
 import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { GameInstance } from './GameInstance';
 import { DragSelectionComponent } from './DragSelectionComponent';
+import { AudioEngine } from './AudioSystem';
 
 export class Engine {
   public scene: Scene;
@@ -23,6 +24,7 @@ export class Engine {
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
   public uiManager: UIManager = new UIManager();
+  public audio: AudioEngine = new AudioEngine();
 
   /** Exposed DragSelectionComponent class for runtime instantiation by blueprint code */
   public _DragSelectionComponent = DragSelectionComponent;

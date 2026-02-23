@@ -673,7 +673,9 @@ export class TileEditorPanel {
     if (!this._layerListEl || !this._activeTilemap) return;
     this._layerListEl.innerHTML = '';
 
-    for (const layer of this._activeTilemap.layers) {
+    const layers = this._activeTilemap.layers;
+    for (let li = 0; li < layers.length; li++) {
+      const layer = layers[li];
       const row = document.createElement('div');
       const isActive = layer === this._activeLayer;
       row.style.cssText = `display:flex;align-items:center;gap:4px;padding:3px 6px;border-radius:3px;cursor:pointer;${isActive ? 'background:#45475a;' : ''}`;
@@ -699,25 +701,47 @@ export class TileEditorPanel {
       nameSpan.style.cssText = 'flex:1;';
       row.appendChild(nameSpan);
 
-      // Z
+      // Z value (editable on click)
       const zSpan = document.createElement('span');
       zSpan.textContent = `Z:${layer.z}`;
-      zSpan.style.cssText = 'opacity:0.5;font-size:10px;';
+      zSpan.title = 'Click to edit Z-order';
+      zSpan.style.cssText = 'opacity:0.5;font-size:10px;cursor:pointer;';
+      zSpan.onclick = (e) => {
+        e.stopPropagation();
+        this._showInlinePrompt(`Z-order for "${layer.name}":`, String(layer.z), (val) => {
+          if (val !== null && !isNaN(Number(val))) {
+            layer.z = Number(val);
+            this._renderLayerList();
+            this._emitChanged();
+          }
+        });
+      };
       row.appendChild(zSpan);
 
-      // Collision toggle (always visible so users can enable/disable)
+      // Move Up button
+      const upBtn = document.createElement('button');
+      upBtn.innerHTML = iconHTML(Icons.ChevronUp, 'xs', ICON_COLORS.muted);
+      upBtn.title = 'Move layer up';
+      upBtn.style.cssText = `background:none;border:none;cursor:pointer;font-size:11px;padding:1px;${li === 0 ? 'opacity:0.3;pointer-events:none;' : ''}`;
+      upBtn.onclick = (e) => { e.stopPropagation(); this._moveLayer(li, -1); };
+      row.appendChild(upBtn);
+
+      // Move Down button
+      const downBtn = document.createElement('button');
+      downBtn.innerHTML = iconHTML(Icons.ChevronDown, 'xs', ICON_COLORS.muted);
+      downBtn.title = 'Move layer down';
+      downBtn.style.cssText = `background:none;border:none;cursor:pointer;font-size:11px;padding:1px;${li === layers.length - 1 ? 'opacity:0.3;pointer-events:none;' : ''}`;
+      downBtn.onclick = (e) => { e.stopPropagation(); this._moveLayer(li, 1); };
+      row.appendChild(downBtn);
+
+      // Collision toggle
       const colBtn = document.createElement('button');
       colBtn.innerHTML = layer.hasCollision ? iconHTML(Icons.Shield, 'xs', ICON_COLORS.success) : iconHTML(Icons.Shield, 'xs', ICON_COLORS.muted);
-      colBtn.title = layer.hasCollision ? 'Collision ON – click to disable' : 'Collision OFF – click to enable';
+      colBtn.title = layer.hasCollision ? 'Collision ON \u2013 click to disable' : 'Collision OFF \u2013 click to enable';
       colBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:11px;padding:1px;';
       colBtn.onclick = (e) => {
         e.stopPropagation();
         layer.hasCollision = !layer.hasCollision;
-        // NOTE: Do NOT mutate TileDefData.collision here.
-        // TilemapCollisionBuilder.rebuild() uses forceFullCollision=true whenever
-        // layer.hasCollision is set, so all placed tiles are treated as solid
-        // regardless of their individual TileDefData.collision value.
-        // Mutating every tileDef would corrupt per-tile rules (one-way platforms etc.)
         this._renderLayerList();
         this._scheduleCollisionRebuild(layer);
       };
@@ -725,6 +749,25 @@ export class TileEditorPanel {
 
       this._layerListEl.appendChild(row);
     }
+  }
+
+  /** Move a layer in the array by a direction offset (-1 = up, +1 = down) */
+  private _moveLayer(index: number, direction: number): void {
+    if (!this._activeTilemap) return;
+    const layers = this._activeTilemap.layers;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= layers.length) return;
+    // Swap layers in the array
+    const tmp = layers[index];
+    layers[index] = layers[newIndex];
+    layers[newIndex] = tmp;
+    // Also swap Z values so the visual order matches
+    const tmpZ = layers[index].z;
+    layers[index].z = layers[newIndex].z;
+    layers[newIndex].z = tmpZ;
+    this._renderLayerList();
+    this._renderDropdowns();
+    this._emitChanged();
   }
 
   private _renderBrushOptions(): void {
@@ -1218,27 +1261,85 @@ export class TileEditorPanel {
       }
       return;
     }
-    const name = prompt('Layer name:', 'NewLayer');
-    if (!name?.trim()) return;
-    const maxZ = Math.max(...this._activeTilemap.layers.map(l => l.z), 0);
-    const newLayer = {
-      layerId: `layer-${Date.now().toString(36)}`,
-      name: name.trim(),
-      z: maxZ + 5,
-      visible: true,
-      locked: false,
-      hasCollision: false,
-      tiles: {},
-    };
-    this._activeTilemap.layers.push(newLayer);
-    // Auto-select the new layer
-    this._activeLayer = newLayer;
-    this._renderLayerList();
-    this._renderDropdowns();
-    this._emitChanged();
+    this._showInlinePrompt('Layer name:', 'NewLayer', (name) => {
+      if (!name?.trim() || !this._activeTilemap) return;
+      const maxZ = Math.max(...this._activeTilemap.layers.map(l => l.z), 0);
+      const newLayer: TilemapLayer = {
+        layerId: `layer-${Date.now().toString(36)}`,
+        name: name.trim(),
+        z: maxZ + 5,
+        visible: true,
+        locked: false,
+        hasCollision: false,
+        tiles: {},
+      };
+      this._activeTilemap.layers.push(newLayer);
+      this._activeLayer = newLayer;
+      this._renderLayerList();
+      this._renderDropdowns();
+      this._emitChanged();
+    });
   }
 
-  private _emitChanged(): void {
+  /** Inline prompt dialog — replaces window.prompt() which is unavailable in macOS Tauri (WKWebView). */
+  private _showInlinePrompt(title: string, defaultValue: string, onConfirm: (value: string | null) => void): void {
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '10000',
+      background: 'rgba(0,0,0,0.45)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+    });
+    const dialog = document.createElement('div');
+    Object.assign(dialog.style, {
+      background: '#1e1e2e', border: '1px solid #45475a',
+      borderRadius: '6px', padding: '16px 20px', minWidth: '280px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', color: '#cdd6f4', fontFamily: 'inherit',
+    });
+    const label = document.createElement('div');
+    label.textContent = title;
+    Object.assign(label.style, { marginBottom: '10px', fontWeight: '600', fontSize: '13px' });
+    dialog.appendChild(label);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = defaultValue;
+    Object.assign(input.style, {
+      width: '100%', boxSizing: 'border-box', marginBottom: '12px',
+      fontSize: '13px', padding: '6px 8px', background: '#313244',
+      color: '#cdd6f4', border: '1px solid #45475a', borderRadius: '4px',
+    });
+    dialog.appendChild(input);
+    const btnRow = document.createElement('div');
+    Object.assign(btnRow.style, { display: 'flex', gap: '8px', justifyContent: 'flex-end' });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    Object.assign(cancelBtn.style, {
+      background: '#45475a', color: '#cdd6f4', border: 'none',
+      borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '12px',
+    });
+    cancelBtn.onclick = () => { overlay.remove(); onConfirm(null); };
+    btnRow.appendChild(cancelBtn);
+    const okBtn = document.createElement('button');
+    okBtn.textContent = 'OK';
+    Object.assign(okBtn.style, {
+      background: '#89b4fa', color: '#1e1e2e', border: 'none',
+      borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
+    });
+    okBtn.onclick = () => { overlay.remove(); onConfirm(input.value.trim() || null); };
+    btnRow.appendChild(okBtn);
+    dialog.appendChild(btnRow);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); okBtn.click(); }
+      if (e.key === 'Escape') { e.preventDefault(); cancelBtn.click(); }
+    });
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) cancelBtn.click();
+    });
+  }
+
+    private _emitChanged(): void {
     if (this._activeTilemap) this._onTilemapChanged?.(this._activeTilemap);
   }
 
@@ -1702,13 +1803,15 @@ export class TileEditorPanel {
   private _createTilemap(): void {
     if (this._tilesets.length === 0) return;
 
-    const name = prompt('Tilemap name:', 'Tilemap');
-    if (!name?.trim()) return;
+    this._showInlinePrompt('Tilemap name:', 'Tilemap', (name) => {
+      if (!name?.trim()) return;
 
-    const tilesetId = this._activeTileset?.assetId ?? this._tilesets[0].assetId;
-    this._createTilemapSilent(tilesetId, name.trim());
-    this._renderAll();
+      const tilesetId = this._activeTileset?.assetId ?? this._tilesets[0].assetId;
+      this._createTilemapSilent(tilesetId, name.trim());
+      this._renderAll();
+    });
   }
+
 
   /** Create a tilemap without prompting — used for auto-creation after tileset import */
   private _createTilemapSilent(tilesetId: string, name?: string): void {

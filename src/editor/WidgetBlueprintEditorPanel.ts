@@ -3546,6 +3546,30 @@ export class WidgetBlueprintEditorPanel {
             widget.imageProps!.nineSlice = s;
           });
 
+          // UV Rect (sprite sheet region)
+          this._addPropHeader('UV Rect');
+          const uv = widget.imageProps.uvRect ?? { x: 0, y: 0, width: 1, height: 1 };
+          this._addPropRow('U', this._makeNumberInput(uv.x, 0, 1, 0.01, (v) => {
+            if (!widget.imageProps!.uvRect) widget.imageProps!.uvRect = { x: 0, y: 0, width: 1, height: 1 };
+            widget.imageProps!.uvRect.x = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('V', this._makeNumberInput(uv.y, 0, 1, 0.01, (v) => {
+            if (!widget.imageProps!.uvRect) widget.imageProps!.uvRect = { x: 0, y: 0, width: 1, height: 1 };
+            widget.imageProps!.uvRect.y = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('UV W', this._makeNumberInput(uv.width, 0, 1, 0.01, (v) => {
+            if (!widget.imageProps!.uvRect) widget.imageProps!.uvRect = { x: 0, y: 0, width: 1, height: 1 };
+            widget.imageProps!.uvRect.width = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('UV H', this._makeNumberInput(uv.height, 0, 1, 0.01, (v) => {
+            if (!widget.imageProps!.uvRect) widget.imageProps!.uvRect = { x: 0, y: 0, width: 1, height: 1 };
+            widget.imageProps!.uvRect.height = v;
+            this._asset.touch();
+          }));
+
           // Gradient overlay
           this._addPropHeader('Gradient Overlay');
           this._makeGradientEditor(widget.imageProps.gradient, (g) => {
@@ -3634,6 +3658,11 @@ export class WidgetBlueprintEditorPanel {
             widget.buttonProps!.stateTints.pressed = v;
             this._asset.touch();
           }));
+          this._addPropRow('Disabled Tint', this._makeColorInput(sTints.disabled ?? '#ffffff', (v) => {
+            if (!widget.buttonProps!.stateTints) widget.buttonProps!.stateTints = {};
+            widget.buttonProps!.stateTints.disabled = v;
+            this._asset.touch();
+          }));
 
           // --- Content ---
           this._addPropHeader('Button Content');
@@ -3676,6 +3705,133 @@ export class WidgetBlueprintEditorPanel {
             }));
           }
 
+          // Icon (for image / composite content)
+          if (content.type === 'image' || content.type === 'composite') {
+            this._addPropHeader('Icon');
+            const icon = content.icon ?? { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left' as const, padding: 8 };
+            this._addPropRow('Texture', this._makeTexturePicker(icon.texture, (id) => {
+              if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+              if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+              widget.buttonProps!.content.icon.texture = id ?? '';
+              this._asset.touch();
+            }));
+            this._addPropRow('Icon W', this._makeNumberInput(icon.size?.width ?? 24, 1, 512, 1, (v) => {
+              if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+              if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+              widget.buttonProps!.content.icon.size.width = v;
+              this._asset.touch();
+            }));
+            this._addPropRow('Icon H', this._makeNumberInput(icon.size?.height ?? 24, 1, 512, 1, (v) => {
+              if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+              if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+              widget.buttonProps!.content.icon.size.height = v;
+              this._asset.touch();
+            }));
+            this._addPropRow('Icon Tint', this._makeColorInput(icon.tint ?? '#ffffff', (v) => {
+              if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+              if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+              widget.buttonProps!.content.icon.tint = v;
+              this._asset.touch();
+            }));
+            this._addPropRow('Position', this._makeSelect(
+              ['left', 'right', 'top', 'bottom'],
+              icon.position ?? 'left',
+              (v) => {
+                if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+                if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+                widget.buttonProps!.content.icon.position = v as any;
+                this._asset.touch();
+                this._selectWidget(this._selectedWidgetId);
+              },
+            ));
+            this._addPropRow('Icon Gap', this._makeNumberInput(icon.padding ?? 8, 0, 100, 1, (v) => {
+              if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'image' };
+              if (!widget.buttonProps!.content.icon) widget.buttonProps!.content.icon = { texture: '', size: { width: 24, height: 24 }, tint: '#ffffff', position: 'left', padding: 8 };
+              widget.buttonProps!.content.icon.padding = v;
+              this._asset.touch();
+            }));
+          }
+
+          // Content padding
+          this._addPropHeader('Content Padding');
+          const cPad = content.padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
+          this._addPropRow('Top', this._makeNumberInput(cPad.top ?? 0, 0, 200, 1, (v) => {
+            if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'text' };
+            if (!widget.buttonProps!.content.padding) widget.buttonProps!.content.padding = { top: 0, right: 0, bottom: 0, left: 0 };
+            widget.buttonProps!.content.padding.top = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Right', this._makeNumberInput(cPad.right ?? 0, 0, 200, 1, (v) => {
+            if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'text' };
+            if (!widget.buttonProps!.content.padding) widget.buttonProps!.content.padding = { top: 0, right: 0, bottom: 0, left: 0 };
+            widget.buttonProps!.content.padding.right = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Bottom', this._makeNumberInput(cPad.bottom ?? 0, 0, 200, 1, (v) => {
+            if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'text' };
+            if (!widget.buttonProps!.content.padding) widget.buttonProps!.content.padding = { top: 0, right: 0, bottom: 0, left: 0 };
+            widget.buttonProps!.content.padding.bottom = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Left', this._makeNumberInput(cPad.left ?? 0, 0, 200, 1, (v) => {
+            if (!widget.buttonProps!.content) widget.buttonProps!.content = { type: 'text' };
+            if (!widget.buttonProps!.content.padding) widget.buttonProps!.content.padding = { top: 0, right: 0, bottom: 0, left: 0 };
+            widget.buttonProps!.content.padding.left = v;
+            this._asset.touch();
+          }));
+
+          // Animations
+          this._addPropHeader('Animations');
+          const anims = widget.buttonProps.animations ?? {};
+          this._addPropRow('Hover In ms', this._makeNumberInput(anims.hoverIn?.duration ?? 150, 0, 5000, 10, (v) => {
+            if (!widget.buttonProps!.animations) widget.buttonProps!.animations = {};
+            if (!widget.buttonProps!.animations.hoverIn) widget.buttonProps!.animations.hoverIn = { duration: 150, easing: 'ease' };
+            widget.buttonProps!.animations.hoverIn.duration = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Hover Out ms', this._makeNumberInput(anims.hoverOut?.duration ?? 150, 0, 5000, 10, (v) => {
+            if (!widget.buttonProps!.animations) widget.buttonProps!.animations = {};
+            if (!widget.buttonProps!.animations.hoverOut) widget.buttonProps!.animations.hoverOut = { duration: 150, easing: 'ease' };
+            widget.buttonProps!.animations.hoverOut.duration = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Press ms', this._makeNumberInput(anims.press?.duration ?? 50, 0, 5000, 10, (v) => {
+            if (!widget.buttonProps!.animations) widget.buttonProps!.animations = {};
+            if (!widget.buttonProps!.animations.press) widget.buttonProps!.animations.press = { duration: 50 };
+            widget.buttonProps!.animations.press.duration = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Release ms', this._makeNumberInput(anims.release?.duration ?? 100, 0, 5000, 10, (v) => {
+            if (!widget.buttonProps!.animations) widget.buttonProps!.animations = {};
+            if (!widget.buttonProps!.animations.release) widget.buttonProps!.animations.release = { duration: 100 };
+            widget.buttonProps!.animations.release.duration = v;
+            this._asset.touch();
+          }));
+
+          // State Scales
+          this._addPropHeader('State Scales');
+          const scales = widget.buttonProps.stateScales ?? {};
+          this._addPropRow('Normal', this._makeNumberInput(scales.normal ?? 1, 0.1, 3, 0.01, (v) => {
+            if (!widget.buttonProps!.stateScales) widget.buttonProps!.stateScales = {};
+            widget.buttonProps!.stateScales.normal = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Hovered', this._makeNumberInput(scales.hovered ?? 1, 0.1, 3, 0.01, (v) => {
+            if (!widget.buttonProps!.stateScales) widget.buttonProps!.stateScales = {};
+            widget.buttonProps!.stateScales.hovered = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Pressed', this._makeNumberInput(scales.pressed ?? 1, 0.1, 3, 0.01, (v) => {
+            if (!widget.buttonProps!.stateScales) widget.buttonProps!.stateScales = {};
+            widget.buttonProps!.stateScales.pressed = v;
+            this._asset.touch();
+          }));
+          this._addPropRow('Disabled', this._makeNumberInput(scales.disabled ?? 1, 0.1, 3, 0.01, (v) => {
+            if (!widget.buttonProps!.stateScales) widget.buttonProps!.stateScales = {};
+            widget.buttonProps!.stateScales.disabled = v;
+            this._asset.touch();
+          }));
+
           // 9-Slice
           this._addPropHeader('9-Slice');
           this._makeNineSliceEditor(widget.buttonProps.nineSlice, (s) => {
@@ -3710,6 +3866,10 @@ export class WidgetBlueprintEditorPanel {
             widget.progressBarProps.fillDirection,
             (v) => { widget.progressBarProps!.fillDirection = v as any; this._asset.touch(); },
           ));
+          this._addPropRow('Radius', this._makeNumberInput(widget.progressBarProps.borderRadius ?? 0, 0, 100, 1, (v) => {
+            widget.progressBarProps!.borderRadius = v;
+            this._asset.touch();
+          }));
 
           // --- Texture slots ---
           this._addPropHeader('Textures');

@@ -21,6 +21,8 @@ import {
   boolSocket,
   strSocket,
   objectSocket,
+  actorRefSocket,
+  actorArraySocket,
   registerNode,
 } from '../sockets';
 import { ActorClassSelectControl } from '../spawning/SpawningNodes';
@@ -79,7 +81,7 @@ export class OnDragSelectionCompleteNode extends ClassicPreset.Node {
   constructor() {
     super('On Drag Selection Complete');
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
-    this.addOutput('selectedActors', new ClassicPreset.Output(objectSocket, 'Selected Actors'));
+    this.addOutput('selectedActors', new ClassicPreset.Output(actorArraySocket, 'Selected Actors (Actor Array)'));
     this.addOutput('count', new ClassicPreset.Output(numSocket, 'Count'));
   }
 }
@@ -91,7 +93,7 @@ registerNode('On Drag Selection Complete', 'Selection', () => new OnDragSelectio
 export class GetSelectedActorsNode extends ClassicPreset.Node {
   constructor() {
     super('Get Selected Actors');
-    this.addOutput('actors', new ClassicPreset.Output(objectSocket, 'Actors'));
+    this.addOutput('actors', new ClassicPreset.Output(actorArraySocket, 'Actors (Actor Array)'));
     this.addOutput('count', new ClassicPreset.Output(numSocket, 'Count'));
   }
 }
@@ -104,7 +106,7 @@ export class GetSelectedActorAtIndexNode extends ClassicPreset.Node {
   constructor() {
     super('Get Selected Actor At Index');
     this.addInput('index', new ClassicPreset.Input(numSocket, 'Index'));
-    this.addOutput('actor', new ClassicPreset.Output(objectSocket, 'Actor'));
+    this.addOutput('actor', new ClassicPreset.Output(actorRefSocket, 'Actor'));
     this.addOutput('valid', new ClassicPreset.Output(boolSocket, 'Is Valid'));
   }
 }

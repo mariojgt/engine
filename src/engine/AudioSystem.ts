@@ -556,4 +556,52 @@ export class AudioEngine {
   get activeSourceCount(): number {
     return this._sources.size;
   }
+
+  // ── Sound Cue Resolution ──
+  // At runtime, the SoundLibrary resolves a Sound Cue ID to a URL + overrides.
+  // This bridge is set by the editor when starting gameplay.
+
+  private _soundCueResolver: ((cueId: string) => { url: string; volume: number; pitch: number } | null) | null = null;
+
+  /** Set the Sound Cue resolver (called by editor before gameplay starts) */
+  setSoundCueResolver(resolver: (cueId: string) => { url: string; volume: number; pitch: number } | null): void {
+    this._soundCueResolver = resolver;
+  }
+
+  /** Resolve a Sound Cue ID to a playable result. Returns raw URL if not a cue ID. */
+  resolveSoundCue(cueIdOrUrl: string): { url: string; volume: number; pitch: number } {
+    // If it looks like a cue ID and the resolver is set, try to resolve
+    if (this._soundCueResolver && cueIdOrUrl.startsWith('cue_')) {
+      const resolved = this._soundCueResolver(cueIdOrUrl);
+      if (resolved) return resolved;
+    }
+    // Fallback: treat as raw URL (backward compat)
+    return { url: cueIdOrUrl, volume: 1, pitch: 1 };
+  }
+
+  /** Play a Sound Cue (or raw URL) as a 2D sound */
+  async playSoundCue2D(cueIdOrUrl: string, options?: Partial<AudioPlayOptions>): Promise<number> {
+    const resolved = this.resolveSoundCue(cueIdOrUrl);
+    const mergedOptions: Partial<AudioPlayOptions> = {
+      ...options,
+      volume: (options?.volume ?? 1) * resolved.volume,
+      pitch: (options?.pitch ?? 1) * resolved.pitch,
+    };
+    return this.playSound2D(resolved.url, mergedOptions);
+  }
+
+  /** Play a Sound Cue (or raw URL) at a spatial location */
+  async playSoundCueAtLocation(
+    cueIdOrUrl: string,
+    position: { x: number; y: number; z: number },
+    options?: Partial<AudioPlayOptions>,
+  ): Promise<number> {
+    const resolved = this.resolveSoundCue(cueIdOrUrl);
+    const mergedOptions: Partial<AudioPlayOptions> = {
+      ...options,
+      volume: (options?.volume ?? 1) * resolved.volume,
+      pitch: (options?.pitch ?? 1) * resolved.pitch,
+    };
+    return this.playSoundAtLocation(resolved.url, position, mergedOptions);
+  }
 }

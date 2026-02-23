@@ -238,6 +238,7 @@ export class WidgetRenderer {
       const img = this._getCachedImage(props.imageSource);
       if (img && img.complete && img.naturalWidth > 0) {
         const nineSlice = (props as any).nineSlice;
+        const uv = (props as any).uvRect as { x: number; y: number; width: number; height: number } | undefined;
         if (nineSlice?.enabled) {
           this._renderNineSlice(ctx, img, rect, nineSlice.margins);
         } else {
@@ -246,10 +247,29 @@ export class WidgetRenderer {
           const tintMode = (props as any).tintMode as TintMode | undefined;
           const tintStrength = (props as any).tintStrength ?? 1.0;
 
+          // Determine source region (uvRect support for sprite sheets)
+          const hasUV = uv && !(uv.x === 0 && uv.y === 0 && uv.width === 1 && uv.height === 1);
+          const sx = hasUV ? uv!.x * img.naturalWidth : 0;
+          const sy = hasUV ? uv!.y * img.naturalHeight : 0;
+          const sw = hasUV ? uv!.width * img.naturalWidth : img.naturalWidth;
+          const sh = hasUV ? uv!.height * img.naturalHeight : img.naturalHeight;
+
           if (tint && tint !== '#ffffff' && tint !== '#FFFFFF') {
-            this._renderTintedImage(ctx, img, rect, tint, tintMode || 'multiply', tintStrength);
+            if (hasUV) {
+              // Render sub-rect to offscreen then tint
+              const off = new OffscreenCanvas(Math.ceil(sw), Math.ceil(sh));
+              const offCtx = off.getContext('2d')!;
+              offCtx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+              this._renderTintedImage(ctx, off as any, rect, tint, tintMode || 'multiply', tintStrength);
+            } else {
+              this._renderTintedImage(ctx, img, rect, tint, tintMode || 'multiply', tintStrength);
+            }
           } else {
-            ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
+            if (hasUV) {
+              ctx.drawImage(img, sx, sy, sw, sh, rect.x, rect.y, rect.width, rect.height);
+            } else {
+              ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
+            }
           }
         }
       } else {
@@ -513,13 +533,19 @@ export class WidgetRenderer {
 
     const percent = Math.max(0, Math.min(1, props.percent || 0));
     const radius = props.borderRadius || 0;
+    const dir = props.fillDirection || 'LeftToRight';
 
     // Background
     const bgTex = (props as any).backgroundTexture;
     if (bgTex) {
       const img = this._getCachedImage(bgTex);
-      if (img && img.complete) {
-        this._renderNineSlice(ctx, img, rect, (props as any).backgroundNineSlice?.margins);
+      if (img && img.complete && img.naturalWidth > 0) {
+        const bgNs = (props as any).backgroundNineSlice;
+        if (bgNs?.enabled) {
+          this._renderNineSlice(ctx, img, rect, bgNs.margins);
+        } else {
+          ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
+        }
       } else {
         ctx.fillStyle = props.backgroundColor || '#333';
         this._roundRect(ctx, rect.x, rect.y, rect.width, rect.height, radius);
@@ -531,22 +557,63 @@ export class WidgetRenderer {
       ctx.fill();
     }
 
-    // Fill
-    const fillWidth = rect.width * percent;
-    if (fillWidth > 0) {
-      const fillGradient = (props as any).fillGradient;
-      if (fillGradient?.enabled) {
-        ctx.fillStyle = this._createGradient(ctx, { ...rect, width: fillWidth }, fillGradient);
-      } else {
-        ctx.fillStyle = props.fillColor || '#2a9d8f';
-      }
-
-      ctx.save();
-      this._roundRect(ctx, rect.x, rect.y, fillWidth, rect.height, radius);
-      ctx.clip();
-      ctx.fillRect(rect.x, rect.y, fillWidth, rect.height);
-      ctx.restore();
+    // Compute fill rect based on direction
+    let fillRect: WidgetRect;
+    switch (dir) {
+      case 'RightToLeft':
+        fillRect = { x: rect.x + rect.width * (1 - percent), y: rect.y, width: rect.width * percent, height: rect.height };
+        break;
+      case 'TopToBottom':
+        fillRect = { x: rect.x, y: rect.y, width: rect.width, height: rect.height * percent };
+        break;
+      case 'BottomToTop':
+        fillRect = { x: rect.x, y: rect.y + rect.height * (1 - percent), width: rect.width, height: rect.height * percent };
+        break;
+      default: // LeftToRight
+        fillRect = { x: rect.x, y: rect.y, width: rect.width * percent, height: rect.height };
     }
+
+    if (fillRect.width <= 0 || fillRect.height <= 0) return;
+
+    // Fill
+    ctx.save();
+    this._roundRect(ctx, rect.x, rect.y, rect.width, rect.height, radius);
+    ctx.clip();
+
+    const fillTex = (props as any).fillTexture;
+    const fillNs = (props as any).fillNineSlice;
+    if (fillTex) {
+      const fImg = this._getCachedImage(fillTex);
+      if (fImg && fImg.complete && fImg.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(fillRect.x, fillRect.y, fillRect.width, fillRect.height);
+        ctx.clip();
+        if (fillNs?.enabled) {
+          this._renderNineSlice(ctx, fImg, rect, fillNs.margins);
+        } else {
+          ctx.drawImage(fImg, rect.x, rect.y, rect.width, rect.height);
+        }
+        ctx.restore();
+      } else {
+        this._drawProgressFillColor(ctx, fillRect, rect, props);
+      }
+    } else {
+      this._drawProgressFillColor(ctx, fillRect, rect, props);
+    }
+    ctx.restore();
+  }
+
+  private _drawProgressFillColor(
+    ctx: CanvasRenderingContext2D, fillRect: WidgetRect, fullRect: WidgetRect, props: any,
+  ): void {
+    const fillGradient = props.fillGradient;
+    if (fillGradient?.enabled) {
+      ctx.fillStyle = this._createGradient(ctx, fullRect, fillGradient);
+    } else {
+      ctx.fillStyle = props.fillColor || '#2a9d8f';
+    }
+    ctx.fillRect(fillRect.x, fillRect.y, fillRect.width, fillRect.height);
   }
 
   private _renderBorder(widget: WidgetNodeJSON, rect: WidgetRect): void {
@@ -556,7 +623,7 @@ export class WidgetRenderer {
 
     const radius = props.borderRadius || 0;
 
-    // Background texture or color
+    // Background texture or color or gradient
     if (props.backgroundImage) {
       const img = this._getCachedImage(props.backgroundImage);
       if (img && img.complete && img.naturalWidth > 0) {
@@ -572,9 +639,16 @@ export class WidgetRenderer {
         ctx.fill();
       }
     } else {
-      ctx.fillStyle = props.backgroundColor;
-      this._roundRect(ctx, rect.x, rect.y, rect.width, rect.height, radius);
-      ctx.fill();
+      const gradient = (props as any).gradient;
+      if (gradient?.enabled) {
+        this._roundRect(ctx, rect.x, rect.y, rect.width, rect.height, radius);
+        ctx.fillStyle = this._createGradient(ctx, rect, gradient);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = props.backgroundColor;
+        this._roundRect(ctx, rect.x, rect.y, rect.width, rect.height, radius);
+        ctx.fill();
+      }
     }
 
     // Border stroke

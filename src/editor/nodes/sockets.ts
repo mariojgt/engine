@@ -13,6 +13,10 @@ export const colorSocket = new ClassicPreset.Socket('Color');   // coral – hex
 export const objectSocket = new ClassicPreset.Socket('ObjectRef'); // blue – generic object reference
 export const widgetSocket = new ClassicPreset.Socket('Widget'); // purple – widget reference
 
+// Typed sockets for UE-style clarity
+export const actorRefSocket   = new ClassicPreset.Socket('ActorRef');   // bright blue – single actor reference
+export const actorArraySocket = new ClassicPreset.Socket('ActorArray'); // teal – array of actor references
+
 // ============================================================
 //  Socket Type Colours  (UE-style)
 // ============================================================
@@ -26,6 +30,8 @@ export const SOCKET_COLORS: Record<string, string> = {
   Enum:    '#00bcd4',   // cyan – enum sockets
   ObjectRef: '#0099ff', // bright blue – object references
   Widget:  '#9b59b6',   // purple – widget references
+  ActorRef:   '#2196F3', // material blue – single actor reference
+  ActorArray: '#00BCD4', // cyan-teal – array of actor references (diamond shape)
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
 
@@ -57,6 +63,15 @@ export function socketsCompatible(
   // ClassRef_<id> ↔ ClassRef_<id> — allow any class ref to connect
   // (the Cast node handles type safety at runtime)
   if (a.name.startsWith('ClassRef_') && b.name.startsWith('ClassRef_')) return true;
+  // ActorRef ↔ ObjectRef — single actor ref is compatible with generic object
+  if ((a.name === 'ActorRef' && b.name === 'ObjectRef') ||
+      (b.name === 'ActorRef' && a.name === 'ObjectRef')) return true;
+  // ActorRef ↔ ClassRef_<id> — actor ref compatible with typed class refs
+  if ((a.name === 'ActorRef' && b.name.startsWith('ClassRef_')) ||
+      (b.name === 'ActorRef' && a.name.startsWith('ClassRef_'))) return true;
+  // ActorArray ↔ ObjectRef — actor array compatible with generic object (e.g. ForEach input)
+  if ((a.name === 'ActorArray' && b.name === 'ObjectRef') ||
+      (b.name === 'ActorArray' && a.name === 'ObjectRef')) return true;
   return false;
 }
 

@@ -37,9 +37,10 @@ import { WorldOutlinerPanel } from './WorldOutlinerPanel';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { ClassHierarchyPanel } from './ClassHierarchyPanel';
 import { InheritanceDialogsUI } from './InheritanceDialogsUI';
+import { SoundLibrary, type SoundCueData } from './SoundLibrary';
+import { SoundCueEditorPanel } from './SoundCueEditorPanel';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
 import { Scene2DManager, type SceneMode } from './Scene2DManager';
-import { SortingLayersPanel } from './SortingLayersPanel';
 import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
 
@@ -102,6 +103,7 @@ export class EditorLayout {
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
+  private _soundCueEditor: SoundCueEditorPanel | null = null;
 
   /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
   public composition: SceneCompositionManager;
@@ -119,8 +121,6 @@ export class EditorLayout {
   public scene2DManager: Scene2DManager;
 
   /* 2D editor panels */
-  private _sortingLayersPanel: SortingLayersPanel | null = null;
-
   private _tileEditorPanel: TileEditorPanel | null = null;
   private _tilemapRenderer: TilemapRenderer | null = null;
   private _current2DMode: SceneMode = '3D';
@@ -709,6 +709,42 @@ export class EditorLayout {
     }
   }
 
+  /** Wire up the SoundLibrary callbacks for the content browser */
+  setSoundLibraryCallbacks(): void {
+    if (this._assetBrowser) {
+      this._assetBrowser.setSoundLibraryCallbacks((cue: SoundCueData) => this._openSoundCueEditor(cue));
+    }
+  }
+
+  /** Open a Sound Cue editor panel */
+  private _openSoundCueEditor(cue: SoundCueData): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'sound-cue-editor-' + cue.assetId;
+    this._api.addPanel({
+      id: panelId,
+      title: `Sound Cue: ${cue.assetName}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+
+    const panel = this._api.getPanel(panelId);
+    if (panel) {
+      const renderer = rendererMap.get(panelId);
+      if (renderer) {
+        this._soundCueEditor = new SoundCueEditorPanel(
+          renderer.element,
+          cue,
+          () => {
+            if (this._assetBrowser) this._assetBrowser.refresh();
+          }
+        );
+      }
+    }
+  }
+
   /** Open a game instance blueprint editor panel */
   private _openGameInstanceEditor(asset: GameInstanceBlueprintAsset): void {
     this._closeNodeEditor();
@@ -1044,10 +1080,14 @@ export class EditorLayout {
       this._materialEditor.dispose();
       this._materialEditor = null;
     }
+    if (this._soundCueEditor) {
+      this._soundCueEditor.dispose();
+      this._soundCueEditor = null;
+    }
 
     const panels = this._api.panels;
     for (const p of panels) {
-      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-')) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-') || p.id.startsWith('sound-cue-editor-')) {
         this._api.removePanel(p);
       }
     }
@@ -1204,18 +1244,6 @@ export class EditorLayout {
 
   /** Open all 2D-specific panels as tabs in the Properties group */
   private _open2DPanels(): void {
-    // Sorting Layers panel (tab alongside Properties)
-    try {
-      this._api.addPanel({
-        id: 'sorting-layers-2d',
-        title: 'Sorting Layers',
-        component: 'default',
-        position: { referencePanel: 'properties' },
-      });
-      this._injectTabIcon('sorting-layers-2d', Icons.Layers, ICON_COLORS.muted);
-      this._initSortingLayersPanel('sorting-layers-2d');
-    } catch (_e) {}
-
     // Tile Editor (tab in content area)
     try {
       this._api.addPanel({
@@ -1233,7 +1261,6 @@ export class EditorLayout {
   /** Close all 2D-specific panels */
   private _close2DPanels(): void {
     const ids2D = [
-      'sorting-layers-2d',
       'tile-editor-2d',
     ];
     for (const id of ids2D) {
@@ -1242,7 +1269,6 @@ export class EditorLayout {
         if (panel) this._api.removePanel(panel);
       } catch (_e) {}
     }
-    this._sortingLayersPanel = null;
     this._tileEditorPanel = null;
     // Disconnect tile editor from viewport
     if (this._viewport) this._viewport.setTileEditorPanel(null);
@@ -1252,17 +1278,6 @@ export class EditorLayout {
       this._tilemapRenderer = null;
     }
   }
-
-  private _initSortingLayersPanel(panelId: string): void {
-    const renderer = rendererMap.get(panelId);
-    if (!renderer) return;
-    const el = renderer.element;
-    this._sortingLayersPanel = new SortingLayersPanel(
-      el,
-      this.scene2DManager.sortingLayers,
-    );
-  }
-
   private _initTileEditorPanel(panelId: string): void {
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
@@ -1349,6 +1364,8 @@ export class EditorLayout {
       if (this._tilemapRenderer) {
         syncAllTilemaps();
       }
+      // Notify Scene2DManager so the project is marked dirty (triggers save)
+      sm.addTilemap(_tilemap);
     });
 
     // When a specific layer is painted → rebuild only that layer for perf
@@ -1356,6 +1373,9 @@ export class EditorLayout {
       if (this._tilemapRenderer) {
         this._tilemapRenderer.rebuildLayer(layerId, tilemapId);
       }
+      // Mark scene dirty so tile painting is saved
+      const tm = sm.tilemaps.get(tilemapId);
+      if (tm) sm.addTilemap(tm);
     });
 
     // When pixel-perfect mode is toggled → rebuild all layers with new PPU

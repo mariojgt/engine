@@ -268,6 +268,12 @@ export function serializeScene(
       obj.tags = [...go.tags];
     }
 
+    // 2D sorting layer (per-instance override)
+    const __sl = go.mesh?.userData?.__sortingLayer;
+    const __oil = go.mesh?.userData?.__orderInLayer;
+    if (__sl && __sl !== 'Default') obj.sortingLayer = __sl;
+    if (__oil != null && __oil !== 0) obj.orderInLayer = __oil;
+
     // For standalone game objects (not spawned from an actor asset),
     // save their blueprint data so we can restore it
     if (!go.actorAssetId) {
@@ -413,4 +419,12 @@ function restoreInstanceProps(go: GameObject, goData: GameObjectJSON): void {
 
   // Gameplay tags
   if (goData.tags && goData.tags.length > 0) go.tags = [...goData.tags];
+
+  // 2D sorting layer (per-instance override)
+  if (goData.sortingLayer && go.mesh) {
+    go.mesh.userData.__sortingLayer = goData.sortingLayer;
+  }
+  if (goData.orderInLayer != null && go.mesh) {
+    go.mesh.userData.__orderInLayer = goData.orderInLayer;
+  }
 }
