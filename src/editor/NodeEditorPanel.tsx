@@ -36,6 +36,7 @@ import {
   TimeNode,
   DeltaTimeNode,
   FloatNode,
+  IntegerNode,
   BooleanNode,
   BoolSelectControl,
   StringLiteralNode,
@@ -1109,6 +1110,10 @@ function resolveValue(
     case 'Float': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
       return String(ctrl?.value ?? 0);
+    }
+    case 'Integer': {
+      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
+      return `Math.round(${ctrl?.value ?? 0})`;
     }
     case 'Boolean': {
       const ctrl = node.controls['value'] as BoolSelectControl;
@@ -5175,6 +5180,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   // Values
   if (node instanceof ColorNode) return 'ColorNode';
   if (node instanceof FloatNode) return 'FloatNode';
+  if (node instanceof IntegerNode) return 'IntegerNode';
   if (node instanceof BooleanNode) return 'BooleanNode';
   if (node instanceof StringLiteralNode) return 'StringLiteralNode';
   if (node instanceof Vector3LiteralNode) return 'Vector3LiteralNode';
@@ -5750,6 +5756,7 @@ function createNodeFromData(
 
     // Values
     case 'FloatNode':           return new FloatNode(d.controls?.value ?? 0);
+    case 'IntegerNode':          return new IntegerNode(d.controls?.value ?? 0);
     case 'BooleanNode': {
       const n = new BooleanNode();
       if (d.controls?.value != null) {

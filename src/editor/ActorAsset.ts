@@ -12,6 +12,7 @@ import { defaultCollisionConfig } from '../engine/CollisionTypes';
 import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, CharacterRotationConfig, CameraModeSettings, Camera2DConfig } from '../engine/CharacterPawnData';
 import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings, defaultCamera2DConfig } from '../engine/CharacterPawnData';
 import type { ControllerType } from '../engine/Controller';
+import { platformer2DTemplate, topDown2DTemplate, characterPawn3DTemplate } from './pretemplates';
 
 // ---- Actor type ----
 export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController'
@@ -576,42 +577,8 @@ export class ActorAssetManager {
         },
       ];
 
-      // Pre-populate event graph with full movement logic (UE-style)
-      // The graph provides: EventBeginPlay, EventTick → AddMovementInput,
-      // InputAxis nodes for WASD, and InputKeyEvent(Space) → Jump / StopJumping
-      asset.blueprintData.eventGraph = {
-        nodeData: {
-          nodes: [
-            // ── Starter event ──
-            { id: 'def_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
-
-            // ── Tick → movement ──
-            { id: 'def_tick', type: 'EventTickNode', position: { x: 80, y: 220 }, data: {} },
-            { id: 'def_move', type: 'AddMovementInputNode', position: { x: 520, y: 220 }, data: {} },
-
-            // ── Axis nodes (output Number: +1 / -1 / 0) ──
-            { id: 'def_axis_lr', type: 'InputAxisNode', position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
-            { id: 'def_axis_fb', type: 'InputAxisNode', position: { x: 200, y: 530 }, data: { positiveKey: 'W', negativeKey: 'S' } },
-
-            // ── Jump: Space key ──
-            { id: 'def_jump_key', type: 'InputKeyEventNode', position: { x: 80, y: 700 }, data: { selectedKey: 'Space' } },
-            { id: 'def_jump', type: 'JumpNode', position: { x: 460, y: 680 }, data: {} },
-            { id: 'def_stopjump', type: 'StopJumpingNode', position: { x: 460, y: 780 }, data: {} },
-          ],
-          connections: [
-            // Tick → AddMovementInput exec
-            { id: 'c1', source: 'def_tick', sourceOutput: 'exec', target: 'def_move', targetInput: 'exec' },
-            // InputAxis D/A → X
-            { id: 'c2', source: 'def_axis_lr', sourceOutput: 'value', target: 'def_move', targetInput: 'x' },
-            // InputAxis W/S → Z (forward/back)
-            { id: 'c3', source: 'def_axis_fb', sourceOutput: 'value', target: 'def_move', targetInput: 'z' },
-            // Space pressed → Jump
-            { id: 'c4', source: 'def_jump_key', sourceOutput: 'pressed', target: 'def_jump', targetInput: 'exec' },
-            // Space released → StopJumping
-            { id: 'c5', source: 'def_jump_key', sourceOutput: 'released', target: 'def_stopjump', targetInput: 'exec' },
-          ],
-        },
-      };
+      // Pre-populate event graph from 3D character pawn pretemplate
+      asset.blueprintData.eventGraph = structuredClone(characterPawn3DTemplate.eventGraph);
     }
     if (actorType === 'spectatorPawn') {
       asset.rootMeshType = 'none';
@@ -698,52 +665,10 @@ export class ActorAssetManager {
 
       if (preset2D === 'platformer') {
         // Platformer: horizontal movement (A/D), jump (Space), gravity enabled, flip sprite
-        asset.blueprintData.eventGraph = {
-          nodeData: {
-            nodes: [
-              // Core events
-              { id: 'p_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
-              { id: 'p_tick',      type: 'EventTickNode',      position: { x: 80, y: 220 }, data: {} },
+        asset.blueprintData.eventGraph = structuredClone(platformer2DTemplate.eventGraph);
 
-              // Horizontal movement
-              { id: 'p_move',     type: 'AddMovementInput2DNode', position: { x: 520, y: 220 }, data: {} },
-              { id: 'p_axis_lr',  type: 'InputAxisNode',          position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
-
-              // Jump
-              { id: 'p_jump_key',  type: 'InputKeyEventNode',  position: { x: 80, y: 560 }, data: { selectedKey: 'Space' } },
-              { id: 'p_jump',      type: 'Jump2DNode',         position: { x: 460, y: 540 }, data: {} },
-              { id: 'p_stopjump',  type: 'StopJump2DNode',     position: { x: 460, y: 640 }, data: {} },
-
-              // Flip sprite to face movement direction
-              { id: 'p_flip',     type: 'FlipSpriteDirection2DNode', position: { x: 820, y: 220 }, data: {} },
-            ],
-            connections: [
-              // Tick → AddMovementInput2D → FlipSpriteDirection2D
-              { id: 'pc1', source: 'p_tick',     sourceOutput: 'exec',     target: 'p_move',     targetInput: 'exec' },
-              { id: 'pc2', source: 'p_move',     sourceOutput: 'exec',     target: 'p_flip',     targetInput: 'exec' },
-              // InputAxis D/A → X
-              { id: 'pc3', source: 'p_axis_lr',  sourceOutput: 'value',    target: 'p_move',     targetInput: 'x' },
-              // Space pressed → Jump 2D
-              { id: 'pc4', source: 'p_jump_key', sourceOutput: 'pressed',  target: 'p_jump',     targetInput: 'exec' },
-              // Space released → Stop Jump 2D
-              { id: 'pc5', source: 'p_jump_key', sourceOutput: 'released', target: 'p_stopjump', targetInput: 'exec' },
-            ],
-          },
-        };
-
-        // Platformer physics defaults
-        asset.characterMovement2DConfig = {
-          moveSpeed: 300,
-          jumpForce: 600,
-          maxJumps: 2,
-          gravityScale: 1.0,
-          airControl: 0.8,
-          coyoteTime: 0.1,
-          jumpBufferTime: 0.1,
-          maxFallSpeed: -1200,
-          jumpCut: true,
-          freezeRotation: true,
-        };
+        // Platformer physics defaults (from pretemplate)
+        asset.characterMovement2DConfig = { ...platformer2DTemplate.movementConfig };
 
         // Add built-in Camera 2D component so users can tweak FOV/zoom in the Actor Editor
         const cam2dComp: ActorComponentData = {
@@ -762,45 +687,11 @@ export class ActorAssetManager {
       } else if (preset2D === 'topdown') {
         // Top-down: 4-directional movement (WASD), no gravity, no jump.
         // Gravity is disabled via characterMovement2DConfig.gravityScale = 0
-        // which is applied at spawn time on the rigid body.  No blueprint node
-        // is needed (the old SetGravityMultiplier2D node had no value connected
-        // to its multiplier pin, defaulting to 1 and overriding gravity back on).
-        asset.blueprintData.eventGraph = {
-          nodeData: {
-            nodes: [
-              // Core events
-              { id: 'td_beginplay', type: 'EventBeginPlayNode', position: { x: 80, y: 40 }, data: {} },
-              { id: 'td_tick',      type: 'EventTickNode',      position: { x: 80, y: 220 }, data: {} },
+        // which is applied at spawn time on the rigid body.
+        asset.blueprintData.eventGraph = structuredClone(topDown2DTemplate.eventGraph);
 
-              // 4-directional movement
-              { id: 'td_move',     type: 'AddMovementInput2DNode', position: { x: 520, y: 220 }, data: {} },
-              { id: 'td_axis_lr',  type: 'InputAxisNode',          position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
-              { id: 'td_axis_ud',  type: 'InputAxisNode',          position: { x: 200, y: 530 }, data: { positiveKey: 'W', negativeKey: 'S' } },
-            ],
-            connections: [
-              // Tick → AddMovementInput2D
-              { id: 'tc2', source: 'td_tick',      sourceOutput: 'exec',  target: 'td_move',    targetInput: 'exec' },
-              // InputAxis D/A → X
-              { id: 'tc3', source: 'td_axis_lr',   sourceOutput: 'value', target: 'td_move',    targetInput: 'x' },
-              // InputAxis W/S → Y
-              { id: 'tc4', source: 'td_axis_ud',   sourceOutput: 'value', target: 'td_move',    targetInput: 'y' },
-            ],
-          },
-        };
-
-        // Top-down physics defaults: no gravity
-        asset.characterMovement2DConfig = {
-          moveSpeed: 300,
-          jumpForce: 0,
-          maxJumps: 0,
-          gravityScale: 0.0,
-          airControl: 1.0,
-          coyoteTime: 0,
-          jumpBufferTime: 0,
-          maxFallSpeed: 0,
-          jumpCut: false,
-          freezeRotation: true,
-        };
+        // Top-down physics defaults (from pretemplate)
+        asset.characterMovement2DConfig = { ...topDown2DTemplate.movementConfig };
 
         // Add built-in Camera 2D component
         const cam2dCompTD: ActorComponentData = {

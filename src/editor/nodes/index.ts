@@ -42,6 +42,7 @@ export { GreaterThanNode }  from './math/GreaterThanNode';
 
 // ── Values ──────────────────────────────────────────────────
 export { FloatNode }     from './values/FloatNode';
+export { IntegerNode }   from './values/IntegerNode';
 export { BooleanNode, BoolSelectControl }   from './values/BooleanNode';
 export { TimeNode }      from './values/TimeNode';
 export { DeltaTimeNode } from './values/DeltaTimeNode';
@@ -563,73 +564,7 @@ export {
   GetMousePositionNode, GetMouseDeltaNode,
 } from './player/WorldNodes';
 
-// ── Collision Trace Nodes ───────────────────────────────────
-export {
-  LineTraceByChannelNode, SphereTraceByChannelNode, BoxTraceNode,
-  BreakHitResultNode,
-} from './collision/TraceNodes';
-
-// ── Sprite / Animation 2D Nodes ─────────────────────────────
-export {
-  PlayAnimation2DNode,
-  StopAnimation2DNode,
-  SetSpriteFrameNode,
-  SetAnimVariable2DNode,
-  GetAnimVariable2DNode,
-  OnAnimationEvent2DNode,
-  OnAnimationFinished2DNode,
-  IsAnimationPlaying2DNode,
-  GetCurrentAnimation2DNode,
-  SetSpriteFlipNode,
-  SetSpriteColorNode,
-  SetSpriteOpacityNode,
-  SetSortingLayerNode,
-  GetSortingLayerNode,
-} from './sprite/SpriteNodes';
-
-// ── Physics 2D Nodes ────────────────────────────────────────
-export {
-  LineTrace2DNode,
-  BoxOverlap2DNode,
-  CircleOverlap2DNode,
-  SetSimulatePhysics2DNode,
-  AddForce2DNode,
-  AddImpulse2DNode,
-  SetVelocity2DNode,
-  GetVelocity2DNode,
-  SetGravityScale2DNode,
-  AddTorque2DNode,
-  SetBodyType2DNode,
-  GetBodyType2DNode,
-  LockRotation2DNode,
-  SetLinearDamping2DNode,
-  OnCollisionBegin2DNode,
-  OnCollisionEnd2DNode,
-  OnTriggerBegin2DNode,
-  OnTriggerEnd2DNode,
-} from './physics2d/Physics2DNodes';
-
-// ── Camera 2D Nodes ─────────────────────────────────────────
-export {
-  SetCameraFollowTarget2DNode,
-  ClearCameraFollow2DNode,
-  SetCameraZoom2DNode,
-  GetCameraZoom2DNode,
-  CameraShake2DNode,
-  SetCameraPosition2DNode,
-  GetCameraPosition2DNode,
-  ScreenToWorld2DNode,
-  WorldToScreen2DNode,
-  SetCameraBounds2DNode,
-  ClearCameraBounds2DNode,
-  SetCameraDeadZone2DNode,
-  SetCameraFOV2DNode,
-  GetCameraFOV2DNode,
-  SetCamera2DPixelsPerUnitNode,
-  GetCamera2DPixelsPerUnitNode,
-} from './camera2d/Camera2DNodes';
-
-// ── Character Movement 2D Nodes ─────────────────────────────
+// ── Character Movement 2D ───────────────────────────────────
 export {
   AddMovementInput2DNode,
   Jump2DNode,
@@ -675,36 +610,6 @@ export {
   GetGravityMultiplier2DNode,
 } from './character2d/Character2DNodes';
 
-// ── Tilemap Nodes ───────────────────────────────────────────
-export {
-  GetTileAtLocationNode,
-  SetTileAtLocationNode,
-  ClearTileAtLocationNode,
-  HasTileAtLocationNode,
-  WorldToTileNode,
-  TileToWorldNode,
-  GetTilemapSizeNode,
-  FillTilesNode,
-  ClearTileLayerNode,
-  RebuildTilemapCollisionNode,
-} from './tilemap/TilemapNodes';
-
-// ── Animation 2D (AnimBP) Nodes ─────────────────────────────
-export {
-  AnimUpdate2DEventNode,
-  GetAnimOwner2DNode,
-  SetState2DNode,
-  GetCurrentState2DNode,
-  StateTransition2DNode,
-  OnStateEnter2DNode,
-  OnStateExit2DNode,
-  SetAnimFloat2DNode,
-  GetAnimFloat2DNode,
-  SetAnimBool2DNode,
-  GetAnimBool2DNode,
-  SetPlaybackSpeed2DNode,
-} from './animation2d/Animation2DNodes';
-
 // ── Audio Nodes ─────────────────────────────────────────────
 export {
   PlaySound2DNode,
@@ -722,19 +627,7 @@ export {
   ResumeAllSoundsNode,
 } from './audio/AudioNodes';
 
-// ── Gamepad Nodes ───────────────────────────────────────────
-export {
-  IsGamepadConnectedNode,
-  GetGamepadAxisNode,
-  IsGamepadButtonDownNode,
-  IsGamepadButtonJustPressedNode,
-  IsGamepadButtonJustReleasedNode,
-  SetGamepadVibrationNode,
-  GetGamepadLeftStickNode,
-  GetGamepadRightStickNode,
-} from './gamepad/GamepadNodes';
-
-// ── Save / Load Nodes (UE-style) ────────────────────────────
+// ── Save / Load Nodes ───────────────────────────────────────
 export {
   CreateSaveGameObjectNode,
   SaveGameToSlotNode,
@@ -750,3 +643,9 @@ export {
   GetAllSaveSlotNamesNode,
   GetSaveSlotCountNode,
 } from './saveload/SaveLoadNodes';
+
+// ── Collision Trace Nodes ───────────────────────────────────
+export {
+  LineTraceByChannelNode, SphereTraceByChannelNode, BoxTraceNode,
+  BreakHitResultNode,
+} from './collision/TraceNodes';
