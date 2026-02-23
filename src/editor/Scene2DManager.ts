@@ -386,13 +386,16 @@ export class Scene2DManager {
       for (const actor of this.spriteActors) {
         if (this._pendingDestroy.has(actor)) continue; // skip actors queued for destruction
         actor.update(deltaTime);
+        // Run the actor's own blueprint event graph FIRST so that _scriptVars,
+        // _scriptFunctions and _scriptEvents are populated before the AnimBP
+        // tries to read them via remote-access nodes (Get/Set Variable Remote,
+        // Call Actor Function, Call Actor Event, etc.).
+        this._runActorBlueprintScript(actor, deltaTime);
         // Sync physics-derived variables and run the AnimBP 2D event graph
         // (BeginPlay + Tick nodes, Set/Get Anim Var, etc.)
         this._syncAnimBPVars(actor, deltaTime);
         // Evaluate AnimBP state machine transitions using synced variables
         this._evalAnimBPTransitions(actor);
-        // Run the actor's own blueprint event graph (BeginPlay, Tick, overlap events)
-        this._runActorBlueprintScript(actor, deltaTime);
       }
       // Flush any actors that were queued for destruction during this frame
       this._flushPendingDestroys();
@@ -512,6 +515,13 @@ export class Scene2DManager {
     go._runtimeComponents.set('CharacterMovement2D', cm2d);
     go._runtimeComponents.set('RigidBody2D', rbComp);
     go._runtimeComponents.set('SpriteRenderer', actor.getComponent('SpriteRenderer'));
+
+    // Store the actor blueprint compiled code so _runActorBlueprintScript can pick it up.
+    // Without this the pawn's event graph never runs, so _scriptVars / _scriptFunctions /
+    // _scriptEvents are never initialised and remote access from the AnimBP always fails.
+    if (_actorAssetForSize?.compiledCode) {
+      (actor as any).__actorBlueprintCode = _actorAssetForSize.compiledCode;
+    }
 
     this.spriteActors.push(actor);
 

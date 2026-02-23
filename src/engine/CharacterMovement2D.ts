@@ -154,10 +154,18 @@ export class CharacterMovement2D {
     rb.setLinvel({ x: newVelX, y: vel.y }, true);
   }
 
-  /** Apply deceleration on the Y axis (for top-down mode with no gravity) */
+  /** Apply deceleration on the Y axis (for top-down mode with no gravity).
+   *  When gravity is active (platformer mode) this is a no-op — the Y axis
+   *  is driven entirely by physics/gravity and decelerating would fight it,
+   *  causing a slow downward drift instead of natural falling. */
   decelerateVertical(deltaTime: number): void {
     const rb = this._getRigidBody();
     if (!rb) return;
+
+    // Skip when gravity is active — deceleration on Y only makes sense in
+    // top-down mode where gravity is 0 and the player controls both axes.
+    const gs = typeof rb.gravityScale === 'function' ? rb.gravityScale() : (rb.gravityScale ?? 1);
+    if (gs !== 0) return;
 
     const ppu = this._getPPU();
     const decelRate = this.properties.deceleration / ppu;

@@ -760,7 +760,11 @@ export class ActorAssetManager {
         asset.components.push(cam2dComp);
 
       } else if (preset2D === 'topdown') {
-        // Top-down: 4-directional movement (WASD), no gravity, no jump
+        // Top-down: 4-directional movement (WASD), no gravity, no jump.
+        // Gravity is disabled via characterMovement2DConfig.gravityScale = 0
+        // which is applied at spawn time on the rigid body.  No blueprint node
+        // is needed (the old SetGravityMultiplier2D node had no value connected
+        // to its multiplier pin, defaulting to 1 and overriding gravity back on).
         asset.blueprintData.eventGraph = {
           nodeData: {
             nodes: [
@@ -772,13 +776,8 @@ export class ActorAssetManager {
               { id: 'td_move',     type: 'AddMovementInput2DNode', position: { x: 520, y: 220 }, data: {} },
               { id: 'td_axis_lr',  type: 'InputAxisNode',          position: { x: 200, y: 400 }, data: { positiveKey: 'D', negativeKey: 'A' } },
               { id: 'td_axis_ud',  type: 'InputAxisNode',          position: { x: 200, y: 530 }, data: { positiveKey: 'W', negativeKey: 'S' } },
-
-              // Disable gravity on begin play
-              { id: 'td_setgrav', type: 'SetGravityMultiplier2DNode', position: { x: 400, y: 40 }, data: {} },
             ],
             connections: [
-              // BeginPlay → SetGravityMultiplier2D (set to 0)
-              { id: 'tc1', source: 'td_beginplay', sourceOutput: 'exec',  target: 'td_setgrav', targetInput: 'exec' },
               // Tick → AddMovementInput2D
               { id: 'tc2', source: 'td_tick',      sourceOutput: 'exec',  target: 'td_move',    targetInput: 'exec' },
               // InputAxis D/A → X
