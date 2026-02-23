@@ -1126,6 +1126,18 @@ function resolveValue(
   }
 
   switch (node.label) {
+    case 'Get Actor Forward Vector':
+      return `(function(){ const v = new THREE.Vector3(0,0,1); v.applyQuaternion(gameObject.quaternion); return v; })()`;
+    case 'Get Actor Right Vector':
+      return `(function(){ const v = new THREE.Vector3(1,0,0); v.applyQuaternion(gameObject.quaternion); return v; })()`;
+    case 'Get Actor Up Vector':
+      return `(function(){ const v = new THREE.Vector3(0,1,0); v.applyQuaternion(gameObject.quaternion); return v; })()`;
+    case 'Get Actor Velocity':
+      return `(gameObject.userData.velocity || new THREE.Vector3(0,0,0))`;
+    case 'Actor Has Tag': {
+      const tS = inputSrc.get(`${nodeId}.tag`);
+      return `(gameObject.userData.tags || []).includes(${tS ? rv(tS.nid, tS.ok) : '""'})`;
+    }
     case 'Float': {
       const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'>;
       return String(ctrl?.value ?? 0);
@@ -2290,6 +2302,77 @@ function genAction(
   }
 
   switch (node.label) {
+    case 'Add Actor World Offset': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.position.add(new THREE.Vector3(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}));`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Actor Local Offset': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.translateX(${xS ? rv(xS.nid, xS.ok) : '0'});`);
+      lines.push(`gameObject.translateY(${yS ? rv(yS.nid, yS.ok) : '0'});`);
+      lines.push(`gameObject.translateZ(${zS ? rv(zS.nid, zS.ok) : '0'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Actor World Rotation': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`{ const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'})); gameObject.quaternion.premultiply(q); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Teleport Actor': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      lines.push(`gameObject.position.set(${xS ? rv(xS.nid, xS.ok) : 'gameObject.position.x'}, ${yS ? rv(yS.nid, yS.ok) : 'gameObject.position.y'}, ${zS ? rv(zS.nid, zS.ok) : 'gameObject.position.z'});`);
+      lines.push(`if (__physics && __physics.collision) { __physics.collision.teleportBody(__physics, gameObject.id, gameObject.position); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Tag To Actor': {
+      const tS = inputSrc.get(`${nodeId}.tag`);
+      lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && !(gameObject.userData.tags || []).includes(t)) { gameObject.userData.tags = gameObject.userData.tags || []; gameObject.userData.tags.push(t); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove Tag From Actor': {
+      const tS = inputSrc.get(`${nodeId}.tag`);
+      lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && gameObject.userData.tags) { gameObject.userData.tags = gameObject.userData.tags.filter(x => x !== t); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Hidden In Game': {
+      const hS = inputSrc.get(`${nodeId}.hidden`);
+      lines.push(`gameObject.visible = !(${hS ? rv(hS.nid, hS.ok) : 'false'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Enable Collision': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      lines.push(`if (__physics && __physics.collision) { __physics.collision.setBodyEnabled(__physics, gameObject.id, !!(${eS ? rv(eS.nid, eS.ok) : 'true'})); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Actor Tick Enabled': {
+      const eS = inputSrc.get(`${nodeId}.enabled`);
+      lines.push(`gameObject.userData.tickEnabled = !!(${eS ? rv(eS.nid, eS.ok) : 'true'});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Destroy Component': {
+      const cS = inputSrc.get(`${nodeId}.component`);
+      lines.push(`{ const c = ${cS ? rv(cS.nid, cS.ok) : 'null'}; if (c && c.parent) { c.parent.remove(c); if (c.dispose) c.dispose(); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
     case 'Set Actor Position': {
       const xS = inputSrc.get(`${nodeId}.x`);
       const yS = inputSrc.get(`${nodeId}.y`);
