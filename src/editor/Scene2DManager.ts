@@ -620,7 +620,26 @@ export class Scene2DManager {
         );
         const defaultAnim: string | undefined =
           entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
-        actor.initAnimator(sheet.animations, defaultAnim);
+        actor.initAnimator(sheet.animations);
+        
+        if (entryState?.spriteSheetId && entryState.spriteSheetId !== sheet.assetId) {
+          const newSheet = this.spriteSheets.get(entryState.spriteSheetId);
+          if (newSheet) {
+            if (newSheet.image && !newSheet.texture) {
+              const tex = new THREE.Texture(newSheet.image as HTMLImageElement);
+              tex.magFilter = THREE.NearestFilter;
+              tex.minFilter = THREE.NearestFilter;
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.flipY = false;
+              tex.needsUpdate = true;
+              newSheet.texture = tex;
+            }
+            actor.animator?.setSpriteSheet(newSheet);
+          }
+        }
+        if (defaultAnim) {
+          actor.animator?.play(defaultAnim);
+        }
       }
     })();
 
@@ -808,7 +827,26 @@ export class Scene2DManager {
         );
         const defaultAnim: string | undefined =
           entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
-        actor.initAnimator(sheet.animations, defaultAnim);
+        actor.initAnimator(sheet.animations);
+        
+        if (entryState?.spriteSheetId && entryState.spriteSheetId !== sheet.assetId) {
+          const newSheet = this.spriteSheets.get(entryState.spriteSheetId);
+          if (newSheet) {
+            if (newSheet.image && !newSheet.texture) {
+              const tex = new THREE.Texture(newSheet.image as HTMLImageElement);
+              tex.magFilter = THREE.NearestFilter;
+              tex.minFilter = THREE.NearestFilter;
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.flipY = false;
+              tex.needsUpdate = true;
+              newSheet.texture = tex;
+            }
+            actor.animator?.setSpriteSheet(newSheet);
+          }
+        }
+        if (defaultAnim) {
+          actor.animator?.play(defaultAnim);
+        }
       }
     })();
 
@@ -1290,6 +1328,25 @@ export class Scene2DManager {
 
       entry.currentStateId = t.toStateId;
 
+      // Ensure the animator is using the correct sprite sheet for the target state
+      if (targetState.spriteSheetId && targetState.spriteSheetId !== animator.spriteSheet?.assetId) {
+        const newSheet = this.spriteSheets.get(targetState.spriteSheetId);
+        if (newSheet) {
+          // If texture isn't loaded yet, we should ideally wait, but for now just set it
+          // (the texture is usually loaded by the asset manager at startup)
+          if (newSheet.image && !newSheet.texture) {
+            const tex = new THREE.Texture(newSheet.image as HTMLImageElement);
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestFilter;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.flipY = false;
+            tex.needsUpdate = true;
+            newSheet.texture = tex;
+          }
+          animator.setSpriteSheet(newSheet);
+        }
+      }
+
       // Play the right animation for the target state
       if (targetState.outputType === 'blendSprite1D') {
         this._applyBlendSprite1DState(targetState, abp, vars, animator);
@@ -1369,10 +1426,10 @@ export class Scene2DManager {
     switch (rule.op) {
       case '==':       return val == cmp;  // loose: bool vs number
       case '!=':       return val != cmp;
-      case '>':        return val > cmp;
-      case '<':        return val < cmp;
-      case '>=':       return val >= cmp;
-      case '<=':       return val <= cmp;
+      case '>':        return Number(val) > Number(cmp);
+      case '<':        return Number(val) < Number(cmp);
+      case '>=':       return Number(val) >= Number(cmp);
+      case '<=':       return Number(val) <= Number(cmp);
       case 'contains': return String(val).includes(String(cmp));
       default:         return false;
     }
