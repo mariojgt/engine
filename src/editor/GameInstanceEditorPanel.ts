@@ -140,8 +140,7 @@ export class GameInstanceEditorPanel {
       undefined, // components
       undefined, // rootMeshType
       undefined, // widgetList
-      undefined, // isAnimBlueprint
-      true,      // isGameInstanceBlueprint
+      undefined  // isAnimBlueprint
     );
 
     // Auto-compile once the editor initializes

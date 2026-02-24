@@ -188,6 +188,11 @@ export class ActorAssetBrowser {
   //  Public API (preserved)
   // ============================================================
 
+  public refresh(): void {
+    this._refreshTree();
+    this._refreshGrid();
+  }
+
   public getFolderManager(): ContentFolderManager {
     return this._folderManager;
   }

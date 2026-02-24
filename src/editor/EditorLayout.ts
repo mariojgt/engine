@@ -39,13 +39,17 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { ClassHierarchyPanel } from './ClassHierarchyPanel';
 import { InheritanceDialogsUI } from './InheritanceDialogsUI';
 import { SoundLibrary, type SoundCueData } from './SoundLibrary';
+import { ParticleEditorPanel } from './ParticleEditorPanel';
+import { ParticleSystemManager } from '../engine/ParticleSystem';
 import { SoundCueEditorPanel } from './SoundCueEditorPanel';
+import { ShaderGraphEditorPanel } from './ShaderGraphEditorPanel';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
 import { Scene2DManager, type SceneMode } from './Scene2DManager';
 import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
 
 import { TilemapRenderer } from './TilemapRenderer';
+import type { TilesetAsset } from '../engine/TilemapData';
 import { createIconSpan, Icons, ICON_COLORS } from './icons';
 
 // Store renderers by panel id for reliable element access
@@ -88,6 +92,7 @@ export class EditorLayout {
   private _dockingManager!: DockingManager;
   private _viewport: ViewportPanel | null = null;
   private _properties: PropertiesPanel | null = null;
+  private _particleEditor?: ParticleEditorPanel;
   private _physicsSettings: PhysicsSettingsPanel | null = null;
   private _projectSettings: ProjectSettingsPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
@@ -105,6 +110,7 @@ export class EditorLayout {
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
+  private _shaderGraphEditor: ShaderGraphEditorPanel | null = null;
   private _soundCueEditor: SoundCueEditorPanel | null = null;
 
   /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
@@ -286,6 +292,17 @@ export class EditorLayout {
     this._initAssetBrowser('asset-browser');
     this._initProperties('properties');
 
+    // 4.5 Particle Editor (tab alongside Properties)
+    this._api.addPanel({
+        id: 'particle-editor',
+        title: 'VFX',
+        component: 'default',
+        position: {
+            referencePanel: 'properties',
+        },
+    });
+    this._initParticleEditor('particle-editor');
+
     // 5. Physics Settings (tab alongside Properties)
     this._api.addPanel({
       id: 'physics-settings',
@@ -410,9 +427,53 @@ export class EditorLayout {
     });
 
     this._hierarchyPanel.setActorManager(this.assetManager);
+    
+    // Listen for Shader Graph requests from Material Editor
+    window.addEventListener('open-shader-graph', ((e: CustomEvent) => {
+        const matId = e.detail.materialId;
+        const mat = this._meshManager?.allMaterials.find(m => m.assetId === matId);
+        if (mat) {
+             this._openShaderGraph(mat);
+        }
+    }) as EventListener);
   }
 
-  private _initAssetBrowser(panelId: string): void {
+  private _openShaderGraph(mat: MaterialAssetJSON): void {
+      // Create or focus panel
+      let panel = this._api.getPanel('shader_graph');
+      if (!panel) {
+          this._api.addPanel({
+              id: 'shader_graph',
+              title: 'Shader Graph',
+              component: 'default',
+              position: { referencePanel: 'viewport', direction: 'below' } // Dock below viewport
+          });
+          
+          this._initShaderGraph('shader_graph');
+          panel = this._api.getPanel('shader_graph');
+      }
+      
+      panel?.api.setActive();
+      if (this._shaderGraphEditor) {
+          this._shaderGraphEditor.setMaterial(mat);
+          try { panel?.setTitle(`Graph: ${mat.assetName}`); } catch (_e) {}
+      }
+  }
+
+  private _initShaderGraph(panelId: string): void {
+      const renderer = rendererMap.get(panelId);
+      if (!renderer) {
+          // If renderer not set (auto-creation via addPanel might not set renderer if not in map?)
+          // We need a renderer.
+           // this._docking.rendererMap.set(panelId, { element: document.createElement('div', {}) } as any);
+      }
+      const r = rendererMap.get(panelId);
+      if(r) {
+        this._shaderGraphEditor = new ShaderGraphEditorPanel(r.element, this._engine, this._meshManager);
+      }
+  }
+
+  private _initAssetBrowser(panelId: string): void{
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
     const el = renderer.element;
@@ -461,6 +522,12 @@ export class EditorLayout {
     const el = renderer.element;
     this._properties = new PropertiesPanel(el, this._engine);
     this._properties.setCompositionManager(this.composition);
+  }
+
+  private _initParticleEditor(panelId: string): void {
+      const renderer = rendererMap.get(panelId);
+      if (!renderer) return;
+      this._particleEditor = new ParticleEditorPanel(renderer.element, this._engine);
   }
 
   private _initPhysicsSettings(panelId: string): void {
@@ -1056,6 +1123,9 @@ export class EditorLayout {
           this._injectTabIcon(panelId, Icons.Palette, ICON_COLORS.material);
         }
 
+        // Update all instances of this material in the scene
+        this._engine.scene.updateMaterialInScene(mat.assetId);
+
         // Sync all scene instances whose material overrides reference this material
         for (const asset of this.assetManager.assets) {
           const rootUsed = Object.values(asset.rootMaterialOverrides).includes(mat.assetId);
@@ -1095,6 +1165,10 @@ export class EditorLayout {
     if (this._materialEditor) {
       this._materialEditor.dispose();
       this._materialEditor = null;
+    }
+    if (this._shaderGraphEditor) {
+      // this._shaderGraphEditor.dispose(); 
+      this._shaderGraphEditor = null;
     }
     if (this._soundCueEditor) {
       this._soundCueEditor.dispose();

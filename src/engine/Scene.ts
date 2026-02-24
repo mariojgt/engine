@@ -1222,4 +1222,33 @@ export class Scene {
       }
     }
   }
+
+  /**
+   * Rebuilds and replaces all instances of a specific material asset in the scene.
+   */
+  updateMaterialInScene(matAssetId: string): void {
+    const mgr = MeshAssetManager.getInstance();
+    if (!mgr) return;
+    const matAsset = mgr.getMaterial(matAssetId);
+    if (!matAsset) return;
+
+    const newMat = buildThreeMaterialFromAsset(matAsset, mgr);
+
+    this.threeScene.traverse((child: THREE.Object3D) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const m = child as THREE.Mesh;
+        if (Array.isArray(m.material)) {
+          for (let i = 0; i < m.material.length; i++) {
+            if (m.material[i].userData.__materialAssetId === matAssetId) {
+              m.material[i].dispose();
+              m.material[i] = newMat;
+            }
+          }
+        } else if (m.material && (m.material as THREE.Material).userData.__materialAssetId === matAssetId) {
+          (m.material as THREE.Material).dispose();
+          m.material = newMat;
+        }
+      }
+    });
+  }
 }

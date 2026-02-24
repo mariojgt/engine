@@ -639,7 +639,7 @@ export class ProjectManager {
             try {
               const filePath = `${this._projectPath}/${sheet.imagePath}`;
               const data = await fsReadBinary(filePath);
-              const blob = new Blob([data], { type: 'image/png' });
+              const blob = new Blob([data as any], { type: 'image/png' });
               sheet.imageDataUrl = URL.createObjectURL(blob);
             } catch (e) {
               console.error(`Failed to load sprite sheet image ${sheet.imagePath}:`, e);
@@ -654,7 +654,7 @@ export class ProjectManager {
             try {
               const filePath = `${this._projectPath}/${ts.imagePath}`;
               const data = await fsReadBinary(filePath);
-              const blob = new Blob([data], { type: 'image/png' });
+              const blob = new Blob([data as any], { type: 'image/png' });
               ts.imageDataUrl = URL.createObjectURL(blob);
             } catch (e) {
               console.error(`Failed to load tileset image ${ts.imagePath}:`, e);

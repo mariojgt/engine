@@ -372,9 +372,9 @@ export class WidgetBlueprintEditorPanel {
     const _elapsedS = (now - this._playModeStartTime) / 1000;
 
     // Tick widget animations if the timeline is available
-    if (this._animTimeline) {
-      this._animTimeline.tickPlayMode?.();
-    }
+    // if (this._animTimeline) {
+    //   this._animTimeline.tickPlayMode?.();
+    // }
   }
 
   /** Mark the blueprint as needing recompilation (called externally when graph changes) */

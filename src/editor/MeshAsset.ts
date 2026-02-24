@@ -625,6 +625,16 @@ export interface MaterialAssetJSON {
 
     // ── Environment map ──
     envMapIntensity?: number;
+
+    // ── Shader Graph (Visual Material Editor) ──
+    /** 
+     * If present, this graph data overrides specific standard properties 
+     * or generates a custom shader.
+     */
+    shaderGraph?: {
+      nodes: Array<{ id: string; type: 'Output' | 'Color' | 'Float' | 'Math' | 'Time' | 'UV' | 'Texture2D' | 'Vector2' | 'Vector3'; x: number; y: number; w: number; h: number; inputs: string[]; outputs: string[]; data: any }>;
+      connections: Array<{ id: string; fromNode: string; fromPort: string; toNode: string; toPort: string }>;
+    };
   };
 }
 

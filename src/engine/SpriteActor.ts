@@ -202,8 +202,8 @@ export class SpriteActor implements Transform {
   }
 
   // ---- Rotation ----
-  get rotation(): number { return this.transform2D.rotation; }
-  set rotation(deg: number) {
+  get rotation2D(): number { return this.transform2D.rotation; }
+  set rotation2D(deg: number) {
     this.transform2D.rotation = deg;
     this.group.rotation.z = (deg * Math.PI) / 180;
   }
@@ -435,7 +435,7 @@ export class SpriteActor implements Transform {
     return { x: this.transform2D.scale.x, y: this.transform2D.scale.y, z: 1 };
   }
 
-  setPosition(x: number, y: number, z: number = 0): void {
+  setPosition3D(x: number, y: number, z: number = 0): void {
     this.transform2D.position.x = x;
     this.transform2D.position.y = y;
     this.group.position.set(x, y, z);

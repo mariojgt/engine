@@ -51,6 +51,7 @@ export class MaterialEditorPanel {
   // Bound event handlers for cleanup
   private _boundMouseMove: ((e: MouseEvent) => void) | null = null;
   private _boundMouseUp: ((e: MouseEvent) => void) | null = null;
+  private _boundMaterialUpdated: ((e: CustomEvent) => void) | null = null;
 
   constructor(
     container: HTMLElement,
@@ -63,6 +64,14 @@ export class MaterialEditorPanel {
     this._meshManager = meshManager;
     this._onChanged = onChanged;
     this._build();
+
+    this._boundMaterialUpdated = ((e: CustomEvent) => {
+        if (e.detail.materialId === this._material.assetId) {
+            this._rebuildProps();
+            this._emit();
+        }
+    }) as EventListener;
+    window.addEventListener('material-updated', this._boundMaterialUpdated as EventListener);
   }
 
   dispose(): void {
@@ -73,6 +82,7 @@ export class MaterialEditorPanel {
     }
     if (this._boundMouseMove) document.removeEventListener('mousemove', this._boundMouseMove);
     if (this._boundMouseUp) document.removeEventListener('mouseup', this._boundMouseUp);
+    if (this._boundMaterialUpdated) window.removeEventListener('material-updated', this._boundMaterialUpdated as EventListener);
   }
 
   private _emit(): void {
@@ -205,6 +215,15 @@ export class MaterialEditorPanel {
       this._emit();
     });
     bar.appendChild(applyBtn);
+
+    // Graph button
+    const graphBtn = this._createToolbarBtn(iconHTML(Icons.Settings, 13, ICON_COLORS.muted), 'Open Shader Graph', () => {
+        // Find main layout to open graph
+        // This is a bit hacky without a direct reference to EditorLayout
+        // We dispatch a custom event on the window to request opening the graph
+        window.dispatchEvent(new CustomEvent('open-shader-graph', { detail: { materialId: this._material.assetId } }));
+    });
+    bar.appendChild(graphBtn);
 
     this.container.appendChild(bar);
   }

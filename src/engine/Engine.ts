@@ -16,6 +16,7 @@ import { GameInstance } from './GameInstance';
 import { DragSelectionComponent } from './DragSelectionComponent';
 import { AudioEngine } from './AudioSystem';
 import { EventBus } from './EventBus';
+import { ParticleSystemManager } from './ParticleSystem';
 
 export class Engine {
   public scene: Scene;
@@ -72,6 +73,9 @@ export class Engine {
 
   /** Configured Game Instance class ID from Project Settings (like UE's Game Instance Class) */
   public gameInstanceClassId: string | null = null;
+
+  /** 2D Scene Manager reference for 2D camera and sprite nodes */
+  public scene2DManager: any = null;
 
   /** Cached ScriptContext to avoid per-frame allocations */
   private _cachedCtx: ScriptContext = {
@@ -386,6 +390,13 @@ export class Engine {
     let dt = this._clock.getDelta();
     // Clamp delta-time to prevent physics explosions on lag spikes or tab-away
     if (dt > 0.1) dt = 0.1;
+
+    // Update Particles
+    // This runs even in edit mode if animations are generally running (using requestAnimationFrame), 
+    // but typically we only want physics/logic in play mode.
+    // However, for "Editor Preview", we might want it running.
+    // For now, let's run it always so the editor panel shows live updates.
+    ParticleSystemManager.getInstance().update(dt);
 
     // Run scripts on all game objects (tick)
     if (this.physics.isPlaying) {
