@@ -372,10 +372,14 @@ export class CollisionSystem {
   //  Per-frame: detect & dispatch events via EventQueue
   // ----------------------------------------------------------
 
+  /** Cached lookup map: go.id → GameObject, rebuilt once per processEvents call */
+  private _cachedGoById = new Map<number, GameObject>();
+
   processEvents(scene: Scene, physics: PhysicsWorld): void {
     if (!physics.world || !this.eventQueue) return;
 
-    const goById = new Map<number, GameObject>();
+    const goById = this._cachedGoById;
+    goById.clear();
     for (const go of scene.gameObjects) goById.set(go.id, go);
 
     // ── Drain collision events from Rapier's EventQueue ──

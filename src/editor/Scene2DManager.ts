@@ -402,6 +402,10 @@ export class Scene2DManager {
         // Evaluate AnimBP state machine transitions using synced variables
         this._evalAnimBPTransitions(actor);
       }
+      // ── Process 2D collision / trigger events AFTER all actor scripts ──
+      // This guarantees that BeginPlay has registered listeners before any
+      // Rapier collision events are drained, preventing first-frame misses.
+      this.physics2D?.processEvents();
       // Flush any actors that were queued for destruction during this frame
       this._flushPendingDestroys();
     }
@@ -1282,6 +1286,38 @@ export class Scene2DManager {
       destroyActor: (actor: any) => self.despawnSpriteActor2D(actor),
     };
 
+    // ── Collision shim for AnimBP context (same bridge as _runActorBlueprintScript) ──
+    const collisionShim = {
+      registerCallbacks(_goId: number) {
+        const cbs = {
+          onBeginOverlap: [] as Array<(evt: any) => void>,
+          onEndOverlap:   [] as Array<(evt: any) => void>,
+          onHit:          [] as Array<(evt: any) => void>,
+        };
+        actor.on('triggerBegin2D', (evt: any) => {
+          const mapped = { otherActorName: evt.otherName ?? evt.otherActor?.name ?? '', otherActorId: evt.otherActor?.id ?? 0, selfComponentName: evt.selfComponentName ?? '' };
+          for (const cb of cbs.onBeginOverlap) cb(mapped);
+        });
+        actor.on('triggerEnd2D', (evt: any) => {
+          const mapped = { otherActorName: evt.otherName ?? evt.otherActor?.name ?? '', otherActorId: evt.otherActor?.id ?? 0, selfComponentName: evt.selfComponentName ?? '' };
+          for (const cb of cbs.onEndOverlap) cb(mapped);
+        });
+        actor.on('collisionBegin2D', (evt: any) => {
+          const mapped = { otherActorName: evt.otherName ?? evt.otherActor?.name ?? '', otherActorId: evt.otherActor?.id ?? 0, selfComponentName: evt.selfComponentName ?? '' };
+          for (const cb of cbs.onBeginOverlap) cb(mapped);
+        });
+        actor.on('collisionEnd2D', (evt: any) => {
+          const mapped = { otherActorName: evt.otherName ?? evt.otherActor?.name ?? '', otherActorId: evt.otherActor?.id ?? 0, selfComponentName: evt.selfComponentName ?? '' };
+          for (const cb of cbs.onEndOverlap) cb(mapped);
+        });
+        return cbs;
+      },
+      isOverlapping(_a: number, _b: number) { return false; },
+      getOverlappingCount(_id: number) { return 0; },
+      getOverlappingIds(_id: number) { return []; },
+    };
+    const physicsShim = { collision: collisionShim, world: null };
+
     const ctx = {
       gameObject:   actor as any,
       deltaTime,
@@ -1289,7 +1325,7 @@ export class Scene2DManager {
       // Use the wired-in printFn so output appears in the editor Output Log.
       // Falls back to console.log if not yet wired (e.g. preview mode).
       print:        this.printFn ?? ((v: any) => console.log('[AnimBP2D]', v)),
-      physics:      null,
+      physics:      physicsShim,
       scene:        sceneShim,
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
@@ -1492,12 +1528,75 @@ export class Scene2DManager {
       destroyActor: (actor: any) => self.despawnSpriteActor2D(actor),
     };
 
+    // ── Collision shim ────────────────────────────────────────────
+    // 3D collision/trigger event nodes generate code that accesses
+    // `__physics.collision.registerCallbacks(gameObject.id)`.
+    // In 2D mode there is no 3D PhysicsWorld / CollisionSystem, so
+    // `physics` used to be null — causing a TypeError that killed the
+    // entire beginPlay.  We provide a lightweight shim that bridges
+    // the 3D callback API to the SpriteActor's 2D event emitter so
+    // that nodes like "On Trigger Begin Overlap", "On Actor Begin
+    // Overlap", and "On Begin Overlap (TriggerComponent)" all work
+    // transparently for 2D actors.
+    const collisionShim = {
+      registerCallbacks(goId: number) {
+        const cbs = {
+          onBeginOverlap: [] as Array<(evt: any) => void>,
+          onEndOverlap:   [] as Array<(evt: any) => void>,
+          onHit:          [] as Array<(evt: any) => void>,
+        };
+        // Wire 2D physics events → 3D-style overlap callbacks
+        actor.on('triggerBegin2D', (evt: any) => {
+          const mapped = {
+            otherActorName: evt.otherName ?? evt.otherActor?.name ?? '',
+            otherActorId:   evt.otherActor?.id ?? 0,
+            selfComponentName: evt.selfComponentName ?? '',
+          };
+          for (const cb of cbs.onBeginOverlap) cb(mapped);
+        });
+        actor.on('triggerEnd2D', (evt: any) => {
+          const mapped = {
+            otherActorName: evt.otherName ?? evt.otherActor?.name ?? '',
+            otherActorId:   evt.otherActor?.id ?? 0,
+            selfComponentName: evt.selfComponentName ?? '',
+          };
+          for (const cb of cbs.onEndOverlap) cb(mapped);
+        });
+        actor.on('collisionBegin2D', (evt: any) => {
+          const mapped = {
+            otherActorName: evt.otherName ?? evt.otherActor?.name ?? '',
+            otherActorId:   evt.otherActor?.id ?? 0,
+            selfComponentName: evt.selfComponentName ?? '',
+          };
+          for (const cb of cbs.onBeginOverlap) cb(mapped);
+        });
+        actor.on('collisionEnd2D', (evt: any) => {
+          const mapped = {
+            otherActorName: evt.otherName ?? evt.otherActor?.name ?? '',
+            otherActorId:   evt.otherActor?.id ?? 0,
+            selfComponentName: evt.selfComponentName ?? '',
+          };
+          for (const cb of cbs.onEndOverlap) cb(mapped);
+        });
+        return cbs;
+      },
+      // Stubs for other CollisionSystem methods that generated code may reference
+      isOverlapping(_a: number, _b: number) { return false; },
+      getOverlappingCount(_id: number) { return 0; },
+      getOverlappingIds(_id: number) { return []; },
+    };
+
+    const physicsShim = {
+      collision: collisionShim,
+      world: null,
+    };
+
     const ctx = {
       gameObject:   actor as any,
       deltaTime,
       elapsedTime:  ev.elapsed,
       print:        this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
-      physics:      null,
+      physics:      physicsShim,
       scene:        sceneShim,
       animInstance: null,
       engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },

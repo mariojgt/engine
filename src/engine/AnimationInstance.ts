@@ -272,6 +272,20 @@ export class AnimationInstance {
     this.variables.set('movementMode', cc.movementMode);
   }
 
+  /** Cached ScriptContext to avoid per-frame allocations */
+  private _cachedCtx: ScriptContext = {
+    gameObject: null as any,
+    deltaTime: 0,
+    elapsedTime: 0,
+    print: (v: any) => console.log('[AnimBP]', v),
+    physics: null,
+    scene: null,
+    animInstance: null,
+    uiManager: null,
+    engine: null,
+    gameInstance: null,
+  };
+
   /** Execute the compiled event graph code each frame */
   private _executeEventGraph(dt: number): void {
     if (!this._eventScript) return;
@@ -280,18 +294,17 @@ export class AnimationInstance {
     const go = this.characterController?.gameObject ?? this.owner ?? null;
     if (!go) return;
 
-    const ctx: ScriptContext = {
-      gameObject: go,
-      deltaTime: dt,
-      elapsedTime: this._elapsedTime,
-      print: this.printFn ?? ((v: any) => console.log('[AnimBP]', v)),
-      physics: this.physicsRef,
-      scene: this.sceneRef,
-      animInstance: this,
-      uiManager: this.uiManagerRef,
-      engine: this.engineRef,
-      gameInstance: this.gameInstanceRef,
-    };
+    const ctx = this._cachedCtx;
+    ctx.gameObject = go;
+    ctx.deltaTime = dt;
+    ctx.elapsedTime = this._elapsedTime;
+    ctx.print = this.printFn ?? ((v: any) => console.log('[AnimBP]', v));
+    ctx.physics = this.physicsRef;
+    ctx.scene = this.sceneRef;
+    ctx.animInstance = this;
+    ctx.uiManager = this.uiManagerRef;
+    ctx.engine = this.engineRef;
+    ctx.gameInstance = this.gameInstanceRef;
 
     // Run beginPlay once
     if (!this._eventScriptStarted) {

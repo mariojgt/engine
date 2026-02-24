@@ -329,21 +329,32 @@ export class PhysicsWorld {
     }
   }
 
-  step(scene: Scene): void {
+  /** Accumulated time for fixed-step physics (like Physics2DWorld) */
+  private _accumulator = 0;
+
+  step(scene: Scene, dt?: number): void {
     if (!this.world || !this.isPlaying) return;
 
     // Sync trigger sensor positions before the physics step
     this.collision.syncSensorPositions(scene, this);
 
-    // Step the physics world WITH the EventQueue so Rapier feeds
-    // collision/intersection events directly into it.  This is far
-    // more reliable than polling intersectionPairsWith() — the
-    // EventQueue hooks into the narrow-phase and catches ALL
-    // events including kinematic↔kinematic sensor pairs.
-    if (this.collision.eventQueue) {
-      this.world.step(this.collision.eventQueue);
-    } else {
-      this.world.step();
+    // Use fixed timestep accumulator for stable physics like 2D does
+    const fixedStep = this.settings.fixedTimestep;
+    const maxSubsteps = this.settings.maxSubsteps;
+    const frameDt = dt ?? fixedStep;
+    this._accumulator += Math.min(frameDt, 0.1);
+    let steps = 0;
+
+    while (this._accumulator >= fixedStep && steps < maxSubsteps) {
+      // Step the physics world WITH the EventQueue so Rapier feeds
+      // collision/intersection events directly into it.
+      if (this.collision.eventQueue) {
+        this.world.step(this.collision.eventQueue);
+      } else {
+        this.world.step();
+      }
+      this._accumulator -= fixedStep;
+      steps++;
     }
 
     // Ensure collider transforms are synchronized with their parent rigid
@@ -388,6 +399,7 @@ export class PhysicsWorld {
     console.log(`[PhysicsWorld] play() — sensors created: ${this.collision.getSensorCount()}, world colliders: ${this.world.colliders.len()}, world bodies: ${this.world.bodies.len()}`);
 
     this.isPlaying = true;
+    this._accumulator = 0;
   }
 
   /**

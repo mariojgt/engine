@@ -125,9 +125,10 @@ export class SpriteRenderer {
     this.mesh.scale.set(worldW, worldH, 1);
 
     // Adjust position based on pivot + optional visual offset
+    // Preserve existing Z — sorting layer logic sets mesh.position.z for draw order
     const pivotOffX = (sprite.pivot.x - 0.5) * worldW;
     const pivotOffY = (sprite.pivot.y - 0.5) * worldH;
-    this.mesh.position.set(-pivotOffX + this.spriteOffset.x, -pivotOffY + this.spriteOffset.y, 0);
+    this.mesh.position.set(-pivotOffX + this.spriteOffset.x, -pivotOffY + this.spriteOffset.y, this.mesh.position.z);
   }
 
   setFlipX(flip: boolean): void {
@@ -185,6 +186,9 @@ export class SpriteAnimator {
   private _onAnimEvent: ((eventName: string) => void) | null = null;
   private _onAnimFinished: ((animName: string) => void) | null = null;
 
+  /** Cached sprite lookup map (spriteId → SpriteData) rebuilt when sheet changes */
+  private _spriteMap = new Map<string, SpriteData>();
+
   constructor(spriteRenderer: SpriteRenderer) {
     this.spriteRenderer = spriteRenderer;
   }
@@ -192,6 +196,11 @@ export class SpriteAnimator {
   setSpriteSheet(sheet: SpriteSheetAsset): void {
     this.spriteSheet = sheet;
     this.spriteRenderer.spriteSheet = sheet;
+    // Rebuild sprite lookup map for O(1) frame lookups
+    this._spriteMap.clear();
+    for (const s of sheet.sprites) {
+      this._spriteMap.set(s.spriteId, s);
+    }
     // Keep the renderer's pixelsPerUnit in sync with the sheet.
     if (sheet.pixelsPerUnit && sheet.pixelsPerUnit > 0) {
       this.spriteRenderer.pixelsPerUnit = sheet.pixelsPerUnit;
@@ -259,7 +268,7 @@ export class SpriteAnimator {
   private _applyFrame(): void {
     if (!this.currentAnim || !this.spriteSheet) return;
     const frameId = this.currentAnim.frames[this.currentFrame];
-    const sprite = this.spriteSheet.sprites.find(s => s.spriteId === frameId);
+    const sprite = this._spriteMap.get(frameId);
     if (sprite) {
       this.spriteRenderer.setSprite(sprite, this.spriteSheet.texture);
     }

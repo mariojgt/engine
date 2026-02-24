@@ -63,7 +63,10 @@ export class Physics2DWorld {
     this.world = new this._rapier.World(
       new this._rapier.Vector2(gx / this.pixelsPerUnit, gy / this.pixelsPerUnit)
     );
-    this.eventQueue = new this._rapier.EventQueue(true);
+    // autoDrain=false so events accumulate across multiple fixed sub-steps
+    // within a single frame.  processEvents() (called externally after scripts
+    // have registered their listeners) will drain and clear the queue.
+    this.eventQueue = new this._rapier.EventQueue(false);
     this._initialized = true;
     this._accumulator = 0;
     // Clear ALL maps — every entry from the previous play session is now invalid
@@ -112,7 +115,10 @@ export class Physics2DWorld {
       steps++;
     }
     this.syncToThreeJS();
-    this.processEvents();
+    // NOTE: processEvents() is intentionally NOT called here.
+    // Scene2DManager calls it *after* all actor scripts have executed
+    // their BeginPlay / Tick, guaranteeing event listeners are registered
+    // before Rapier collision events are drained.
   }
 
   syncToThreeJS(): void {
@@ -154,6 +160,10 @@ export class Physics2DWorld {
     });
   }
 
+  private _groundCheckOrigin: any = null;
+  private _groundCheckDir: any = null;
+  private _groundCheckRay: any = null;
+
   /** Check if a body is grounded by casting a ray from the centre downward past its feet.
    *  We derive the correct cast distance from the body's first tracked collider so the
    *  ray always extends to (collider bottom + skin) regardless of character size.
@@ -179,10 +189,17 @@ export class Physics2DWorld {
       } catch (_e) { /* fall through to default */ }
     }
 
-    const origin = new this._rapier.Vector2(pos.x, pos.y);
-    const dir    = new this._rapier.Vector2(0, -1);
-    const ray    = new this._rapier.Ray(origin, dir);
-    const hit    = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, rigidBody);
+    if (!this._groundCheckOrigin) {
+      this._groundCheckOrigin = new this._rapier.Vector2(pos.x, pos.y);
+      this._groundCheckDir = new this._rapier.Vector2(0, -1);
+      this._groundCheckRay = new this._rapier.Ray(this._groundCheckOrigin, this._groundCheckDir);
+    } else {
+      this._groundCheckOrigin.x = pos.x;
+      this._groundCheckOrigin.y = pos.y;
+      // Ray direction is always (0, -1)
+    }
+
+    const hit = this.world.castRay(this._groundCheckRay, maxToi, true, undefined, undefined, undefined, rigidBody);
     return hit !== null;
   }
 
@@ -206,7 +223,10 @@ export class Physics2DWorld {
       // Resolve collider handles to actors
       const collider1 = this.world?.getCollider(handle1);
       const collider2 = this.world?.getCollider(handle2);
-      if (!collider1 || !collider2) return;
+      if (!collider1 || !collider2) {
+        console.warn('[Physics2DWorld] processEvents: could not resolve collider handles', handle1, handle2);
+        return;
+      }
 
       const rb1 = collider1.parent();
       const rb2 = collider2.parent();
@@ -218,6 +238,10 @@ export class Physics2DWorld {
       const isTrigger1 = collider1.isSensor();
       const isTrigger2 = collider2.isSensor();
       const isTrigger = isTrigger1 || isTrigger2;
+
+      const name1 = entry1?.actor?.name ?? `<no-actor h=${rb1.handle}>`;
+      const name2 = entry2?.actor?.name ?? `<no-actor h=${rb2.handle}>`;
+      console.log(`[Physics2DWorld] collision event: ${name1} ↔ ${name2} | started=${started} trigger=${isTrigger} sensor1=${isTrigger1} sensor2=${isTrigger2}`);
 
       if (entry1?.actor?.emit && entry2?.actor) {
         const eventType = isTrigger
@@ -337,6 +361,7 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.cuboid(halfW, halfH)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1) // reduced from 0.3 — prevents unnatural bouncing on landing
+      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
@@ -365,6 +390,7 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.ball(radius)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1)
+      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
@@ -391,6 +417,7 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.capsule(halfHeight, radius)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1)
+      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {

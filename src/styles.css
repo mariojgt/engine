@@ -178,6 +178,10 @@ html, body, #app {
   -webkit-app-region: drag;
   /* Subtle bottom gradient line for depth */
   box-shadow: 0 1px 0 0 rgba(0,0,0,0.3);
+  /* Establish a stacking context above all editor panels so dropdown
+     menus (File, Window, etc.) render on top of canvases & viewports. */
+  position: relative;
+  z-index: 10000;
 }
 
 .toolbar-title {

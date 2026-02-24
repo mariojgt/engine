@@ -81,6 +81,9 @@ export class SpriteActor implements Transform {
   public animator: SpriteAnimator | null = null;
   public sortingLayer: string = 'Default';
   public orderInLayer: number = 0;
+  /** Cached sorting Z so we can re-apply after physics/animation resets */
+  private _sortingZ: number = 0;
+  private _sortingRenderOrder: number = 0;
   public physicsBody: BodyEntry2D | null = null;
   public characterMovement2D: CharacterMovement2D | null = null;
   public blueprintId: string | null = null;
@@ -262,8 +265,10 @@ export class SpriteActor implements Transform {
   applySorting(layerManager: SortingLayerManager): void {
     const layer = layerManager.getLayer(this.sortingLayer);
     if (layer) {
-      this.mesh.position.z = layer.z + this.orderInLayer * 0.01;
-      this.mesh.renderOrder = layer.z + this.orderInLayer;
+      this._sortingZ = layer.z + this.orderInLayer * 0.01;
+      this._sortingRenderOrder = layer.z + this.orderInLayer;
+      this.mesh.position.z = this._sortingZ;
+      this.mesh.renderOrder = this._sortingRenderOrder;
       this.mesh.visible = layer.visible && this.visible;
     }
   }
@@ -385,6 +390,10 @@ export class SpriteActor implements Transform {
       this.animator.syncAutoVariables(this);
       this.animator.update(deltaTime);
     }
+
+    // Re-apply sorting Z after animation/physics may have reset mesh.position.z
+    this.mesh.position.z = this._sortingZ;
+    this.mesh.renderOrder = this._sortingRenderOrder;
   }
 
   /** Raycast downward to check if character is standing on ground */

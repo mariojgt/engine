@@ -26,6 +26,10 @@ export class CharacterMovementComponent extends MovementComponent {
   //  Core: computeDisplacement
   // ----------------------------------------------------------------
 
+  // Reusable vectors to avoid per-frame allocations
+  private _moveVel = new THREE.Vector3();
+  private _displacementVec = new THREE.Vector3();
+
   computeDisplacement(
     dt: number,
     inputDir: THREE.Vector3,
@@ -39,7 +43,8 @@ export class CharacterMovementComponent extends MovementComponent {
     const speed = this._currentSpeed(runInput);
 
     // 2. Horizontal movement velocity
-    const moveVel = inputDir.clone().multiplyScalar(speed);
+    const moveVel = this._moveVel;
+    moveVel.copy(inputDir).multiplyScalar(speed);
 
     // 3. Add pending blueprint movement
     moveVel.add(pending);
@@ -72,14 +77,14 @@ export class CharacterMovementComponent extends MovementComponent {
       }
     }
 
-    // 7. Build displacement
-    let displacement: THREE.Vector3;
+    // 7. Build displacement (reuse cached vector)
+    const displacement = this._displacementVec;
     if (this.movementMode === 'flying') {
-      displacement = new THREE.Vector3(moveVel.x * dt, moveVel.y * dt, moveVel.z * dt);
+      displacement.set(moveVel.x * dt, moveVel.y * dt, moveVel.z * dt);
     } else if (this.movementMode === 'swimming') {
-      displacement = new THREE.Vector3(moveVel.x * dt, (moveVel.y + this.velocity.y) * dt, moveVel.z * dt);
+      displacement.set(moveVel.x * dt, (moveVel.y + this.velocity.y) * dt, moveVel.z * dt);
     } else {
-      displacement = new THREE.Vector3(moveVel.x * dt, this.velocity.y * dt, moveVel.z * dt);
+      displacement.set(moveVel.x * dt, this.velocity.y * dt, moveVel.z * dt);
     }
 
     return displacement;
