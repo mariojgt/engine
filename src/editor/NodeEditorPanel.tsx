@@ -869,6 +869,40 @@ function resolveValue(
     return '__payload';
   }
 
+  // ============================================================
+  //  Animation 2D Nodes
+  // ============================================================
+  if (node.label === 'Get Anim Owner 2D') {
+    return `(gameObject.name)`;
+  }
+  if (node.label === 'Get Anim State 2D') {
+    return `(__engine.anim2d.getCurrentState(this))`;
+  }
+
+  // ============================================================
+  //  Sprite Nodes
+  // ============================================================
+  if (node.label === 'Get Anim Variable 2D') {
+    const varName = resolveValue(nodeId, 'varName', nodeMap, inputSrc, bp);
+    return `(__engine.anim2d.getVariable(this, ${varName}))`;
+  }
+
+  // ============================================================
+  //  Timer Nodes
+  // ============================================================
+  if (node.label === 'Is Timer Active') {
+    const handle = resolveValue(nodeId, 'handle', nodeMap, inputSrc, bp);
+    return `(__engine.timers.isActive(${handle}))`;
+  }
+  if (node.label === 'Is Timer Paused') {
+    const handle = resolveValue(nodeId, 'handle', nodeMap, inputSrc, bp);
+    return `(__engine.timers.isPaused(${handle}))`;
+  }
+  if (node.label === 'Get Timer Remaining Time') {
+    const handle = resolveValue(nodeId, 'handle', nodeMap, inputSrc, bp);
+    return `(__engine.timers.getRemainingTime(${handle}))`;
+  }
+
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
 
   // Component getter nodes
@@ -1334,6 +1368,273 @@ function resolveValue(
       const bS = inputSrc.get(`${nodeId}.b`);
       return `(${aS ? rv(aS.nid, aS.ok) : '0'} > ${bS ? rv(bS.nid, bS.ok) : '0'})`;
     }
+    case 'Modulo': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} % ${b})`;
+    }
+    case 'Power': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} ** ${b})`;
+    }
+    case 'Min': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `Math.min(${a}, ${b})`;
+    }
+    case 'Max': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `Math.max(${a}, ${b})`;
+    }
+    case 'Round': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.round(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Floor': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.floor(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Ceil': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.ceil(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Sqrt': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.sqrt(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Log': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.log(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Tangent': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `Math.tan(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Normalize (Vector)': {
+      const vS = inputSrc.get(`${nodeId}.vector`);
+      const v = vS ? rv(vS.nid, vS.ok) : 'new THREE.Vector3()';
+      return `(function(){ const _v = ${v}.clone(); return _v.normalize(); })()`;
+    }
+    case 'Dot Product': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'new THREE.Vector3()';
+      const b = bS ? rv(bS.nid, bS.ok) : 'new THREE.Vector3()';
+      return `(${a}.dot(${b}))`;
+    }
+    case 'Cross Product': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'new THREE.Vector3()';
+      const b = bS ? rv(bS.nid, bS.ok) : 'new THREE.Vector3()';
+      return `(function(){ const _v = ${a}.clone(); return _v.cross(${b}); })()`;
+    }
+    case 'Vector Length': {
+      const vS = inputSrc.get(`${nodeId}.vector`);
+      const v = vS ? rv(vS.nid, vS.ok) : 'new THREE.Vector3()';
+      return `(${v}.length())`;
+    }
+    case 'Random Float': {
+      return 'Math.random()';
+    }
+    case 'Random Float in Range': {
+      const minS = inputSrc.get(`${nodeId}.min`);
+      const maxS = inputSrc.get(`${nodeId}.max`);
+      const min = minS ? rv(minS.nid, minS.ok) : '0';
+      const max = maxS ? rv(maxS.nid, maxS.ok) : '1';
+      return `(${min} + Math.random() * (${max} - ${min}))`;
+    }
+    case 'Random Int in Range': {
+      const minS = inputSrc.get(`${nodeId}.min`);
+      const maxS = inputSrc.get(`${nodeId}.max`);
+      const min = minS ? rv(minS.nid, minS.ok) : '0';
+      const max = maxS ? rv(maxS.nid, maxS.ok) : '1';
+      return `(Math.floor(Math.random() * (${max} - ${min} + 1)) + ${min})`;
+    }
+    case 'Random Bool': {
+      return '(Math.random() > 0.5)';
+    }
+    case 'Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} === ${b})`;
+    }
+    case 'Not Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} !== ${b})`;
+    }
+    case 'Less Than': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} < ${b})`;
+    }
+    case 'Greater or Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} >= ${b})`;
+    }
+    case 'Less or Equal': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '0';
+      const b = bS ? rv(bS.nid, bS.ok) : '0';
+      return `(${a} <= ${b})`;
+    }
+    case 'AND': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'false';
+      const b = bS ? rv(bS.nid, bS.ok) : 'false';
+      return `(${a} && ${b})`;
+    }
+    case 'OR': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'false';
+      const b = bS ? rv(bS.nid, bS.ok) : 'false';
+      return `(${a} || ${b})`;
+    }
+    case 'NOT': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'false';
+      return `(!${a})`;
+    }
+    case 'XOR': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'false';
+      const b = bS ? rv(bS.nid, bS.ok) : 'false';
+      return `(!!(${a} ^ ${b}))`;
+    }
+    case 'Append': {
+      const aS = inputSrc.get(`${nodeId}.a`);
+      const bS = inputSrc.get(`${nodeId}.b`);
+      const a = aS ? rv(aS.nid, aS.ok) : '""';
+      const b = bS ? rv(bS.nid, bS.ok) : '""';
+      return `(String(${a}) + String(${b}))`;
+    }
+    case 'Format Text': {
+      const formatS = inputSrc.get(`${nodeId}.format`);
+      const format = formatS ? rv(formatS.nid, formatS.ok) : '""';
+      // Format Text needs to replace {0}, {1}, etc. with inputs
+      // For simplicity, we'll just return the format string if no args are provided
+      return `(${format})`;
+    }
+    case 'Int to String': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `String(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Float to String': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `String(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Vec3 to String': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      const v = s ? rv(s.nid, s.ok) : 'new THREE.Vector3()';
+      return `("X=" + ${v}.x.toFixed(2) + " Y=" + ${v}.y.toFixed(2) + " Z=" + ${v}.z.toFixed(2))`;
+    }
+    case 'String Length': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(String(${s ? rv(s.nid, s.ok) : '""'}).length)`;
+    }
+    case 'Substring': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      const startS = inputSrc.get(`${nodeId}.startIndex`);
+      const lenS = inputSrc.get(`${nodeId}.length`);
+      const str = s ? rv(s.nid, s.ok) : '""';
+      const start = startS ? rv(startS.nid, startS.ok) : '0';
+      const len = lenS ? rv(lenS.nid, lenS.ok) : '0';
+      return `(String(${str}).substr(${start}, ${len}))`;
+    }
+    case 'String Contains': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      const subS = inputSrc.get(`${nodeId}.substring`);
+      const str = s ? rv(s.nid, s.ok) : '""';
+      const sub = subS ? rv(subS.nid, subS.ok) : '""';
+      return `(String(${str}).includes(String(${sub})))`;
+    }
+    case 'String Replace': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      const fromS = inputSrc.get(`${nodeId}.from`);
+      const toS = inputSrc.get(`${nodeId}.to`);
+      const str = s ? rv(s.nid, s.ok) : '""';
+      const from = fromS ? rv(fromS.nid, fromS.ok) : '""';
+      const to = toS ? rv(toS.nid, toS.ok) : '""';
+      return `(String(${str}).split(String(${from})).join(String(${to})))`;
+    }
+    case 'String Split': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      const sepS = inputSrc.get(`${nodeId}.separator`);
+      const str = s ? rv(s.nid, s.ok) : '""';
+      const sep = sepS ? rv(sepS.nid, sepS.ok) : '""';
+      return `(String(${str}).split(String(${sep})))`;
+    }
+    case 'Trim': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(String(${s ? rv(s.nid, s.ok) : '""'}).trim())`;
+    }
+    case 'To Upper': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(String(${s ? rv(s.nid, s.ok) : '""'}).toUpperCase())`;
+    }
+    case 'To Lower': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(String(${s ? rv(s.nid, s.ok) : '""'}).toLowerCase())`;
+    }
+    case 'Parse Int': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(parseInt(String(${s ? rv(s.nid, s.ok) : '""'}), 10) || 0)`;
+    }
+    case 'Parse Float': {
+      const s = inputSrc.get(`${nodeId}.string`);
+      return `(parseFloat(String(${s ? rv(s.nid, s.ok) : '""'})) || 0)`;
+    }
+    case 'Get Parent Class': {
+      const cS = inputSrc.get(`${nodeId}.classId`);
+      const classId = cS ? rv(cS.nid, cS.ok) : '""';
+      return `(__actorAssetManager ? __actorAssetManager.getParentClass(${classId}) : "")`;
+    }
+    case 'Get Child Classes': {
+      const cS = inputSrc.get(`${nodeId}.classId`);
+      const classId = cS ? rv(cS.nid, cS.ok) : '""';
+      return `(__actorAssetManager ? __actorAssetManager.getChildClasses(${classId}) : [])`;
+    }
+    case 'Is Child Of': {
+      const cS = inputSrc.get(`${nodeId}.classId`);
+      const pS = inputSrc.get(`${nodeId}.parentClassId`);
+      const classId = cS ? rv(cS.nid, cS.ok) : '""';
+      const parentId = pS ? rv(pS.nid, pS.ok) : '""';
+      return `(__actorAssetManager ? __actorAssetManager.isChildOf(${classId}, ${parentId}) : false)`;
+    }
+    case 'Get Class Name': {
+      const cS = inputSrc.get(`${nodeId}.classId`);
+      const classId = cS ? rv(cS.nid, cS.ok) : '""';
+      return `(__actorAssetManager ? (__actorAssetManager.getAsset(${classId})?.name || "") : "")`;
+    }
+    case 'Get Ancestry Chain': {
+      const cS = inputSrc.get(`${nodeId}.classId`);
+      const classId = cS ? rv(cS.nid, cS.ok) : '""';
+      return `(__actorAssetManager ? __actorAssetManager.getAncestryChain(${classId}) : [])`;
+    }
 
     // ── Physics getters ──────────────────────────────────────
     case 'Get Mass':
@@ -1348,6 +1649,98 @@ function resolveValue(
       return '(gameObject.rigidBody ? gameObject.rigidBody.gravityScale() > 0 : false)';
     case 'Get Gravity Scale':
       return '(gameObject.rigidBody ? gameObject.rigidBody.gravityScale() : 1)';
+    case 'Get Body Type': {
+      return `(gameObject.rigidBody ? (gameObject.rigidBody.isDynamic() ? "dynamic" : gameObject.rigidBody.isKinematic() ? "kinematic" : "static") : "static")`;
+    }
+    case 'Get Center of Mass': {
+      if (outputKey === 'x') return `(gameObject.rigidBody ? gameObject.rigidBody.translation().x : 0)`;
+      if (outputKey === 'y') return `(gameObject.rigidBody ? gameObject.rigidBody.translation().y : 0)`;
+      if (outputKey === 'z') return `(gameObject.rigidBody ? gameObject.rigidBody.translation().z : 0)`;
+      return '0';
+    }
+    case 'Get Speed': {
+      return `(gameObject.rigidBody ? Math.sqrt(gameObject.rigidBody.linvel().x**2 + gameObject.rigidBody.linvel().y**2 + gameObject.rigidBody.linvel().z**2) : 0)`;
+    }
+    case 'Get Velocity at Point': {
+      const pS = inputSrc.get(`${nodeId}.point`);
+      const p = pS ? rv(pS.nid, pS.ok) : 'new THREE.Vector3()';
+      if (outputKey === 'x') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().x : 0)`;
+      if (outputKey === 'y') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().y : 0)`;
+      if (outputKey === 'z') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().z : 0)`;
+      return '0';
+    }
+    case 'Get World Gravity': {
+      if (outputKey === 'x') return `(__physics ? __physics.world.gravity.x : 0)`;
+      if (outputKey === 'y') return `(__physics ? __physics.world.gravity.y : -9.81)`;
+      if (outputKey === 'z') return `(__physics ? __physics.world.gravity.z : 0)`;
+      return '0';
+    }
+    case 'Get Player Character': {
+      const piS = inputSrc.get(`${nodeId}.playerIndex`);
+      const pi = piS ? rv(piS.nid, piS.ok) : '0';
+      return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
+    }
+    case 'Get Player Camera Manager': {
+      const piS = inputSrc.get(`${nodeId}.playerIndex`);
+      const pi = piS ? rv(piS.nid, piS.ok) : '0';
+      return `(__scene && __scene.engine && __scene.engine.playerControllers.get(${pi}) ? __scene.engine.playerControllers.get(${pi}).cameraManager : null)`;
+    }
+    case 'Get World': {
+      return `(__scene || null)`;
+    }
+    case 'Get Game Mode': {
+      return `(__scene && __scene.engine ? __scene.engine.gameMode : null)`;
+    }
+    case 'Get Game State': {
+      return `(__scene && __scene.engine ? __scene.engine.gameState : null)`;
+    }
+    case 'Get All Actors with Tag': {
+      const tS = inputSrc.get(`${nodeId}.tag`);
+      const tag = tS ? rv(tS.nid, tS.ok) : '""';
+      return `(__scene ? __scene.gameObjects.filter(function(g) { return (g.userData.tags || []).includes(${tag}); }) : [])`;
+    }
+    case 'Get World Delta Seconds': {
+      return `(typeof deltaTime !== 'undefined' ? deltaTime : 0)`;
+    }
+    case 'Get Real Time Seconds': {
+      return `(typeof elapsedTime !== 'undefined' ? elapsedTime : 0)`;
+    }
+    case 'Get Game Time in Seconds': {
+      return `(typeof elapsedTime !== 'undefined' ? elapsedTime : 0)`;
+    }
+    case 'Is Game Paused': {
+      return `(__scene && __scene.engine ? __scene.engine.isPaused : false)`;
+    }
+    case 'Get Mouse Position': {
+      if (outputKey === 'x') return `(__engine && __engine.input ? __engine.input.getMousePosition().x : 0)`;
+      if (outputKey === 'y') return `(__engine && __engine.input ? __engine.input.getMousePosition().y : 0)`;
+      return '0';
+    }
+    case 'Get Mouse Delta': {
+      if (outputKey === 'x') return `(__engine && __engine.input ? __engine.input.getMouseDelta().x : 0)`;
+      if (outputKey === 'y') return `(__engine && __engine.input ? __engine.input.getMouseDelta().y : 0)`;
+      return '0';
+    }
+    case 'Is Timer Active': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      const handle = hS ? rv(hS.nid, hS.ok) : 'null';
+      return `(__engine && __engine.timerManager ? __engine.timerManager.isTimerActive(${handle}) : false)`;
+    }
+    case 'Is Timer Paused': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      const handle = hS ? rv(hS.nid, hS.ok) : 'null';
+      return `(__engine && __engine.timerManager ? __engine.timerManager.isTimerPaused(${handle}) : false)`;
+    }
+    case 'Get Timer Remaining Time': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      const handle = hS ? rv(hS.nid, hS.ok) : 'null';
+      return `(__engine && __engine.timerManager ? __engine.timerManager.getTimerRemainingTime(${handle}) : 0)`;
+    }
+    case 'Get Timer Elapsed Time': {
+      const hS = inputSrc.get(`${nodeId}.handle`);
+      const handle = hS ? rv(hS.nid, hS.ok) : 'null';
+      return `(__engine && __engine.timerManager ? __engine.timerManager.getTimerElapsedTime(${handle}) : 0)`;
+    }
     case 'Get Physics Material': {
       if (outputKey === 'friction')
         return '(gameObject.collider ? gameObject.collider.friction() : 0.5)';
@@ -1683,6 +2076,138 @@ function resolveValue(
       return '0';
     }
 
+    case 'Get Child At': {
+      const pS = inputSrc.get(`${nodeId}.parent`);
+      const iS = inputSrc.get(`${nodeId}.index`);
+      const p = pS ? rv(pS.nid, pS.ok) : 'null';
+      const i = iS ? rv(iS.nid, iS.ok) : '0';
+      return `(${p} && ${p}.children ? ${p}.children[${i}] : null)`;
+    }
+    case 'Get Child Count': {
+      const pS = inputSrc.get(`${nodeId}.parent`);
+      const p = pS ? rv(pS.nid, pS.ok) : 'null';
+      return `(${p} && ${p}.children ? ${p}.children.length : 0)`;
+    }
+    case 'Get Widget from Name': {
+      const nS = inputSrc.get(`${nodeId}.name`);
+      const n = nS ? rv(nS.nid, nS.ok) : '""';
+      return `(this.getWidgetByName ? this.getWidgetByName(${n}) : null)`;
+    }
+    case 'Get Parent Widget': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.parent : null)`;
+    }
+    case 'Get Canvas Slot Position': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      if (outputKey === 'x') return `(${w} && ${w}.slot ? ${w}.slot.positionX : 0)`;
+      if (outputKey === 'y') return `(${w} && ${w}.slot ? ${w}.slot.positionY : 0)`;
+      return '0';
+    }
+    case 'Get Canvas Slot Size': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      if (outputKey === 'x') return `(${w} && ${w}.slot ? ${w}.slot.sizeX : 0)`;
+      if (outputKey === 'y') return `(${w} && ${w}.slot ? ${w}.slot.sizeY : 0)`;
+      return '0';
+    }
+    case 'Get Canvas Slot Anchors': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      if (outputKey === 'minX') return `(${w} && ${w}.slot && ${w}.slot.anchors ? ${w}.slot.anchors.minX : 0)`;
+      if (outputKey === 'minY') return `(${w} && ${w}.slot && ${w}.slot.anchors ? ${w}.slot.anchors.minY : 0)`;
+      if (outputKey === 'maxX') return `(${w} && ${w}.slot && ${w}.slot.anchors ? ${w}.slot.anchors.maxX : 0)`;
+      if (outputKey === 'maxY') return `(${w} && ${w}.slot && ${w}.slot.anchors ? ${w}.slot.anchors.maxY : 0)`;
+      return '0';
+    }
+    case 'Is In Viewport': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.isInViewport : false)`;
+    }
+    case 'Get Is Enabled': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.isEnabled : false)`;
+    }
+    case 'Get Scroll Offset': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.scrollOffset : 0)`;
+    }
+    case 'Get Scroll Offset of End': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.maxScrollOffset : 0)`;
+    }
+    case 'Is Anim Playing': {
+      const nS = inputSrc.get(`${nodeId}.animName`);
+      const n = nS ? rv(nS.nid, nS.ok) : '""';
+      return `(this.isAnimPlaying ? this.isAnimPlaying(${n}) : false)`;
+    }
+    case 'Get Anim Time': {
+      const nS = inputSrc.get(`${nodeId}.animName`);
+      const n = nS ? rv(nS.nid, nS.ok) : '""';
+      return `(this.getAnimTime ? this.getAnimTime(${n}) : 0)`;
+    }
+    case 'Get Active Widget Index': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} ? ${w}.activeIndex : 0)`;
+    }
+    case 'Get Active Widget': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      return `(${w} && ${w}.children ? ${w}.children[${w}.activeIndex] : null)`;
+    }
+    case 'Get Widget Position': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      if (outputKey === 'x') return `(${w} ? ${w}.positionX : 0)`;
+      if (outputKey === 'y') return `(${w} ? ${w}.positionY : 0)`;
+      return '0';
+    }
+    case 'Get Widget Size': {
+      const wS = inputSrc.get(`${nodeId}.widget`);
+      const w = wS ? rv(wS.nid, wS.ok) : 'null';
+      if (outputKey === 'x') return `(${w} ? ${w}.sizeX : 0)`;
+      if (outputKey === 'y') return `(${w} ? ${w}.sizeY : 0)`;
+      return '0';
+    }
+
+    case 'Break Hit Result': {
+      const hS = inputSrc.get(`${nodeId}.hit`);
+      const h = hS ? rv(hS.nid, hS.ok) : 'null';
+      if (outputKey === 'blockingHit') return `(${h} ? ${h}.blockingHit : false)`;
+      if (outputKey === 'distance') return `(${h} ? ${h}.distance : 0)`;
+      if (outputKey === 'location') return `(${h} ? ${h}.location : {x:0,y:0,z:0})`;
+      if (outputKey === 'normal') return `(${h} ? ${h}.normal : {x:0,y:0,z:0})`;
+      if (outputKey === 'actor') return `(${h} ? ${h}.actor : null)`;
+      if (outputKey === 'component') return `(${h} ? ${h}.component : null)`;
+      if (outputKey === 'boneName') return `(${h} ? ${h}.boneName : "")`;
+      return 'null';
+    }
+    case 'Point Is Inside': {
+      const pS = inputSrc.get(`${nodeId}.point`);
+      const cS = inputSrc.get(`${nodeId}.collider`);
+      const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+      const c = cS ? rv(cS.nid, cS.ok) : 'null';
+      return `(__engine && __engine.physics ? __engine.physics.pointIsInside(${p}, ${c}) : false)`;
+    }
+    case 'Is Body Sleeping': {
+      const bS = inputSrc.get(`${nodeId}.body`);
+      const b = bS ? rv(bS.nid, bS.ok) : 'null';
+      return `(${b} && ${b}.isSleeping ? ${b}.isSleeping() : false)`;
+    }
+    case 'Get Component by Class': {
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const cS = inputSrc.get(`${nodeId}.componentClass`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      const c = cS ? rv(cS.nid, cS.ok) : '""';
+      return `(${a} && ${a}.getComponentByClass ? ${a}.getComponentByClass(${c}) : null)`;
+    }
+
     // ── Save/Load (pure — UE-style) ────────────────────────
     case 'Does Save Game Exist': {
       const slotS = inputSrc.get(`${nodeId}.slotName`);
@@ -1795,6 +2320,892 @@ function genAction(
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
   const we = (nid: string, eo: string) => walkExec(nid, eo, nodeMap, inputSrc, outputDst, bp);
 
+  if (node.label === 'Add Child to Vertical Box') {
+    const wName = (node as any).getWidgetName ? (node as any).getWidgetName() : '""';
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ var __p = this.getWidgetByName ? this.getWidgetByName("${wName}") : null; if(__p && ${c}) { __p.addChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Child to Horizontal Box') {
+    const wName = (node as any).getWidgetName ? (node as any).getWidgetName() : '""';
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ var __p = this.getWidgetByName ? this.getWidgetByName("${wName}") : null; if(__p && ${c}) { __p.addChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Child to Canvas Panel') {
+    const wName = (node as any).getWidgetName ? (node as any).getWidgetName() : '""';
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ var __p = this.getWidgetByName ? this.getWidgetByName("${wName}") : null; if(__p && ${c}) { __p.addChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Child to Overlay') {
+    const wName = (node as any).getWidgetName ? (node as any).getWidgetName() : '""';
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ var __p = this.getWidgetByName ? this.getWidgetByName("${wName}") : null; if(__p && ${c}) { __p.addChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Child to Grid Panel') {
+    const wName = (node as any).getWidgetName ? (node as any).getWidgetName() : '""';
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ var __p = this.getWidgetByName ? this.getWidgetByName("${wName}") : null; if(__p && ${c}) { __p.addChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Remove Child') {
+    const pS = inputSrc.get(`${nodeId}.parent`);
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const p = pS ? rv(pS.nid, pS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ if(${p} && ${c}) { ${p}.removeChild(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Remove from Parent') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.parent) { ${w}.parent.removeChild(${w}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Clear Children') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w}) { ${w}.clearChildren(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Canvas Slot Position') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.positionX = ${x}; ${w}.slot.positionY = ${y}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Canvas Slot Size') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.sizeX = ${x}; ${w}.slot.sizeY = ${y}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Canvas Slot Anchors') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const minXS = inputSrc.get(`${nodeId}.minX`);
+    const minYS = inputSrc.get(`${nodeId}.minY`);
+    const maxXS = inputSrc.get(`${nodeId}.maxX`);
+    const maxYS = inputSrc.get(`${nodeId}.maxY`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const minX = minXS ? rv(minXS.nid, minXS.ok) : '0';
+    const minY = minYS ? rv(minYS.nid, minYS.ok) : '0';
+    const maxX = maxXS ? rv(maxXS.nid, maxXS.ok) : '0';
+    const maxY = maxYS ? rv(maxYS.nid, maxYS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.anchors = {minX:${minX}, minY:${minY}, maxX:${maxX}, maxY:${maxY}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Canvas Slot Alignment') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.alignment = {x:${x}, y:${y}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Slot Padding') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const lS = inputSrc.get(`${nodeId}.left`);
+    const tS = inputSrc.get(`${nodeId}.top`);
+    const rS = inputSrc.get(`${nodeId}.right`);
+    const bS = inputSrc.get(`${nodeId}.bottom`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const l = lS ? rv(lS.nid, lS.ok) : '0';
+    const t = tS ? rv(tS.nid, tS.ok) : '0';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const b = bS ? rv(bS.nid, bS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.padding = {left:${l}, top:${t}, right:${r}, bottom:${b}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Is Enabled') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const e = eS ? rv(eS.nid, eS.ok) : 'true';
+    lines.push(`{ if(${w}) { ${w}.isEnabled = ${e}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Keyboard Focus') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.setFocus) { ${w}.setFocus(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Render Translation') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.renderTranslation = {x:${x}, y:${y}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Render Angle') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const aS = inputSrc.get(`${nodeId}.angle`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const a = aS ? rv(aS.nid, aS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.renderAngle = ${a}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Render Scale') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '1';
+    const y = yS ? rv(yS.nid, yS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.renderScale = {x:${x}, y:${y}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Render Opacity') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const oS = inputSrc.get(`${nodeId}.opacity`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const o = oS ? rv(oS.nid, oS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.renderOpacity = ${o}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Tooltip') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const tS = inputSrc.get(`${nodeId}.tooltip`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const t = tS ? rv(tS.nid, tS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.tooltip = ${t}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Cursor Type') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.cursor`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.cursor = ${c}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Force Layout Prepass') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.forceLayoutPrepass) { ${w}.forceLayoutPrepass(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Invalidate Layout') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.invalidateLayout) { ${w}.invalidateLayout(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Scroll to Start') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.scrollToStart) { ${w}.scrollToStart(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Scroll to End') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.scrollToEnd) { ${w}.scrollToEnd(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Scroll Offset') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const oS = inputSrc.get(`${nodeId}.offset`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const o = oS ? rv(oS.nid, oS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.setScrollOffset) { ${w}.setScrollOffset(${o}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Scroll Widget Into View') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.scrollWidgetIntoView) { ${w}.scrollWidgetIntoView(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Stop Anim by Name') {
+    const nS = inputSrc.get(`${nodeId}.animName`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    lines.push(`{ if(this.stopAnim) { this.stopAnim(${n}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Pause Anim by Name') {
+    const nS = inputSrc.get(`${nodeId}.animName`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    lines.push(`{ if(this.pauseAnim) { this.pauseAnim(${n}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Reverse Widget Animation') {
+    const nS = inputSrc.get(`${nodeId}.animName`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    lines.push(`{ if(this.reverseAnim) { this.reverseAnim(${n}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Anim Time') {
+    const nS = inputSrc.get(`${nodeId}.animName`);
+    const tS = inputSrc.get(`${nodeId}.time`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    const t = tS ? rv(tS.nid, tS.ok) : '0';
+    lines.push(`{ if(this.setAnimTime) { this.setAnimTime(${n}, ${t}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Anim Play Rate') {
+    const nS = inputSrc.get(`${nodeId}.animName`);
+    const rS = inputSrc.get(`${nodeId}.rate`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    const r = rS ? rv(rS.nid, rS.ok) : '1';
+    lines.push(`{ if(this.setAnimPlayRate) { this.setAnimPlayRate(${n}, ${r}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Active Widget Index') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const iS = inputSrc.get(`${nodeId}.index`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const i = iS ? rv(iS.nid, iS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.setActiveIndex) { ${w}.setActiveIndex(${i}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Active Widget') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.child`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.setActiveWidget) { ${w}.setActiveWidget(${c}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Image Tint') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.color`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.tint = ${c}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Image UV Rect') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const uS = inputSrc.get(`${nodeId}.u`);
+    const vS = inputSrc.get(`${nodeId}.v`);
+    const w_S = inputSrc.get(`${nodeId}.w`);
+    const hS = inputSrc.get(`${nodeId}.h`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const u = uS ? rv(uS.nid, uS.ok) : '0';
+    const v = vS ? rv(vS.nid, vS.ok) : '0';
+    const w_ = w_S ? rv(w_S.nid, w_S.ok) : '1';
+    const h = hS ? rv(hS.nid, hS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.uvRect = {u:${u}, v:${v}, w:${w_}, h:${h}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Play Image Flip Book') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const fS = inputSrc.get(`${nodeId}.fps`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const f = fS ? rv(fS.nid, fS.ok) : '10';
+    lines.push(`{ if(${w} && ${w}.playFlipBook) { ${w}.playFlipBook(${f}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Text Color') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.color`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.color = ${c}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Font') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const fS = inputSrc.get(`${nodeId}.font`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const f = fS ? rv(fS.nid, fS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.font = ${f}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Text Gradient') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const c1S = inputSrc.get(`${nodeId}.color1`);
+    const c2S = inputSrc.get(`${nodeId}.color2`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c1 = c1S ? rv(c1S.nid, c1S.ok) : '""';
+    const c2 = c2S ? rv(c2S.nid, c2S.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.gradient = {color1:${c1}, color2:${c2}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Text Shadow') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.color`);
+    const xS = inputSrc.get(`${nodeId}.offsetX`);
+    const yS = inputSrc.get(`${nodeId}.offsetY`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : '""';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.shadow = {color:${c}, offsetX:${x}, offsetY:${y}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Button Tint') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const cS = inputSrc.get(`${nodeId}.color`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c = cS ? rv(cS.nid, cS.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.tint = ${c}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Button Enabled') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const e = eS ? rv(eS.nid, eS.ok) : 'true';
+    lines.push(`{ if(${w}) { ${w}.isEnabled = ${e}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Position') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.positionX = ${x}; ${w}.positionY = ${y}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Size') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '0';
+    const y = yS ? rv(yS.nid, yS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.sizeX = ${x}; ${w}.sizeY = ${y}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Scale') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const xS = inputSrc.get(`${nodeId}.x`);
+    const yS = inputSrc.get(`${nodeId}.y`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const x = xS ? rv(xS.nid, xS.ok) : '1';
+    const y = yS ? rv(yS.nid, yS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.scaleX = ${x}; ${w}.scaleY = ${y}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Rotation') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const aS = inputSrc.get(`${nodeId}.angle`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const a = aS ? rv(aS.nid, aS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.rotation = ${a}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Animate Widget Float') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const pS = inputSrc.get(`${nodeId}.property`);
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const dS = inputSrc.get(`${nodeId}.duration`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const p = pS ? rv(pS.nid, pS.ok) : '""';
+    const t = tS ? rv(tS.nid, tS.ok) : '0';
+    const d = dS ? rv(dS.nid, dS.ok) : '1';
+    lines.push(`{ if(${w} && ${w}.animateFloat) { ${w}.animateFloat(${p}, ${t}, ${d}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Animate Widget Color') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const pS = inputSrc.get(`${nodeId}.property`);
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const dS = inputSrc.get(`${nodeId}.duration`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const p = pS ? rv(pS.nid, pS.ok) : '""';
+    const t = tS ? rv(tS.nid, tS.ok) : '""';
+    const d = dS ? rv(dS.nid, dS.ok) : '1';
+    lines.push(`{ if(${w} && ${w}.animateColor) { ${w}.animateColor(${p}, ${t}, ${d}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Stop Widget Animation') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.stopAnimation) { ${w}.stopAnimation(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Pause Widget Animation') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    lines.push(`{ if(${w} && ${w}.pauseAnimation) { ${w}.pauseAnimation(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Gradient') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const c1S = inputSrc.get(`${nodeId}.color1`);
+    const c2S = inputSrc.get(`${nodeId}.color2`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const c1 = c1S ? rv(c1S.nid, c1S.ok) : '""';
+    const c2 = c2S ? rv(c2S.nid, c2S.ok) : '""';
+    lines.push(`{ if(${w}) { ${w}.gradient = {color1:${c1}, color2:${c2}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Widget Nine Slice') {
+    const wS = inputSrc.get(`${nodeId}.widget`);
+    const lS = inputSrc.get(`${nodeId}.left`);
+    const tS = inputSrc.get(`${nodeId}.top`);
+    const rS = inputSrc.get(`${nodeId}.right`);
+    const bS = inputSrc.get(`${nodeId}.bottom`);
+    const w = wS ? rv(wS.nid, wS.ok) : 'null';
+    const l = lS ? rv(lS.nid, lS.ok) : '0';
+    const t = tS ? rv(tS.nid, tS.ok) : '0';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const b = bS ? rv(bS.nid, bS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.nineSlice = {left:${l}, top:${t}, right:${r}, bottom:${b}}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  if (node.label === 'Call Game Instance Function') {
+    const fS = inputSrc.get(`${nodeId}.functionName`);
+    const f = fS ? rv(fS.nid, fS.ok) : '""';
+    lines.push(`{ if(__engine && __engine.gameInstance && typeof __engine.gameInstance[${f}] === 'function') { __engine.gameInstance[${f}](); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Call Game Instance Event') {
+    const eS = inputSrc.get(`${nodeId}.eventName`);
+    const e = eS ? rv(eS.nid, eS.ok) : '""';
+    lines.push(`{ if(__engine && __engine.gameInstance && typeof __engine.gameInstance.triggerEvent === 'function') { __engine.gameInstance.triggerEvent(${e}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Line Trace by Channel') {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.lineTraceSingle(${s}, ${e}, ${c}) : null; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Sphere Trace by Channel') {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.sphereTraceSingle(${s}, ${e}, ${r}, ${c}) : null; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Box Trace') {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const hS = inputSrc.get(`${nodeId}.halfSize`);
+    const oS = inputSrc.get(`${nodeId}.orientation`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const h = hS ? rv(hS.nid, hS.ok) : '{x:0,y:0,z:0}';
+    const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0,w:1}';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.boxTraceSingle(${s}, ${e}, ${h}, ${o}, ${c}) : null; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Angular Impulse') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const iS = inputSrc.get(`${nodeId}.impulse`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const i = iS ? rv(iS.nid, iS.ok) : '{x:0,y:0,z:0}';
+    lines.push(`{ if(${b} && ${b}.applyTorqueImpulse) { ${b}.applyTorqueImpulse(${i}, true); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Clamp Velocity') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const mS = inputSrc.get(`${nodeId}.max`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const m = mS ? rv(mS.nid, mS.ok) : '0';
+    lines.push(`{ if(${b} && ${b}.linvel) { var v = ${b}.linvel(); var len = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z); if(len > ${m}) { var f = ${m}/len; ${b}.setLinvel({x:v.x*f, y:v.y*f, z:v.z*f}, true); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Line Trace Single') {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.lineTraceSingle(${s}, ${e}, ${c}) : null; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Line Trace Multi') {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __hits = __engine && __engine.physics ? __engine.physics.lineTraceMulti(${s}, ${e}, ${c}) : []; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Overlap Sphere') {
+    const pS = inputSrc.get(`${nodeId}.pos`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __overlaps = __engine && __engine.physics ? __engine.physics.overlapSphere(${p}, ${r}, ${c}) : []; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Overlap Box') {
+    const pS = inputSrc.get(`${nodeId}.pos`);
+    const hS = inputSrc.get(`${nodeId}.halfSize`);
+    const oS = inputSrc.get(`${nodeId}.orientation`);
+    const cS = inputSrc.get(`${nodeId}.channel`);
+    const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const h = hS ? rv(hS.nid, hS.ok) : '{x:0,y:0,z:0}';
+    const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0,w:1}';
+    const c = cS ? rv(cS.nid, cS.ok) : '0';
+    lines.push(`{ var __overlaps = __engine && __engine.physics ? __engine.physics.overlapBox(${p}, ${h}, ${o}, ${c}) : []; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set CCD Enabled') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const eS = inputSrc.get(`${nodeId}.enabled`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const e = eS ? rv(eS.nid, eS.ok) : 'true';
+    lines.push(`{ if(${b} && ${b}.enableCcd) { ${b}.enableCcd(${e}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Radial Force') {
+    const oS = inputSrc.get(`${nodeId}.origin`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const sS = inputSrc.get(`${nodeId}.strength`);
+    const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0}';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const s = sS ? rv(sS.nid, sS.ok) : '0';
+    lines.push(`{ if(__engine && __engine.physics) { __engine.physics.addRadialForce(${o}, ${r}, ${s}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Radial Impulse') {
+    const oS = inputSrc.get(`${nodeId}.origin`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const sS = inputSrc.get(`${nodeId}.strength`);
+    const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0}';
+    const r = rS ? rv(rS.nid, rS.ok) : '0';
+    const s = sS ? rv(sS.nid, sS.ok) : '0';
+    lines.push(`{ if(__engine && __engine.physics) { __engine.physics.addRadialImpulse(${o}, ${r}, ${s}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Reset Physics') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    lines.push(`{ if(${b} && ${b}.setLinvel) { ${b}.setLinvel({x:0,y:0,z:0}, true); ${b}.setAngvel({x:0,y:0,z:0}, true); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Body Type') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const tS = inputSrc.get(`${nodeId}.type`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const t = tS ? rv(tS.nid, tS.ok) : '0';
+    lines.push(`{ if(${b} && ${b}.setBodyType) { ${b}.setBodyType(${t}, true); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Physics Transform') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const rS = inputSrc.get(`${nodeId}.rotation`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const r = rS ? rv(rS.nid, rS.ok) : '{x:0,y:0,z:0,w:1}';
+    lines.push(`{ if(${b} && ${b}.setTranslation) { ${b}.setTranslation(${p}, true); ${b}.setRotation(${r}, true); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set World Gravity') {
+    const gS = inputSrc.get(`${nodeId}.gravity`);
+    const g = gS ? rv(gS.nid, gS.ok) : '{x:0,y:-9.81,z:0}';
+    lines.push(`{ if(__engine && __engine.physics) { __engine.physics.setGravity(${g}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Wake Physics Body') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    lines.push(`{ if(${b} && ${b}.wakeUp) { ${b}.wakeUp(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Sleep Physics Body') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    lines.push(`{ if(${b} && ${b}.sleep) { ${b}.sleep(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Teleport Physics Body') {
+    const bS = inputSrc.get(`${nodeId}.body`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const b = bS ? rv(bS.nid, bS.ok) : 'null';
+    const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    lines.push(`{ if(${b} && ${b}.setTranslation) { ${b}.setTranslation(${p}, true); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Open Level') {
+    const nS = inputSrc.get(`${nodeId}.levelName`);
+    const n = nS ? rv(nS.nid, nS.ok) : '""';
+    lines.push(`{ if(__engine && __engine.sceneManager) { __engine.sceneManager.loadScene(${n}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Quit Game') {
+    lines.push(`{ if(__engine && __engine.quit) { __engine.quit(); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Game Paused') {
+    const pS = inputSrc.get(`${nodeId}.paused`);
+    const p = pS ? rv(pS.nid, pS.ok) : 'true';
+    lines.push(`{ if(__engine) { __engine.isPaused = ${p}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Spawn Emitter at Location') {
+    const eS = inputSrc.get(`${nodeId}.emitter`);
+    const lS = inputSrc.get(`${nodeId}.location`);
+    const e = eS ? rv(eS.nid, eS.ok) : 'null';
+    const l = lS ? rv(lS.nid, lS.ok) : '{x:0,y:0,z:0}';
+    lines.push(`{ if(__engine && __engine.particleManager) { __engine.particleManager.spawnEmitterAtLocation(${e}, ${l}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Add Tag to Actor') {
+    const aS = inputSrc.get(`${nodeId}.actor`);
+    const tS = inputSrc.get(`${nodeId}.tag`);
+    const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+    const t = tS ? rv(tS.nid, tS.ok) : '""';
+    lines.push(`{ if(${a} && ${a}.tags) { if(!${a}.tags.includes(${t})) ${a}.tags.push(${t}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Remove Tag from Actor') {
+    const aS = inputSrc.get(`${nodeId}.actor`);
+    const tS = inputSrc.get(`${nodeId}.tag`);
+    const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+    const t = tS ? rv(tS.nid, tS.ok) : '""';
+    lines.push(`{ if(${a} && ${a}.tags) { const idx = ${a}.tags.indexOf(${t}); if(idx > -1) ${a}.tags.splice(idx, 1); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Actor Hidden in Game') {
+    const aS = inputSrc.get(`${nodeId}.actor`);
+    const hS = inputSrc.get(`${nodeId}.hidden`);
+    const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+    const h = hS ? rv(hS.nid, hS.ok) : 'true';
+    lines.push(`{ if(${a}) { ${a}.visible = !${h}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  Animation 2D Nodes
+  // ============================================================
+  if (node.label === 'Anim Update 2D') {
+    lines.push(`// Anim Update 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'State Transition 2D') {
+    const condition = resolveValue(nodeId, 'condition', nodeMap, inputSrc, bp);
+    const fromState = resolveValue(nodeId, 'fromState', nodeMap, inputSrc, bp);
+    const toState = resolveValue(nodeId, 'toState', nodeMap, inputSrc, bp);
+    lines.push(`if (${condition}) { __engine.anim2d.transitionState(this, ${fromState}, ${toState}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On State Enter 2D') {
+    lines.push(`// On State Enter 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On State Exit 2D') {
+    lines.push(`// On State Exit 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  Physics 2D Nodes
+  // ============================================================
+  if (node.label === 'On Collision End 2D') {
+    lines.push(`// On Collision End 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On Trigger Begin 2D') {
+    lines.push(`// On Trigger Begin 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On Trigger End 2D') {
+    lines.push(`// On Trigger End 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  Sprite Nodes
+  // ============================================================
+  if (node.label === 'On Animation Event 2D') {
+    lines.push(`// On Animation Event 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On Animation Finished 2D') {
+    lines.push(`// On Animation Finished 2D Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  UI Widget Blueprint Nodes
+  // ============================================================
+  if (node.label === 'Event Pre Construct') {
+    lines.push(`// Event Pre Construct`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Event Construct') {
+    lines.push(`// Event Construct`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Event Destruct') {
+    lines.push(`// Event Destruct`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Event Widget Tick') {
+    lines.push(`// Event Widget Tick`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Event On Initialized') {
+    lines.push(`// Event On Initialized`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'On Anim Finished') {
+    lines.push(`// On Anim Finished Event`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  Timer Nodes
+  // ============================================================
+  if (node.label === 'Clear All Timers') {
+    lines.push(`__engine.timers.clearAllTimers(this);`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ============================================================
+  //  Physics 3D Nodes
+  // ============================================================
+  if (node.label === 'Sphere Trace') {
+    const startX = resolveValue(nodeId, 'startX', nodeMap, inputSrc, bp);
+    const startY = resolveValue(nodeId, 'startY', nodeMap, inputSrc, bp);
+    const startZ = resolveValue(nodeId, 'startZ', nodeMap, inputSrc, bp);
+    const dirX = resolveValue(nodeId, 'dirX', nodeMap, inputSrc, bp);
+    const dirY = resolveValue(nodeId, 'dirY', nodeMap, inputSrc, bp);
+    const dirZ = resolveValue(nodeId, 'dirZ', nodeMap, inputSrc, bp);
+    const radius = resolveValue(nodeId, 'radius', nodeMap, inputSrc, bp);
+    const maxDist = resolveValue(nodeId, 'maxDist', nodeMap, inputSrc, bp);
+    lines.push(`const _sphereTraceHit = __engine.physics.sphereTrace(${startX}, ${startY}, ${startZ}, ${dirX}, ${dirY}, ${dirZ}, ${radius}, ${maxDist});`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
   // Component setter nodes
   if (node instanceof SetComponentLocationNode) {
     const ci = (node as SetComponentLocationNode).compIndex;
@@ -1880,6 +3291,57 @@ function genAction(
     const sS = inputSrc.get(`${nodeId}.slotIndex`);
     const mS = inputSrc.get(`${nodeId}.materialId`);
     const slotExpr = sS ? rv(sS.nid, sS.ok) : '0';
+
+  if (node.label === 'Set Timer by Function Name') {
+    const objS = inputSrc.get(`${nodeId}.object`);
+    const fnS = inputSrc.get(`${nodeId}.functionName`);
+    const timeS = inputSrc.get(`${nodeId}.time`);
+    const loopS = inputSrc.get(`${nodeId}.looping`);
+    const obj = objS ? rv(objS.nid, objS.ok) : 'gameObject';
+    const fn = fnS ? rv(fnS.nid, fnS.ok) : '""';
+    const time = timeS ? rv(timeS.nid, timeS.ok) : '1.0';
+    const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+    lines.push(`{ var __tObj=${obj}; var __tFn=${fn}; var __tTime=${time}; var __tLoop=${loop}; if(__engine && __engine.timerManager && __tObj && typeof __tObj[__tFn] === 'function') { var __tHandle = __engine.timerManager.setTimer(function(){__tObj[__tFn]();}, __tTime, __tLoop); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Timer by Event') {
+    const timeS = inputSrc.get(`${nodeId}.time`);
+    const loopS = inputSrc.get(`${nodeId}.looping`);
+    const time = timeS ? rv(timeS.nid, timeS.ok) : '1.0';
+    const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+    lines.push(`{ var __tTime=${time}; var __tLoop=${loop}; if(__engine && __engine.timerManager) { var __tHandle = __engine.timerManager.setTimer(function(){ ${we(nodeId, 'event').join(' ')} }, __tTime, __tLoop); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Clear Timer') {
+    const handleS = inputSrc.get(`${nodeId}.handle`);
+    const handle = handleS ? rv(handleS.nid, handleS.ok) : 'null';
+    lines.push(`{ var __tHandle=${handle}; if(__engine && __engine.timerManager && __tHandle) { __engine.timerManager.clearTimer(__tHandle); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Pause Timer') {
+    const handleS = inputSrc.get(`${nodeId}.handle`);
+    const handle = handleS ? rv(handleS.nid, handleS.ok) : 'null';
+    lines.push(`{ var __tHandle=${handle}; if(__engine && __engine.timerManager && __tHandle) { __engine.timerManager.pauseTimer(__tHandle); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Unpause Timer') {
+    const handleS = inputSrc.get(`${nodeId}.handle`);
+    const handle = handleS ? rv(handleS.nid, handleS.ok) : 'null';
+    lines.push(`{ var __tHandle=${handle}; if(__engine && __engine.timerManager && __tHandle) { __engine.timerManager.unpauseTimer(__tHandle); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Retriggerable Delay') {
+    const durS = inputSrc.get(`${nodeId}.duration`);
+    const dur = durS ? rv(durS.nid, durS.ok) : '0.2';
+    lines.push(`{ var __rdDur=${dur}; if(!gameObject.__retriggerableDelays) gameObject.__retriggerableDelays = {}; if(gameObject.__retriggerableDelays["${nodeId}"]) clearTimeout(gameObject.__retriggerableDelays["${nodeId}"]); gameObject.__retriggerableDelays["${nodeId}"] = setTimeout(function(){ ${we(nodeId, 'completed').join(' ')} }, __rdDur * 1000); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
     const matIdExpr = mS ? rv(mS.nid, mS.ok) : '""';
     lines.push(`{ const _ref = ${ref}; if (_ref) { const _mgr = __meshAssetManager; const _matA = _mgr && _mgr.getMaterial(${matIdExpr}); if (_matA) { const _meshes = []; _ref.traverse(c => { if (c.isMesh) _meshes.push(c); }); const _si = ${slotExpr}; if (_si >= 0 && _si < _meshes.length) { const _old = _meshes[_si].material; if (Array.isArray(_old)) _old.forEach(x => x.dispose()); else _old.dispose(); _meshes[_si].material = __buildThreeMaterialFromAsset(_matA, _mgr); } } } }`);
     lines.push(...we(nodeId, 'exec'));
