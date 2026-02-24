@@ -25,6 +25,7 @@ import type { StructureAssetManager, StructureAsset, EnumAsset } from './Structu
 import type { MeshAssetManager, MaterialAssetJSON } from './MeshAsset';
 import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
+import { InputMappingEditorPanel } from './InputMappingEditorPanel';
 import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
 import { SaveGameEditorPanel } from './SaveGameEditorPanel';
 import { EventAssetManager, type EventAsset } from './EventAsset';
@@ -108,6 +109,7 @@ export class EditorLayout {
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
   private _shaderGraphEditor: ShaderGraphEditorPanel | null = null;
@@ -151,6 +153,7 @@ export class EditorLayout {
 
     // Initialize 2D Scene Manager
     this.scene2DManager = new Scene2DManager();
+    this.scene2DManager.engine = this._engine;
 
     // Listen for cross-panel navigation events (fired by editor info bars)
     document.addEventListener('open-actor-editor', ((e: CustomEvent) => {
@@ -778,6 +781,14 @@ export class EditorLayout {
     }
   }
 
+  /** Wire up the InputMappingAssetManager for the content browser and editors */
+  setInputMappingManager(mgr: import('./InputMappingAsset').InputMappingAssetManager): void {
+    this._inputMappingManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setInputMappingManager(mgr, (asset: import('./InputMappingAsset').InputMappingAsset) => this._openInputMappingEditor(asset));
+    }
+  }
+
   /** Wire up the EventAssetManager for the content browser and editors */
   setEventManager(mgr: EventAssetManager): void {
     this._eventManager = mgr;
@@ -964,6 +975,37 @@ export class EditorLayout {
       },
       this._onSave ?? undefined,
     );
+  }
+
+  /** Open an input mapping editor panel */
+  private _openInputMappingEditor(im: import('./InputMappingAsset').InputMappingAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'input-mapping-editor-' + im.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `Input: ${im.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Gamepad2, '#4CAF50');
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._inputMappingManager) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    new InputMappingEditorPanel(wrapper, im.id);
   }
 
   /** Open a structure editor panel */

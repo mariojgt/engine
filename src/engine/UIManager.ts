@@ -94,6 +94,11 @@ interface WidgetInstance {
   eventHandlers: Map<string, WidgetEventHandler>;
   /** Widget blueprint state: variables and functions accessible from outside */
   state: any;
+  /** Lifecycle functions */
+  beginPlayFn: ((ctx: any) => void) | null;
+  tickFn: ((ctx: any) => void) | null;
+  onDestroyFn: ((ctx: any) => void) | null;
+  hasStarted: boolean;
 }
 
 let _handleCounter = 0;
@@ -186,8 +191,37 @@ export class UIManager {
    * Destroy all widgets and remove the overlay.
    * Called when Play stops.
    */
-  destroy(): void {
+  tick(ctx: any): void {
     for (const inst of this._instances.values()) {
+      if (!inst.hasStarted) {
+        inst.hasStarted = true;
+        if (inst.beginPlayFn) {
+          try {
+            inst.beginPlayFn(ctx);
+          } catch (e) {
+            console.error(`[UIManager] Error in beginPlay for widget "${inst.blueprint.name}":`, e);
+          }
+        }
+      }
+      if (inst.tickFn) {
+        try {
+          inst.tickFn(ctx);
+        } catch (e) {
+          console.error(`[UIManager] Error in tick for widget "${inst.blueprint.name}":`, e);
+        }
+      }
+    }
+  }
+
+  destroy(ctx?: any): void {
+    for (const inst of this._instances.values()) {
+      if (inst.onDestroyFn && ctx) {
+        try {
+          inst.onDestroyFn(ctx);
+        } catch (e) {
+          console.error(`[UIManager] Error in onDestroy for widget "${inst.blueprint.name}":`, e);
+        }
+      }
       if (inst.rootEl.parentElement) {
         inst.rootEl.parentElement.removeChild(inst.rootEl);
       }
@@ -255,6 +289,10 @@ export class UIManager {
       isInViewport: false,
       eventHandlers: new Map(),
       state,
+      beginPlayFn: null,
+      tickFn: null,
+      onDestroyFn: null,
+      hasStarted: false,
     };
     this._instances.set(handle, inst);
 
@@ -265,30 +303,25 @@ export class UIManager {
     if ((bp as any).compiledCode) {
       try {
         console.log(`[UIManager] Executing widget blueprint code for "${bp.name || bp.id}"`);
-        // The compiled code defines variables and functions.
-        // We execute it in a context that stores them in the state object.
-        // Use engine's print function if available, otherwise fall back to console.log
         const print = this._printFn || ((msg: any) => console.log('[Widget BP]', msg));
+        
+        const code = (bp as any).compiledCode;
+        const beginPlayCode = this._extractBlock(code, '__beginPlay__') || '';
+        const tickCode = this._extractBlock(code, '__tick__') || '';
+        const destroyCode = this._extractBlock(code, '__onDestroy__') || '';
+        const preamble = this._extractPreamble(code);
 
-        // Wrap the compiled code to capture variables, functions, and events in the state object
-        const wrappedCode = `
-          ${(bp as any).compiledCode}
-          // Store all variables, functions, and events in state for external access
-          __widgetState.__variables = {};
-          __widgetState.__functions = {};
-          __widgetState.__events = {};
-          // Capture variables starting with __var_
-          ${this._generateVariableCaptureCode((bp as any).compiledCode)}
-          // Capture functions starting with __fn_
-          ${this._generateFunctionCaptureCode((bp as any).compiledCode)}
-          // Capture custom events starting with __custom_evt_
-          ${this._generateEventCaptureCode((bp as any).compiledCode)}
-          // Run setup
-          if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
-        `;
+        const compiled = this._compileShared(preamble, beginPlayCode, tickCode, destroyCode, code);
+        
+        inst.beginPlayFn = compiled.beginPlay;
+        inst.tickFn = compiled.tick;
+        inst.onDestroyFn = compiled.onDestroy;
 
-        const setupFn = new Function('__widgetHandle', '__uiManager', 'print', '__widgetState', wrappedCode);
-        setupFn(handle, this, print, state);
+        // Run the setup function immediately to register events and capture state
+        if (compiled.setup) {
+          compiled.setup(handle, this, print, state);
+        }
+
         console.log(`[UIManager] Widget event handlers registered for "${bp.name || bp.id}"`);
         console.log(`[UIManager] Widget state:`, state);
       } catch (err) {
@@ -1001,6 +1034,109 @@ export class UIManager {
   }
 
   // ── Widget State Access API ────────────────────────────────
+
+  private _extractPreamble(code: string): string {
+    const markers = ['// __beginPlay__', '// __tick__', '// __onDestroy__'];
+    let first = code.length;
+    for (const m of markers) {
+      const idx = code.indexOf(m);
+      if (idx !== -1 && idx < first) first = idx;
+    }
+    return code.slice(0, first).trim();
+  }
+
+  private _extractBlock(code: string, label: string): string | null {
+    const marker = `// ${label}`;
+    const idx = code.indexOf(marker);
+    if (idx === -1) return null;
+
+    const nextMarkers = ['// __beginPlay__', '// __tick__', '// __onDestroy__'];
+    let end = code.length;
+    for (const m of nextMarkers) {
+      if (m === marker) continue;
+      const mIdx = code.indexOf(m, idx + marker.length);
+      if (mIdx !== -1 && mIdx < end) end = mIdx;
+    }
+
+    return code.slice(idx + marker.length, end).trim();
+  }
+
+  private _compileShared(
+    preamble: string,
+    beginPlay: string,
+    tick: string,
+    onDestroy: string,
+    fullCode: string
+  ): {
+    setup: ((handle: string, uiManager: any, print: any, state: any) => void) | null;
+    beginPlay: ((ctx: any) => void) | null;
+    tick: ((ctx: any) => void) | null;
+    onDestroy: ((ctx: any) => void) | null;
+  } {
+    const factoryBody = `
+  var __widgetHandle, __uiManager, print, __widgetState, __engine, __gameInstance, __ctx, deltaTime, elapsedTime;
+${preamble}
+
+var __setup = null;
+var __bp = null;
+var __tk = null;
+var __od = null;
+
+__setup = function(handle, uiManager, printFn, state) {
+  __widgetHandle = handle;
+  __uiManager = uiManager;
+  print = printFn;
+  __widgetState = state;
+  
+  __widgetState.__variables = {};
+  __widgetState.__functions = {};
+  __widgetState.__events = {};
+  
+  ${this._generateVariableCaptureCode(fullCode)}
+  ${this._generateFunctionCaptureCode(fullCode)}
+  ${this._generateEventCaptureCode(fullCode)}
+  
+  if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
+};
+
+${beginPlay.trim() ? `__bp = function(ctx) {
+  __ctx = ctx;
+  deltaTime = ctx.deltaTime;
+  elapsedTime = ctx.elapsedTime;
+  __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
+  ${beginPlay}
+};` : ''}
+
+${tick.trim() ? `__tk = function(ctx) {
+  __ctx = ctx;
+  deltaTime = ctx.deltaTime;
+  elapsedTime = ctx.elapsedTime;
+  __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
+  ${tick}
+};` : ''}
+
+${onDestroy.trim() ? `__od = function(ctx) {
+  __ctx = ctx;
+  deltaTime = ctx.deltaTime;
+  elapsedTime = ctx.elapsedTime;
+  __engine = ctx.engine || null;
+  __gameInstance = ctx.gameInstance || null;
+  ${onDestroy}
+};` : ''}
+
+return { setup: __setup, beginPlay: __bp, tick: __tk, onDestroy: __od };
+`;
+
+    try {
+      const factory = new Function(factoryBody);
+      return factory();
+    } catch (e) {
+      console.error('[UIManager] Error compiling shared widget code:', e);
+      return { setup: null, beginPlay: null, tick: null, onDestroy: null };
+    }
+  }
 
   /**
    * Generate code to capture variables from compiled widget code.

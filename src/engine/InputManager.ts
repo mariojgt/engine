@@ -44,7 +44,9 @@ export const GAMEPAD_AXES = {
 
 export class InputManager {
   private _keys = new Set<string>();
+  private _prevKeys = new Set<string>();
   private _mouseDown = new Set<number>();
+  private _prevMouseDown = new Set<number>();
   private _mousePosition = new Vector2();
   private _mouseDelta = new Vector2();
 
@@ -124,8 +126,32 @@ export class InputManager {
     this.addAction('Run', ['ShiftLeft', 'ShiftRight']);
   }
 
+  public loadMappings(
+    actionMappings: { name: string; keys: string[] }[],
+    axisMappings: { name: string; key: string; scale: number }[]
+  ): void {
+    this._actionMappings.clear();
+    this._axisMappings.clear();
+
+    for (const action of actionMappings) {
+      this.addAction(action.name, action.keys);
+    }
+
+    for (const axis of axisMappings) {
+      this.addAxis(axis.name, axis.key, axis.scale);
+    }
+  }
+
   public addAction(name: string, keys: KeyCode[]): void {
     this._actionMappings.set(name, keys);
+  }
+
+  public getActionKeys(name: string): KeyCode[] {
+    return this._actionMappings.get(name) || [];
+  }
+
+  public removeAction(name: string): void {
+    this._actionMappings.delete(name);
   }
 
   public addAxis(name: string, key: KeyCode, scale: number): void {
@@ -135,10 +161,35 @@ export class InputManager {
     this._axisMappings.get(name)!.push({ name, key, scale });
   }
 
+  public getAxisMappings(name: string): AxisMapping[] {
+    return this._axisMappings.get(name) || [];
+  }
+
+  public removeAxis(name: string): void {
+    this._axisMappings.delete(name);
+  }
+
+  public clearAllMappings(): void {
+    this._actionMappings.clear();
+    this._axisMappings.clear();
+  }
+
   public getAction(name: string): boolean {
     const keys = this._actionMappings.get(name);
     if (!keys) return false;
     return keys.some(k => this.isKeyDown(k));
+  }
+
+  public isActionJustPressed(name: string): boolean {
+    const keys = this._actionMappings.get(name);
+    if (!keys) return false;
+    return keys.some(k => this.isKeyJustPressed(k));
+  }
+
+  public isActionJustReleased(name: string): boolean {
+    const keys = this._actionMappings.get(name);
+    if (!keys) return false;
+    return keys.some(k => this.isKeyJustReleased(k));
   }
 
   public getAxis(name: string): number {
@@ -151,24 +202,87 @@ export class InputManager {
 
     let value = 0;
     for (const mapping of mappings) {
-      if (this.isKeyDown(mapping.key)) {
+      if (mapping.key === 'MouseX') {
+        value += this._mouseDelta.x * mapping.scale;
+      } else if (mapping.key === 'MouseY') {
+        value += this._mouseDelta.y * mapping.scale;
+      } else if (mapping.key.startsWith('GamepadAxis_')) {
+        const axisName = mapping.key.replace('GamepadAxis_', '');
+        const axisIndex = (GAMEPAD_AXES as any)[axisName];
+        if (axisIndex !== undefined) {
+          value += this.getGamepadAxis(axisIndex) * mapping.scale;
+        }
+      } else if (this.isKeyDown(mapping.key)) {
         value += mapping.scale;
       }
     }
     return value;
   }
 
+  private _mapKey(code: string): string {
+    if (code === 'Space') return ' ';
+    if (code.length === 1 && code >= 'A' && code <= 'Z') return code.toLowerCase();
+    return code;
+  }
+
   public isKeyDown(code: string): boolean {
+    if (code.startsWith('Gamepad_')) {
+      const btnName = code.replace('Gamepad_', '');
+      const btnIndex = (GAMEPAD_BUTTONS as any)[btnName];
+      if (btnIndex !== undefined) return this.isGamepadButtonDown(btnIndex);
+      return false;
+    }
+    if (code === 'Mouse Left') return this._mouseDown.has(0);
+    if (code === 'Mouse Middle') return this._mouseDown.has(1);
+    if (code === 'Mouse Right') return this._mouseDown.has(2);
     // Map 'Mouse0', 'Mouse1' etc
     if (code.startsWith('MouseButton')) {
       const btn = parseInt(code.replace('MouseButton', ''));
       return this._mouseDown.has(btn);
     }
-    return this._keys.has(code);
+    return this._keys.has(this._mapKey(code)) || this._keys.has(code);
+  }
+
+  public isKeyJustPressed(code: string): boolean {
+    if (code.startsWith('Gamepad_')) {
+      const btnName = code.replace('Gamepad_', '');
+      const btnIndex = (GAMEPAD_BUTTONS as any)[btnName];
+      if (btnIndex !== undefined) return this.isGamepadButtonJustPressed(btnIndex);
+      return false;
+    }
+    if (code === 'Mouse Left') return this._mouseDown.has(0) && !this._prevMouseDown.has(0);
+    if (code === 'Mouse Middle') return this._mouseDown.has(1) && !this._prevMouseDown.has(1);
+    if (code === 'Mouse Right') return this._mouseDown.has(2) && !this._prevMouseDown.has(2);
+    if (code.startsWith('MouseButton')) {
+      const btn = parseInt(code.replace('MouseButton', ''));
+      return this._mouseDown.has(btn) && !this._prevMouseDown.has(btn);
+    }
+    const mapped = this._mapKey(code);
+    return (this._keys.has(mapped) && !this._prevKeys.has(mapped)) || (this._keys.has(code) && !this._prevKeys.has(code));
+  }
+
+  public isKeyJustReleased(code: string): boolean {
+    if (code.startsWith('Gamepad_')) {
+      const btnName = code.replace('Gamepad_', '');
+      const btnIndex = (GAMEPAD_BUTTONS as any)[btnName];
+      if (btnIndex !== undefined) return this.isGamepadButtonJustReleased(btnIndex);
+      return false;
+    }
+    if (code === 'Mouse Left') return !this._mouseDown.has(0) && this._prevMouseDown.has(0);
+    if (code === 'Mouse Middle') return !this._mouseDown.has(1) && this._prevMouseDown.has(1);
+    if (code === 'Mouse Right') return !this._mouseDown.has(2) && this._prevMouseDown.has(2);
+    if (code.startsWith('MouseButton')) {
+      const btn = parseInt(code.replace('MouseButton', ''));
+      return !this._mouseDown.has(btn) && this._prevMouseDown.has(btn);
+    }
+    const mapped = this._mapKey(code);
+    return (!this._keys.has(mapped) && this._prevKeys.has(mapped)) || (!this._keys.has(code) && this._prevKeys.has(code));
   }
 
   /** Call at end of frame to reset per-frame deltas and poll gamepads */
   public update(): void {
+    this._prevKeys = new Set(this._keys);
+    this._prevMouseDown = new Set(this._mouseDown);
     this._mouseDelta.set(0, 0);
     this._pollGamepads();
   }
@@ -264,10 +378,14 @@ export class InputManager {
 
   private _onKeyDown(e: KeyboardEvent): void {
     this._keys.add(e.code);
+    this._keys.add(e.key.toLowerCase());
+    this._keys.add(e.key);
   }
 
   private _onKeyUp(e: KeyboardEvent): void {
     this._keys.delete(e.code);
+    this._keys.delete(e.key.toLowerCase());
+    this._keys.delete(e.key);
   }
 
   private _onMouseDown(e: MouseEvent): void {

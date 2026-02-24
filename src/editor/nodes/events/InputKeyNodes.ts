@@ -21,6 +21,16 @@ export const INPUT_KEYS = [
   'Mouse Left','Mouse Right','Mouse Middle',
   // Mouse wheel
   'Mouse Wheel Up','Mouse Wheel Down',
+  // Mouse Axes
+  'MouseX', 'MouseY',
+  // Gamepad Buttons
+  'Gamepad_A', 'Gamepad_B', 'Gamepad_X', 'Gamepad_Y',
+  'Gamepad_LB', 'Gamepad_RB', 'Gamepad_LT', 'Gamepad_RT',
+  'Gamepad_Back', 'Gamepad_Start', 'Gamepad_LS', 'Gamepad_RS',
+  'Gamepad_DPadUp', 'Gamepad_DPadDown', 'Gamepad_DPadLeft', 'Gamepad_DPadRight',
+  // Gamepad Axes
+  'GamepadAxis_LeftStickX', 'GamepadAxis_LeftStickY',
+  'GamepadAxis_RightStickX', 'GamepadAxis_RightStickY',
 ] as const;
 
 /**
@@ -40,18 +50,25 @@ export class KeySelectControl extends ClassicPreset.Control {
   }
 }
 
-/** Returns the input category: 'keyboard', 'mouse', or 'wheel' */
-export function inputType(key: string): 'keyboard' | 'mouse' | 'wheel' {
+/** Returns the input category: 'keyboard', 'mouse', 'wheel', 'gamepad', or 'axis' */
+export function inputType(key: string): 'keyboard' | 'mouse' | 'wheel' | 'gamepad' | 'axis' {
   if (key === 'Mouse Left' || key === 'Mouse Right' || key === 'Mouse Middle') return 'mouse';
   if (key === 'Mouse Wheel Up' || key === 'Mouse Wheel Down') return 'wheel';
+  if (key === 'MouseX' || key === 'MouseY') return 'axis';
+  if (key.startsWith('GamepadAxis_')) return 'axis';
+  if (key.startsWith('Gamepad')) return 'gamepad';
   return 'keyboard';
 }
 
 /** Maps our friendly key names to the runtime value used for matching.
  *  - Keyboard: KeyboardEvent.key string
  *  - Mouse:    MouseEvent.button number (as string)
- *  - Wheel:    'up' or 'down' */
+ *  - Wheel:    'up' or 'down'
+ *  - Gamepad:  The key string itself
+ *  - Axis:     The key string itself */
 export function keyEventCode(key: string): string {
+  if (key === 'MouseX' || key === 'MouseY') return key;
+  if (key.startsWith('Gamepad')) return key;
   if (key === 'Space') return ' ';
   if (key === 'Shift') return 'Shift';
   if (key === 'Control') return 'Control';

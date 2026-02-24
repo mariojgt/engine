@@ -109,6 +109,7 @@ function gameLoop(time: number): void {
         renderer.render(engine.scene.threeScene, cam);
       }
     }
+    engine.input.update();
   }
 }
 

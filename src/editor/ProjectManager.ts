@@ -84,6 +84,10 @@ export interface ProjectMeta {
   activeScene: string;
   /** Game Instance class ID — which Game Instance blueprint to auto-create at runtime (like UE Project Settings → Game Instance Class) */
   gameInstanceClassId?: string;
+  /** Input Action Mappings */
+  actionMappings?: { name: string; keys: string[] }[];
+  /** Input Axis Mappings */
+  axisMappings?: { name: string; key: string; scale: number }[];
 }
 
 // ---- Project folder structure ----
@@ -108,6 +112,7 @@ const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
 const EVENTS_DIR = 'Events';
+const INPUT_MAPPINGS_DIR = 'InputMappings';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
 const SOUNDS_DIR = 'Sounds';
@@ -129,6 +134,7 @@ export class ProjectManager {
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
+  private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
@@ -208,6 +214,26 @@ export class ProjectManager {
     this._eventManager = mgr;
   }
 
+  /** Wire up the InputMappingAssetManager for saving/loading input mappings */
+  setInputMappingManager(mgr: import('./InputMappingAsset').InputMappingAssetManager): void {
+    this._inputMappingManager = mgr;
+    this._inputMappingManager.onChanged(() => {
+      this._syncInputMappingsToEngine();
+      this._dirty = true;
+    });
+  }
+
+  private _syncInputMappingsToEngine(): void {
+    if (!this._inputMappingManager) return;
+    const allActions: { name: string; keys: string[] }[] = [];
+    const allAxes: { name: string; key: string; scale: number }[] = [];
+    for (const asset of this._inputMappingManager.assets) {
+      allActions.push(...asset.actionMappings);
+      allAxes.push(...asset.axisMappings);
+    }
+    this._engine.input.loadMappings(allActions, allAxes);
+  }
+
   /** Get the configured Game Instance class ID (from Project Settings) */
   get gameInstanceClassId(): string | undefined {
     return this._meta?.gameInstanceClassId;
@@ -219,6 +245,32 @@ export class ProjectManager {
     this._meta.gameInstanceClassId = id;
     this._engine.gameInstanceClassId = id ?? null;
     this._dirty = true;
+  }
+
+  get actionMappings(): { name: string; keys: string[] }[] {
+    if (!this._inputMappingManager) return [];
+    const allActions: { name: string; keys: string[] }[] = [];
+    for (const asset of this._inputMappingManager.assets) {
+      allActions.push(...asset.actionMappings);
+    }
+    return allActions;
+  }
+
+  get axisMappings(): { name: string; key: string; scale: number }[] {
+    if (!this._inputMappingManager) return [];
+    const allAxes: { name: string; key: string; scale: number }[] = [];
+    for (const asset of this._inputMappingManager.assets) {
+      allAxes.push(...asset.axisMappings);
+    }
+    return allAxes;
+  }
+
+  setActionMappings(mappings: { name: string; keys: string[] }[]): void {
+    // Deprecated: Use InputMappingAssetManager instead
+  }
+
+  setAxisMappings(mappings: { name: string; key: string; scale: number }[]): void {
+    // Deprecated: Use InputMappingAssetManager instead
   }
 
   /** Wire up the ContentFolderManager for saving/loading folder structure */
@@ -355,6 +407,11 @@ export class ProjectManager {
       // Sync Game Instance class ID to engine
       this._engine.gameInstanceClassId = meta.gameInstanceClassId ?? null;
 
+      // Sync Input Mappings
+      if (meta.actionMappings || meta.axisMappings) {
+        this._engine.input.loadMappings(meta.actionMappings || [], meta.axisMappings || []);
+      }
+
       console.log(`[ProjectManager] ▶ Opening project "${meta.name}" at ${projectRoot}`);
       console.log(`[ProjectManager]   Active scene: ${meta.activeScene}`);
       console.log(`[ProjectManager]   Composition manager wired: ${!!this._compositionManager}`);
@@ -380,6 +437,10 @@ export class ProjectManager {
 
       // Load event definitions
       await this._loadEvents();
+
+      // Load input mappings
+      await this._loadInputMappings();
+      this._syncInputMappingsToEngine();
 
       // Load texture library
       await this._loadTextures();
@@ -477,6 +538,10 @@ export class ProjectManager {
       // Save event definitions
       await this._saveEvents();
       console.log('[ProjectManager]   ✓ events');
+
+      // Save input mappings
+      await this._saveInputMappings();
+      console.log('[ProjectManager]   ✓ input mappings');
 
       // Save texture library
       await this._saveTextures();
@@ -1366,6 +1431,67 @@ export class ProjectManager {
 
     if (allEvents.length > 0) {
       this._eventManager.importAll(allEvents);
+    }
+  }
+
+  private async _saveInputMappings(): Promise<void> {
+    if (!this._projectPath || !this._inputMappingManager) return;
+    const imDir = `${this._projectPath}/${INPUT_MAPPINGS_DIR}`;
+    if (!(await fsExists(imDir))) {
+      await fsCreateProjectDirs(this._projectPath, INPUT_MAPPINGS_DIR);
+    }
+
+    const allMappings = this._inputMappingManager.exportAll();
+    for (const json of allMappings) {
+      const safeName = json.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${imDir}/${safeName}_${json.id}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = allMappings.map(im => ({
+      id: im.id,
+      name: im.name,
+      file: `${im.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_${im.id}.json`,
+    }));
+    await fsWrite(`${imDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadInputMappings(): Promise<void> {
+    if (!this._projectPath || !this._inputMappingManager) return;
+    const imDir = `${this._projectPath}/${INPUT_MAPPINGS_DIR}`;
+    if (!(await fsExists(imDir))) return;
+
+    const allMappings: import('./InputMappingAsset').InputMappingAssetJSON[] = [];
+    const indexPath = `${imDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${imDir}/${entry.file}`);
+          allMappings.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load input mapping ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(imDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${imDir}/${name}`);
+          allMappings.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load input mapping file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allMappings.length > 0) {
+      this._inputMappingManager.importAll(allMappings);
     }
   }
 

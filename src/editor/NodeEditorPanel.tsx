@@ -101,6 +101,18 @@ import {
   keyEventCode,
   inputType,
   KeySelectControl,
+  InputActionMappingEventNode,
+  InputAxisMappingEventNode,
+  GetInputActionNode,
+  GetInputAxisNode,
+  AddActionMappingKeyNode,
+  RemoveActionMappingKeyNode,
+  ClearActionMappingNode,
+  AddAxisMappingKeyNode,
+  RemoveAxisMappingKeyNode,
+  ClearAxisMappingNode,
+  ActionMappingSelectControl,
+  AxisMappingSelectControl,
   GetComponentLocationNode,
   SetComponentLocationNode,
   GetComponentRotationNode,
@@ -395,12 +407,22 @@ import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
 import type { StructureAssetManager } from './StructureAsset';
+import { InputMappingAssetManager } from './InputMappingAsset';
 import type { WidgetBlueprintManager } from './WidgetBlueprintData';
 
 type Schemes = GetSchemes<
   ClassicPreset.Node,
   ClassicPreset.Connection<ClassicPreset.Node, ClassicPreset.Node>
 >;
+
+// ============================================================
+//  Module-level reference to ProjectManager
+// ============================================================
+let _projectMgr: import('./ProjectManager').ProjectManager | null = null;
+
+export function setProjectManager(mgr: import('./ProjectManager').ProjectManager): void {
+  _projectMgr = mgr;
+}
 
 // ============================================================
 //  Module-level reference to StructureAssetManager
@@ -476,7 +498,7 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   if (node instanceof MacroEntryNode || node instanceof MacroExitNode) return 'Macros';
   if (node instanceof MacroCallNode) return 'Macros';
   if (node instanceof CustomEventNode || node instanceof CallCustomEventNode) return 'Events';
-  if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode || node instanceof InputAxisNode) return 'Input';
+  if (node instanceof InputKeyEventNode || node instanceof IsKeyDownNode || node instanceof InputAxisNode || node instanceof InputActionMappingEventNode || node instanceof InputAxisMappingEventNode || node instanceof GetInputActionNode || node instanceof GetInputAxisNode || node instanceof AddActionMappingKeyNode || node instanceof RemoveActionMappingKeyNode || node instanceof ClearActionMappingNode || node instanceof AddAxisMappingKeyNode || node instanceof RemoveAxisMappingKeyNode || node instanceof ClearAxisMappingNode) return 'Input';
   // Physics event nodes
   if (node instanceof OnComponentHitNode || node instanceof OnComponentBeginOverlapNode ||
       node instanceof OnComponentEndOverlapNode || node instanceof OnComponentWakeNode ||
@@ -728,7 +750,31 @@ function resolveValue(
     if (itype === 'wheel') {
       return 'false'; // wheel has no "held" state
     }
+    if (itype === 'axis') {
+      return 'false'; // axis has no "held" state
+    }
+    if (itype === 'gamepad') {
+      return `(__engine && __engine.input ? __engine.input.isKeyDown(${JSON.stringify(kc)}) : false)`;
+    }
     return `(__inputKeys[${JSON.stringify(kc)}] || false)`;
+  }
+
+  if (node instanceof GetInputActionNode) {
+    const n = node as GetInputActionNode;
+    const ctrl = n.controls['action'] as ActionMappingSelectControl | undefined;
+    const action = ctrl?.value ?? n.selectedAction;
+    return `(__engine && __engine.input ? __engine.input.getAction(${JSON.stringify(action)}) : false)`;
+  }
+
+  if (node instanceof GetInputAxisNode) {
+    const n = node as GetInputAxisNode;
+    const ctrl = n.controls['axis'] as AxisMappingSelectControl | undefined;
+    const axis = ctrl?.value ?? n.selectedAxis;
+    return `(__engine && __engine.input ? __engine.input.getAxis(${JSON.stringify(axis)}) : 0)`;
+  }
+
+  if (node instanceof InputAxisMappingEventNode) {
+    return `__axis_${node.id.replace(/[^a-zA-Z0-9]/g, '_')}`;
   }
 
   // InputAxisNode — two-key axis: positive key → +1, negative key → -1
@@ -741,7 +787,18 @@ function resolveValue(
     const negKey = negCtrl?.value ?? ia.negativeKey;
     const posCode = keyEventCode(posKey);
     const negCode = keyEventCode(negKey);
-    return `((__inputKeys[${JSON.stringify(posCode)}] ? 1 : 0) - (__inputKeys[${JSON.stringify(negCode)}] ? 1 : 0))`;
+    const posType = inputType(posKey);
+    const negType = inputType(negKey);
+    
+    const getVal = (code: string, type: string) => {
+      if (type === 'mouse') return `(__inputKeys["__mouse${code}"] ? 1 : 0)`;
+      if (type === 'wheel') return '0';
+      if (type === 'axis') return `(__engine && __engine.input ? __engine.input.getAxis(${JSON.stringify(code)}) : 0)`;
+      if (type === 'gamepad') return `(__engine && __engine.input && __engine.input.isKeyDown(${JSON.stringify(code)}) ? 1 : 0)`;
+      return `(__inputKeys[${JSON.stringify(code)}] ? 1 : 0)`;
+    };
+    
+    return `(${getVal(posCode, posType)} - ${getVal(negCode, negType)})`;
   }
 
   // 2D Collision / Trigger event output data (label-based since classes may not be imported)
@@ -2525,6 +2582,79 @@ function genAction(
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+    case 'Add Action Mapping Key': {
+      const action = JSON.stringify((node as any).selectedAction || '');
+      const keyS = inputSrc.get(`${nodeId}.key`);
+      const keyVal = keyS ? rv(keyS.nid, keyS.ok) : '""';
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  var __keys = __engine.input.getActionKeys(${action});`);
+      lines.push(`  if (!__keys.includes(${keyVal})) {`);
+      lines.push(`    __engine.input.addAction(${action}, [...__keys, ${keyVal}]);`);
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove Action Mapping Key': {
+      const action = JSON.stringify((node as any).selectedAction || '');
+      const keyS = inputSrc.get(`${nodeId}.key`);
+      const keyVal = keyS ? rv(keyS.nid, keyS.ok) : '""';
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  var __keys = __engine.input.getActionKeys(${action});`);
+      lines.push(`  var __newKeys = __keys.filter(function(k) { return k !== ${keyVal}; });`);
+      lines.push(`  __engine.input.addAction(${action}, __newKeys);`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Action Mapping': {
+      const action = JSON.stringify((node as any).selectedAction || '');
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  __engine.input.removeAction(${action});`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Add Axis Mapping Key': {
+      const axis = JSON.stringify((node as any).selectedAxis || '');
+      const keyS = inputSrc.get(`${nodeId}.key`);
+      const keyVal = keyS ? rv(keyS.nid, keyS.ok) : '""';
+      const scaleS = inputSrc.get(`${nodeId}.scale`);
+      const scaleVal = scaleS ? rv(scaleS.nid, scaleS.ok) : '1';
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  var __mappings = __engine.input.getAxisMappings(${axis});`);
+      lines.push(`  var __exists = false;`);
+      lines.push(`  for (var i = 0; i < __mappings.length; i++) {`);
+      lines.push(`    if (__mappings[i].key === ${keyVal}) { __mappings[i].scale = ${scaleVal}; __exists = true; break; }`);
+      lines.push(`  }`);
+      lines.push(`  if (!__exists) { __engine.input.addAxis(${axis}, ${keyVal}, ${scaleVal}); }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove Axis Mapping Key': {
+      const axis = JSON.stringify((node as any).selectedAxis || '');
+      const keyS = inputSrc.get(`${nodeId}.key`);
+      const keyVal = keyS ? rv(keyS.nid, keyS.ok) : '""';
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  var __mappings = __engine.input.getAxisMappings(${axis});`);
+      lines.push(`  var __newMappings = __mappings.filter(function(m) { return m.key !== ${keyVal}; });`);
+      lines.push(`  __engine.input.removeAxis(${axis});`);
+      lines.push(`  for (var i = 0; i < __newMappings.length; i++) {`);
+      lines.push(`    __engine.input.addAxis(${axis}, __newMappings[i].key, __newMappings[i].scale);`);
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Axis Mapping': {
+      const axis = JSON.stringify((node as any).selectedAxis || '');
+      lines.push(`if (__engine && __engine.input) {`);
+      lines.push(`  __engine.input.removeAxis(${axis});`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
     case 'Add Force': {
       const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`); const zS = inputSrc.get(`${nodeId}.z`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.addForce({x:${xS ? rv(xS.nid, xS.ok) : '0'}, y:${yS ? rv(yS.nid, yS.ok) : '0'}, z:${zS ? rv(zS.nid, zS.ok) : '0'}}, true); }`);
@@ -3894,6 +4024,31 @@ function generateFullCode(
   const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
   for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
 
+  // Input Action/Axis Mapping Events (polled in Tick)
+  const inputActionNodes = nodes.filter(n => n instanceof InputActionMappingEventNode) as InputActionMappingEventNode[];
+  for (const iaNode of inputActionNodes) {
+    const ctrl = iaNode.controls['action'] as ActionMappingSelectControl | undefined;
+    const action = ctrl?.value ?? iaNode.selectedAction;
+    const pressedBody = walkExec(iaNode.id, 'pressed', nodeMap, inputSrc, outputDst, bp);
+    const releasedBody = walkExec(iaNode.id, 'released', nodeMap, inputSrc, outputDst, bp);
+    if (pressedBody.length) {
+      tickCode.push(`if (__engine && __engine.input && __engine.input.isActionJustPressed(${JSON.stringify(action)})) { ${pressedBody.join(' ')} }`);
+    }
+    if (releasedBody.length) {
+      tickCode.push(`if (__engine && __engine.input && __engine.input.isActionJustReleased(${JSON.stringify(action)})) { ${releasedBody.join(' ')} }`);
+    }
+  }
+
+  const inputAxisMappingNodes = nodes.filter(n => n instanceof InputAxisMappingEventNode) as InputAxisMappingEventNode[];
+  for (const iaxNode of inputAxisMappingNodes) {
+    const ctrl = iaxNode.controls['axis'] as AxisMappingSelectControl | undefined;
+    const axis = ctrl?.value ?? iaxNode.selectedAxis;
+    const execBody = walkExec(iaxNode.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+    if (execBody.length) {
+      tickCode.push(`if (__engine && __engine.input) { var __axis_${iaxNode.id.replace(/[^a-zA-Z0-9]/g, '_')} = __engine.input.getAxis(${JSON.stringify(axis)}); ${execBody.join(' ')} }`);
+    }
+  }
+
   // Input key event listeners — inject into beginPlay & onDestroy
   if (hasInputNodes) {
     // Global key state tracking for IsKeyDown polling (keyboard + mouse buttons)
@@ -3938,6 +4093,13 @@ function generateFullCode(
         }
         if (releasedBody.length) {
           beginPlayCode.push(`(function() { var _wh2 = function(e) { if (e.deltaY ${dir}) { ${releasedBody.join(' ')} } }; document.addEventListener("wheel", _wh2); __inputCleanup.push(function() { document.removeEventListener("wheel", _wh2); }); })();`);
+        }
+      } else if (itype === 'gamepad') {
+        if (pressedBody.length) {
+          tickCode.push(`if (__engine && __engine.input && __engine.input.isKeyJustPressed(${JSON.stringify(kc)})) { ${pressedBody.join(' ')} }`);
+        }
+        if (releasedBody.length) {
+          tickCode.push(`if (__engine && __engine.input && __engine.input.isKeyJustReleased(${JSON.stringify(kc)})) { ${releasedBody.join(' ')} }`);
         }
       }
     }
@@ -5716,6 +5878,16 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof CallCustomEventNode) return 'CallCustomEventNode';
   if (node instanceof InputKeyEventNode) return 'InputKeyEventNode';
   if (node instanceof IsKeyDownNode) return 'IsKeyDownNode';
+  if (node instanceof InputActionMappingEventNode) return 'InputActionMappingEventNode';
+  if (node instanceof InputAxisMappingEventNode) return 'InputAxisMappingEventNode';
+  if (node instanceof GetInputActionNode) return 'GetInputActionNode';
+  if (node instanceof GetInputAxisNode) return 'GetInputAxisNode';
+  if (node instanceof AddActionMappingKeyNode) return 'AddActionMappingKeyNode';
+  if (node instanceof RemoveActionMappingKeyNode) return 'RemoveActionMappingKeyNode';
+  if (node instanceof ClearActionMappingNode) return 'ClearActionMappingNode';
+  if (node instanceof AddAxisMappingKeyNode) return 'AddAxisMappingKeyNode';
+  if (node instanceof RemoveAxisMappingKeyNode) return 'RemoveAxisMappingKeyNode';
+  if (node instanceof ClearAxisMappingNode) return 'ClearAxisMappingNode';
   // Variables & Structs
   if (node instanceof GetVariableNode) return 'GetVariableNode';
   if (node instanceof SetVariableNode) return 'SetVariableNode';
@@ -6060,6 +6232,10 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as MovementModeSelectControl).value;
     } else if (ctrl instanceof KeySelectControl) {
       controls[key] = (ctrl as KeySelectControl).value;
+    } else if (ctrl instanceof ActionMappingSelectControl) {
+      controls[key] = (ctrl as ActionMappingSelectControl).value;
+    } else if (ctrl instanceof AxisMappingSelectControl) {
+      controls[key] = (ctrl as AxisMappingSelectControl).value;
     } else if (ctrl instanceof EventSelectControl) {
       controls[key] = (ctrl as EventSelectControl).value;
     } else if (ctrl instanceof ColorPickerControl) {
@@ -6100,6 +6276,36 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   } else if (node instanceof IsKeyDownNode) {
     const keyCtrl = (node as IsKeyDownNode).controls['key'] as KeySelectControl | undefined;
     data.selectedKey = keyCtrl?.value ?? (node as IsKeyDownNode).selectedKey;
+  } else if (node instanceof InputActionMappingEventNode) {
+    const ctrl = (node as InputActionMappingEventNode).controls['action'] as ActionMappingSelectControl | undefined;
+    data.selectedAction = ctrl?.value ?? (node as InputActionMappingEventNode).selectedAction;
+  } else if (node instanceof InputAxisMappingEventNode) {
+    const ctrl = (node as InputAxisMappingEventNode).controls['axis'] as AxisMappingSelectControl | undefined;
+    data.selectedAxis = ctrl?.value ?? (node as InputAxisMappingEventNode).selectedAxis;
+  } else if (node instanceof GetInputActionNode) {
+    const ctrl = (node as GetInputActionNode).controls['action'] as ActionMappingSelectControl | undefined;
+    data.selectedAction = ctrl?.value ?? (node as GetInputActionNode).selectedAction;
+  } else if (node instanceof GetInputAxisNode) {
+    const ctrl = (node as GetInputAxisNode).controls['axis'] as AxisMappingSelectControl | undefined;
+    data.selectedAxis = ctrl?.value ?? (node as GetInputAxisNode).selectedAxis;
+  } else if (node instanceof AddActionMappingKeyNode) {
+    const ctrl = (node as AddActionMappingKeyNode).controls['action'] as ActionMappingSelectControl | undefined;
+    data.selectedAction = ctrl?.value ?? (node as AddActionMappingKeyNode).selectedAction;
+  } else if (node instanceof RemoveActionMappingKeyNode) {
+    const ctrl = (node as RemoveActionMappingKeyNode).controls['action'] as ActionMappingSelectControl | undefined;
+    data.selectedAction = ctrl?.value ?? (node as RemoveActionMappingKeyNode).selectedAction;
+  } else if (node instanceof ClearActionMappingNode) {
+    const ctrl = (node as ClearActionMappingNode).controls['action'] as ActionMappingSelectControl | undefined;
+    data.selectedAction = ctrl?.value ?? (node as ClearActionMappingNode).selectedAction;
+  } else if (node instanceof AddAxisMappingKeyNode) {
+    const ctrl = (node as AddAxisMappingKeyNode).controls['axis'] as AxisMappingSelectControl | undefined;
+    data.selectedAxis = ctrl?.value ?? (node as AddAxisMappingKeyNode).selectedAxis;
+  } else if (node instanceof RemoveAxisMappingKeyNode) {
+    const ctrl = (node as RemoveAxisMappingKeyNode).controls['axis'] as AxisMappingSelectControl | undefined;
+    data.selectedAxis = ctrl?.value ?? (node as RemoveAxisMappingKeyNode).selectedAxis;
+  } else if (node instanceof ClearAxisMappingNode) {
+    const ctrl = (node as ClearAxisMappingNode).controls['axis'] as AxisMappingSelectControl | undefined;
+    data.selectedAxis = ctrl?.value ?? (node as ClearAxisMappingNode).selectedAxis;
   } else if (node instanceof InputAxisNode) {
     const ia = node as InputAxisNode;
     const posCtrl = ia.controls['posKey'] as KeySelectControl | undefined;
@@ -6298,6 +6504,26 @@ function createNodeFromData(
       return new InputKeyEventNode(d.selectedKey || 'Space');
     case 'IsKeyDownNode':
       return new IsKeyDownNode(d.selectedKey || 'Space');
+    case 'InputActionMappingEventNode':
+      return new InputActionMappingEventNode(d.selectedAction || '');
+    case 'InputAxisMappingEventNode':
+      return new InputAxisMappingEventNode(d.selectedAxis || '');
+    case 'GetInputActionNode':
+      return new GetInputActionNode(d.selectedAction || '');
+    case 'GetInputAxisNode':
+      return new GetInputAxisNode(d.selectedAxis || '');
+    case 'AddActionMappingKeyNode':
+      return new AddActionMappingKeyNode(d.selectedAction || '');
+    case 'RemoveActionMappingKeyNode':
+      return new RemoveActionMappingKeyNode(d.selectedAction || '');
+    case 'ClearActionMappingNode':
+      return new ClearActionMappingNode(d.selectedAction || '');
+    case 'AddAxisMappingKeyNode':
+      return new AddAxisMappingKeyNode(d.selectedAxis || '');
+    case 'RemoveAxisMappingKeyNode':
+      return new RemoveAxisMappingKeyNode(d.selectedAxis || '');
+    case 'ClearAxisMappingNode':
+      return new ClearAxisMappingNode(d.selectedAxis || '');
     case 'InputAxisNode':
       return new InputAxisNode(d.positiveKey || 'D', d.negativeKey || 'A');
 
@@ -8231,6 +8457,80 @@ async function createGraphEditor(
                 React.createElement('option', { key: ev.name, value: ev.name }, ev.name),
               ),
               events.length === 0 && React.createElement('option', { key: '__empty', value: '', disabled: true }, 'No events available'),
+            );
+          };
+        }
+
+        if (data.payload instanceof ActionMappingSelectControl) {
+          const ctrl = data.payload as ActionMappingSelectControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const mappings = React.useMemo(() => {
+              const mgr = InputMappingAssetManager.getInstance();
+              const allActions = new Set<string>();
+              for (const asset of mgr.assets) {
+                for (const m of asset.actionMappings) allActions.add(m.name);
+              }
+              return Array.from(allActions);
+            }, []);
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#e0e0e0',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { key: '__none', value: '' }, '(select action)'),
+              ...mappings.map(m =>
+                React.createElement('option', { key: m, value: m }, m),
+              ),
+            );
+          };
+        }
+
+        if (data.payload instanceof AxisMappingSelectControl) {
+          const ctrl = data.payload as AxisMappingSelectControl;
+          return (props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const mappings = React.useMemo(() => {
+              const mgr = InputMappingAssetManager.getInstance();
+              const allAxes = new Set<string>();
+              for (const asset of mgr.assets) {
+                for (const m of asset.axisMappings) allAxes.add(m.name);
+              }
+              return Array.from(allAxes);
+            }, []);
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => { ctrl.setValue(e.target.value); setVal(e.target.value); },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: '#e0e0e0',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              },
+            },
+              React.createElement('option', { key: '__none', value: '' }, '(select axis)'),
+              ...mappings.map(m =>
+                React.createElement('option', { key: m, value: m }, m),
+              ),
             );
           };
         }

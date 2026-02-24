@@ -22,6 +22,7 @@ export { EventTickNode }      from './events/EventTickNode';
 export { EventOnDestroyNode } from './events/EventOnDestroyNode';
 export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes';
 export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode, inputType, KeySelectControl } from './events/InputKeyNodes';
+export { InputActionMappingEventNode, InputAxisMappingEventNode, GetInputActionNode, GetInputAxisNode, AddActionMappingKeyNode, RemoveActionMappingKeyNode, ClearActionMappingNode, AddAxisMappingKeyNode, RemoveAxisMappingKeyNode, ClearAxisMappingNode, ActionMappingSelectControl, AxisMappingSelectControl } from './events/InputActionNodes';
 export { EmitEventNode } from './events/EmitEventNode';
 export { OnEventNode } from './events/OnEventNode';
 export { EventSelectControl } from './events/EventSelectControl';

@@ -17,6 +17,7 @@ import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/
 import { ScriptComponent } from '../engine/ScriptComponent';
 import { DragSelectionComponent } from '../engine/DragSelectionComponent';
 import { EventBus } from '../engine/EventBus';
+import type { Engine } from '../engine/Engine';
 
 export type SceneMode = '2D' | '3D';
 
@@ -75,6 +76,7 @@ function _applyExposeOnSpawnOverrides(
 }
 
 export class Scene2DManager {
+  public engine?: Engine;
   public sceneMode: SceneMode = '3D';
   public camera2D: Camera2D | null = null;
   public physics2D: Physics2DWorld | null = null;
@@ -1330,8 +1332,8 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
-      gameInstance: null,
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+      gameInstance: this.engine?.gameInstance ?? null,
     };
 
     if (!ev.started) {
@@ -1599,8 +1601,8 @@ export class Scene2DManager {
       physics:      physicsShim,
       scene:        sceneShim,
       animInstance: null,
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
-      gameInstance: null,
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+      gameInstance: this.engine?.gameInstance ?? null,
     };
 
     if (!ev.started) {
@@ -1666,8 +1668,8 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
-            gameInstance: null,
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+            gameInstance: this.engine?.gameInstance ?? null,
           };
           bpEv.script.onDestroy(destroyCtx);
         } catch (err) {
@@ -1686,8 +1688,8 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
-            gameInstance: null,
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+            gameInstance: this.engine?.gameInstance ?? null,
           };
           evEv.script.onDestroy(destroyCtx);
         } catch (err) {

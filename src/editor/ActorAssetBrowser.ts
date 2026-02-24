@@ -48,6 +48,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   widget:       { color: '#67e8f9', icon: Icons.Palette,      label: 'Widget' },
   gameInstance: { color: '#c084fc', icon: Icons.Circle,       label: 'Game Instance' },
   saveGame:     { color: '#FF7043', icon: Icons.Save,         label: 'Save Game' },
+  inputMapping: { color: '#4CAF50', icon: Icons.Gamepad2,     label: 'Input Mapping' },
   texture:      { color: '#4ade80', icon: Icons.Image,        label: 'Texture' },
   animation:    { color: '#fbbf24', icon: Icons.Play,         label: 'Animation' },
   sound:        { color: '#E91E63', icon: Icons.Volume2,      label: 'Sound' },
@@ -90,6 +91,7 @@ export class ActorAssetBrowser {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _folderManager: ContentFolderManager;
 
   // ── Callbacks (preserved) ──
@@ -101,6 +103,7 @@ export class ActorAssetBrowser {
   private _onOpenWidgetBP: ((asset: WidgetBlueprintAsset) => void) | null = null;
   private _onOpenGameInstance: ((asset: GameInstanceBlueprintAsset) => void) | null = null;
   private _onOpenSaveGame: ((asset: SaveGameAsset) => void) | null = null;
+  private _onOpenInputMapping: ((asset: import('./InputMappingAsset').InputMappingAsset) => void) | null = null;
   private _onOpenMaterial: ((material: MaterialAssetJSON) => void) | null = null;
   private _onOpenSoundCue: ((cue: SoundCueData) => void) | null = null;
   private _onDrop: AssetDropCallback;
@@ -252,6 +255,13 @@ export class ActorAssetBrowser {
   public setSaveGameManager(mgr: SaveGameAssetManager, onOpenSaveGame: (asset: SaveGameAsset) => void): void {
     this._saveGameManager = mgr;
     this._onOpenSaveGame = onOpenSaveGame;
+    mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setInputMappingManager(mgr: import('./InputMappingAsset').InputMappingAssetManager, onOpenInputMapping: (asset: import('./InputMappingAsset').InputMappingAsset) => void): void {
+    this._inputMappingManager = mgr;
+    this._onOpenInputMapping = onOpenInputMapping;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -1297,6 +1307,22 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'inputMapping': {
+        if (!this._inputMappingManager) return null;
+        const im = this._inputMappingManager.getAsset(assetId);
+        if (!im) return null;
+        const ac = im.actionMappings.length;
+        const ax = im.axisMappings.length;
+        return {
+          id: im.id, name: im.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Input Mapping',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${ac} actions, ${ax} axes`,
+          onOpen: () => this._onOpenInputMapping?.(im),
+          onContextMenu: (e) => this._showInputMappingContextMenu(e, im),
+          dragKind: null, dragPayload: null,
+        };
+      }
       case 'texture': {
         const texLib = TextureLibrary.instance;
         if (!texLib) return null;
@@ -1872,6 +1898,20 @@ export class ActorAssetBrowser {
             this._folderManager.setAssetLocation(sg.id, 'saveGame', this._currentFolderId);
             this._selectedIds.clear(); this._selectedIds.add(sg.id);
             if (this._onOpenSaveGame) this._onOpenSaveGame(sg);
+          }
+        }
+      });
+    }
+    if (this._inputMappingManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.Gamepad2, 12, '#4CAF50'), label: 'Input Mapping', keywords: 'input mapping action axis keys',
+        action: async () => {
+          const name = await this._showNameDialog('New Input Mapping', 'IM_NewMapping');
+          if (name) {
+            const im = this._inputMappingManager!.createAsset(name);
+            this._folderManager.setAssetLocation(im.id, 'inputMapping', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(im.id);
+            if (this._onOpenInputMapping) this._onOpenInputMapping(im);
           }
         }
       });
@@ -2653,6 +2693,32 @@ export class ActorAssetBrowser {
         this._saveGameManager!.removeAsset(sg.id);
         this._folderManager.removeAssetLocation(sg.id, 'saveGame');
         this._selectedIds.delete(sg.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Input Mapping context menu ──
+  private _showInputMappingContextMenu(e: MouseEvent, im: import('./InputMappingAsset').InputMappingAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Gamepad2, 12, ICON_COLORS.muted) + ' Open Editor', () => this._onOpenInputMapping?.(im));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Input Mapping', im.name);
+      if (newName && newName !== im.name) this._inputMappingManager!.renameAsset(im.id, newName);
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete input mapping "${im.name}"?`)) {
+        this._inputMappingManager!.deleteAsset(im.id);
+        this._folderManager.removeAssetLocation(im.id, 'inputMapping');
+        this._selectedIds.delete(im.id);
       }
     });
     delItem.style.color = 'var(--danger, #f87171)';

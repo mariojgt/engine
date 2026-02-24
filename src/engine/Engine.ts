@@ -17,10 +17,12 @@ import { DragSelectionComponent } from './DragSelectionComponent';
 import { AudioEngine } from './AudioSystem';
 import { EventBus } from './EventBus';
 import { ParticleSystemManager } from './ParticleSystem';
+import { InputManager } from './InputManager';
 
 export class Engine {
   public scene: Scene;
   public physics: PhysicsWorld;
+  public input: InputManager = new InputManager();
   public characterControllers: CharacterControllerManager = new CharacterControllerManager();
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
@@ -131,9 +133,10 @@ export class Engine {
     this._elapsedTime = 0;
     this._playStarted = true;
 
-    // ── 0. Initialize UI overlay ──
+    // ── 0. Initialize UI overlay & Input ──
     if (canvas) {
       this.uiManager.init(canvas);
+      this.input.bindEvents(canvas);
       this._playCanvas = canvas;
     }
 
@@ -341,8 +344,11 @@ export class Engine {
       }
     }
 
-    // Destroy UI overlay
-    this.uiManager.destroy();
+    // Destroy UI overlay & Input
+    const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
+    const uiCtx = this._getCtx(dummyGO, 0, this._elapsedTime);
+    this.uiManager.destroy(uiCtx);
+    this.input.unbindEvents();
 
     // Clean up drag selection components on all game objects
     for (const go of this.scene.gameObjects) {
@@ -422,6 +428,11 @@ export class Engine {
         const giCtx = this._getCtx(dummyGO, dt, this._elapsedTime);
         this.gameInstance.tick(giCtx);
       }
+
+      // Tick UI Manager (Widget Blueprints)
+      const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
+      const uiCtx = this._getCtx(dummyGO, dt, this._elapsedTime);
+      this.uiManager.tick(uiCtx);
 
       // Update character controllers
       this.characterControllers.update(dt, this.physics);

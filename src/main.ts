@@ -8,6 +8,7 @@ import { ScriptComponent } from './engine/ScriptComponent';
 import { ProjectManager } from './editor/ProjectManager';
 import { showProjectDialog } from './editor/ProjectDialog';
 import { StructureAssetManager } from './editor/StructureAsset';
+import { InputMappingAssetManager } from './editor/InputMappingAsset';
 import { MeshAssetManager } from './editor/MeshAsset';
 import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
@@ -17,7 +18,7 @@ import { EventAssetManager } from './editor/EventAsset';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
-import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager } from './editor/NodeEditorPanel';
+import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager, setProjectManager } from './editor/NodeEditorPanel';
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
@@ -109,6 +110,7 @@ async function main() {
 
   // Create project manager
   const projectManager = new ProjectManager(engine, editor.assetManager);
+  setProjectManager(projectManager);
 
   // Create structure/enum asset manager (project-level types)
   const structManager = new StructureAssetManager();
@@ -146,6 +148,11 @@ async function main() {
   const saveGameManager = new SaveGameAssetManager();
   projectManager.setSaveGameManager(saveGameManager);
   editor.setSaveGameManager(saveGameManager);
+
+  // Create input mapping asset manager
+  const inputMappingManager = InputMappingAssetManager.getInstance();
+  projectManager.setInputMappingManager(inputMappingManager);
+  editor.setInputMappingManager(inputMappingManager);
 
   // Create event asset manager (event definitions for EventBus nodes)
   const eventManager = new EventAssetManager();
@@ -878,6 +885,7 @@ async function main() {
       if (engine.physics.isPlaying) {
         editor.refreshProperties();
       }
+      engine.input.update();
     } catch (err) {
       // Log but never let an exception kill the RAF loop — a crashed loop is
       // unrecoverable (game freezes and Stop/Play buttons stop working).
