@@ -5,10 +5,11 @@ import { BlueprintData } from '../editor/BlueprintData';
 import type { PhysicsConfig, ActorType } from '../editor/ActorAsset';
 import type { CharacterPawnConfig } from './CharacterPawnData';
 import type { SpectatorPawnConfig } from './SpectatorController';
+import type { Transform, Vector3Like } from './Transform';
 
 let nextId = 1;
 
-export class GameObject {
+export class GameObject implements Transform {
   public id: number;
   public name: string;
   public mesh: THREE.Mesh;
@@ -112,5 +113,36 @@ export class GameObject {
 
   get scale(): THREE.Vector3 {
     return this.mesh.scale;
+  }
+
+  setPosition(x: number, y: number, z: number = 0): void {
+    this.mesh.position.set(x, y, z);
+    if (this.rigidBody) {
+      this.rigidBody.setTranslation({ x, y, z }, true);
+    }
+  }
+
+  setRotation(x: number, y: number, z: number = 0): void {
+    this.mesh.rotation.set(x, y, z);
+    if (this.rigidBody) {
+      const q = new THREE.Quaternion().setFromEuler(this.mesh.rotation);
+      this.rigidBody.setRotation(q, true);
+    }
+  }
+
+  setScale(x: number, y: number, z: number = 1): void {
+    this.mesh.scale.set(x, y, z);
+  }
+
+  getPosition(): Vector3Like {
+    return { x: this.mesh.position.x, y: this.mesh.position.y, z: this.mesh.position.z };
+  }
+
+  getRotation(): Vector3Like {
+    return { x: this.mesh.rotation.x, y: this.mesh.rotation.y, z: this.mesh.rotation.z };
+  }
+
+  getScale(): Vector3Like {
+    return { x: this.mesh.scale.x, y: this.mesh.scale.y, z: this.mesh.scale.z };
   }
 }

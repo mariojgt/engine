@@ -16,6 +16,7 @@ import { SpriteActor, type SpriteActorConfig } from '../engine/SpriteActor';
 import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/CharacterMovement2D';
 import { ScriptComponent } from '../engine/ScriptComponent';
 import { DragSelectionComponent } from '../engine/DragSelectionComponent';
+import { EventBus } from '../engine/EventBus';
 
 export type SceneMode = '2D' | '3D';
 
@@ -1293,7 +1294,7 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
       gameInstance: null,
     };
 
@@ -1499,12 +1500,12 @@ export class Scene2DManager {
       physics:      null,
       scene:        sceneShim,
       animInstance: null,
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
       gameInstance: null,
     };
 
     if (!ev.started) {
-      console.log(`[Scene2DManager] ▶ BeginPlay (actor blueprint) for "${actor.name}"`);
+      console.log(`[Scene2DManager] ▶ BeginPlay (actor blueprint) for "${actor.name}"`);  
       ev.script.beginPlay(ctx);
       ev.started = true;
     }
@@ -1566,7 +1567,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
             gameInstance: null,
           };
           bpEv.script.onDestroy(destroyCtx);
@@ -1586,7 +1587,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, get _playCanvas() { return self._domElement; } },
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; } },
             gameInstance: null,
           };
           evEv.script.onDestroy(destroyCtx);

@@ -798,6 +798,7 @@ export class MeshAssetManager {
   private _textures: TextureAssetJSON[] = [];
   private _animations: AnimationAssetJSON[] = [];
   private _changeCallbacks: (() => void)[] = [];
+  private _refCounts: Map<string, number> = new Map();
 
   constructor() {
     // Set this as the singleton instance
@@ -849,6 +850,24 @@ export class MeshAssetManager {
 
   getAnimationsForMesh(meshAssetId: string): AnimationAssetJSON[] {
     return this._animations.filter(a => a.meshAssetId === meshAssetId);
+  }
+
+  // ---- Reference Counting ----
+
+  public retain(assetId: string): void {
+    const count = this._refCounts.get(assetId) || 0;
+    this._refCounts.set(assetId, count + 1);
+  }
+
+  public release(assetId: string): void {
+    const count = this._refCounts.get(assetId) || 0;
+    if (count > 1) {
+      this._refCounts.set(assetId, count - 1);
+    } else {
+      this._refCounts.delete(assetId);
+      // In a real implementation, we would unload the GLB data from memory here
+      // For now, we just track the reference count
+    }
   }
 
   /** Add a fully imported mesh asset with all its sub-assets */

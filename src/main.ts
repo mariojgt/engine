@@ -13,6 +13,7 @@ import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
+import { EventAssetManager } from './editor/EventAsset';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
@@ -145,6 +146,11 @@ async function main() {
   const saveGameManager = new SaveGameAssetManager();
   projectManager.setSaveGameManager(saveGameManager);
   editor.setSaveGameManager(saveGameManager);
+
+  // Create event asset manager (event definitions for EventBus nodes)
+  const eventManager = new EventAssetManager();
+  projectManager.setEventManager(eventManager);
+  editor.setEventManager(eventManager);
 
   // Wire up sound library callbacks into content browser
   editor.setSoundLibraryCallbacks();
@@ -777,7 +783,6 @@ async function main() {
 
     // Always run stop sequence (works for both in-editor and gameplay window modes)
     engine.onPlayStopped();
-    engine.physics.stop(engine.scene);
 
     // Stop 2D play mode (cleans up sprite actors, physics, camera follow)
     let was2DPlaying = false;

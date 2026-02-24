@@ -8,6 +8,7 @@ import { SpriteRenderer, SpriteAnimator, type SpriteSheetAsset, type SpriteAnima
 import { SortingLayerManager } from './SortingLayers';
 import type { Physics2DWorld, BodyEntry2D } from './Physics2DWorld';
 import type { CharacterMovement2D } from './CharacterMovement2D';
+import type { Transform, Vector3Like } from './Transform';
 
 export interface SpriteActorConfig {
   name: string;
@@ -72,7 +73,7 @@ export interface SpriteActorConfig {
   characterMovement2D?: boolean;
 }
 
-export class SpriteActor {
+export class SpriteActor implements Transform {
   public id: number = -1;
   public name: string;
   public mesh: THREE.Mesh;
@@ -409,6 +410,55 @@ export class SpriteActor {
     // For now, we rely on the physics world's contact iteration
     const rb2dComp = this._components.get('RigidBody2D');
     return rb2dComp?._isGroundedByPhysics ?? false;
+  }
+
+  // ---- Transform Interface ----
+
+  get position(): Vector3Like {
+    return { x: this.transform2D.position.x, y: this.transform2D.position.y, z: 0 };
+  }
+
+  get rotation(): Vector3Like {
+    return { x: 0, y: 0, z: this.transform2D.rotation };
+  }
+
+  get scale(): Vector3Like {
+    return { x: this.transform2D.scale.x, y: this.transform2D.scale.y, z: 1 };
+  }
+
+  setPosition(x: number, y: number, z: number = 0): void {
+    this.transform2D.position.x = x;
+    this.transform2D.position.y = y;
+    this.group.position.set(x, y, z);
+    if (this.physicsBody) {
+      this.physicsBody.rigidBody.setTranslation({ x, y }, true);
+    }
+  }
+
+  setRotation(x: number, y: number, z: number = 0): void {
+    this.transform2D.rotation = z;
+    this.group.rotation.z = THREE.MathUtils.degToRad(z);
+    if (this.physicsBody) {
+      this.physicsBody.rigidBody.setRotation(THREE.MathUtils.degToRad(z), true);
+    }
+  }
+
+  setScale(x: number, y: number, z: number = 1): void {
+    this.transform2D.scale.x = x;
+    this.transform2D.scale.y = y;
+    this.group.scale.set(x, y, z);
+  }
+
+  getPosition(): Vector3Like {
+    return this.position;
+  }
+
+  getRotation(): Vector3Like {
+    return this.rotation;
+  }
+
+  getScale(): Vector3Like {
+    return this.scale;
   }
 
   // ---- Serialization ----

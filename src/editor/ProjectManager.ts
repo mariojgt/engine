@@ -17,6 +17,7 @@ import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintDat
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
 import type { SaveGameAssetManager, SaveGameAssetJSON } from './SaveGameAsset';
+import type { EventAssetManager, EventAssetJSON } from './EventAsset';
 import type { ContentFolderManager } from './ContentFolderManager';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import type { SceneCompositionManager, SceneCompositionJSON } from './scene/SceneCompositionManager';
@@ -106,6 +107,7 @@ const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
+const EVENTS_DIR = 'Events';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
 const SOUNDS_DIR = 'Sounds';
@@ -126,6 +128,7 @@ export class ProjectManager {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _eventManager: EventAssetManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
@@ -198,6 +201,11 @@ export class ProjectManager {
   /** Wire up the SaveGameAssetManager for saving/loading save game class definitions */
   setSaveGameManager(mgr: SaveGameAssetManager): void {
     this._saveGameManager = mgr;
+  }
+
+  /** Wire up the EventAssetManager for saving/loading event definitions */
+  setEventManager(mgr: EventAssetManager): void {
+    this._eventManager = mgr;
   }
 
   /** Get the configured Game Instance class ID (from Project Settings) */
@@ -370,6 +378,9 @@ export class ProjectManager {
       // Load save game class definitions
       await this._loadSaveGameClasses();
 
+      // Load event definitions
+      await this._loadEvents();
+
       // Load texture library
       await this._loadTextures();
 
@@ -462,6 +473,10 @@ export class ProjectManager {
       // Save save game class definitions
       await this._saveSaveGameClasses();
       console.log('[ProjectManager]   ✓ save game classes');
+
+      // Save event definitions
+      await this._saveEvents();
+      console.log('[ProjectManager]   ✓ events');
 
       // Save texture library
       await this._saveTextures();
@@ -1289,6 +1304,68 @@ export class ProjectManager {
 
     if (allSG.length > 0) {
       this._saveGameManager.importAll(allSG);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Events
+  // ============================================================
+
+  private async _saveEvents(): Promise<void> {
+    if (!this._projectPath || !this._eventManager) return;
+    const evDir = `${this._projectPath}/${EVENTS_DIR}`;
+
+    const allEvents = this._eventManager.exportAll();
+    for (const json of allEvents) {
+      const safeName = json.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${evDir}/${safeName}_${json.id}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = allEvents.map(ev => ({
+      id: ev.id,
+      name: ev.name,
+      file: `${ev.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_${ev.id}.json`,
+    }));
+    await fsWrite(`${evDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadEvents(): Promise<void> {
+    if (!this._projectPath || !this._eventManager) return;
+    const evDir = `${this._projectPath}/${EVENTS_DIR}`;
+    if (!(await fsExists(evDir))) return;
+
+    const allEvents: EventAssetJSON[] = [];
+    const indexPath = `${evDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${evDir}/${entry.file}`);
+          allEvents.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load event ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(evDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${evDir}/${name}`);
+          allEvents.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load event file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allEvents.length > 0) {
+      this._eventManager.importAll(allEvents);
     }
   }
 

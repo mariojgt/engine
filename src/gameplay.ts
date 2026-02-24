@@ -224,7 +224,6 @@ function stopGameplay(): void {
   // Stop engine
   if (engine) {
     engine.onPlayStopped();
-    engine.physics.stop(engine.scene);
     engine = null;
   }
 

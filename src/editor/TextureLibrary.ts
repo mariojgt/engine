@@ -80,6 +80,7 @@ export class TextureLibrary {
   private _textures: Map<string, TextureAssetData> = new Map();
   private _loadedImages: Map<string, HTMLImageElement> = new Map();
   private _threeTextures: Map<string, THREE.Texture> = new Map();
+  private _refCounts: Map<string, number> = new Map();
   private _listeners: Array<() => void> = [];
   private _loader = new THREE.TextureLoader();
 
@@ -194,6 +195,31 @@ export class TextureLibrary {
       img.onerror = () => reject(new Error(`Failed to load image data for: ${name}`));
       img.src = dataURL;
     });
+  }
+
+  // ---- Reference Counting ----
+
+  public retain(assetId: string): void {
+    const count = this._refCounts.get(assetId) || 0;
+    this._refCounts.set(assetId, count + 1);
+  }
+
+  public release(assetId: string): void {
+    const count = this._refCounts.get(assetId) || 0;
+    if (count > 1) {
+      this._refCounts.set(assetId, count - 1);
+    } else {
+      this._refCounts.delete(assetId);
+      this._unloadThreeTexture(assetId);
+    }
+  }
+
+  private _unloadThreeTexture(assetId: string): void {
+    const tex = this._threeTextures.get(assetId);
+    if (tex) {
+      tex.dispose();
+      this._threeTextures.delete(assetId);
+    }
   }
 
   // ---- Access ----

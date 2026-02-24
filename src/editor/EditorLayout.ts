@@ -27,6 +27,7 @@ import type { MeshAsset } from './MeshAsset';
 import { StructureEditorPanel } from './StructureEditorPanel';
 import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
 import { SaveGameEditorPanel } from './SaveGameEditorPanel';
+import { EventAssetManager, type EventAsset } from './EventAsset';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
 import { PhysicsSettingsPanel } from './PhysicsSettingsPanel';
@@ -102,6 +103,7 @@ export class EditorLayout {
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _eventManager: EventAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
   private _soundCueEditor: SoundCueEditorPanel | null = null;
 
@@ -709,6 +711,14 @@ export class EditorLayout {
     }
   }
 
+  /** Wire up the EventAssetManager for the content browser and editors */
+  setEventManager(mgr: EventAssetManager): void {
+    this._eventManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setEventManager(mgr, (asset: EventAsset) => this._openEventEditor(asset));
+    }
+  }
+
   /** Wire up the SoundLibrary callbacks for the content browser */
   setSoundLibraryCallbacks(): void {
     if (this._assetBrowser) {
@@ -964,6 +974,12 @@ export class EditorLayout {
     });
   }
 
+  /** Open an event editor panel (just a name dialog for now) */
+  private _openEventEditor(ev: EventAsset): void {
+    // Events are lightweight assets — just show in the content browser for now
+    console.log(`[EditorLayout] Event selected: ${ev.name} (${ev.id})`);
+  }
+
   /** Open an enum editor panel */
   private _openEnumEditor(ea: EnumAsset): void {
     this._closeNodeEditor();
@@ -1087,7 +1103,7 @@ export class EditorLayout {
 
     const panels = this._api.panels;
     for (const p of panels) {
-      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-') || p.id.startsWith('sound-cue-editor-')) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-') || p.id.startsWith('sound-cue-editor-') || p.id.startsWith('savegame-editor-')) {
         this._api.removePanel(p);
       }
     }

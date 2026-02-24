@@ -374,9 +374,14 @@ import {
   SetDragSelectionStyleNode,
   IsDragSelectingNode,
   GetDragSelectionCountNode,
+  // Event Bus Nodes
+  EmitEventNode,
+  OnEventNode,
+  EventSelectControl,
 } from './nodes';
 import { SoundLibrary } from './SoundLibrary';
 import { TextureLibrary } from './TextureLibrary';
+import { EventAssetManager } from './EventAsset';
 import type { NodeEntry, ComponentNodeEntry } from './nodes';
 import type { ActorComponentData } from './ActorAsset';
 import type { ActorAssetManager } from './ActorAsset';
@@ -785,6 +790,17 @@ function resolveValue(
     if (outputKey === 'velocityZ') return '__velZ';
     if (outputKey === 'impulse') return '__impulse';
     return '0';
+  }
+
+  // ── OnEventNode — dynamic payload field outputs ──
+  if (node instanceof OnEventNode) {
+    if (outputKey === 'exec') return '0';
+    // Dynamic field outputs: field_VarName → __payload.VarName
+    if (outputKey.startsWith('field_')) {
+      const fieldName = outputKey.slice(6); // strip 'field_'
+      return `(__payload && __payload[${JSON.stringify(fieldName)}] != null ? __payload[${JSON.stringify(fieldName)}] : null)`;
+    }
+    return '__payload';
   }
 
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
@@ -2301,6 +2317,38 @@ function genAction(
     return lines;
   }
 
+  // ── EmitEventNode — emit a global event via the EventBus ──
+  if (node instanceof EmitEventNode) {
+    const eventId = (node.controls.eventId as any)?.value;
+    let eventName = '';
+    let payloadFields: { name: string; type: string }[] = [];
+    if (eventId) {
+      const mgr = EventAssetManager.getInstance();
+      const eventAsset = mgr?.getAsset(eventId);
+      if (eventAsset) {
+        eventName = eventAsset.name;
+        payloadFields = eventAsset.payloadFields || [];
+      }
+    }
+    if (eventName) {
+      if (payloadFields.length > 0) {
+        // Build a payload object from the dynamic input pins
+        const fieldParts: string[] = [];
+        for (const field of payloadFields) {
+          const key = `field_${field.name}`;
+          const fS = inputSrc.get(`${nodeId}.${key}`);
+          const expr = fS ? rv(fS.nid, fS.ok) : (field.type === 'String' ? '""' : field.type === 'Boolean' ? 'false' : '0');
+          fieldParts.push(`${JSON.stringify(field.name)}: ${expr}`);
+        }
+        lines.push(`{ if (__engine && __engine.eventBus) { __engine.eventBus.emit(${JSON.stringify(eventName)}, { ${fieldParts.join(', ')} }); } }`);
+      } else {
+        lines.push(`{ if (__engine && __engine.eventBus) { __engine.eventBus.emit(${JSON.stringify(eventName)}, null); } }`);
+      }
+    }
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
   switch (node.label) {
     case 'Add Actor World Offset': {
       const xS = inputSrc.get(`${nodeId}.x`);
@@ -3694,6 +3742,29 @@ function generateFullCode(
     onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
   }
 
+  // ── OnEvent / EmitEvent (EventBus) nodes ────────────────────
+  const onEventNodes = nodes.filter(n => n instanceof OnEventNode) as InstanceType<typeof OnEventNode>[];
+  if (onEventNodes.length > 0) {
+    // Declare a cleanup array for event bus handlers (one per script instance)
+    beginPlayCode.push('var __eventBusCleanup = [];');
+    for (const evNode of onEventNodes) {
+      const eventId = (evNode.controls.eventId as any)?.value;
+      let eventName = '';
+      if (eventId) {
+        const mgr = EventAssetManager.getInstance();
+        const eventAsset = mgr?.getAsset(eventId);
+        if (eventAsset) eventName = eventAsset.name;
+      }
+      if (!eventName) continue;
+      const body = walkExec(evNode.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length === 0) continue;
+      const safeId = evNode.id.replace(/[^a-zA-Z0-9]/g, '_');
+      beginPlayCode.push(`(function() { var __evtHandler_${safeId} = function(__payload) { ${body.join(' ')} }; if (__engine && __engine.eventBus) { __engine.eventBus.on(${JSON.stringify(eventName)}, __evtHandler_${safeId}); __eventBusCleanup.push(function() { __engine.eventBus.off(${JSON.stringify(eventName)}, __evtHandler_${safeId}); }); } })();`);
+    }
+    // Cleanup in onDestroy
+    onDestroyCode.push('if (typeof __eventBusCleanup !== "undefined") { __eventBusCleanup.forEach(function(fn) { fn(); }); __eventBusCleanup = []; }');
+  }
+
   // ── Drag Selection Complete event nodes ─────────────────────
   const dragSelCompleteNodes = nodes.filter(n => n.label === 'On Drag Selection Complete');
   if (dragSelCompleteNodes.length > 0) {
@@ -3972,6 +4043,16 @@ function generateFullCode(
   // NOT on the pawn's _scriptVars. The AnimBP can read the pawn's variables
   // via CastTo → GetActorVariable (which reads pawn._scriptVars correctly).
   if (isAnimBlueprint) {
+    const sections: string[] = [];
+    if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
+    if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
+    if (onDestroyCode.length) sections.push(`// __onDestroy__\n${onDestroyCode.join('\n')}`);
+    if (sections.length) parts.push(sections.join('\n'));
+  }
+
+  // For Widget Blueprints: also emit lifecycle sections so that EventBus
+  // listeners, input handlers, etc. registered during beginPlay are active.
+  if (isWidgetBlueprint) {
     const sections: string[] = [];
     if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
     if (tickCode.length) sections.push(`// __tick__\n${tickCode.join('\n')}`);
@@ -5738,6 +5819,10 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof IsDragSelectingNode) return 'IsDragSelectingNode';
   if (node instanceof GetDragSelectionCountNode) return 'GetDragSelectionCountNode';
 
+  // Event Bus nodes
+  if (node instanceof EmitEventNode) return 'EmitEventNode';
+  if (node instanceof OnEventNode) return 'OnEventNode';
+
   return 'Unknown';
 }
 
@@ -5760,6 +5845,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as MovementModeSelectControl).value;
     } else if (ctrl instanceof KeySelectControl) {
       controls[key] = (ctrl as KeySelectControl).value;
+    } else if (ctrl instanceof EventSelectControl) {
+      controls[key] = (ctrl as EventSelectControl).value;
     } else if (ctrl instanceof ColorPickerControl) {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
@@ -6655,6 +6742,26 @@ function createNodeFromData(
     case 'SetDragSelectionStyleNode':          return new SetDragSelectionStyleNode();
     case 'IsDragSelectingNode':                return new IsDragSelectingNode();
     case 'GetDragSelectionCountNode':          return new GetDragSelectionCountNode();
+
+    // Event Bus nodes
+    case 'EmitEventNode': {
+      const n = new EmitEventNode();
+      if (d.controls?.eventId) {
+        const ctrl = n.controls['eventId'] as EventSelectControl | undefined;
+        if (ctrl) ctrl.setValue(d.controls.eventId);
+      }
+      n.syncPayloadPins();
+      return n;
+    }
+    case 'OnEventNode': {
+      const n = new OnEventNode();
+      if (d.controls?.eventId) {
+        const ctrl = n.controls['eventId'] as EventSelectControl | undefined;
+        if (ctrl) ctrl.setValue(d.controls.eventId);
+      }
+      n.syncPayloadPins();
+      return n;
+    }
 
     default:
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
@@ -7918,6 +8025,65 @@ async function createGraphEditor(
             },
               ...INPUT_KEYS.map(k =>
                 React.createElement('option', { key: k, value: k }, k),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof EventSelectControl) {
+          const ctrl = data.payload as EventSelectControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const [, forceUpdate] = React.useReducer((x: number) => x + 1, 0);
+            const options = ctrl.getOptions();
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => {
+                const newVal = e.target.value;
+                const parentNode = (ctrl as any)._parentNode;
+                if (parentNode) {
+                  // Capture connections to dynamic pins before sync removes them
+                  const conns = editor.getConnections().filter(
+                    (c: any) => c.source === parentNode.id || c.target === parentNode.id
+                  );
+                  // setValue triggers syncPayloadPins() which rebuilds dynamic pins
+                  ctrl.setValue(newVal);
+                  setVal(newVal);
+                  // Remove stale connections whose pins no longer exist
+                  (async () => {
+                    for (const c of conns) {
+                      if (c.source === parentNode.id && !parentNode.outputs[c.sourceOutput]) {
+                        try { await editor.removeConnection(c.id); } catch { /* ok */ }
+                      }
+                      if (c.target === parentNode.id && !parentNode.inputs[c.targetInput]) {
+                        try { await editor.removeConnection(c.id); } catch { /* ok */ }
+                      }
+                    }
+                    area.update('node', parentNode.id);
+                  })();
+                } else {
+                  ctrl.setValue(newVal);
+                  setVal(newVal);
+                }
+                forceUpdate();
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: val ? '#ef4444' : '#666',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: 120,
+              },
+            },
+              React.createElement('option', { value: '' }, '-- Select Event --'),
+              ...options.map(o =>
+                React.createElement('option', { key: o.id, value: o.id }, o.name),
               ),
             );
           };

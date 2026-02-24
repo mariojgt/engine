@@ -13,6 +13,7 @@ export {
   vec3Socket,
   strSocket,
   colorSocket,
+  anySocket,
 } from './sockets';
 
 // ── Events ──────────────────────────────────────────────────
@@ -21,6 +22,9 @@ export { EventTickNode }      from './events/EventTickNode';
 export { EventOnDestroyNode } from './events/EventOnDestroyNode';
 export { CustomEventNode, CallCustomEventNode } from './events/CustomEventNodes';
 export { InputKeyEventNode, IsKeyDownNode, INPUT_KEYS, keyEventCode, inputType, KeySelectControl } from './events/InputKeyNodes';
+export { EmitEventNode } from './events/EmitEventNode';
+export { OnEventNode } from './events/OnEventNode';
+export { EventSelectControl } from './events/EventSelectControl';
 
 // ── Flow Control ────────────────────────────────────────────
 export { BranchNode }   from './flow-control/BranchNode';

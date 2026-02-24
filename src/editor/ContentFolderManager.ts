@@ -3,7 +3,7 @@
 //  Manages hierarchical folder organization for all asset types
 // ============================================================
 
-export type AssetType = 'actor' | 'structure' | 'enum' | 'mesh' | 'animBP' | 'widget' | 'material' | 'texture' | 'animation' | 'gameInstance' | 'saveGame' | 'sound' | 'soundCue';
+export type AssetType = 'actor' | 'structure' | 'enum' | 'event' | 'mesh' | 'animBP' | 'widget' | 'material' | 'texture' | 'animation' | 'gameInstance' | 'saveGame' | 'sound' | 'soundCue';
 
 export interface FolderNode {
   id: string;

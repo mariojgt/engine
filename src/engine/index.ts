@@ -1,4 +1,6 @@
 export { Engine } from './Engine';
+export { EventBus } from './EventBus';
+export type { Transform, Vector3Like, Vector2Like } from './Transform';
 export { Scene, type MeshType } from './Scene';
 export { GameObject } from './GameObject';
 export { ScriptComponent, type ScriptContext } from './ScriptComponent';

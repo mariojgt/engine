@@ -15,6 +15,7 @@ import { loadMeshFromAsset } from '../editor/MeshImporter';
 import { GameInstance } from './GameInstance';
 import { DragSelectionComponent } from './DragSelectionComponent';
 import { AudioEngine } from './AudioSystem';
+import { EventBus } from './EventBus';
 
 export class Engine {
   public scene: Scene;
@@ -25,6 +26,7 @@ export class Engine {
   public aiControllers: AIControllerManager = new AIControllerManager();
   public uiManager: UIManager = new UIManager();
   public audio: AudioEngine = new AudioEngine();
+  public eventBus: EventBus = EventBus.getInstance();
 
   /** Exposed DragSelectionComponent class for runtime instantiation by blueprint code */
   public _DragSelectionComponent = DragSelectionComponent;
@@ -347,6 +349,15 @@ export class Engine {
 
     // Clear update callbacks (may have been registered during play)
     this._onUpdate = [];
+
+    // Stop all audio
+    this.audio.stopAll();
+
+    // Stop physics
+    this.physics.stop(this.scene);
+
+    // Clear global event bus
+    this.eventBus.clear();
 
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;

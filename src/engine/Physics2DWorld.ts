@@ -82,6 +82,23 @@ export class Physics2DWorld {
     return { pixelsPerUnit: this.pixelsPerUnit };
   }
 
+  // ---- Cleanup ----
+
+  dispose(): void {
+    if (this.world) {
+      try { this.world.free(); } catch (_) { /* ignore if already freed */ }
+      this.world = null;
+    }
+    if (this.eventQueue) {
+      try { this.eventQueue.free(); } catch (_) { /* ignore */ }
+      this.eventQueue = null;
+    }
+    this._initialized = false;
+    this.isPlaying = false;
+    this.bodyMap.clear();
+    this._layerBodies.clear();
+  }
+
   // ---- Stepping ----
 
   step(deltaTime: number): void {

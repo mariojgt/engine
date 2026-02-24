@@ -12,6 +12,7 @@ export const strSocket   = new ClassicPreset.Socket('String');  // magenta
 export const colorSocket = new ClassicPreset.Socket('Color');   // coral – hex colour
 export const objectSocket = new ClassicPreset.Socket('ObjectRef'); // blue – generic object reference
 export const widgetSocket = new ClassicPreset.Socket('Widget'); // purple – widget reference
+export const anySocket = new ClassicPreset.Socket('Any'); // grey - any type
 
 // Typed sockets for UE-style clarity
 export const actorRefSocket   = new ClassicPreset.Socket('ActorRef');   // bright blue – single actor reference
@@ -32,6 +33,7 @@ export const SOCKET_COLORS: Record<string, string> = {
   Widget:  '#9b59b6',   // purple – widget references
   ActorRef:   '#2196F3', // material blue – single actor reference
   ActorArray: '#00BCD4', // cyan-teal – array of actor references (diamond shape)
+  Any:     '#9e9e9e',   // grey - any type
 };
 const DEFAULT_SOCKET_COLOR = '#8888cc';   // fallback for struct / unknown
 
@@ -57,6 +59,7 @@ export function socketsCompatible(
   b: ClassicPreset.Socket,
 ): boolean {
   if (a.name === b.name) return true;
+  if (a.name === 'Any' || b.name === 'Any') return true;
   // ObjectRef ↔ ClassRef_<id> compatibility (generic ↔ typed)
   if ((a.name === 'ObjectRef' && b.name.startsWith('ClassRef_')) ||
       (b.name === 'ObjectRef' && a.name.startsWith('ClassRef_'))) return true;

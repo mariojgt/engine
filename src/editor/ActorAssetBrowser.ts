@@ -14,6 +14,7 @@
 
 import { ActorAssetManager, type ActorAsset, type ActorType } from './ActorAsset';
 import { StructureAssetManager, type StructureAsset, type EnumAsset } from './StructureAsset';
+import { EventAssetManager, type EventAsset } from './EventAsset';
 import { MeshAssetManager, type MeshAsset, type MaterialAssetJSON, isImportableFile } from './MeshAsset';
 import { AnimBlueprintManager, type AnimBlueprintAsset } from './AnimBlueprintData';
 import { WidgetBlueprintManager, type WidgetBlueprintAsset } from './WidgetBlueprintData';
@@ -40,6 +41,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   actor:        { color: '#60a5fa', icon: Icons.Box,          label: 'Blueprint' },
   structure:    { color: '#a78bfa', icon: Icons.FileText,     label: 'Structure' },
   enum:         { color: '#a1a1aa', icon: Icons.List,         label: 'Enum' },
+  event:        { color: '#ef4444', icon: Icons.Zap,          label: 'Event' },
   mesh:         { color: '#60a5fa', icon: Icons.Box,          label: 'Static Mesh' },
   material:     { color: '#c084fc', icon: Icons.CircleDot,    label: 'Material' },
   animBP:       { color: '#fbbf24', icon: Icons.Clapperboard, label: 'Anim Blueprint' },
@@ -82,6 +84,7 @@ export class ActorAssetBrowser {
   // ── Managers (preserved) ──
   private _manager: ActorAssetManager;
   private _structManager: StructureAssetManager | null = null;
+  private _eventManager: EventAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _widgetBPManager: WidgetBlueprintManager | null = null;
@@ -93,6 +96,7 @@ export class ActorAssetBrowser {
   private _onOpenAsset: (asset: ActorAsset) => void;
   private _onOpenStructure: ((asset: StructureAsset) => void) | null = null;
   private _onOpenEnum: ((asset: EnumAsset) => void) | null = null;
+  private _onOpenEvent: ((asset: EventAsset) => void) | null = null;
   private _onOpenAnimBP: ((asset: AnimBlueprintAsset) => void) | null = null;
   private _onOpenWidgetBP: ((asset: WidgetBlueprintAsset) => void) | null = null;
   private _onOpenGameInstance: ((asset: GameInstanceBlueprintAsset) => void) | null = null;
@@ -200,6 +204,13 @@ export class ActorAssetBrowser {
     this._structManager = mgr;
     this._onOpenStructure = onOpenStructure;
     this._onOpenEnum = onOpenEnum;
+    mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setEventManager(mgr: EventAssetManager, onOpenEvent: (asset: EventAsset) => void): void {
+    this._eventManager = mgr;
+    this._onOpenEvent = onOpenEvent;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -1164,6 +1175,20 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'event': {
+        if (!this._eventManager) return null;
+        const ev = this._eventManager.getAsset(assetId);
+        if (!ev) return null;
+        return {
+          id: ev.id, name: ev.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Event',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${ev.payloadFields.length} fields`,
+          onOpen: () => this._openEventEditDialog(ev),
+          onContextMenu: (e) => this._showEventContextMenu(e, ev),
+          dragKind: null, dragPayload: null,
+        };
+      }
       case 'mesh': {
         if (!this._meshManager) return null;
         const m = this._meshManager.getAsset(assetId);
@@ -1706,6 +1731,10 @@ export class ActorAssetBrowser {
       const gi = this._gameInstanceManager.getAsset(id);
       if (gi) { this._showNameDialog('Rename Game Instance', gi.name).then(n => { if (n) this._gameInstanceManager!.renameAsset(id, n); }); return; }
     }
+    if (this._eventManager) {
+      const ev = this._eventManager.getAsset(id);
+      if (ev) { this._showNameDialog('Rename Event', ev.name).then(n => { if (n) this._eventManager!.renameAsset(id, n); }); return; }
+    }
     const texLib = TextureLibrary.instance;
     if (texLib) {
       const tex = texLib.getAsset(id);
@@ -1838,6 +1867,23 @@ export class ActorAssetBrowser {
             this._folderManager.setAssetLocation(sg.id, 'saveGame', this._currentFolderId);
             this._selectedIds.clear(); this._selectedIds.add(sg.id);
             if (this._onOpenSaveGame) this._onOpenSaveGame(sg);
+          }
+        }
+      });
+    }
+    if (this._eventManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.Zap, 12, '#ef4444'), label: 'Event', keywords: 'event message broadcast',
+        action: async () => {
+          const result = await this._showEventCreationDialog();
+          if (result) {
+            const ev = this._eventManager!.createAsset(result.name);
+            ev.description = result.description;
+            ev.payloadFields = result.payloadFields;
+            this._folderManager.setAssetLocation(ev.id, 'event', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(ev.id);
+            this._refreshGrid();
+            if (this._onOpenEvent) this._onOpenEvent(ev);
           }
         }
       });
@@ -2436,6 +2482,33 @@ export class ActorAssetBrowser {
     this._contextMenu = menu;
   }
 
+  // ── Event context menu ──
+  private _showEventContextMenu(e: MouseEvent, ev: EventAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Zap, 12, '#ef4444') + ' Open', () => this._openEventEditDialog(ev));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Event', ev.name);
+      if (newName && this._eventManager) {
+        this._eventManager.renameAsset(ev.id, newName);
+      }
+    });
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete event "${ev.name}"?`) && this._eventManager) {
+        this._eventManager.removeAsset(ev.id);
+        this._selectedIds.delete(ev.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
   // ── Mesh context menu ──
   private _showMeshContextMenu(e: MouseEvent, meshAsset: MeshAsset): void {
     this._closeContextMenu();
@@ -3003,6 +3076,185 @@ export class ActorAssetBrowser {
       document.body.appendChild(overlay);
       input.focus();
       input.select();
+    });
+  }
+
+  // ============================================================
+  //  Event Edit / Creation Dialog (with payload variables)
+  // ============================================================
+
+  /** Opens the event edit dialog for an existing event, applies changes on save */
+  private async _openEventEditDialog(ev: EventAsset): Promise<void> {
+    const result = await this._showEventCreationDialog(ev);
+    if (!result || !this._eventManager) return;
+    this._eventManager.updateAsset(ev.id, {
+      name: result.name,
+      description: result.description,
+      payloadFields: result.payloadFields,
+    });
+    this._refreshGrid();
+  }
+
+  private _showEventCreationDialog(existing?: EventAsset): Promise<{ name: string; description: string; payloadFields: { name: string; type: string; defaultValue?: any }[] } | null> {
+    const isEdit = !!existing;
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'cb-dialog-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'cb-dialog';
+      dialog.style.minWidth = '420px';
+      dialog.style.maxWidth = '520px';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'cb-dialog-title';
+      titleEl.textContent = isEdit ? `Edit Event: ${existing!.name}` : 'New Event';
+
+      // ── Name row ──
+      const nameRow = document.createElement('div');
+      nameRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:8px;';
+      const nameLabel = document.createElement('label');
+      nameLabel.textContent = 'Name';
+      nameLabel.style.cssText = 'width:70px;font-size:12px;color:#ccc;';
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = isEdit ? existing!.name : 'E_NewEvent';
+      nameInput.className = 'cb-dialog-input';
+      nameInput.style.cssText = 'flex:1;margin:0;';
+      nameRow.append(nameLabel, nameInput);
+
+      // ── Description row ──
+      const descRow = document.createElement('div');
+      descRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:10px;';
+      const descLabel = document.createElement('label');
+      descLabel.textContent = 'Description';
+      descLabel.style.cssText = 'width:70px;font-size:12px;color:#ccc;';
+      const descInput = document.createElement('input');
+      descInput.type = 'text';
+      descInput.value = isEdit ? (existing!.description || '') : '';
+      descInput.placeholder = 'Optional description...';
+      descInput.className = 'cb-dialog-input';
+      descInput.style.cssText = 'flex:1;margin:0;';
+      descRow.append(descLabel, descInput);
+
+      // ── Variables section ──
+      const varSection = document.createElement('div');
+      varSection.style.cssText = 'margin-bottom:10px;';
+
+      const varHeader = document.createElement('div');
+      varHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;';
+      const varLabel = document.createElement('span');
+      varLabel.textContent = 'Payload Variables';
+      varLabel.style.cssText = 'font-size:12px;color:#ccc;font-weight:600;';
+      const addVarBtn = document.createElement('button');
+      addVarBtn.textContent = '+ Add Variable';
+      addVarBtn.className = 'cb-dialog-btn';
+      addVarBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+      varHeader.append(varLabel, addVarBtn);
+      varSection.appendChild(varHeader);
+
+      const varList = document.createElement('div');
+      varList.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;';
+      varSection.appendChild(varList);
+
+      const FIELD_TYPES = ['Boolean', 'Integer', 'Float', 'String', 'Vector3', 'Object'];
+
+      interface FieldRow { name: string; type: string; el: HTMLDivElement }
+      const fieldRows: FieldRow[] = [];
+
+      const createFieldRow = (name: string = 'NewVar', type: string = 'Float') => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:4px;';
+
+        const fieldNameInput = document.createElement('input');
+        fieldNameInput.type = 'text';
+        fieldNameInput.value = name;
+        fieldNameInput.className = 'cb-dialog-input';
+        fieldNameInput.style.cssText = 'flex:1;margin:0;padding:3px 6px;font-size:11px;';
+        fieldNameInput.placeholder = 'Variable name';
+
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'cb-dialog-input';
+        typeSelect.style.cssText = 'width:90px;margin:0;padding:3px 4px;font-size:11px;';
+        for (const ft of FIELD_TYPES) {
+          const opt = document.createElement('option');
+          opt.value = ft;
+          opt.textContent = ft;
+          if (ft === type) opt.selected = true;
+          typeSelect.appendChild(opt);
+        }
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '✕';
+        removeBtn.className = 'cb-dialog-btn';
+        removeBtn.style.cssText = 'font-size:11px;padding:2px 6px;color:#ef4444;min-width:24px;';
+
+        row.append(fieldNameInput, typeSelect, removeBtn);
+        varList.appendChild(row);
+
+        const entry: FieldRow = { name, type, el: row };
+        fieldRows.push(entry);
+
+        fieldNameInput.addEventListener('input', () => { entry.name = fieldNameInput.value; });
+        typeSelect.addEventListener('change', () => { entry.type = typeSelect.value; });
+        removeBtn.addEventListener('click', () => {
+          const idx = fieldRows.indexOf(entry);
+          if (idx >= 0) fieldRows.splice(idx, 1);
+          row.remove();
+        });
+      };
+
+      addVarBtn.addEventListener('click', () => {
+        createFieldRow(`Var${fieldRows.length + 1}`, 'Float');
+      });
+
+      // Pre-populate existing fields when editing
+      if (isEdit && existing!.payloadFields.length > 0) {
+        for (const f of existing!.payloadFields) {
+          createFieldRow(f.name, f.type);
+        }
+      }
+
+      // ── Buttons ──
+      const buttons = document.createElement('div');
+      buttons.className = 'cb-dialog-buttons';
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancel';
+      btnCancel.className = 'cb-dialog-btn';
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = isEdit ? 'Save' : 'Create';
+      btnOk.className = 'cb-dialog-btn cb-dialog-btn-primary';
+
+      buttons.append(btnCancel, btnOk);
+      dialog.append(titleEl, nameRow, descRow, varSection, buttons);
+      overlay.appendChild(dialog);
+
+      const finish = (ok: boolean) => {
+        overlay.remove();
+        if (!ok) { resolve(null); return; }
+        const n = nameInput.value.trim();
+        if (!n) { resolve(null); return; }
+        resolve({
+          name: n,
+          description: descInput.value.trim(),
+          payloadFields: fieldRows
+            .filter(f => f.name.trim())
+            .map(f => ({ name: f.name.trim(), type: f.type })),
+        });
+      };
+
+      btnOk.addEventListener('click', () => finish(true));
+      btnCancel.addEventListener('click', () => finish(false));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(false); });
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') finish(false);
+      });
+
+      document.body.appendChild(overlay);
+      nameInput.focus();
+      nameInput.select();
     });
   }
 
