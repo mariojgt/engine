@@ -1018,7 +1018,10 @@ function resolveValue(
 
   // ── Casting & Reference data nodes ──
   if (node instanceof GetSelfReferenceNode) {
-    return 'gameObject';
+    // Return the appropriate "Self" based on the context:
+    // - Actor/Anim BP: gameObject
+    // - Widget BP: __widgetHandle
+    return '(typeof gameObject !== "undefined" ? gameObject : (typeof __widgetHandle !== "undefined" ? __widgetHandle : null))';
   }
   if (node instanceof GetPlayerPawnNode) {
     if (outputKey === 'pawn') return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
@@ -1063,7 +1066,7 @@ function resolveValue(
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof GetOwnerNode) {
-    return `(gameObject.owner || gameObject)`;
+    return '(typeof gameObject !== "undefined" ? (gameObject.owner || gameObject) : null)';
   }
   if (node instanceof GetAnimInstanceNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
@@ -2503,11 +2506,10 @@ function genAction(
     }
     case 'Destroy Actor': {
       const tS = inputSrc.get(`${nodeId}.target`);
-      // Default to `gameObject` (self) when no Target pin is connected — mirrors UE behaviour.
-      const targetExpr = tS ? rv(tS.nid, tS.ok) : 'gameObject';
-      // Support both 2D SpriteActors (via scene2DManager) and 3D GameObjects (via __scene).
-      // In 2D blueprints __engine.scene2DManager is always available.
-      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function') { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.destroyActor === 'function') { __scene.destroyActor(__destroyTarget); } } }`);
+      // Default to "Self" (context-aware) when no Target pin is connected
+      const targetExpr = tS ? rv(tS.nid, tS.ok) : '(typeof gameObject !== "undefined" ? gameObject : (typeof __widgetHandle !== "undefined" ? __widgetHandle : null))';
+      // Support destroying Widgets (UI), 2D SpriteActors, and 3D GameObjects
+      lines.push(`{ var __destroyTarget = ${targetExpr}; if (__destroyTarget) { if (typeof __uiManager !== 'undefined' && typeof __destroyTarget === 'string' && __destroyTarget.startsWith('__widget_')) { __uiManager.removeFromViewport(__destroyTarget); } else if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.despawnSpriteActor2D === 'function' && __engine.scene2DManager.spriteActors && __engine.scene2DManager.spriteActors.includes(__destroyTarget)) { __engine.scene2DManager.despawnSpriteActor2D(__destroyTarget); } else if (__scene && typeof __scene.destroyActor === 'function') { __scene.destroyActor(__destroyTarget); } else if (__engine && __engine.scene && typeof __engine.scene.destroyActor === 'function') { __engine.scene.destroyActor(__destroyTarget); } else { print("Warning: Destroy Actor failed - could not determine context"); } } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
