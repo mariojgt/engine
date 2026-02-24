@@ -32,7 +32,11 @@ export class EventBus {
   public emit(event: string, ...args: any[]): void {
     if (this.listeners.has(event)) {
       for (const handler of this.listeners.get(event)!) {
-        handler(...args);
+        try {
+          handler(...args);
+        } catch (err) {
+          console.error(`[EventBus] Error in handler for "${event}":`, err);
+        }
       }
     }
   }

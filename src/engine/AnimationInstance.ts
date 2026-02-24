@@ -813,7 +813,32 @@ export class AnimationInstance {
     this._transitionToActions = [];
     this._transitioning = false;
 
-    // Stop the event graph script so beginPlay guard resets on re-use
+    // Fire onDestroy on the event graph script so cleanup code runs
+    // (e.g. EventBus.off, interval clears, input listener removal).
+    if (this._eventScript && this._eventScriptStarted) {
+      try {
+        const go = this.characterController?.gameObject ?? this.owner ?? null;
+        if (go) {
+          const ctx: ScriptContext = {
+            gameObject: go,
+            deltaTime: 0,
+            elapsedTime: this._elapsedTime,
+            print: this.printFn ?? ((v: any) => console.log('[AnimBP]', v)),
+            physics: this.physicsRef,
+            scene: this.sceneRef,
+            animInstance: this,
+            uiManager: this.uiManagerRef,
+            engine: this.engineRef,
+            gameInstance: this.gameInstanceRef,
+          };
+          this._eventScript.onDestroy(ctx);
+        }
+      } catch (err) {
+        console.error('[AnimationInstance] Error running onDestroy on event script:', err);
+      }
+    }
+
+    // Reset the event graph script so beginPlay guard resets on re-use
     if (this._eventScript) {
       this._eventScript.reset();
       this._eventScriptStarted = false;

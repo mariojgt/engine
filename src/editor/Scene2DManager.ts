@@ -1614,6 +1614,10 @@ export class Scene2DManager {
     this._actorEventScripts.clear();
     this._actorBlueprintScripts.clear();
 
+    // Safety-net: clear the global EventBus so stale 2D handlers never
+    // remain if engine.onPlayStopped() didn't run or ran in a different order.
+    EventBus.getInstance().clear();
+
     // Restore 3D GO meshes that were hidden when their 2D pawns were spawned
     for (const entry of this._hiddenGoMeshes) {
       entry.mesh.visible = entry.wasVisible;

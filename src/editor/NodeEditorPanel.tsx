@@ -361,6 +361,15 @@ import {
   ForEachLoopNode,
   ForEachLoopWithBreakNode,
   ForEachActorLoopNode,
+  DoOnceNode,
+  DoNNode,
+  FlipFlopNode,
+  GateNode,
+  MultiGateNode,
+  ForLoopWithBreakNode,
+  WhileLoopNode,
+  SwitchOnIntNode,
+  SwitchOnStringNode,
   // Drag Selection nodes
   EnableDragSelectionNode,
   DisableDragSelectionNode,
@@ -1191,6 +1200,11 @@ function resolveValue(
     case 'For Loop':
       if (outputKey === 'index') return '__i';
       return '0';
+    case 'For Loop with Break': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'index') return `__flb_i_${uid}`;
+      return '0';
+    }
     case 'For Each Loop': {
       const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
       if (outputKey === 'element') return `__fe_el_${uid}`;
@@ -1207,6 +1221,17 @@ function resolveValue(
       const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
       if (outputKey === 'element') return `__fe_el_${uid}`;
       if (outputKey === 'index') return `__fe_i_${uid}`;
+      return '0';
+    }
+    // Stateful flow control data outputs
+    case 'Flip Flop': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'isA') return `(typeof __flipFlop_${uid} !== 'undefined' ? __flipFlop_${uid} : true)`;
+      return '0';
+    }
+    case 'Do N': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'counter') return `(typeof __doN_ctr_${uid} !== 'undefined' ? __doN_ctr_${uid} : 0)`;
       return '0';
     }
     // On Drag Selection Complete data outputs
@@ -1690,7 +1715,7 @@ function walkExec(
 ): string[] {
   const lines: string[] = [];
   const targets = outputDst.get(`${nodeId}.${execOut}`) || [];
-  for (const t of targets) lines.push(...genAction(t.nid, nodeMap, inputSrc, outputDst, bp));
+  for (const t of targets) lines.push(...genAction(t.nid, nodeMap, inputSrc, outputDst, bp, t.ik));
   return lines;
 }
 
@@ -1698,6 +1723,7 @@ function genAction(
   nodeId: string,
   nodeMap: NodeMap, inputSrc: SrcMap, outputDst: DstMap,
   bp: import('./BlueprintData').BlueprintData,
+  triggerInput: string = 'exec',
 ): string[] {
   const node = nodeMap.get(nodeId);
   if (!node) return [];
@@ -2681,14 +2707,18 @@ function genAction(
       break;
     }
     case 'For Each Loop with Break': {
-      const arrS = inputSrc.get(`${nodeId}.array`);
-      const arr = arrS ? rv(arrS.nid, arrS.ok) : '[]';
       const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
-      lines.push(`{ var __arr_${uid} = ${arr} || []; var __fe_brk_${uid} = false; for (var __fe_i_${uid} = 0; __fe_i_${uid} < __arr_${uid}.length && !__fe_brk_${uid}; __fe_i_${uid}++) {`);
-      lines.push(`  var __fe_el_${uid} = __arr_${uid}[__fe_i_${uid}]; var __i = __fe_i_${uid};`);
-      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
-      lines.push('} }');
-      lines.push(...we(nodeId, 'done'));
+      if (triggerInput === 'break') {
+        lines.push(`__fe_brk_${uid} = true;`);
+      } else {
+        const arrS = inputSrc.get(`${nodeId}.array`);
+        const arr = arrS ? rv(arrS.nid, arrS.ok) : '[]';
+        lines.push(`{ var __arr_${uid} = ${arr} || []; var __fe_brk_${uid} = false; for (var __fe_i_${uid} = 0; __fe_i_${uid} < __arr_${uid}.length && !__fe_brk_${uid}; __fe_i_${uid}++) {`);
+        lines.push(`  var __fe_el_${uid} = __arr_${uid}[__fe_i_${uid}]; var __i = __fe_i_${uid};`);
+        lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+        lines.push('} }');
+        lines.push(...we(nodeId, 'done'));
+      }
       break;
     }
     case 'For Each Actor': {
@@ -2709,6 +2739,165 @@ function genAction(
       lines.push(`setTimeout(function() {`);
       lines.push(...completedLines.map(l => '  ' + l));
       lines.push(`}, (${duration}) * 1000);`);
+      break;
+    }
+
+    // ── Stateful flow control nodes ──────────────────────────
+    case 'Do Once': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (triggerInput === 'reset') {
+        lines.push(`__doOnce_${uid} = false;`);
+      } else {
+        lines.push(`if (typeof __doOnce_${uid} === 'undefined') __doOnce_${uid} = false;`);
+        lines.push(`if (!__doOnce_${uid}) { __doOnce_${uid} = true;`);
+        lines.push(...we(nodeId, 'completed').map(l => '  ' + l));
+        lines.push(`}`);
+      }
+      break;
+    }
+    case 'Flip Flop': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`if (typeof __flipFlop_${uid} === 'undefined') __flipFlop_${uid} = true;`);
+      lines.push(`if (__flipFlop_${uid}) {`);
+      lines.push(...we(nodeId, 'a').map(l => '  ' + l));
+      lines.push(`} else {`);
+      lines.push(...we(nodeId, 'b').map(l => '  ' + l));
+      lines.push(`}`);
+      lines.push(`__flipFlop_${uid} = !__flipFlop_${uid};`);
+      break;
+    }
+    case 'Do N': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const nS = inputSrc.get(`${nodeId}.n`);
+      const nVal = nS ? rv(nS.nid, nS.ok) : '1';
+      if (triggerInput === 'reset') {
+        lines.push(`__doN_ctr_${uid} = 0;`);
+      } else {
+        lines.push(`if (typeof __doN_ctr_${uid} === 'undefined') __doN_ctr_${uid} = 0;`);
+        lines.push(`if (__doN_ctr_${uid} < (${nVal})) { __doN_ctr_${uid}++;`);
+        lines.push(...we(nodeId, 'exec').map(l => '  ' + l));
+        lines.push(`}`);
+      }
+      break;
+    }
+    case 'While Loop': {
+      const condS = inputSrc.get(`${nodeId}.condition`);
+      const cond = condS ? rv(condS.nid, condS.ok) : 'false';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __wl_itr_${uid} = 0; while ((${cond}) && __wl_itr_${uid} < 10000) { __wl_itr_${uid}++;`);
+      lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+      lines.push(`} }`);
+      lines.push(...we(nodeId, 'completed'));
+      break;
+    }
+    case 'For Loop with Break': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (triggerInput === 'break') {
+        lines.push(`__flb_brk_${uid} = true;`);
+      } else {
+        const fiS = inputSrc.get(`${nodeId}.firstIndex`);
+        const liS = inputSrc.get(`${nodeId}.lastIndex`);
+        const fi = fiS ? rv(fiS.nid, fiS.ok) : '0';
+        const li = liS ? rv(liS.nid, liS.ok) : '10';
+        lines.push(`{ var __flb_brk_${uid} = false; for (var __flb_i_${uid} = (${fi}); __flb_i_${uid} <= (${li}) && !__flb_brk_${uid}; __flb_i_${uid}++) {`);
+        lines.push(`  var __i = __flb_i_${uid};`);
+        lines.push(...we(nodeId, 'body').map(l => '  ' + l));
+        lines.push(`} }`);
+        lines.push(...we(nodeId, 'completed'));
+      }
+      break;
+    }
+    case 'Gate': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const scS = inputSrc.get(`${nodeId}.startClosed`);
+      const startClosed = scS ? rv(scS.nid, scS.ok) : 'false';
+      if (triggerInput === 'open') {
+        lines.push(`__gate_${uid} = true;`);
+      } else if (triggerInput === 'close') {
+        lines.push(`__gate_${uid} = false;`);
+      } else if (triggerInput === 'toggle') {
+        lines.push(`if (typeof __gate_${uid} === 'undefined') __gate_${uid} = !(${startClosed});`);
+        lines.push(`__gate_${uid} = !__gate_${uid};`);
+      } else {
+        // 'enter' input
+        lines.push(`if (typeof __gate_${uid} === 'undefined') __gate_${uid} = !(${startClosed});`);
+        lines.push(`if (__gate_${uid}) {`);
+        lines.push(...we(nodeId, 'exit').map(l => '  ' + l));
+        lines.push(`}`);
+      }
+      break;
+    }
+    case 'Multi Gate': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const isRndS = inputSrc.get(`${nodeId}.isRandom`);
+      const loopS = inputSrc.get(`${nodeId}.loop`);
+      const siS = inputSrc.get(`${nodeId}.startIndex`);
+      const isRandom = isRndS ? rv(isRndS.nid, isRndS.ok) : 'false';
+      const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+      const startIdx = siS ? rv(siS.nid, siS.ok) : '0';
+      if (triggerInput === 'reset') {
+        lines.push(`__mg_idx_${uid} = (${startIdx}); __mg_done_${uid} = false;`);
+      } else {
+        lines.push(`if (typeof __mg_idx_${uid} === 'undefined') { __mg_idx_${uid} = (${startIdx}); __mg_done_${uid} = false; }`);
+        lines.push(`if (!__mg_done_${uid}) {`);
+        lines.push(`  var __mg_cnt_${uid} = 3;`);
+        lines.push(`  var __mg_cur_${uid} = (${isRandom}) ? Math.floor(Math.random() * __mg_cnt_${uid}) : __mg_idx_${uid};`);
+        const out0Lines = we(nodeId, 'out0');
+        const out1Lines = we(nodeId, 'out1');
+        const out2Lines = we(nodeId, 'out2');
+        lines.push(`  if (__mg_cur_${uid} === 0) {`);
+        lines.push(...out0Lines.map(l => '    ' + l));
+        lines.push(`  } else if (__mg_cur_${uid} === 1) {`);
+        lines.push(...out1Lines.map(l => '    ' + l));
+        lines.push(`  } else if (__mg_cur_${uid} === 2) {`);
+        lines.push(...out2Lines.map(l => '    ' + l));
+        lines.push(`  }`);
+        lines.push(`  if (!(${isRandom})) {`);
+        lines.push(`    __mg_idx_${uid}++;`);
+        lines.push(`    if (__mg_idx_${uid} >= __mg_cnt_${uid}) {`);
+        lines.push(`      if (${loop}) { __mg_idx_${uid} = 0; } else { __mg_done_${uid} = true; }`);
+        lines.push(`    }`);
+        lines.push(`  }`);
+        lines.push(`}`);
+      }
+      break;
+    }
+    case 'Switch on Int': {
+      const selS = inputSrc.get(`${nodeId}.selection`);
+      const sel = selS ? rv(selS.nid, selS.ok) : '0';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __sw_${uid} = Math.floor(${sel});`);
+      lines.push(`  if (__sw_${uid} === 0) {`);
+      lines.push(...we(nodeId, 'case0').map(l => '    ' + l));
+      lines.push(`  } else if (__sw_${uid} === 1) {`);
+      lines.push(...we(nodeId, 'case1').map(l => '    ' + l));
+      lines.push(`  } else if (__sw_${uid} === 2) {`);
+      lines.push(...we(nodeId, 'case2').map(l => '    ' + l));
+      lines.push(`  } else {`);
+      lines.push(...we(nodeId, 'default').map(l => '    ' + l));
+      lines.push(`  }`);
+      lines.push(`}`);
+      break;
+    }
+    case 'Switch on String': {
+      const selS = inputSrc.get(`${nodeId}.selection`);
+      const sel = selS ? rv(selS.nid, selS.ok) : '""';
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const swNode = node as any;
+      const cv0 = swNode.caseValues?.[0] ?? 'Case 0';
+      const cv1 = swNode.caseValues?.[1] ?? 'Case 1';
+      const cv2 = swNode.caseValues?.[2] ?? 'Case 2';
+      lines.push(`{ var __sw_${uid} = String(${sel});`);
+      lines.push(`  if (__sw_${uid} === ${JSON.stringify(cv0)}) {`);
+      lines.push(...we(nodeId, 'case0').map(l => '    ' + l));
+      lines.push(`  } else if (__sw_${uid} === ${JSON.stringify(cv1)}) {`);
+      lines.push(...we(nodeId, 'case1').map(l => '    ' + l));
+      lines.push(`  } else if (__sw_${uid} === ${JSON.stringify(cv2)}) {`);
+      lines.push(...we(nodeId, 'case2').map(l => '    ' + l));
+      lines.push(`  } else {`);
+      lines.push(...we(nodeId, 'default').map(l => '    ' + l));
+      lines.push(`  }`);
+      lines.push(`}`);
       break;
     }
 
@@ -3678,6 +3867,19 @@ function generateFullCode(
     parts.push('var __inputCleanup = [];');
   }
 
+  // ── Pre-declare stateful flow-control variables at factory (preamble) scope ──
+  // Without `var`, the `typeof __xxx === 'undefined'` pattern inside lifecycle
+  // closures would create implicit globals that persist across play sessions.
+  // Declaring them here ensures they're factory-scoped and properly reset on recompile.
+  for (const n of nodes) {
+    const uid = n.id.replace(/[^a-zA-Z0-9]/g, '_');
+    if (n instanceof DoOnceNode)            parts.push(`var __doOnce_${uid};`);
+    if (n instanceof FlipFlopNode)          parts.push(`var __flipFlop_${uid};`);
+    if (n instanceof DoNNode)               parts.push(`var __doN_ctr_${uid};`);
+    if (n instanceof GateNode)              parts.push(`var __gate_${uid};`);
+    if (n instanceof MultiGateNode)         parts.push(`var __mg_idx_${uid}; var __mg_done_${uid};`);
+  }
+
   // Collect lifecycle code
   const beginPlayCode: string[] = [];
   const tickCode: string[] = [];
@@ -3745,8 +3947,10 @@ function generateFullCode(
   // ── OnEvent / EmitEvent (EventBus) nodes ────────────────────
   const onEventNodes = nodes.filter(n => n instanceof OnEventNode) as InstanceType<typeof OnEventNode>[];
   if (onEventNodes.length > 0) {
-    // Declare a cleanup array for event bus handlers (one per script instance)
-    beginPlayCode.push('var __eventBusCleanup = [];');
+    // Declare cleanup array at preamble (factory) scope so both __bp and __od can access it
+    parts.push('var __eventBusCleanup = [];');
+    // Reset the array each beginPlay so handlers from previous sessions are not re-cleaned
+    beginPlayCode.push('__eventBusCleanup = [];');
     for (const evNode of onEventNodes) {
       const eventId = (evNode.controls.eventId as any)?.value;
       let eventName = '';
@@ -3762,7 +3966,7 @@ function generateFullCode(
       beginPlayCode.push(`(function() { var __evtHandler_${safeId} = function(__payload) { ${body.join(' ')} }; if (__engine && __engine.eventBus) { __engine.eventBus.on(${JSON.stringify(eventName)}, __evtHandler_${safeId}); __eventBusCleanup.push(function() { __engine.eventBus.off(${JSON.stringify(eventName)}, __evtHandler_${safeId}); }); } })();`);
     }
     // Cleanup in onDestroy
-    onDestroyCode.push('if (typeof __eventBusCleanup !== "undefined") { __eventBusCleanup.forEach(function(fn) { fn(); }); __eventBusCleanup = []; }');
+    onDestroyCode.push('__eventBusCleanup.forEach(function(fn) { fn(); }); __eventBusCleanup = [];');
   }
 
   // ── Drag Selection Complete event nodes ─────────────────────
@@ -5554,6 +5758,15 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SequenceNode) return 'SequenceNode';
   if (node instanceof ForLoopNode) return 'ForLoopNode';
   if (node instanceof DelayNode) return 'DelayNode';
+  if (node instanceof DoOnceNode) return 'DoOnceNode';
+  if (node instanceof DoNNode) return 'DoNNode';
+  if (node instanceof FlipFlopNode) return 'FlipFlopNode';
+  if (node instanceof GateNode) return 'GateNode';
+  if (node instanceof MultiGateNode) return 'MultiGateNode';
+  if (node instanceof ForLoopWithBreakNode) return 'ForLoopWithBreakNode';
+  if (node instanceof WhileLoopNode) return 'WhileLoopNode';
+  if (node instanceof SwitchOnIntNode) return 'SwitchOnIntNode';
+  if (node instanceof SwitchOnStringNode) return 'SwitchOnStringNode';
   // Utility
   if (node instanceof PrintStringNode) return 'PrintStringNode';
   // Physics
@@ -6028,6 +6241,11 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.eventParams = n.eventParams;
   }
 
+  // SwitchOnString custom case values
+  if (node instanceof SwitchOnStringNode) {
+    data.caseValues = (node as SwitchOnStringNode).caseValues;
+  }
+
   return data;
 }
 
@@ -6179,6 +6397,19 @@ function createNodeFromData(
     case 'SequenceNode': return new SequenceNode();
     case 'ForLoopNode':  return new ForLoopNode();
     case 'DelayNode':    return new DelayNode();
+    case 'DoOnceNode':   return new DoOnceNode();
+    case 'DoNNode':      return new DoNNode();
+    case 'FlipFlopNode': return new FlipFlopNode();
+    case 'GateNode':     return new GateNode();
+    case 'MultiGateNode': return new MultiGateNode();
+    case 'ForLoopWithBreakNode': return new ForLoopWithBreakNode();
+    case 'WhileLoopNode': return new WhileLoopNode();
+    case 'SwitchOnIntNode': return new SwitchOnIntNode();
+    case 'SwitchOnStringNode': {
+      const n = new SwitchOnStringNode();
+      if (d.caseValues) n.caseValues = d.caseValues;
+      return n;
+    }
 
     // Utility
     case 'PrintStringNode': {
