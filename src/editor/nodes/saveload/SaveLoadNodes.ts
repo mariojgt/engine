@@ -25,12 +25,40 @@ import {
 } from '../sockets';
 
 // ============================================================
+//  SaveGame Select Control
+// ============================================================
+export class SaveGameSelectControl extends ClassicPreset.Control {
+  public value: string;       // save game asset ID
+  public displayName: string; // human-readable name
+
+  constructor(initialId: string = '', initialName: string = '(none)') {
+    super();
+    this.value = initialId;
+    this.displayName = initialName;
+  }
+
+  setValue(id: string, name: string) {
+    this.value = id;
+    this.displayName = name;
+  }
+}
+
+// ============================================================
 //  Create Save Game Object - factory (like UGameplayStatics::CreateSaveGameObject)
 // ============================================================
 export class CreateSaveGameObjectNode extends ClassicPreset.Node {
-  constructor() {
+  public saveGameId: string;
+  public saveGameName: string;
+  public saveGameControl: SaveGameSelectControl;
+
+  constructor(sgId: string = '', sgName: string = '(none)') {
     super('Create Save Game Object');
+    this.saveGameId = sgId;
+    this.saveGameName = sgName;
     this.addInput('exec', new ClassicPreset.Input(execSocket, '\u25B6'));
+    this.saveGameControl = new SaveGameSelectControl(sgId, sgName);
+    (this.saveGameControl as any)._parentNode = this;
+    this.addControl('saveGameClass', this.saveGameControl);
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '\u25B6'));
     this.addOutput('saveObject', new ClassicPreset.Output(objectSocket, 'Save Object'));
   }

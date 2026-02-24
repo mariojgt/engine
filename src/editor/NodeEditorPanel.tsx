@@ -366,6 +366,7 @@ import {
   PlaySoundAtLocationNode,
   // Save/Load nodes (UE-style)
   CreateSaveGameObjectNode,
+  SaveGameSelectControl,
   SaveGameToSlotNode,
   LoadGameFromSlotNode,
   DeleteGameInSlotNode,
@@ -462,6 +463,16 @@ let _widgetBPMgr: WidgetBlueprintManager | null = null;
 /** Call once at startup to wire widget blueprint data into the node editor */
 export function setWidgetBPManager(mgr: WidgetBlueprintManager): void {
   _widgetBPMgr = mgr;
+}
+
+// ============================================================
+//  Module-level reference to SaveGameAssetManager
+//  (set once at startup so SaveGame dropdowns can populate)
+// ============================================================
+let _saveGameMgr: any = null;
+
+export function setSaveGameManager(mgr: any): void {
+  _saveGameMgr = mgr;
 }
 
 // ============================================================
@@ -5273,7 +5284,15 @@ function genAction(
     // ── Save/Load Nodes (exec-based — UE-style) ──────────────
     case 'Create Save Game Object': {
       const varName = `__sgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      lines.push(`var ${varName} = null; if (__engine && __engine.saveLoad) { ${varName} = __engine.saveLoad.createSaveGameObject(); }`);
+      const n = node as CreateSaveGameObjectNode;
+      let defaultsStr = '{}';
+      if (n.saveGameId && _saveGameMgr) {
+        const asset = _saveGameMgr.getAsset(n.saveGameId);
+        if (asset) {
+          defaultsStr = JSON.stringify(asset.getDefaults());
+        }
+      }
+      lines.push(`var ${varName} = null; if (__engine && __engine.saveLoad) { ${varName} = __engine.saveLoad.createSaveGameObject(); var _defs = ${defaultsStr}; for (var _k in _defs) { ${varName}.setVariable(_k, _defs[_k]); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -7686,6 +7705,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as BoolSelectControl).value;
     } else if (ctrl instanceof WidgetBPSelectControl) {
       controls[key] = { id: (ctrl as WidgetBPSelectControl).value, name: (ctrl as WidgetBPSelectControl).displayName };
+    } else if (ctrl instanceof SaveGameSelectControl) {
+      controls[key] = { id: (ctrl as SaveGameSelectControl).value, name: (ctrl as SaveGameSelectControl).displayName };
     } else if (ctrl instanceof WidgetSelectorControl) {
       const value = (ctrl as WidgetSelectorControl).value;
       controls[key] = value;
@@ -7866,6 +7887,11 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateWidgetNode) {
     data.widgetBPId = (node as CreateWidgetNode).widgetBPId;
     data.widgetBPName = (node as CreateWidgetNode).widgetBPName;
+  }
+  // SaveGame nodes
+  if (node instanceof CreateSaveGameObjectNode) {
+    data.saveGameId = (node as CreateSaveGameObjectNode).saveGameId;
+    data.saveGameName = (node as CreateSaveGameObjectNode).saveGameName;
   }
   // Spawning nodes
   if (node instanceof SpawnActorFromClassNode) {
@@ -8635,6 +8661,15 @@ function createNodeFromData(
     case 'GetSpriteFacingDirection2DNode':   return new GetSpriteFacingDirection2DNode();
     case 'GetCharacterSpeed2DNode':          return new GetCharacterSpeed2DNode();
 
+    // Save/Load nodes (UE-style)
+    case 'CreateSaveGameObjectNode': {
+      const n = new CreateSaveGameObjectNode(d.saveGameId || '', d.saveGameName || '(none)');
+      return n;
+    }
+    case 'SaveGameToSlotNode':               return new SaveGameToSlotNode();
+    case 'LoadGameFromSlotNode':             return new LoadGameFromSlotNode();
+    case 'DeleteGameInSlotNode':             return new DeleteGameInSlotNode();
+
     // ForEachLoop nodes
     case 'ForEachLoopNode':                    return new ForEachLoopNode();
     case 'ForEachLoopWithBreakNode':           return new ForEachLoopWithBreakNode();
@@ -9165,6 +9200,168 @@ async function createGraphEditor(
             });
           };
         }
+        if (data.payload instanceof SaveGameSelectControl) {
+          const ctrl = data.payload as SaveGameSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.displayName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            // Gather save game classes from the manager
+            const saveGames: { id: string; name: string }[] = [];
+            if (_saveGameMgr) {
+              for (const asset of _saveGameMgr.assets) {
+                saveGames.push({ id: asset.id, name: asset.name });
+              }
+            }
+            const filtered = search
+              ? saveGames.filter(sg => sg.name.toLowerCase().includes(search.toLowerCase()))
+              : saveGames;
+
+            // Close on outside click
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                  setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            const dropdownStyle: any = {
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              maxHeight: 160,
+              overflowY: 'auto',
+              background: '#1a1a2e',
+              border: '1px solid #4a9eff',
+              borderRadius: '0 0 4px 4px',
+              zIndex: 9999,
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              // Button showing current selection
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%',
+                  padding: '4px 6px',
+                  background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#e0e0e0',
+                  border: open ? '1px solid #4a9eff' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', {
+                  style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 },
+                }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
+              ),
+              // Dropdown panel
+              open && React.createElement('div', { style: dropdownStyle },
+                // Search input
+                React.createElement('input', {
+                  type: 'text',
+                  placeholder: 'Search save games...',
+                  value: search,
+                  autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: {
+                    width: '100%',
+                    padding: '5px 8px',
+                    background: '#141422',
+                    color: '#e0e0e0',
+                    border: 'none',
+                    borderBottom: '1px solid #333',
+                    fontSize: 11,
+                    outline: 'none',
+                    boxSizing: 'border-box' as const,
+                  },
+                }),
+                // Option: (none)
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '(none)');
+                    setSelected('(none)');
+                    setOpen(false);
+                    setSearch('');
+                    // Sync node fields
+                    const parentNode = (ctrl as any)._parentNode;
+                    if (parentNode) {
+                      parentNode.saveGameId = '';
+                      parentNode.saveGameName = '(none)';
+                    }
+                  },
+                  style: {
+                    padding: '5px 8px',
+                    fontSize: 11,
+                    color: '#888',
+                    fontStyle: 'italic' as const,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid #222',
+                  },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                // SaveGame options
+                ...filtered.map(sg =>
+                  React.createElement('div', {
+                    key: sg.id,
+                    onClick: () => {
+                      ctrl.setValue(sg.id, sg.name);
+                      setSelected(sg.name);
+                      setOpen(false);
+                      setSearch('');
+                      // Sync node fields
+                      const parentNode = (ctrl as any)._parentNode;
+                      if (parentNode) {
+                        parentNode.saveGameId = sg.id;
+                        parentNode.saveGameName = sg.name;
+                      }
+                    },
+                    style: {
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      color: sg.id === ctrl.value ? '#4a9eff' : '#e0e0e0',
+                      fontWeight: sg.id === ctrl.value ? 700 : 400,
+                      cursor: 'pointer',
+                    },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', { style: { marginRight: 6, fontSize: 10 } }, ''),
+                    sg.name,
+                  ),
+                ),
+                filtered.length === 0 && saveGames.length > 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching save games'),
+                saveGames.length === 0 &&
+                  React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No save game classes yet'),
+              ),
+            );
+          };
+        }
+
         if (data.payload instanceof WidgetBPSelectControl) {
           const ctrl = data.payload as WidgetBPSelectControl;
           return (_props: any) => {

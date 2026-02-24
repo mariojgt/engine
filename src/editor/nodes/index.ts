@@ -636,6 +636,7 @@ export {
 // ── Save / Load Nodes ───────────────────────────────────────
 export {
   CreateSaveGameObjectNode,
+  SaveGameSelectControl,
   SaveGameToSlotNode,
   LoadGameFromSlotNode,
   DoesSaveGameExistNode,
