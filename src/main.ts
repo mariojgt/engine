@@ -18,7 +18,7 @@ import { EventAssetManager } from './editor/EventAsset';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
-import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager, setProjectManager } from './editor/NodeEditorPanel';
+import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager, setProjectManager, setSaveGameManager } from './editor/NodeEditorPanel';
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
@@ -167,6 +167,9 @@ async function main() {
 
   // Wire widget BP manager into node editor for Create Widget picker
   setWidgetBPManager(widgetBPManager);
+
+  // Wire save game manager into node editor for Create Save Game picker
+  setSaveGameManager(saveGameManager);
 
   // Wire game instance BP manager into node editor for GI dropdowns
   setGameInstanceBPManager(gameInstanceManager);
