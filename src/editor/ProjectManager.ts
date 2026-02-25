@@ -30,6 +30,7 @@ import {
   type SceneJSON,
   type CameraStateJSON,
 } from './SceneSerializer';
+import { refreshInstancesOfAsset } from './PrefabSystem';
 
 // ---- Thin wrappers around Rust commands ----
 
@@ -577,6 +578,38 @@ export class ProjectManager {
       console.log(`[ProjectManager] Project saved successfully: ${this._meta.name}`);
     } catch (err) {
       console.error('[ProjectManager] Failed to save project:', err);
+    }
+  }
+
+  /**
+   * Saves a single ActorAsset to disk and updates all live instances in the current scene.
+   * This is the "Prefab" system entry point: editing the master updates the instances.
+   */
+  async saveActorAsset(asset: ActorAsset): Promise<void> {
+    if (!this._projectPath) return;
+    
+    // 1. Save to disk
+    const actorsDir = `${this._projectPath}/${ACTORS_DIR}`;
+    const safeName = asset.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const json = asset.toJSON();
+    
+    try {
+      await fsWrite(
+        `${actorsDir}/${safeName}_${asset.id}.json`,
+        JSON.stringify(json, null, 2),
+      );
+      console.log(`[ProjectManager] Saved ActorAsset "${asset.name}" to disk.`);
+      
+      // 2. Refresh live instances in the scene (Prefab system)
+      if (this._engine && this._engine.scene) {
+        refreshInstancesOfAsset(this._engine.scene, asset.id, this._assetManager);
+      }
+      
+      // 3. Mark project generic dirty state (optional, or rely on distinct saves)
+      this._dirty = true; 
+      
+    } catch (e) {
+      console.error(`[ProjectManager] Failed to save ActorAsset ${asset.name}:`, e);
     }
   }
 
