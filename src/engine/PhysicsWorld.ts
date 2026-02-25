@@ -5,6 +5,7 @@ import type { GameObject } from './GameObject';
 import type { PhysicsConfig } from '../editor/ActorAsset';
 import { defaultPhysicsConfig } from '../editor/ActorAsset';
 import { CollisionSystem } from './CollisionSystem';
+import { PhysicsDebugDrawer } from './PhysicsDebugDrawer';
 
 export interface PhysicsSettings {
   gravity: { x: number; y: number; z: number };
@@ -31,6 +32,7 @@ export class PhysicsWorld {
   public isPlaying: boolean = false;
   public collision: CollisionSystem = new CollisionSystem();
   public settings: PhysicsSettings = defaultPhysicsSettings();
+  public debugDrawer: PhysicsDebugDrawer | null = null;
   private _initialized = false;
 
   /** Map Rapier collider handle → GameObject id (for contact/intersection queries) */
@@ -372,6 +374,11 @@ export class PhysicsWorld {
       }
     }
 
+    // Update debug drawer
+    if (this.debugDrawer) {
+      this.debugDrawer.update();
+    }
+
     // Drain the EventQueue and dispatch overlap / hit callbacks
     this.collision.processEvents(scene, this);
   }
@@ -397,6 +404,11 @@ export class PhysicsWorld {
     this.collision.createSensors(scene, this);
 
     console.log(`[PhysicsWorld] play() — sensors created: ${this.collision.getSensorCount()}, world colliders: ${this.world.colliders.len()}, world bodies: ${this.world.bodies.len()}`);
+
+    if (this.settings.debugDraw) {
+      this.debugDrawer = new PhysicsDebugDrawer(scene.threeScene, this);
+      this.debugDrawer.toggle(true);
+    }
 
     this.isPlaying = true;
     this._accumulator = 0;
@@ -424,6 +436,12 @@ export class PhysicsWorld {
 
   stop(scene: Scene): void {
     this.isPlaying = false;
+
+    // Dispose debug drawer
+    if (this.debugDrawer) {
+      this.debugDrawer.dispose();
+      this.debugDrawer = null;
+    }
 
     // Reset collision system
     this.collision.reset();
