@@ -110,6 +110,58 @@ export class Engine {
     this._cachedCtx.engine = this;
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  //  Unified Spawn Actor — global entry point used by blueprint-generated
+  //  code.  Automatically dispatches to the correct manager (2D vs 3D)
+  //  and emits a 'spawnActor' event on the EventBus so game-level code
+  //  can hook into spawning.
+  // ─────────────────────────────────────────────────────────────────────
+  spawnActor(
+    classId: string,
+    className: string,
+    position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number },
+    scale: { x: number; y: number; z: number },
+    owner: any,
+    overrides: Record<string, any> | null,
+  ): any {
+    let result: any = null;
+
+    // 1. Try 2D path if Scene2DManager is actively playing
+    const s2d = this.scene2DManager;
+    if (s2d && s2d.isPlaying && typeof s2d.spawnActorFromClassId === 'function') {
+      result = s2d.spawnActorFromClassId(classId, position, overrides);
+    }
+
+    // 2. Fallback to 3D path
+    if (result == null && typeof this.scene.spawnActorFromClass === 'function') {
+      result = this.scene.spawnActorFromClass(
+        classId, className, position, rotation, scale, owner, overrides,
+      );
+    }
+
+    // 3. Emit global event so custom systems can react (e.g. spawn pooling, analytics)
+    try {
+      const bus = EventBus.getInstance();
+      bus.emit('spawnActor', {
+        classId,
+        className,
+        position,
+        rotation,
+        scale,
+        owner,
+        overrides,
+        result,
+      });
+    } catch { /* EventBus not available — fine in gameplay window */ }
+
+    if (result == null) {
+      console.warn(`[Engine] spawnActor: failed to spawn actor class="${className}" id="${classId}"`);
+    }
+
+    return result;
+  }
+
   /** Dummy GameObject for GameInstance context */
   private _dummyGO: any = { mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' };
 

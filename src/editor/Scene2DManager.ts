@@ -120,6 +120,16 @@ export class Scene2DManager {
   private _cachedAssetManager: any = null;
   private _cachedAnimBPManager: any = null;
 
+  /**
+   * Explicitly cache asset managers for runtime spawning.
+   * Call this before or during startPlay() so that spawnActorFromClassId
+   * always has valid managers — even if the scene starts with 0 actors.
+   */
+  setAssetManagers(assetManager: any, animBPManager?: any): void {
+    if (assetManager) this._cachedAssetManager = assetManager;
+    if (animBPManager) this._cachedAnimBPManager = animBPManager;
+  }
+
   // 2D Scene root group — all 2D actors go here
   public root2D: THREE.Group;
 
@@ -891,10 +901,22 @@ export class Scene2DManager {
     position: { x: number; y: number; z?: number },
     overrides?: Record<string, any> | null,
   ): SpriteActor | null {
-    if (!this.physics2D) return null;
+    if (!this.physics2D) {
+      console.warn('[Scene2DManager] spawnActorFromClassId: physics2D not initialized');
+      return null;
+    }
+    if (!this.isPlaying) {
+      console.warn('[Scene2DManager] spawnActorFromClassId: not in play mode');
+      return null;
+    }
 
     const assetManager = this._cachedAssetManager;
     const animBPManager = this._cachedAnimBPManager;
+
+    if (!assetManager) {
+      console.warn('[Scene2DManager] spawnActorFromClassId: no cached asset manager — call setAssetManagers() before play');
+      return null;
+    }
 
     const actorAsset = assetManager?.getAsset?.(classId);
     if (!actorAsset) {
@@ -1332,7 +1354,7 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, className, position: pos, rotation: rot, scale: sc, owner, overrides, result: r }); } catch {} return r; } },
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
@@ -1601,12 +1623,12 @@ export class Scene2DManager {
       physics:      physicsShim,
       scene:        sceneShim,
       animInstance: null,
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {} return r; } },
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
     if (!ev.started) {
-      console.log(`[Scene2DManager] ▶ BeginPlay (actor blueprint) for "${actor.name}"`);  
+      console.log(`[Scene2DManager] ▶ BeginPlay (actor blueprint) for "${actor.name}"`);
       ev.script.beginPlay(ctx);
       ev.started = true;
     }
@@ -1668,7 +1690,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
           };
           bpEv.script.onDestroy(destroyCtx);
@@ -1688,7 +1710,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager },
+            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
           };
           evEv.script.onDestroy(destroyCtx);

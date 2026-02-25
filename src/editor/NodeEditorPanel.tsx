@@ -4030,7 +4030,15 @@ function genAction(
       const overrides = overrideFields.length > 0 ? `{${overrideFields.join(', ')}}` : 'null';
       const saVar = `__sa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       lines.push(`var ${saVar} = null;`);
-      lines.push(`{ var __pos = {x:${locX},y:${locY},z:${locZ}}; var __rot = {x:${rotX},y:${rotY},z:${rotZ}}; var __sc = {x:${scX},y:${scY},z:${scZ}}; if (__engine && __engine.scene2DManager && typeof __engine.scene2DManager.spawnActorFromClassId === 'function') { ${saVar} = __engine.scene2DManager.spawnActorFromClassId(${classId}, __pos, ${overrides}); } else if (__scene && typeof __scene.spawnActorFromClass === 'function') { ${saVar} = __scene.spawnActorFromClass(${classId}, ${className}, __pos, __rot, __sc, ${owner}, ${overrides}); } }`);
+      // Try unified engine.spawnActor first (global handler), then 2D (only if 2D is playing), then 3D fallback
+      lines.push(`{ var __pos = {x:${locX},y:${locY},z:${locZ}}; var __rot = {x:${rotX},y:${rotY},z:${rotZ}}; var __sc = {x:${scX},y:${scY},z:${scZ}};`);
+      lines.push(`  if (__engine && typeof __engine.spawnActor === 'function') { ${saVar} = __engine.spawnActor(${classId}, ${className}, __pos, __rot, __sc, ${owner}, ${overrides}); }`);
+      lines.push(`  else {`);
+      lines.push(`    if (__engine && __engine.scene2DManager && __engine.scene2DManager.isPlaying && typeof __engine.scene2DManager.spawnActorFromClassId === 'function') { ${saVar} = __engine.scene2DManager.spawnActorFromClassId(${classId}, __pos, ${overrides}); }`);
+      lines.push(`    if (${saVar} == null && __scene && typeof __scene.spawnActorFromClass === 'function') { ${saVar} = __scene.spawnActorFromClass(${classId}, ${className}, __pos, __rot, __sc, ${owner}, ${overrides}); }`);
+      lines.push(`  }`);
+      lines.push(`  if (${saVar} == null) { print('[SpawnActor] Warning: Spawn Actor from Class failed for class ' + ${className} + ' (id=' + ${classId} + ')'); }`);
+      lines.push(`}`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }

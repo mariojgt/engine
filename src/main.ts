@@ -684,6 +684,10 @@ async function main() {
         const canvas = editor.getCanvas();
         engine.onPlayStarted(canvas ?? undefined);
 
+        // Cache asset managers before play so runtime spawnActorFromClassId always works
+        // (even if the scene starts with zero actors — side-effect caching wouldn't fire)
+        editor.scene2DManager.setAssetManagers(editor.assetManager, editor.animBPManager);
+
         // Also start 2D physics (async — reinitialises Rapier world for clean state)
         await editor.scene2DManager.startPlay();
 
