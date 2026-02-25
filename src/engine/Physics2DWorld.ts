@@ -491,6 +491,7 @@ export class Physics2DWorld {
     normal?: { x: number; y: number };
     distance?: number;
     handle?: number;
+    hitActor?: any;
   } {
     if (!this.world || !this._rapier) return { hit: false };
 
@@ -516,12 +517,22 @@ export class Physics2DWorld {
           normal = { x: normalResult.normal.x, y: normalResult.normal.y };
         }
       }
+      // Resolve the hit actor from the collider's parent rigid body
+      let hitActor: any = null;
+      if (hitCollider) {
+        const parentBody = hitCollider.parent();
+        if (parentBody) {
+          const entry = this.bodyMap.get(parentBody.handle);
+          if (entry) hitActor = entry.actor;
+        }
+      }
       return {
         hit: true,
         point: hitPoint,
         normal,
         distance: toi,
         handle: hitCollider?.handle,
+        hitActor,
       };
     }
     return { hit: false };

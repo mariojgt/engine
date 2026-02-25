@@ -5,6 +5,7 @@
 
 import { ClassicPreset } from 'rete';
 import { execSocket, numSocket, boolSocket, strSocket, objectSocket, registerNode } from '../sockets';
+import { BoolSelectControl } from '../values/BooleanNode';
 
 // ── Line Trace by Channel ───────────────────────────────────
 export class LineTraceByChannelNode extends ClassicPreset.Node {
@@ -18,6 +19,7 @@ export class LineTraceByChannelNode extends ClassicPreset.Node {
     this.addInput('endY', new ClassicPreset.Input(numSocket, 'End Y'));
     this.addInput('endZ', new ClassicPreset.Input(numSocket, 'End Z'));
     this.addInput('drawDebug', new ClassicPreset.Input(boolSocket, 'Draw Debug'));
+    (this.inputs['drawDebug'] as any).addControl(new BoolSelectControl(1));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('hit', new ClassicPreset.Output(boolSocket, 'Hit'));
     // Hit result outputs
@@ -46,6 +48,7 @@ export class SphereTraceByChannelNode extends ClassicPreset.Node {
     this.addInput('endZ', new ClassicPreset.Input(numSocket, 'End Z'));
     this.addInput('radius', new ClassicPreset.Input(numSocket, 'Radius'));
     this.addInput('drawDebug', new ClassicPreset.Input(boolSocket, 'Draw Debug'));
+    (this.inputs['drawDebug'] as any).addControl(new BoolSelectControl(1));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('hit', new ClassicPreset.Output(boolSocket, 'Hit'));
     this.addOutput('hitX', new ClassicPreset.Output(numSocket, 'Location X'));
@@ -75,6 +78,7 @@ export class BoxTraceNode extends ClassicPreset.Node {
     this.addInput('halfY', new ClassicPreset.Input(numSocket, 'Half Size Y'));
     this.addInput('halfZ', new ClassicPreset.Input(numSocket, 'Half Size Z'));
     this.addInput('drawDebug', new ClassicPreset.Input(boolSocket, 'Draw Debug'));
+    (this.inputs['drawDebug'] as any).addControl(new BoolSelectControl(1));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('hit', new ClassicPreset.Output(boolSocket, 'Hit'));
     this.addOutput('hitX', new ClassicPreset.Output(numSocket, 'Location X'));

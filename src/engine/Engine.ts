@@ -162,6 +162,83 @@ export class Engine {
     return result;
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  //  Debug Drawing — ephemeral 3D lines / spheres for blueprint trace nodes
+  // ─────────────────────────────────────────────────────────────────────
+  private _debugLines: { obj: THREE.Object3D; life: number }[] = [];
+
+  /**
+   * Draw a debug line in the 3D scene. Automatically removed after `duration` seconds.
+   * Called by generated blueprint code when "Draw Debug" is checked on trace nodes.
+   */
+  drawDebugLine(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+    color: number = 0x00ff00,
+    duration = 0.1,
+  ): void {
+    // console.log(`[Engine] drawDebugLine ${JSON.stringify(start)} -> ${JSON.stringify(end)}`);
+    const geom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(start.x, start.y, start.z),
+      new THREE.Vector3(end.x, end.y, end.z),
+    ]);
+    const mat = new THREE.LineBasicMaterial({ color, depthTest: false, depthWrite: false, linewidth: 2 });
+    const line = new THREE.Line(geom, mat);
+    line.renderOrder = 99999;
+    line.frustumCulled = false;
+    
+    // Ensure we add to the active scene
+    if (this.scene && this.scene.threeScene) {
+        this.scene.threeScene.add(line);
+        this._debugLines.push({ obj: line, life: duration });
+    } else {
+        console.warn('[Engine] drawDebugLine: No active scene to draw into');
+    }
+  }
+
+  /**
+   * Draw a small debug sphere at a point. Useful for visualising hit locations.
+   */
+  drawDebugPoint(
+    point: { x: number; y: number; z: number },
+    radius = 0.05,
+    color: number = 0xff0000,
+    duration = 0.1,
+  ): void {
+    const geom = new THREE.SphereGeometry(radius, 6, 4);
+    const mat = new THREE.MeshBasicMaterial({ color, wireframe: true, depthTest: false });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(point.x, point.y, point.z);
+    mesh.renderOrder = 10000;
+    mesh.frustumCulled = false;
+    this.scene.threeScene.add(mesh);
+    this._debugLines.push({ obj: mesh, life: duration });
+  }
+
+  /** Tick debug draw lifetimes — called from the main update loop */
+  _tickDebugDraw(dt: number): void {
+    for (let i = this._debugLines.length - 1; i >= 0; i--) {
+      this._debugLines[i].life -= dt;
+      if (this._debugLines[i].life <= 0) {
+        const entry = this._debugLines[i];
+        entry.obj.removeFromParent();
+        if ((entry.obj as any).geometry) (entry.obj as any).geometry.dispose();
+        if ((entry.obj as any).material) (entry.obj as any).material.dispose();
+        this._debugLines.splice(i, 1);
+      }
+    }
+  }
+
+  /** Remove all debug draw objects immediately */
+  _clearDebugDraw(): void {
+    for (const entry of this._debugLines) {
+      entry.obj.removeFromParent();
+      if ((entry.obj as any).geometry) (entry.obj as any).geometry.dispose();
+      if ((entry.obj as any).material) (entry.obj as any).material.dispose();
+    }
+    this._debugLines.length = 0;
+  }
+
   /** Dummy GameObject for GameInstance context */
   private _dummyGO: any = { mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' };
 
@@ -430,6 +507,9 @@ export class Engine {
     // Clear update callbacks (may have been registered during play)
     this._onUpdate = [];
 
+    // Clear debug draw objects
+    this._clearDebugDraw();
+
     // Stop all audio
     this.audio.stopAll();
 
@@ -520,6 +600,9 @@ export class Engine {
 
     // Step physics
     this.physics.step(this.scene, dt);
+
+    // Tick debug draw lifetimes
+    this._tickDebugDraw(dt);
 
     // Notify update listeners
     for (const cb of this._onUpdate) cb(dt);

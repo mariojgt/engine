@@ -458,4 +458,138 @@ export class PhysicsWorld {
       this.world.gravity = { x: g.x, y: g.y, z: g.z };
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────
+  //  Raycast / Trace Queries  (UE5-style)
+  //  All methods return a unified HitResult or null.
+  //  Rapier3D under the hood: castRay, castRayAndGetNormal, castShape.
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Line Trace Single — cast a ray from `start` to `end` and return
+   * the first hit, including point, normal, distance, and the hit
+   * GameObject (resolved via _colliderToGoId).
+   *
+   * Called by generated blueprint code:
+   *   `__engine.physics.lineTraceSingle(start, end)`
+   */
+  lineTraceSingle(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+    _channel?: number, /* reserved for collision channels — unused for now */
+    scene?: Scene,
+  ): { hit: boolean; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; distance: number; hitActor: any } {
+    const noHit = { hit: false, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 0 }, distance: 0, hitActor: null };
+    if (!this.world) return noHit;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const dz = end.z - start.z;
+    const maxToi = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (maxToi < 1e-6) return noHit;
+
+    const dirX = dx / maxToi, dirY = dy / maxToi, dirZ = dz / maxToi;
+    const ray = new RAPIER.Ray({ x: start.x, y: start.y, z: start.z }, { x: dirX, y: dirY, z: dirZ });
+
+    const result = this.world.castRayAndGetNormal(ray, maxToi, true);
+    if (!result) return noHit;
+
+    const toi = result.timeOfImpact;
+    const normal = result.normal ? { x: result.normal.x, y: result.normal.y, z: result.normal.z } : { x: 0, y: 1, z: 0 };
+    const point = { x: start.x + dirX * toi, y: start.y + dirY * toi, z: start.z + dirZ * toi };
+
+    // Resolve hit actor
+    let hitActor: any = null;
+    if (result.collider && scene) {
+      const goId = this._colliderToGoId.get(result.collider.handle);
+      if (goId != null) {
+        hitActor = scene.gameObjects.find(g => g.id === goId) ?? null;
+      }
+    }
+
+    return { hit: true, point, normal, distance: toi, hitActor };
+  }
+
+  /**
+   * Sphere Trace Single — sweep a sphere from `start` toward `end`.
+   */
+  sphereTraceSingle(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+    radius: number,
+    _channel?: number,
+    scene?: Scene,
+  ): { hit: boolean; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; distance: number; hitActor: any } {
+    const noHit = { hit: false, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 0 }, distance: 0, hitActor: null };
+    if (!this.world) return noHit;
+
+    const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+    const maxToi = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (maxToi < 1e-6) return noHit;
+
+    const dirX = dx / maxToi, dirY = dy / maxToi, dirZ = dz / maxToi;
+    const shape = new RAPIER.Ball(Math.max(radius, 0.001));
+    const shapePos = { x: start.x, y: start.y, z: start.z };
+    const shapeRot = { x: 0, y: 0, z: 0, w: 1 };
+    const shapeVel = { x: dirX, y: dirY, z: dirZ };
+
+    const result = this.world.castShape(shapePos, shapeRot, shapeVel, shape, 0, maxToi, true);
+    if (!result) return noHit;
+
+    const toi = result.time_of_impact;
+    const point = { x: start.x + dirX * toi, y: start.y + dirY * toi, z: start.z + dirZ * toi };
+    const normal = result.normal1 ? { x: result.normal1.x, y: result.normal1.y, z: result.normal1.z } : { x: 0, y: 1, z: 0 };
+
+    let hitActor: any = null;
+    if (result.collider && scene) {
+      const goId = this._colliderToGoId.get(result.collider.handle);
+      if (goId != null) hitActor = scene.gameObjects.find(g => g.id === goId) ?? null;
+    }
+
+    return { hit: true, point, normal, distance: toi, hitActor };
+  }
+
+  /**
+   * Box Trace Single — sweep a box from `start` toward `end`.
+   */
+  boxTraceSingle(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+    halfExtents: { x: number; y: number; z: number },
+    orientation: { x: number; y: number; z: number; w: number },
+    _channel?: number,
+    scene?: Scene,
+  ): { hit: boolean; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; distance: number; hitActor: any } {
+    const noHit = { hit: false, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 0 }, distance: 0, hitActor: null };
+    if (!this.world) return noHit;
+
+    const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+    const maxToi = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (maxToi < 1e-6) return noHit;
+
+    const dirX = dx / maxToi, dirY = dy / maxToi, dirZ = dz / maxToi;
+    const shape = new RAPIER.Cuboid(
+      Math.max(halfExtents.x, 0.001),
+      Math.max(halfExtents.y, 0.001),
+      Math.max(halfExtents.z, 0.001),
+    );
+    const shapePos = { x: start.x, y: start.y, z: start.z };
+    const shapeRot = orientation;
+    const shapeVel = { x: dirX, y: dirY, z: dirZ };
+
+    const result = this.world.castShape(shapePos, shapeRot, shapeVel, shape, 0, maxToi, true);
+    if (!result) return noHit;
+
+    const toi = result.time_of_impact;
+    const point = { x: start.x + dirX * toi, y: start.y + dirY * toi, z: start.z + dirZ * toi };
+    const normal = result.normal1 ? { x: result.normal1.x, y: result.normal1.y, z: result.normal1.z } : { x: 0, y: 1, z: 0 };
+
+    let hitActor: any = null;
+    if (result.collider && scene) {
+      const goId = this._colliderToGoId.get(result.collider.handle);
+      if (goId != null) hitActor = scene.gameObjects.find(g => g.id === goId) ?? null;
+    }
+
+    return { hit: true, point, normal, distance: toi, hitActor };
+  }
 }

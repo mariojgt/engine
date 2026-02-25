@@ -657,6 +657,28 @@ export {
   BreakHitResultNode,
 } from './collision/TraceNodes';
 
+// ── Physics 2D Nodes ────────────────────────────────────────
+export {
+  LineTrace2DNode,
+  BoxOverlap2DNode,
+  CircleOverlap2DNode,
+  SetSimulatePhysics2DNode,
+  AddForce2DNode,
+  AddImpulse2DNode,
+  SetVelocity2DNode,
+  GetVelocity2DNode,
+  SetGravityScale2DNode,
+  AddTorque2DNode,
+  SetBodyType2DNode,
+  GetBodyType2DNode,
+  LockRotation2DNode,
+  SetLinearDamping2DNode,
+  OnCollisionBegin2DNode,
+  OnCollisionEnd2DNode,
+  OnTriggerBegin2DNode,
+  OnTriggerEnd2DNode,
+} from './physics2d/Physics2DNodes';
+
 // ── For Each Loop Nodes ─────────────────────────────────────
 export {
   ForEachLoopNode,

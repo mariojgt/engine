@@ -4,13 +4,14 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, strSocket, objectSocket, registerNode } from '../sockets';
+import { execSocket, numSocket, boolSocket, strSocket, objectSocket, vec3Socket, registerNode } from '../sockets';
 
 // ── Get Actor Forward/Right/Up Vector ───────────────────────
 
 export class GetActorForwardVectorNode extends ClassicPreset.Node {
   constructor() {
     super('Get Actor Forward Vector');
+    this.addOutput('vector', new ClassicPreset.Output(vec3Socket, 'Vector'));
     this.addOutput('x', new ClassicPreset.Output(numSocket, 'X'));
     this.addOutput('y', new ClassicPreset.Output(numSocket, 'Y'));
     this.addOutput('z', new ClassicPreset.Output(numSocket, 'Z'));
@@ -21,6 +22,7 @@ registerNode('Get Actor Forward Vector', 'Transform', () => new GetActorForwardV
 export class GetActorRightVectorNode extends ClassicPreset.Node {
   constructor() {
     super('Get Actor Right Vector');
+    this.addOutput('vector', new ClassicPreset.Output(vec3Socket, 'Vector'));
     this.addOutput('x', new ClassicPreset.Output(numSocket, 'X'));
     this.addOutput('y', new ClassicPreset.Output(numSocket, 'Y'));
     this.addOutput('z', new ClassicPreset.Output(numSocket, 'Z'));
@@ -31,12 +33,15 @@ registerNode('Get Actor Right Vector', 'Transform', () => new GetActorRightVecto
 export class GetActorUpVectorNode extends ClassicPreset.Node {
   constructor() {
     super('Get Actor Up Vector');
+    this.addOutput('vector', new ClassicPreset.Output(vec3Socket, 'Vector'));
     this.addOutput('x', new ClassicPreset.Output(numSocket, 'X'));
     this.addOutput('y', new ClassicPreset.Output(numSocket, 'Y'));
     this.addOutput('z', new ClassicPreset.Output(numSocket, 'Z'));
   }
 }
 registerNode('Get Actor Up Vector', 'Transform', () => new GetActorUpVectorNode());
+
+
 
 export class GetActorVelocityNode extends ClassicPreset.Node {
   constructor() {

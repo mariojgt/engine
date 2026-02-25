@@ -1256,12 +1256,28 @@ function resolveValue(
   }
 
   switch (node.label) {
-    case 'Get Actor Forward Vector':
-      return `(function(){ const v = new THREE.Vector3(0,0,1); v.applyQuaternion(gameObject.quaternion); return v; })()`;
-    case 'Get Actor Right Vector':
-      return `(function(){ const v = new THREE.Vector3(1,0,0); v.applyQuaternion(gameObject.quaternion); return v; })()`;
-    case 'Get Actor Up Vector':
-      return `(function(){ const v = new THREE.Vector3(0,1,0); v.applyQuaternion(gameObject.quaternion); return v; })()`;
+    case 'Get Actor Forward Vector': {
+      // 3D: Use gameObject.quaternion. 2D: Check gameObject.group.quaternion. Fallback to identity.
+      const code = `(function(){ var q = (gameObject.group && gameObject.group.quaternion) ? gameObject.group.quaternion : (gameObject.quaternion || new THREE.Quaternion()); const v = new THREE.Vector3(0,0,1); v.applyQuaternion(q); return v; })()`;
+      if (outputKey === 'x') return `(${code}.x)`;
+      if (outputKey === 'y') return `(${code}.y)`;
+      if (outputKey === 'z') return `(${code}.z)`;
+      return code;
+    }
+    case 'Get Actor Right Vector': {
+      const code = `(function(){ var q = (gameObject.group && gameObject.group.quaternion) ? gameObject.group.quaternion : (gameObject.quaternion || new THREE.Quaternion()); const v = new THREE.Vector3(1,0,0); v.applyQuaternion(q); return v; })()`;
+      if (outputKey === 'x') return `(${code}.x)`;
+      if (outputKey === 'y') return `(${code}.y)`;
+      if (outputKey === 'z') return `(${code}.z)`;
+      return code;
+    }
+    case 'Get Actor Up Vector': {
+      const code = `(function(){ var q = (gameObject.group && gameObject.group.quaternion) ? gameObject.group.quaternion : (gameObject.quaternion || new THREE.Quaternion()); const v = new THREE.Vector3(0,1,0); v.applyQuaternion(q); return v; })()`;
+      if (outputKey === 'x') return `(${code}.x)`;
+      if (outputKey === 'y') return `(${code}.y)`;
+      if (outputKey === 'z') return `(${code}.z)`;
+      return code;
+    }
     case 'Get Actor Velocity':
       return `(gameObject.userData.velocity || new THREE.Vector3(0,0,0))`;
     case 'Actor Has Tag': {
@@ -2199,6 +2215,59 @@ function resolveValue(
       if (outputKey === 'boneName') return `(${h} ? ${h}.boneName : "")`;
       return 'null';
     }
+
+    // ── Line Trace by Channel (3D) — output resolution ──
+    case 'Line Trace by Channel': {
+      const v = `__lt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
+      if (outputKey === 'hitX') return `(${v} && ${v}.point ? ${v}.point.x : 0)`;
+      if (outputKey === 'hitY') return `(${v} && ${v}.point ? ${v}.point.y : 0)`;
+      if (outputKey === 'hitZ') return `(${v} && ${v}.point ? ${v}.point.z : 0)`;
+      if (outputKey === 'normalX') return `(${v} && ${v}.normal ? ${v}.normal.x : 0)`;
+      if (outputKey === 'normalY') return `(${v} && ${v}.normal ? ${v}.normal.y : 0)`;
+      if (outputKey === 'normalZ') return `(${v} && ${v}.normal ? ${v}.normal.z : 0)`;
+      if (outputKey === 'hitActor') return `(${v} ? ${v}.hitActor : null)`;
+      if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
+      return 'null';
+    }
+    // ── Sphere Trace by Channel (3D) — output resolution ──
+    case 'Sphere Trace by Channel': {
+      const v = `__st3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
+      if (outputKey === 'hitX') return `(${v} && ${v}.point ? ${v}.point.x : 0)`;
+      if (outputKey === 'hitY') return `(${v} && ${v}.point ? ${v}.point.y : 0)`;
+      if (outputKey === 'hitZ') return `(${v} && ${v}.point ? ${v}.point.z : 0)`;
+      if (outputKey === 'normalX') return `(${v} && ${v}.normal ? ${v}.normal.x : 0)`;
+      if (outputKey === 'normalY') return `(${v} && ${v}.normal ? ${v}.normal.y : 0)`;
+      if (outputKey === 'normalZ') return `(${v} && ${v}.normal ? ${v}.normal.z : 0)`;
+      if (outputKey === 'hitActor') return `(${v} ? ${v}.hitActor : null)`;
+      if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
+      return 'null';
+    }
+    // ── Box Trace (3D) — output resolution ──
+    case 'Box Trace': {
+      const v = `__bt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
+      if (outputKey === 'hitX') return `(${v} && ${v}.point ? ${v}.point.x : 0)`;
+      if (outputKey === 'hitY') return `(${v} && ${v}.point ? ${v}.point.y : 0)`;
+      if (outputKey === 'hitZ') return `(${v} && ${v}.point ? ${v}.point.z : 0)`;
+      if (outputKey === 'hitActor') return `(${v} ? ${v}.hitActor : null)`;
+      if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
+      return 'null';
+    }
+    // ── Line Trace 2D — output resolution ──
+    case 'Line Trace 2D': {
+      const v = `__lt2d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
+      if (outputKey === 'hitX') return `(${v} && ${v}.point ? ${v}.point.x : 0)`;
+      if (outputKey === 'hitY') return `(${v} && ${v}.point ? ${v}.point.y : 0)`;
+      if (outputKey === 'normalX') return `(${v} && ${v}.normal ? ${v}.normal.x : 0)`;
+      if (outputKey === 'normalY') return `(${v} && ${v}.normal ? ${v}.normal.y : 0)`;
+      if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
+      if (outputKey === 'hitActor') return `(${v} ? ${v}.hitActor : null)`;
+      return 'null';
+    }
+
     case 'Point Is Inside': {
       const pS = inputSrc.get(`${nodeId}.point`);
       const cS = inputSrc.get(`${nodeId}.collider`);
@@ -2851,41 +2920,48 @@ function genAction(
     return lines;
   }
   if (node.label === 'Line Trace by Channel') {
-    const sS = inputSrc.get(`${nodeId}.start`);
-    const eS = inputSrc.get(`${nodeId}.end`);
-    const cS = inputSrc.get(`${nodeId}.channel`);
-    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
-    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
-    const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.lineTraceSingle(${s}, ${e}, ${c}) : null; }`);
+    const sxS = inputSrc.get(`${nodeId}.startX`), syS = inputSrc.get(`${nodeId}.startY`), szS = inputSrc.get(`${nodeId}.startZ`);
+    const exS = inputSrc.get(`${nodeId}.endX`), eyS = inputSrc.get(`${nodeId}.endY`), ezS = inputSrc.get(`${nodeId}.endZ`);
+    const dbgS = inputSrc.get(`${nodeId}.drawDebug`);
+    const sx = sxS ? rv(sxS.nid, sxS.ok) : '0', sy = syS ? rv(syS.nid, syS.ok) : '0', sz = szS ? rv(szS.nid, szS.ok) : '0';
+    const ex = exS ? rv(exS.nid, exS.ok) : '0', ey = eyS ? rv(eyS.nid, eyS.ok) : '0', ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+    const _dbgCtrl = (node.inputs as any)['drawDebug']?.control;
+    const dbg = dbgS ? rv(dbgS.nid, dbgS.ok) : (_dbgCtrl && typeof _dbgCtrl.value === 'number' ? (_dbgCtrl.value ? 'true' : 'false') : 'true');
+    const hitVar = `__lt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitVar} = (__engine && __engine.physics) ? __engine.physics.lineTraceSingle({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, 0, __scene) : { hit: false, point:{x:0,y:0,z:0}, normal:{x:0,y:0,z:0}, distance:0, hitActor:null };`);
+    lines.push(`if (${dbg} && __engine && __engine.drawDebugLine) { __engine.drawDebugLine({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, ${hitVar}.hit ? 0xff0000 : 0x00ff00, 2.0); if (${hitVar}.hit && __engine.drawDebugPoint) __engine.drawDebugPoint(${hitVar}.point, 0.08, 0xff0000, 2.0); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node.label === 'Sphere Trace by Channel') {
-    const sS = inputSrc.get(`${nodeId}.start`);
-    const eS = inputSrc.get(`${nodeId}.end`);
+    const sxS = inputSrc.get(`${nodeId}.startX`), syS = inputSrc.get(`${nodeId}.startY`), szS = inputSrc.get(`${nodeId}.startZ`);
+    const exS = inputSrc.get(`${nodeId}.endX`), eyS = inputSrc.get(`${nodeId}.endY`), ezS = inputSrc.get(`${nodeId}.endZ`);
     const rS = inputSrc.get(`${nodeId}.radius`);
-    const cS = inputSrc.get(`${nodeId}.channel`);
-    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
-    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
-    const r = rS ? rv(rS.nid, rS.ok) : '0';
-    const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.sphereTraceSingle(${s}, ${e}, ${r}, ${c}) : null; }`);
+    const dbgS = inputSrc.get(`${nodeId}.drawDebug`);
+    const sx = sxS ? rv(sxS.nid, sxS.ok) : '0', sy = syS ? rv(syS.nid, syS.ok) : '0', sz = szS ? rv(szS.nid, szS.ok) : '0';
+    const ex = exS ? rv(exS.nid, exS.ok) : '0', ey = eyS ? rv(eyS.nid, eyS.ok) : '0', ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+    const r = rS ? rv(rS.nid, rS.ok) : '0.5';
+    const _dbgCtrl = (node.inputs as any)['drawDebug']?.control;
+    const dbg = dbgS ? rv(dbgS.nid, dbgS.ok) : (_dbgCtrl && typeof _dbgCtrl.value === 'number' ? (_dbgCtrl.value ? 'true' : 'false') : 'true');
+    const hitVar = `__st3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitVar} = (__engine && __engine.physics) ? __engine.physics.sphereTraceSingle({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, ${r}, 0, __scene) : { hit: false, point:{x:0,y:0,z:0}, normal:{x:0,y:0,z:0}, distance:0, hitActor:null };`);
+    lines.push(`if (${dbg} && __engine && __engine.drawDebugLine) { __engine.drawDebugLine({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, ${hitVar}.hit ? 0xff0000 : 0x00ff00, 2.0); if (${hitVar}.hit && __engine.drawDebugPoint) __engine.drawDebugPoint(${hitVar}.point, 0.08, 0xff0000, 2.0); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node.label === 'Box Trace') {
-    const sS = inputSrc.get(`${nodeId}.start`);
-    const eS = inputSrc.get(`${nodeId}.end`);
-    const hS = inputSrc.get(`${nodeId}.halfSize`);
-    const oS = inputSrc.get(`${nodeId}.orientation`);
-    const cS = inputSrc.get(`${nodeId}.channel`);
-    const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
-    const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
-    const h = hS ? rv(hS.nid, hS.ok) : '{x:0,y:0,z:0}';
-    const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0,w:1}';
-    const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.boxTraceSingle(${s}, ${e}, ${h}, ${o}, ${c}) : null; }`);
+    const sxS = inputSrc.get(`${nodeId}.startX`), syS = inputSrc.get(`${nodeId}.startY`), szS = inputSrc.get(`${nodeId}.startZ`);
+    const exS = inputSrc.get(`${nodeId}.endX`), eyS = inputSrc.get(`${nodeId}.endY`), ezS = inputSrc.get(`${nodeId}.endZ`);
+    const hxS = inputSrc.get(`${nodeId}.halfX`), hyS = inputSrc.get(`${nodeId}.halfY`), hzS = inputSrc.get(`${nodeId}.halfZ`);
+    const dbgS = inputSrc.get(`${nodeId}.drawDebug`);
+    const sx = sxS ? rv(sxS.nid, sxS.ok) : '0', sy = syS ? rv(syS.nid, syS.ok) : '0', sz = szS ? rv(szS.nid, szS.ok) : '0';
+    const ex = exS ? rv(exS.nid, exS.ok) : '0', ey = eyS ? rv(eyS.nid, eyS.ok) : '0', ez = ezS ? rv(ezS.nid, ezS.ok) : '0';
+    const hx = hxS ? rv(hxS.nid, hxS.ok) : '0.5', hy = hyS ? rv(hyS.nid, hyS.ok) : '0.5', hz = hzS ? rv(hzS.nid, hzS.ok) : '0.5';
+    const _dbgCtrl = (node.inputs as any)['drawDebug']?.control;
+    const dbg = dbgS ? rv(dbgS.nid, dbgS.ok) : (_dbgCtrl && typeof _dbgCtrl.value === 'number' ? (_dbgCtrl.value ? 'true' : 'false') : 'true');
+    const hitVar = `__bt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitVar} = (__engine && __engine.physics) ? __engine.physics.boxTraceSingle({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, {x:${hx},y:${hy},z:${hz}}, {x:0,y:0,z:0,w:1}, 0, __scene) : { hit: false, point:{x:0,y:0,z:0}, normal:{x:0,y:0,z:0}, distance:0, hitActor:null };`);
+    lines.push(`if (${dbg} && __engine && __engine.drawDebugLine) { __engine.drawDebugLine({x:${sx},y:${sy},z:${sz}}, {x:${ex},y:${ey},z:${ez}}, ${hitVar}.hit ? 0xff0000 : 0x00ff00, 2.0); if (${hitVar}.hit && __engine.drawDebugPoint) __engine.drawDebugPoint(${hitVar}.point, 0.08, 0xff0000, 2.0); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -4716,10 +4792,15 @@ function genAction(
     case 'Line Trace 2D': {
       const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`);
       const exS = inputSrc.get(`${nodeId}.endX`); const eyS = inputSrc.get(`${nodeId}.endY`);
+      const dbgS = inputSrc.get(`${nodeId}.drawDebug`);
       const sx = sxS ? rv(sxS.nid, sxS.ok) : '0'; const sy = syS ? rv(syS.nid, syS.ok) : '0';
       const ex = exS ? rv(exS.nid, exS.ok) : '0'; const ey = eyS ? rv(eyS.nid, eyS.ok) : '0';
+      const _dbgCtrl = (node.inputs as any)['drawDebug']?.control;
+      const dbg = dbgS ? rv(dbgS.nid, dbgS.ok) : (_dbgCtrl && typeof _dbgCtrl.value === 'number' ? (_dbgCtrl.value ? 'true' : 'false') : 'true');
       const hitVar = `__lt2d_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')}`;
-      lines.push(`var ${hitVar} = (__engine && __engine.physics2D) ? __engine.physics2D.lineTrace(${sx}, ${sy}, ${ex}, ${ey}) : { hit: false };`);
+      // Access physics2D via scene2DManager (engine shim) or direct engine reference
+      lines.push(`var ${hitVar} = (function(){ var _p2d = (__engine && __engine.scene2DManager) ? __engine.scene2DManager.physics2D : (__engine ? __engine.physics2D : null); return _p2d ? _p2d.lineTrace(${sx}, ${sy}, ${ex}, ${ey}) : { hit: false }; }());`);
+      lines.push(`if (${dbg} && __engine && __engine.scene2DManager && __engine.scene2DManager.debugDraw) { var _dd = __engine.scene2DManager.debugDraw; _dd.drawLine({x:${sx},y:${sy}}, {x:${ex},y:${ey}}, ${hitVar}.hit ? 0xff0000 : 0x00ff00, 2.0); if (${hitVar}.hit && ${hitVar}.point) _dd.drawCircle(${hitVar}.point, 0.15, 0xff0000, 2.0); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -7699,12 +7780,19 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof EmitEventNode) return 'EmitEventNode';
   if (node instanceof OnEventNode) return 'OnEventNode';
 
+  // Fallback: use the node label for any NODE_PALETTE-registered node
+  const paletteEntry = NODE_PALETTE.find(e => e.label === (node as any).label);
+  if (paletteEntry) return (node as any).label;
+
   return 'Unknown';
 }
 
 /** Extract custom data from a node for serialization */
 function getNodeSerialData(node: ClassicPreset.Node): any {
   const data: any = {};
+
+  // Always save the label so palette-based deserialization can find the factory
+  if ((node as any).label) data.label = (node as any).label;
 
   // Save InputControl values
   const controls: any = {};
@@ -7742,6 +7830,16 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     }
   }
   if (Object.keys(controls).length > 0) data.controls = controls;
+
+  // Save controls on input pins (e.g. drawDebug BoolSelectControl)
+  const inputControls: any = {};
+  for (const [key, inp] of Object.entries(node.inputs)) {
+    const ctrl = (inp as any)?.control;
+    if (ctrl instanceof BoolSelectControl) {
+      inputControls[key] = ctrl.value;
+    }
+  }
+  if (Object.keys(inputControls).length > 0) data.inputControls = inputControls;
 
   // Custom fields per node type
   if (node instanceof GetVariableNode || node instanceof SetVariableNode) {
@@ -8727,9 +8825,23 @@ function createNodeFromData(
       return n;
     }
 
-    default:
+    default: {
+      // Fallback: try NODE_PALETTE factory for registered nodes (trace nodes, physics 2D, etc.)
+      const paletteEntry = NODE_PALETTE.find(e => e.label === nd.type || e.label === d.label);
+      if (paletteEntry && paletteEntry.factory) {
+        const n = paletteEntry.factory();
+        // Restore input-level controls (e.g. drawDebug BoolSelectControl)
+        if (d.inputControls) {
+          for (const [key, val] of Object.entries(d.inputControls)) {
+            const ctrl = (n.inputs as any)?.[key]?.control;
+            if (ctrl && typeof ctrl.setValue === 'function') ctrl.setValue(val as number);
+          }
+        }
+        return n;
+      }
       console.warn(`[deserialize] Unknown node type: ${nd.type}`);
       return null;
+    }
   }
 }
 

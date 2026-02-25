@@ -5,6 +5,7 @@
 
 import { ClassicPreset } from 'rete';
 import { execSocket, numSocket, boolSocket, vec3Socket, strSocket, objectSocket, registerNode } from '../sockets';
+import { BoolSelectControl } from '../values/BooleanNode';
 
 // ================================================================
 //  Line Trace 2D
@@ -17,6 +18,8 @@ export class LineTrace2DNode extends ClassicPreset.Node {
     this.addInput('startY', new ClassicPreset.Input(numSocket, 'Start Y'));
     this.addInput('endX', new ClassicPreset.Input(numSocket, 'End X'));
     this.addInput('endY', new ClassicPreset.Input(numSocket, 'End Y'));
+    this.addInput('drawDebug', new ClassicPreset.Input(boolSocket, 'Draw Debug'));
+    (this.inputs['drawDebug'] as any).addControl(new BoolSelectControl(1));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('hit', new ClassicPreset.Output(boolSocket, 'Hit'));
     this.addOutput('hitX', new ClassicPreset.Output(numSocket, 'Hit X'));
@@ -24,6 +27,7 @@ export class LineTrace2DNode extends ClassicPreset.Node {
     this.addOutput('normalX', new ClassicPreset.Output(numSocket, 'Normal X'));
     this.addOutput('normalY', new ClassicPreset.Output(numSocket, 'Normal Y'));
     this.addOutput('distance', new ClassicPreset.Output(numSocket, 'Distance'));
+    this.addOutput('hitActor', new ClassicPreset.Output(objectSocket, 'Hit Actor'));
   }
 }
 registerNode('Line Trace 2D', 'Physics 2D', () => new LineTrace2DNode());
