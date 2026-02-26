@@ -10,7 +10,7 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import type { Engine } from '../engine/Engine';
-import type { ActorAssetManager, ActorAssetJSON } from './ActorAsset';
+import type { ActorAssetManager, ActorAssetJSON, ActorAsset } from './ActorAsset';
 import type { StructureAssetManager, StructureAssetJSON, EnumAssetJSON } from './StructureAsset';
 import type { MeshAssetManager, MeshAssetJSON, MaterialAssetJSON, TextureAssetJSON, AnimationAssetJSON } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintData';

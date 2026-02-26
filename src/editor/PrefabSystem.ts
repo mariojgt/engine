@@ -18,7 +18,7 @@ export function applyAssetToInstance(
   // 1. Core properties
   // Note: We do NOT overwrite name, position, rotation, scale as they are instance-specific.
   instance.actorAssetId = asset.id;
-  instance.actorType = asset.type;
+  instance.actorType = asset.actorType;
   
   // 2. Physics & Transforms
   // Apply the Prefab's physics config. 
