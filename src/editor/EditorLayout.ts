@@ -52,6 +52,9 @@ import { TileEditorPanel } from './TileEditorPanel';
 import { TilemapRenderer } from './TilemapRenderer';
 import type { TilesetAsset } from '../engine/TilemapData';
 import { createIconSpan, Icons, ICON_COLORS } from './icons';
+import { ProfilerPanel } from './profiler/ProfilerPanel';
+import { ProfilerOverlay } from './profiler/ProfilerOverlay';
+import { installProfilerHooks, uninstallProfilerHooks } from './profiler/ProfilerHooks';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -114,6 +117,10 @@ export class EditorLayout {
   private _materialEditor: MaterialEditorPanel | null = null;
   private _shaderGraphEditor: ShaderGraphEditorPanel | null = null;
   private _soundCueEditor: SoundCueEditorPanel | null = null;
+
+  /** Profiler panel and viewport overlay */
+  private _profilerPanel: ProfilerPanel | null = null;
+  private _profilerOverlay: ProfilerOverlay | null = null;
 
   /** Scene composition manager — environment actors (lights, sky, fog, etc.) */
   public composition: SceneCompositionManager;
@@ -1539,4 +1546,112 @@ export class EditorLayout {
 
   /** Get the current scene mode */
   getSceneMode(): SceneMode { return this._current2DMode; }
+
+  // ═══════════════════════════════════════════════════════════
+  //  PROFILER — Open / Close / Hook lifecycle
+  // ═══════════════════════════════════════════════════════════
+
+  /** Open the profiler as a docked panel below the viewport */
+  openProfiler(): void {
+    // Close existing profiler if open
+    this.closeProfiler();
+
+    const panelId = 'profiler';
+    this._api.addPanel({
+      id: panelId,
+      title: 'Profiler',
+      component: 'default',
+      position: {
+        direction: 'below',
+        referencePanel: 'viewport',
+      },
+    });
+    this._injectTabIcon(panelId, Icons.Activity, '#e74c3c');
+
+    // Give the profiler good vertical space
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) { /* not critical */ }
+
+    const renderer = rendererMap.get(panelId);
+    if (renderer) {
+      const wrapper = document.createElement('div');
+      wrapper.style.width = '100%';
+      wrapper.style.height = '100%';
+      renderer.element.appendChild(wrapper);
+
+      this._profilerPanel = new ProfilerPanel(wrapper);
+
+      // Install engine instrumentation hooks
+      installProfilerHooks(this._engine);
+
+      // Wire viewport overlay
+      if (this._viewport) {
+        const viewportEl = this._viewport.getCanvas()?.parentElement;
+        if (viewportEl) {
+          this._profilerOverlay = new ProfilerOverlay(viewportEl);
+          const cam = this._viewport.getCamera();
+          if (cam) this._profilerOverlay.setCamera(cam);
+          this._profilerOverlay.setScene(this._engine.scene.threeScene);
+          this._profilerOverlay.show();
+
+          // Sync actor selection between profiler panel and viewport overlay
+          this._profilerPanel.onActorSelect((actorId) => {
+            if (this._profilerOverlay) {
+              this._profilerOverlay.setSelectedActor(actorId);
+            }
+          });
+          this._profilerOverlay.onActorClick((actorId) => {
+            if (this._profilerPanel) {
+              this._profilerPanel.selectActor(actorId);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  /** Close the profiler panel and clean up hooks */
+  closeProfiler(): void {
+    try {
+      const panel = this._api.getPanel('profiler');
+      if (panel) this._api.removePanel(panel);
+    } catch (_e) { /* ignore */ }
+
+    if (this._profilerOverlay) {
+      this._profilerOverlay.destroy();
+      this._profilerOverlay = null;
+    }
+    if (this._profilerPanel) {
+      this._profilerPanel.destroy();
+      this._profilerPanel = null;
+    }
+    uninstallProfilerHooks();
+  }
+
+  /** Notify the profiler that play mode started (does NOT auto-start recording) */
+  notifyPlayStarted(sceneName: string): void {
+    if (this._profilerPanel) {
+      // Just save the scene name so the manual Record button uses it
+      this._profilerPanel.setPlaySceneName(sceneName);
+    }
+    // Update overlay camera if the play camera changed
+    if (this._profilerOverlay && this._viewport) {
+      const cam = this._viewport.getCamera();
+      if (cam) this._profilerOverlay.setCamera(cam);
+    }
+  }
+
+  /** Notify the profiler that play mode stopped */
+  notifyPlayStopped(): void {
+    if (this._profilerPanel) {
+      this._profilerPanel.onPlayStopped();
+    }
+  }
+
+  /** Get the profiler panel (for external access) */
+  getProfilerPanel(): ProfilerPanel | null {
+    return this._profilerPanel;
+  }
 }

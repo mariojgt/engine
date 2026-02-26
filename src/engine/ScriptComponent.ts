@@ -27,6 +27,10 @@ export interface ScriptContext {
   gameInstance?: any;
   /** ProjectManager reference */
   projectManager?: any;
+  /** Profiler tracking callback — null/undefined when profiler is inactive.
+   *  Signature: (nodeLabel, nodeId, category?) => void
+   *  The 3rd arg is baked at codegen from NODE_PALETTE category. */
+  __pTrack?: ((label: string, id: string, category?: string) => void) | null;
 }
 
 /**
@@ -110,7 +114,7 @@ export class ScriptComponent {
     // user-defined functions in the preamble can access them.  Each
     // lifecycle closure assigns (not var-declares) to update them.
     const factoryBody = `
-  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __engine, __gameInstance, __ctx;
+  var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __engine, __gameInstance, __ctx, __pTrack;
 
 ${preamble}
 
@@ -133,6 +137,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${beginPlay}
 };` : ''}
 
@@ -151,6 +156,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${tick}
 };` : ''}
 
@@ -169,6 +175,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${onDestroy}
 };` : ''}
 
@@ -188,7 +195,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od };
     if (!body.trim()) return null;
     return new Function(
       'ctx',
-      `const __ctx = ctx;\nconst { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\nconst __meshAssetManager = ctx.meshAssetManager || null;\nconst __loadMeshFromAsset = ctx.loadMeshFromAsset || null;\nconst __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;\nconst __engine = ctx.engine || null;\n${body}`
+      `const __ctx = ctx;\nconst { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\nconst __meshAssetManager = ctx.meshAssetManager || null;\nconst __loadMeshFromAsset = ctx.loadMeshFromAsset || null;\nconst __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;\nconst __engine = ctx.engine || null;\nconst __pTrack = ctx.__pTrack || null;\n${body}`
     ) as (ctx: ScriptContext) => void;
   }
 

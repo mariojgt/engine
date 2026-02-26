@@ -1074,7 +1074,7 @@ export class UIManager {
     onDestroy: ((ctx: any) => void) | null;
   } {
     const factoryBody = `
-  var __widgetHandle, __uiManager, print, __widgetState, __engine, __gameInstance, __ctx, deltaTime, elapsedTime;
+  var __widgetHandle, __uiManager, print, __widgetState, __engine, __gameInstance, __ctx, deltaTime, elapsedTime, __pTrack;
 ${preamble}
 
 var __setup = null;
@@ -1105,6 +1105,7 @@ ${beginPlay.trim() ? `__bp = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${beginPlay}
 };` : ''}
 
@@ -1114,6 +1115,7 @@ ${tick.trim() ? `__tk = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${tick}
 };` : ''}
 
@@ -1123,6 +1125,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   elapsedTime = ctx.elapsedTime;
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
+  __pTrack = ctx.__pTrack || null;
   ${onDestroy}
 };` : ''}
 

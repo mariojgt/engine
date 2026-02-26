@@ -63,6 +63,8 @@ async function main() {
         <div class="toolbar-dropdown-item" id="menu-dock-all">Dock All Panels</div>
         <div class="toolbar-dropdown-item" id="menu-reset-layout">Reset Layout</div>
         <div class="toolbar-dropdown-divider"></div>
+        <div class="toolbar-dropdown-item" id="menu-profiler">${iconHTML(Icons.Activity, 'xs')} Profiler</div>
+        <div class="toolbar-dropdown-divider"></div>
         <div class="toolbar-dropdown-item disabled" id="menu-detached-header" style="opacity:0.5;pointer-events:none;font-style:italic;">Detached Panels</div>
         <div id="detached-panels-list"></div>
       </div>
@@ -421,6 +423,11 @@ async function main() {
     dockingMgr.dockAll();
   });
 
+  document.getElementById('menu-profiler')!.addEventListener('click', () => {
+    windowDropdown.classList.remove('show');
+    editor.openProfiler();
+  });
+
   function _refreshDetachedList() {
     detachedListEl.innerHTML = '';
     const panels = dockingMgr.getDetachedPanels();
@@ -775,6 +782,9 @@ async function main() {
       engine.scene.setComponentHelpersVisible(false);
       playBtn.style.display = 'none';
       stopBtn.style.display = '';
+
+      // Notify profiler that play started
+      editor.notifyPlayStarted(projectManager.activeSceneName || 'Untitled');
     }
   });
 
@@ -797,6 +807,9 @@ async function main() {
 
     // Always run stop sequence (works for both in-editor and gameplay window modes)
     engine.onPlayStopped();
+
+    // Notify profiler that play stopped
+    editor.notifyPlayStopped();
 
     // Stop 2D play mode (cleans up sprite actors, physics, camera follow)
     let was2DPlaying = false;

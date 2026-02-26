@@ -2397,6 +2397,16 @@ function genAction(
     return walkExec(nodeId, 'exec', nodeMap, inputSrc, outputDst, bp);
   }
   const lines: string[] = [];
+
+  // ── Profiler: emit a tracking call for every action node so the profiler
+  //    can see which nodes executed. __pTrack is null when profiler is inactive
+  //    so the short-circuit (&&) costs virtually nothing at runtime.
+  //    The 3rd arg is the node's palette category, baked at codegen time so
+  //    future nodes are automatically categorised without touching the profiler.
+  const _safeLabel = node.label.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const _nodeCategory = getNodeCategory(node);
+  lines.push(`__pTrack && __pTrack("${_safeLabel}", "${nodeId}", "${_nodeCategory}");`);
+
   const rv = (nid: string, ok: string) => resolveValue(nid, ok, nodeMap, inputSrc, bp);
   const we = (nid: string, eo: string) => walkExec(nid, eo, nodeMap, inputSrc, outputDst, bp);
 
