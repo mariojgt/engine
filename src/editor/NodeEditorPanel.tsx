@@ -5530,10 +5530,14 @@ function generateFullCode(
 
   // Variable declarations
   const varDecls: string[] = [];
+  const varNames: string[] = [];
   for (const v of bp.variables) {
-    varDecls.push(`let __var_${sanitizeName(v.name)} = ${varDefaultStr(v, bp)};`);
+    const sName = sanitizeName(v.name);
+    varDecls.push(`let __var_${sName} = ${varDefaultStr(v, bp)};`);
+    varNames.push(`"${v.name}": __var_${sName}`);
   }
   if (varDecls.length > 0) parts.push(varDecls.join('\n'));
+  parts.push(`function __getVars() { return { ${varNames.join(', ')} }; }`);
 
   // Function bodies
   for (const fn of bp.functions) {

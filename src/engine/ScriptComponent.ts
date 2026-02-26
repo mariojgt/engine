@@ -52,6 +52,7 @@ export class ScriptComponent {
   private _beginPlayFn: ((ctx: ScriptContext) => void) | null = null;
   private _tickFn: ((ctx: ScriptContext) => void) | null = null;
   private _onDestroyFn: ((ctx: ScriptContext) => void) | null = null;
+  public getVars: (() => Record<string, any>) | null = null;
   private _hasStarted = false;
 
   compile(): boolean {
@@ -75,12 +76,14 @@ export class ScriptComponent {
         this._beginPlayFn = null;
         this._tickFn = this._compileSingleFn(code);
         this._onDestroyFn = null;
+        this.getVars = null;
       } else {
         // Compile as a single closure that shares variable scope
         const compiled = this._compileShared(preamble, beginPlayCode, tickCode, destroyCode);
         this._beginPlayFn = compiled.beginPlay;
         this._tickFn = compiled.tick;
         this._onDestroyFn = compiled.onDestroy;
+        this.getVars = compiled.getVars;
       }
 
       this._hasStarted = false;
@@ -107,6 +110,7 @@ export class ScriptComponent {
     beginPlay: ((ctx: ScriptContext) => void) | null;
     tick: ((ctx: ScriptContext) => void) | null;
     onDestroy: ((ctx: ScriptContext) => void) | null;
+    getVars: (() => Record<string, any>) | null;
   } {
     // We build a factory function that returns { beginPlay, tick, onDestroy } closures.
     // The preamble runs once at compile time (declares shared variables/functions).
@@ -179,13 +183,14 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   ${onDestroy}
 };` : ''}
 
-return { beginPlay: __bp, tick: __tk, onDestroy: __od };
+return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars !== 'undefined' ? __getVars : null };
 `;
 
     const factory = new Function(factoryBody) as () => {
       beginPlay: ((ctx: ScriptContext) => void) | null;
       tick: ((ctx: ScriptContext) => void) | null;
       onDestroy: ((ctx: ScriptContext) => void) | null;
+      getVars: (() => Record<string, any>) | null;
     };
 
     return factory();

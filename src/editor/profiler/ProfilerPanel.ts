@@ -494,6 +494,7 @@ export class ProfilerPanel {
         <div class="profiler-session-actions">
           <button data-action="load" data-sid="${esc(s.id)}">Load</button>
           <button data-action="export" data-sid="${esc(s.id)}">Export</button>
+          <button data-action="export-trace" data-sid="${esc(s.id)}">Trace</button>
           <button class="delete" data-action="delete" data-sid="${esc(s.id)}">Delete</button>
         </div>
       </div>`;
@@ -509,6 +510,7 @@ export class ProfilerPanel {
         if (!sid) return;
         if (action === 'load') this._store.loadSession(sid);
         else if (action === 'export') this._exportSession(sid);
+        else if (action === 'export-trace') this._exportTrace(sid);
         else if (action === 'delete') this._store.deleteSession(sid);
       });
     });
@@ -522,6 +524,18 @@ export class ProfilerPanel {
     const a = document.createElement('a');
     a.href = url;
     a.download = `profiler_${sid}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private _exportTrace(sid: string): void {
+    const json = this._store.exportChromeTracingJSON(sid);
+    if (!json) return;
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trace_${sid}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -592,7 +606,10 @@ export class ProfilerPanel {
     }
     html += '</tr></thead><tbody>';
 
-    for (const a of actors) {
+    const MAX_ROWS = 200;
+    const displayActors = actors.slice(0, MAX_ROWS);
+
+    for (const a of displayActors) {
       const isNew = store.newlySpawnedIds.has(a.id);
       const isSelected = this._detailOpen && this._detailType === 'actor' && this._detailId === a.id;
       html += `<tr class="${isNew ? 'newly-spawned' : ''} ${isSelected ? 'selected' : ''}" data-actor-id="${a.id}">
@@ -606,6 +623,11 @@ export class ProfilerPanel {
         <td><span style="color:#555">F${a.spawnedAtFrame}</span> ${fmtTime(a.spawnedAtTime)}</td>
       </tr>`;
     }
+    
+    if (actors.length > MAX_ROWS) {
+      html += `<tr><td colspan="${cols.length}" style="text-align:center; color:#888; padding: 8px;">Showing ${MAX_ROWS} of ${actors.length} actors. Use search to filter.</td></tr>`;
+    }
+    
     html += '</tbody></table>';
     this._tabContent.innerHTML = html;
 
@@ -665,7 +687,10 @@ export class ProfilerPanel {
     }
     html += '</tr></thead><tbody>';
 
-    for (const c of classes) {
+    const MAX_ROWS = 200;
+    const displayClasses = classes.slice(0, MAX_ROWS);
+
+    for (const c of displayClasses) {
       const isSelected = this._detailOpen && this._detailType === 'class' && this._detailId === c.classId;
       html += `<tr class="${isSelected ? 'selected' : ''}" data-class-id="${esc(c.classId)}">
         <td>${highlightText(c.className, q)}</td>
@@ -676,6 +701,11 @@ export class ProfilerPanel {
         <td>${fmtMs(c.avgExecTimeMs)}</td>
       </tr>`;
     }
+    
+    if (classes.length > MAX_ROWS) {
+      html += `<tr><td colspan="${cols.length}" style="text-align:center; color:#888; padding: 8px;">Showing ${MAX_ROWS} of ${classes.length} classes. Use search to filter.</td></tr>`;
+    }
+    
     html += '</tbody></table>';
     this._tabContent.innerHTML = html;
 
@@ -737,7 +767,10 @@ export class ProfilerPanel {
     }
     html += '</tr></thead><tbody>';
 
-    for (const n of nodes) {
+    const MAX_ROWS = 200;
+    const displayNodes = nodes.slice(0, MAX_ROWS);
+
+    for (const n of displayNodes) {
       const isSelected = this._detailOpen && this._detailType === 'node' && this._detailId === n.nodeId;
       html += `<tr class="${isSelected ? 'selected' : ''}" data-node-id="${esc(n.nodeId)}">
         <td>${highlightText(n.nodeName, q)}</td>
@@ -750,6 +783,11 @@ export class ProfilerPanel {
         <td>${highlightText(n.triggeredBy, q)}</td>
       </tr>`;
     }
+    
+    if (nodes.length > MAX_ROWS) {
+      html += `<tr><td colspan="${cols.length}" style="text-align:center; color:#888; padding: 8px;">Showing ${MAX_ROWS} of ${nodes.length} nodes. Use search to filter.</td></tr>`;
+    }
+    
     html += '</tbody></table>';
     this._tabContent.innerHTML = html;
 
@@ -810,9 +848,10 @@ export class ProfilerPanel {
     }
     html += '</tr></thead><tbody>';
 
-    // Show max 500 most recent
-    const visible = events.slice(-500);
-    for (const e of visible) {
+    const MAX_ROWS = 500;
+    const displayEvents = events.slice(0, MAX_ROWS);
+
+    for (const e of displayEvents) {
       const isSelected = this._detailOpen && this._detailType === 'event' && this._detailId === e.id;
       html += `<tr class="${isSelected ? 'selected' : ''}" data-event-id="${e.id}" style="border-left:3px solid ${e.color}">
         <td>${eventBadge(e.type)}</td>
@@ -824,6 +863,11 @@ export class ProfilerPanel {
         <td style="max-width:300px">${highlightText(e.detail, q)}</td>
       </tr>`;
     }
+    
+    if (events.length > MAX_ROWS) {
+      html += `<tr><td colspan="${cols.length}" style="text-align:center; color:#888; padding: 8px;">Showing ${MAX_ROWS} of ${events.length} events. Use search to filter.</td></tr>`;
+    }
+    
     html += '</tbody></table>';
     this._tabContent.innerHTML = html;
 
@@ -927,6 +971,30 @@ export class ProfilerPanel {
     }
     html += '</ul></div>';
 
+    // Live Variables
+    if (this._store.fetchActorVariables && actor.status !== 'DESTROYING') {
+      const vars = this._store.fetchActorVariables(actor.id);
+      if (vars && Object.keys(vars).length > 0) {
+        html += `<div class="profiler-detail-section">
+          <div class="profiler-detail-section-title" style="color: #2ecc71;">Live Variables (Watch)</div>`;
+        for (const [key, val] of Object.entries(vars)) {
+          let displayVal = String(val);
+          if (typeof val === 'object' && val !== null) {
+            if (val.x !== undefined && val.y !== undefined) {
+              displayVal = `(${val.x.toFixed(2)}, ${val.y.toFixed(2)}${val.z !== undefined ? `, ${val.z.toFixed(2)}` : ''})`;
+            } else {
+              displayVal = JSON.stringify(val);
+            }
+          }
+          html += `<div class="profiler-detail-row">
+            <span class="profiler-detail-row-label">${esc(key)}</span>
+            <span class="profiler-detail-row-value" style="font-family: monospace; color: #f1c40f;">${esc(displayVal)}</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+    }
+
     // Related events
     const actorEvents = this._store.events.filter(
       e => e.sourceActorId === actor.id || e.targetActorId === actor.id
@@ -957,7 +1025,9 @@ export class ProfilerPanel {
       html += '</div>';
     }
 
+    const prevScroll = this._detailBody.scrollTop;
     this._detailBody.innerHTML = html;
+    this._detailBody.scrollTop = prevScroll;
 
     // Wire detail links
     this._detailBody.querySelectorAll('[data-event-link]').forEach(el => {
@@ -1005,7 +1075,9 @@ export class ProfilerPanel {
     }
     html += '</div>';
 
+    const prevScroll = this._detailBody.scrollTop;
     this._detailBody.innerHTML = html;
+    this._detailBody.scrollTop = prevScroll;
     this._detailBody.querySelectorAll('[data-actor-link]').forEach(el => {
       el.addEventListener('click', () => {
         const id = Number((el as HTMLElement).dataset.actorLink);
@@ -1077,7 +1149,9 @@ export class ProfilerPanel {
       html += '</ul></div>';
     }
 
+    const prevScroll = this._detailBody.scrollTop;
     this._detailBody.innerHTML = html;
+    this._detailBody.scrollTop = prevScroll;
     this._detailBody.querySelectorAll('[data-actor-link]').forEach(el => {
       el.addEventListener('click', () => {
         const id = Number((el as HTMLElement).dataset.actorLink);
@@ -1125,7 +1199,9 @@ export class ProfilerPanel {
       html += '</div>';
     }
 
+    const prevScroll = this._detailBody.scrollTop;
     this._detailBody.innerHTML = html;
+    this._detailBody.scrollTop = prevScroll;
     this._detailBody.querySelectorAll('[data-actor-link]').forEach(el => {
       el.addEventListener('click', () => {
         const id = Number((el as HTMLElement).dataset.actorLink);

@@ -169,9 +169,15 @@ export class ProfilerStore {
   events: EventRecord[] = [];
   frameSnapshots: FrameSnapshot[] = [];
 
+  // ── Limits ────────────────────────────────────────────
+  private readonly MAX_FRAMES = 10000;
+  private readonly MAX_EVENTS = 50000;
+  private readonly MAX_DESTROYED_ACTORS = 5000;
+
   // ── Frame-local accumulators (reset each frame) ───────
   private _nodeExecsThisFrame = 0;
   private _eventsFiredThisFrame = 0;
+  private _lastGpuTimeMs: number | null = null;
 
   // ── Sparkline history (last 120 samples) ──────────────
   fpsHistory: number[] = [];
@@ -190,6 +196,9 @@ export class ProfilerStore {
 
   // ── Saved sessions list ───────────────────────────────
   savedSessions: { id: string; name: string; sceneName: string; date: number; duration: number; frames: number }[] = [];
+
+  // ── Live Variable Fetcher (injected by ProfilerHooks) ──
+  fetchActorVariables: ((actorId: number) => Record<string, any> | null) | null = null;
 
   // ── Update timer ──────────────────────────────────────
   private _uiUpdateTimer: ReturnType<typeof setInterval> | null = null;
@@ -366,9 +375,67 @@ export class ProfilerStore {
     return json || null;
   }
 
+  exportChromeTracingJSON(sessionId: string): string | null {
+    const json = localStorage.getItem(`profiler_session_${sessionId}`);
+    if (!json) return null;
+    try {
+      const raw = JSON.parse(json);
+      const session: ProfilerSessionData = {
+        ...raw,
+        actors: new Map(Object.entries(raw.actors || {}).map(([k, v]: [string, any]) => [Number(k), v])),
+        classes: new Map(Object.entries(raw.classes || {})),
+        nodeExecs: new Map(Object.entries(raw.nodeExecs || {})),
+      };
+
+      const traceEvents: any[] = [];
+      const pid = 1;
+      const tid = 1;
+
+      // Add frame snapshots as counters
+      for (const f of session.frameSnapshots) {
+        const ts = f.time * 1000000; // seconds to microseconds
+        traceEvents.push({
+          name: "FPS", ph: "C", ts, pid, tid,
+          args: { fps: f.fps }
+        });
+        traceEvents.push({
+          name: "CPU Time", ph: "C", ts, pid, tid,
+          args: { ms: f.cpuFrameTimeMs }
+        });
+        traceEvents.push({
+          name: "GPU Time", ph: "C", ts, pid, tid,
+          args: { ms: f.gpuFrameTimeMs }
+        });
+        traceEvents.push({
+          name: "Memory", ph: "C", ts, pid, tid,
+          args: { MB: f.memoryMB }
+        });
+      }
+
+      // Add events as instant events
+      for (const e of session.events) {
+        const ts = e.time * 1000000;
+        traceEvents.push({
+          name: e.type, cat: "event", ph: "i", ts, pid, tid, s: "g",
+          args: { detail: e.detail, source: e.sourceActorName, target: e.targetActorName }
+        });
+      }
+
+      return JSON.stringify({ traceEvents });
+    } catch (e) {
+      console.error('[ProfilerStore] Failed to export Chrome Tracing:', e);
+      return null;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════
   //  Data Ingestion — Called by Instrumentation Hooks
   // ═══════════════════════════════════════════════════════
+
+  /** Record actual GPU frame time from WebGL/WebGPU timer queries */
+  recordGpuTime(ms: number): void {
+    this._lastGpuTimeMs = ms;
+  }
 
   /** Called once per engine frame to advance frame counter and capture metrics */
   onFrame(dt: number, actorCount: number): void {
@@ -384,7 +451,7 @@ export class ProfilerStore {
       time: (now - this._startTime) / 1000,
       fps: Math.round(fps),
       cpuFrameTimeMs: Math.round(cpuMs * 100) / 100,
-      gpuFrameTimeMs: Math.round(cpuMs * 0.6 * 100) / 100, // estimate
+      gpuFrameTimeMs: this._lastGpuTimeMs !== null ? Math.round(this._lastGpuTimeMs * 100) / 100 : Math.round(cpuMs * 0.6 * 100) / 100, // estimate if no real data
       memoryMB: (performance as any).memory
         ? Math.round(((performance as any).memory.usedJSHeapSize / (1024 * 1024)) * 100) / 100
         : 0,
@@ -393,6 +460,9 @@ export class ProfilerStore {
       eventsFiredThisFrame: this._eventsFiredThisFrame,
     };
     this.frameSnapshots.push(snap);
+    if (this.frameSnapshots.length > this.MAX_FRAMES) {
+      this.frameSnapshots.shift();
+    }
 
     // Push to sparklines (cap at 120)
     this._pushSparkline(this.fpsHistory, snap.fps);
@@ -406,6 +476,7 @@ export class ProfilerStore {
     // Reset per-frame accumulators
     this._nodeExecsThisFrame = 0;
     this._eventsFiredThisFrame = 0;
+    this._lastGpuTimeMs = null;
   }
 
   /** Register an actor that's in the scene */
@@ -491,6 +562,9 @@ export class ProfilerStore {
     if (a) {
       a.status = 'DESTROYING';
       this.destroyedActors.push({ ...a });
+      if (this.destroyedActors.length > this.MAX_DESTROYED_ACTORS) {
+        this.destroyedActors.shift();
+      }
       this.actors.delete(actorId);
 
       this.logEvent({
@@ -614,6 +688,9 @@ export class ProfilerStore {
       ...ev,
     };
     this.events.push(record);
+    if (this.events.length > this.MAX_EVENTS) {
+      this.events.shift();
+    }
 
     // Update actor's last event
     if (ev.sourceActorId != null) {

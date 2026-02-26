@@ -1404,6 +1404,32 @@ export function installProfilerHooks(engine: Engine): void {
     };
   }
 
+  // ─────────────────────────────────────────────────────
+  //  HOOK 11: Live Variable Fetcher
+  // ─────────────────────────────────────────────────────
+  store.fetchActorVariables = (actorId: number) => {
+    if (!_engine) return null;
+    let actor = _engine.scene.findById(actorId);
+    if (!actor && _engine.scene2DManager) {
+      actor = _engine.scene2DManager.findById(actorId);
+    }
+    if (!actor) return null;
+
+    const vars: Record<string, any> = {};
+    if (actor.scripts) {
+      for (const script of actor.scripts) {
+        if (script.getVars) {
+          try {
+            Object.assign(vars, script.getVars());
+          } catch (e) {
+            console.warn('[Profiler] Error fetching vars for actor', actorId, e);
+          }
+        }
+      }
+    }
+    return Object.keys(vars).length > 0 ? vars : null;
+  };
+
   console.log('[Profiler] All hooks installed');
 }
 
@@ -1463,6 +1489,9 @@ export function uninstallProfilerHooks(): void {
   _currentActorId = -1;
   _currentActorName = '';
   _currentGraphName = '';
+
+  const store = ProfilerStore.getInstance();
+  store.fetchActorVariables = null;
 
   console.log('[Profiler] Hooks uninstalled');
 }
