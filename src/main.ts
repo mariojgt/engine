@@ -15,6 +15,7 @@ import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
 import { EventAssetManager } from './editor/EventAsset';
+import { AIAssetManager } from './editor/ai/AIAssetManager';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
@@ -163,6 +164,11 @@ async function main() {
 
   // Wire up sound library callbacks into content browser
   editor.setSoundLibraryCallbacks();
+
+  // Create AI asset manager (Behavior Trees, Blackboards, Tasks, Decorators, Services, AI Controllers)
+  const aiManager = new AIAssetManager();
+  projectManager.setAIManager(aiManager);
+  editor.setAIManager(aiManager);
 
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);
@@ -733,6 +739,9 @@ async function main() {
             editor.scene2DManager.spawnSpriteActor2D(go, editor.assetManager, editor.animBPManager);
           }
         }
+
+        // ── Create AI controllers for 2D actors ──
+        editor.scene2DManager.setupAIControllers2D();
 
         // Camera follows the first character pawn using config smoothing / dead zone
         if (firstPawnActor && editor.scene2DManager.camera2D) {

@@ -114,6 +114,7 @@ const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
 const EVENTS_DIR = 'Events';
 const INPUT_MAPPINGS_DIR = 'InputMappings';
+const AI_ASSETS_DIR = 'AIAssets';
 const TEXTURES_DIR = 'Textures';
 const FONTS_DIR = 'Fonts';
 const SOUNDS_DIR = 'Sounds';
@@ -136,6 +137,7 @@ export class ProjectManager {
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
+  private _aiManager: import('./ai/AIAssetManager').AIAssetManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
@@ -222,6 +224,12 @@ export class ProjectManager {
       this._syncInputMappingsToEngine();
       this._dirty = true;
     });
+  }
+
+  /** Wire up the AIAssetManager for saving/loading AI assets */
+  setAIManager(mgr: import('./ai/AIAssetManager').AIAssetManager): void {
+    this._aiManager = mgr;
+    mgr.onChanged(() => { this._dirty = true; });
   }
 
   private _syncInputMappingsToEngine(): void {
@@ -443,6 +451,9 @@ export class ProjectManager {
       await this._loadInputMappings();
       this._syncInputMappingsToEngine();
 
+      // Load AI assets
+      await this._loadAIAssets();
+
       // Load texture library
       await this._loadTextures();
 
@@ -543,6 +554,10 @@ export class ProjectManager {
       // Save input mappings
       await this._saveInputMappings();
       console.log('[ProjectManager]   ✓ input mappings');
+
+      // Save AI assets (behavior trees, blackboards, tasks, decorators, services, controllers)
+      await this._saveAIAssets();
+      console.log('[ProjectManager]   ✓ AI assets');
 
       // Save texture library
       await this._saveTextures();
@@ -1525,6 +1540,35 @@ export class ProjectManager {
 
     if (allMappings.length > 0) {
       this._inputMappingManager.importAll(allMappings);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load AI Assets
+  // ============================================================
+
+  private async _saveAIAssets(): Promise<void> {
+    if (!this._projectPath || !this._aiManager) return;
+    const aiDir = `${this._projectPath}/${AI_ASSETS_DIR}`;
+    if (!(await fsExists(aiDir))) {
+      await fsCreateProjectDirs(this._projectPath, AI_ASSETS_DIR);
+    }
+    const allData = this._aiManager.exportAll();
+    await fsWrite(`${aiDir}/ai_assets.json`, JSON.stringify(allData, null, 2));
+  }
+
+  private async _loadAIAssets(): Promise<void> {
+    if (!this._projectPath || !this._aiManager) return;
+    const aiDir = `${this._projectPath}/${AI_ASSETS_DIR}`;
+    if (!(await fsExists(aiDir))) return;
+    const filePath = `${aiDir}/ai_assets.json`;
+    if (!(await fsExists(filePath))) return;
+    try {
+      const raw = await fsRead(filePath);
+      const data = JSON.parse(raw);
+      this._aiManager.importAll(data);
+    } catch (e) {
+      console.warn('[ProjectManager] Failed to load AI assets:', e);
     }
   }
 

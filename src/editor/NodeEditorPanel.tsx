@@ -400,6 +400,44 @@ import {
   EmitEventNode,
   OnEventNode,
   EventSelectControl,
+  // AI Task / BT Nodes
+  AIReceiveExecuteNode,
+  AIReceiveTickNode,
+  AIReceiveAbortNode,
+  FinishExecuteNode,
+  AIPerformConditionCheckNode,
+  AIObserverActivatedNode,
+  AIObserverDeactivatedNode,
+  ReturnNode,
+  AIServiceActivatedNode,
+  AIServiceTickNode,
+  AIServiceDeactivatedNode,
+  OnPossessNode,
+  OnUnpossessNode,
+  OnMoveCompletedNode,
+  OnPerceptionUpdatedNode,
+  RunBehaviorTreeNode,
+  MoveToLocationNode,
+  GetBlackboardValueNode,
+  SetBlackboardValueNode,
+  ClearBlackboardValueNode,
+  RotateToFaceNode,
+  // NavMesh Nodes
+  NavMeshBuildNode,
+  NavMeshIsReadyNode,
+  NavMeshFindPathNode,
+  NavMeshFindClosestPointNode,
+  NavMeshRandomPointNode,
+  NavMeshAddAgentNode,
+  NavMeshRemoveAgentNode,
+  NavMeshAgentMoveToNode,
+  NavMeshGetAgentPositionNode,
+  NavMeshGetAgentVelocityNode,
+  NavMeshAgentReachedTargetNode,
+  NavMeshAddBoxObstacleNode,
+  NavMeshAddCylinderObstacleNode,
+  NavMeshRemoveObstacleNode,
+  NavMeshToggleDebugNode,
 } from './nodes';
 import { SoundLibrary } from './SoundLibrary';
 import { TextureLibrary } from './TextureLibrary';
@@ -1088,6 +1126,123 @@ function resolveValue(
   }
   if (node instanceof AIGetDistanceToTargetNode) {
     return `(gameObject.aiController ? gameObject.aiController.getDistanceToTarget() : 0)`;
+  }
+  // ── AI Task / BT node outputs ──
+  if (node instanceof AIReceiveExecuteNode || node instanceof AIReceiveAbortNode ||
+      node instanceof AIPerformConditionCheckNode || node instanceof AIObserverActivatedNode ||
+      node instanceof AIObserverDeactivatedNode || node instanceof AIServiceActivatedNode ||
+      node instanceof AIServiceDeactivatedNode) {
+    if (outputKey === 'ownerController') return `(gameObject.aiController || null)`;
+    if (outputKey === 'controlledPawn') return `gameObject`;
+    return 'null';
+  }
+  if (node instanceof AIReceiveTickNode || node instanceof AIServiceTickNode) {
+    if (outputKey === 'ownerController') return `(gameObject.aiController || null)`;
+    if (outputKey === 'controlledPawn') return `gameObject`;
+    if (outputKey === 'deltaTime') return `deltaTime`;
+    return 'null';
+  }
+  if (node instanceof OnPossessNode) {
+    if (outputKey === 'possessedPawn') return `gameObject`;
+    return 'null';
+  }
+  if (node instanceof OnMoveCompletedNode) {
+    if (outputKey === 'requestId') return `0`;
+    if (outputKey === 'result') return `(gameObject.aiController ? (gameObject.aiController.state === 'idle' ? 'Success' : 'InProgress') : 'Failed')`;
+    return 'null';
+  }
+  if (node instanceof OnPerceptionUpdatedNode) {
+    if (outputKey === 'updatedActors') return `[]`;
+    return 'null';
+  }
+  // Blackboard
+  if (node instanceof GetBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : "''";
+    return `(gameObject.aiController ? gameObject.aiController.getBlackboardValue(${key}) : null)`;
+  }
+  // RunBehaviorTree / MoveToLocation / RotateToFace — result outputs (set by genAction temp vars)
+  if (node instanceof RunBehaviorTreeNode) {
+    if (outputKey === 'success') return `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof MoveToLocationNode) {
+    if (outputKey === 'success') return `__mtl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof RotateToFaceNode) {
+    if (outputKey === 'success') return `__rtf_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  // ── NavMesh expression nodes ──
+  if (node instanceof NavMeshIsReadyNode) {
+    return `(__engine && __engine.navMeshSystem ? __engine.navMeshSystem.isReady : false)`;
+  }
+  if (node instanceof NavMeshFindClosestPointNode) {
+    const posS = inputSrc.get(`${nodeId}.position`);
+    const pos = posS ? resolveValue(posS.nid, posS.ok, nodeMap, inputSrc, bp) : '{x:0,y:0,z:0}';
+    if (outputKey === 'closestPoint') return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.findClosestPoint(${pos}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+    if (outputKey === 'found') return `(__engine && __engine.navMeshSystem ? !!__engine.navMeshSystem.findClosestPoint(${pos}) : false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshRandomPointNode) {
+    const cS = inputSrc.get(`${nodeId}.center`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const center = cS ? resolveValue(cS.nid, cS.ok, nodeMap, inputSrc, bp) : '{x:0,y:0,z:0}';
+    const radius = rS ? resolveValue(rS.nid, rS.ok, nodeMap, inputSrc, bp) : '10';
+    if (outputKey === 'point') return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.findRandomPoint(${center}, ${radius}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+    if (outputKey === 'found') return `(__engine && __engine.navMeshSystem ? !!__engine.navMeshSystem.findRandomPoint(${center}, ${radius}) : false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshGetAgentPositionNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.getAgentPosition(${agentId}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+  }
+  if (node instanceof NavMeshGetAgentVelocityNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.getAgentVelocity(${agentId}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+  }
+  if (node instanceof NavMeshAgentReachedTargetNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const thS = inputSrc.get(`${nodeId}.threshold`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    const threshold = thS ? resolveValue(thS.nid, thS.ok, nodeMap, inputSrc, bp) : '0.5';
+    return `(__engine && __engine.navMeshSystem ? __engine.navMeshSystem.hasAgentReachedTarget(${agentId}, ${threshold}) : false)`;
+  }
+  // NavMesh exec+result nodes — temp vars set in genAction
+  if (node instanceof NavMeshBuildNode) {
+    if (outputKey === 'success') return `__nmb_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshFindPathNode) {
+    const v = `__nmfp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'path') return `(${v}_path || [])`;
+    if (outputKey === 'pathFound') return `(${v}_ok || false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshAddAgentNode) {
+    const v = `__nmaa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'agentId') return `(${v}_id || '')`;
+    if (outputKey === 'success') return `(${v}_ok || false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshAgentMoveToNode) {
+    if (outputKey === 'success') return `__nmamt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshAddBoxObstacleNode) {
+    if (outputKey === 'success') return `__nmabo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshAddCylinderObstacleNode) {
+    if (outputKey === 'success') return `__nmaco_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshRemoveObstacleNode) {
+    if (outputKey === 'success') return `__nmro_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
   }
   // ── Controller ↔ Pawn bidirectional nodes ──
   if (node instanceof GetControllerNode) {
@@ -3732,6 +3887,178 @@ function genAction(
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
+  // ── AI Task / BT exec action nodes ──
+  if (node instanceof FinishExecuteNode) {
+    const sS = inputSrc.get(`${nodeId}.success`);
+    lines.push(`{ return ${sS ? rv(sS.nid, sS.ok) : 'true'} ? 'Success' : 'Failure'; }`);
+    return lines;
+  }
+  if (node instanceof ReturnNode) {
+    const cS = inputSrc.get(`${nodeId}.canExecute`);
+    lines.push(`{ return ${cS ? rv(cS.nid, cS.ok) : 'true'} ? 'Success' : 'Failure'; }`);
+    return lines;
+  }
+  if (node instanceof MoveToLocationNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const radius = rS ? rv(rS.nid, rS.ok) : '0.5';
+    const v = `__mtl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ const _ai = gameObject.aiController; const _t = ${target}; if (_ai && _t) { _ai.config.acceptanceRadius = ${radius}; _ai.moveTo(_t.x || 0, _t.y || 0, _t.z || 0); ${v} = true; } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.value`);
+    const key = kS ? rv(kS.nid, kS.ok) : "''";
+    const val = vS ? rv(vS.nid, vS.ok) : 'null';
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof ClearBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const key = kS ? rv(kS.nid, kS.ok) : "''";
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.clearBlackboardValue(${key}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof RunBehaviorTreeNode) {
+    const btS = inputSrc.get(`${nodeId}.behaviorTree`);
+    const v = `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai && __engine && __engine.behaviorTreeManager) { const _btAsset = __engine.behaviorTreeManager.get(${btS ? rv(btS.nid, btS.ok) : "''"}); if (_btAsset) { const _bt = __engine.behaviorTreeManager.instantiate(_btAsset); _ai.runBehaviorTree(_bt); ${v} = true; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof RotateToFaceNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const speed = sS ? rv(sS.nid, sS.ok) : '360';
+    const v = `__rtf_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ const _ai = gameObject.aiController; const _t = ${target}; if (_ai && _t) { _ai.setFocalPoint(_t.x || 0, _t.y || 0, _t.z || 0); ${v} = true; } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  // ── NavMesh exec action nodes ──
+  if (node instanceof NavMeshBuildNode) {
+    const v = `__nmb_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    // Auto-detect 2D vs 3D: if scene2DManager exists and is in 2D mode, use generateFrom2DBounds
+    lines.push(`{ if (__engine && __engine.navMeshSystem) {`);
+    lines.push(`  if (__engine.scene2DManager && __engine.scene2DManager.is2D) {`);
+    lines.push(`    var _bMin = {x:-10,y:-10}, _bMax = {x:10,y:10}, _obs = [];`);
+    lines.push(`    var _mgr = __engine.scene2DManager;`);
+    lines.push(`    if (_mgr.tilemaps && _mgr.tilesets) {`);
+    lines.push(`      var _fMinX=Infinity,_fMinY=Infinity,_fMaxX=-Infinity,_fMaxY=-Infinity,_found=false;`);
+    lines.push(`      _mgr.tilemaps.forEach(function(tm) {`);
+    lines.push(`        var ts = _mgr.tilesets.get(tm.tilesetId); if (!ts) return;`);
+    lines.push(`        var ppu = ts.pixelsPerUnit||100, tw = ts.tileWidth/ppu, th = ts.tileHeight/ppu;`);
+    lines.push(`        tm.layers.forEach(function(layer) {`);
+    lines.push(`          Object.keys(layer.tiles).forEach(function(k) {`);
+    lines.push(`            var p = k.split(',').map(Number), cx=p[0], cy=p[1];`);
+    lines.push(`            var x0=cx*tw, y0=cy*th, x1=x0+tw, y1=y0+th;`);
+    lines.push(`            if(x0<_fMinX)_fMinX=x0; if(y0<_fMinY)_fMinY=y0; if(x1>_fMaxX)_fMaxX=x1; if(y1>_fMaxY)_fMaxY=y1; _found=true;`);
+    lines.push(`            if(layer.hasCollision) _obs.push({min:{x:x0,y:y0},max:{x:x1,y:y1}});`);
+    lines.push(`          });`);
+    lines.push(`        });`);
+    lines.push(`      });`);
+    lines.push(`      if(_found){_bMin={x:_fMinX-1,y:_fMinY-1};_bMax={x:_fMaxX+1,y:_fMaxY+1};}`);
+    lines.push(`    }`);
+    lines.push(`    __engine.navMeshSystem.generateFrom2DBounds(_bMin,_bMax,_obs).then(function(r){${v}=!!r;});`);
+    lines.push(`  } else {`);
+    lines.push(`    __engine.navMeshSystem.generateFromScene(__engine.scene.threeScene).then(function(r){${v}=!!r;});`);
+    lines.push(`  }`);
+    lines.push(`} }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshFindPathNode) {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const start = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const end = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const v = `__nmfp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v}_path = []; var ${v}_ok = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady) { var _p = __engine.navMeshSystem.findPath(${start}, ${end}); if (_p && _p.length > 0) { ${v}_path = _p; ${v}_ok = true; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAddAgentNode) {
+    const aS = inputSrc.get(`${nodeId}.actor`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    const actor = aS ? rv(aS.nid, aS.ok) : 'null';
+    const speed = sS ? rv(sS.nid, sS.ok) : '3.5';
+    const v = `__nmaa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v}_id = ''; var ${v}_ok = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady && ${actor}) { var _pos = ${actor}.mesh ? ${actor}.mesh.position : {x:0,y:0,z:0}; var _aid = (${actor}.name || 'agent_' + Math.random().toString(36).substr(2,6)); var _result = __engine.navMeshSystem.addAgent(_aid, _pos, ${actor}, {maxSpeed: ${speed}}); if (_result) { ${v}_id = _aid; ${v}_ok = true; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshRemoveAgentNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? rv(idS.nid, idS.ok) : "''";
+    lines.push(`{ if (__engine && __engine.navMeshSystem) __engine.navMeshSystem.removeAgent(${agentId}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAgentMoveToNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const agentId = idS ? rv(idS.nid, idS.ok) : "''";
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const v = `__nmamt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady) { ${v} = __engine.navMeshSystem.requestMoveTarget(${agentId}, ${target}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAddBoxObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const hS = inputSrc.get(`${nodeId}.halfExtents`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const pos = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const half = hS ? rv(hS.nid, hS.ok) : '{x:1,y:1,z:1}';
+    const v = `__nmabo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.addBoxObstacle(${obsId}, ${pos}, ${half}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAddCylinderObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const hS = inputSrc.get(`${nodeId}.height`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const pos = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const radius = rS ? rv(rS.nid, rS.ok) : '1';
+    const height = hS ? rv(hS.nid, hS.ok) : '2';
+    const v = `__nmaco_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.addCylinderObstacle(${obsId}, ${pos}, ${radius}, ${height}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshRemoveObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const v = `__nmro_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.removeObstacle(${obsId}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshToggleDebugNode) {
+    lines.push(`{ if (__engine && __engine.navMeshSystem) __engine.navMeshSystem.toggleDebug(__engine.scene.threeScene); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
   // Camera & Spring Arm action nodes
   if (node instanceof SetSpringArmLengthNode) {
     const lS = inputSrc.get(`${nodeId}.length`);
@@ -5607,6 +5934,40 @@ function generateFullCode(
   for (const ev of tkEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
   const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
   for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // ── AI Task lifecycle events (mapped to standard lifecycles) ──
+  // AI Receive Execute / Service Activated / Observer Activated / On Possess → beginPlay
+  const aiBeginEvts = nodes.filter(n =>
+    n instanceof AIReceiveExecuteNode || n instanceof AIServiceActivatedNode ||
+    n instanceof AIObserverActivatedNode || n instanceof OnPossessNode
+  );
+  for (const ev of aiBeginEvts) beginPlayCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // AI Receive Tick / Service Tick / Condition Check / On Move Completed / On Perception → tick
+  const aiTickEvts = nodes.filter(n =>
+    n instanceof AIReceiveTickNode || n instanceof AIServiceTickNode ||
+    n instanceof AIPerformConditionCheckNode || n instanceof OnPerceptionUpdatedNode
+  );
+  for (const ev of aiTickEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // On Move Completed — poll each tick: fire when AI state transitions to idle
+  const onMoveCompletedEvts = nodes.filter(n => n instanceof OnMoveCompletedNode);
+  if (onMoveCompletedEvts.length > 0) {
+    parts.push('var __omc_prevState = "idle";');
+    for (const ev of onMoveCompletedEvts) {
+      const body = walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length) {
+        tickCode.push(`{ var _aiS = gameObject.aiController ? gameObject.aiController.state : 'idle'; if (__omc_prevState !== 'idle' && _aiS === 'idle') { ${body.join(' ')} } __omc_prevState = _aiS; }`);
+      }
+    }
+  }
+
+  // AI Receive Abort / Service Deactivated / Observer Deactivated / On Unpossess → onDestroy
+  const aiEndEvts = nodes.filter(n =>
+    n instanceof AIReceiveAbortNode || n instanceof AIServiceDeactivatedNode ||
+    n instanceof AIObserverDeactivatedNode || n instanceof OnUnpossessNode
+  );
+  for (const ev of aiEndEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
 
   // Input Action/Axis Mapping Events (polled in Tick)
   const inputActionNodes = nodes.filter(n => n instanceof InputActionMappingEventNode) as InputActionMappingEventNode[];

@@ -17,6 +17,7 @@ import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/
 import { ScriptComponent } from '../engine/ScriptComponent';
 import { DragSelectionComponent } from '../engine/DragSelectionComponent';
 import { EventBus } from '../engine/EventBus';
+import { AIController } from '../engine/AIController';
 import type { Engine } from '../engine/Engine';
 
 export type SceneMode = '2D' | '3D';
@@ -112,6 +113,8 @@ export class Scene2DManager {
   private _actorBlueprintScripts = new Map<SpriteActor, { script: ScriptComponent | null; started: boolean; elapsed: number }>();
   /** Actors queued for deferred destruction at end of frame — avoids mutating spriteActors mid-iteration */
   private _pendingDestroy = new Set<SpriteActor>();
+  /** AI controllers created for 2D actors during play mode */
+  private _aiControllers2D: AIController[] = [];
   /** Print function for 2D AnimBP event graphs — wire from editor Output Log so Print String nodes appear there */
   public printFn: ((v: any) => void) | null = null;
   /** DOM element used for 2D rendering (exposed for DragSelectionComponent canvas binding) */
@@ -400,6 +403,10 @@ export class Scene2DManager {
     this.physics2D?.step(deltaTime);
     // Update runtime 2D actors (physics sync, character movement, animations)
     if (this.isPlaying) {
+      // ── Update 2D AI controllers first (so movement inputs are applied before physics) ──
+      for (const ctrl of this._aiControllers2D) {
+        ctrl.update(deltaTime);
+      }
       for (const actor of this.spriteActors) {
         if (this._pendingDestroy.has(actor)) continue; // skip actors queued for destruction
         actor.update(deltaTime);
@@ -505,6 +512,10 @@ export class Scene2DManager {
 
     const actor = new SpriteActor(config);
     actor.id = go.id;
+
+    // ── Propagate controller settings from source GameObject ──
+    actor.controllerClass = go.controllerClass ?? 'None';
+    actor.controllerBlueprintId = go.controllerBlueprintId ?? '';
 
     // Start with a transparent white placeholder (correct sprite will be loaded below).
     // Keep the default PlaneGeometry(1,1) — SpriteRenderer.setSprite() resizes via
@@ -769,6 +780,8 @@ export class Scene2DManager {
 
     const actor = new SpriteActor(config);
     actor.id = go.id;
+    actor.controllerClass = go.controllerClass ?? 'None';
+    actor.controllerBlueprintId = go.controllerBlueprintId ?? '';
     actor.spriteRenderer.material.color.setHex(0xffffff);
     actor.spriteRenderer.material.transparent = true;
     this.root2D.add(actor.group);
@@ -1002,6 +1015,54 @@ export class Scene2DManager {
     // Rebuild tilemap collision bodies into the fresh world
     this.rebuildAllTileCollision();
     this.physics2D?.play();
+  }
+
+  /**
+   * Create AI controllers for all 2D sprites that have controllerClass === 'AIController'.
+   * Call this AFTER all actors have been spawned (after startPlay + spawn calls).
+   */
+  setupAIControllers2D(): void {
+    // Destroy any leftover controllers from a previous session
+    for (const ctrl of this._aiControllers2D) ctrl.destroy();
+    this._aiControllers2D = [];
+
+    for (const actor of this.spriteActors) {
+      if (actor.controllerClass !== 'AIController') continue;
+      if (!actor.characterMovement2D) continue; // needs movement component
+
+      const aiCtrl = new AIController();
+      aiCtrl.is2D = true;
+
+      // Create a lightweight Pawn adapter so the AIController can possess it.
+      // In 2D, the SpriteActor IS the pawn — we wrap it to satisfy the Pawn interface.
+      const pawnAdapter: any = {
+        gameObject: actor as any,
+        controller: null as any,
+        destroy() {},
+      };
+
+      aiCtrl.possess(pawnAdapter);
+      actor.aiController = aiCtrl;
+      actor.controller = aiCtrl;
+
+      // Wire NavMesh if available
+      if (this.engine?.navMeshSystem) {
+        aiCtrl.navMeshSystem = this.engine.navMeshSystem;
+        if (this.engine.navMeshSystem.isReady) {
+          aiCtrl.registerNavMeshAgent(this.engine.navMeshSystem);
+        }
+      }
+
+      this._aiControllers2D.push(aiCtrl);
+      // Also register with Engine's AIControllerManager so global queries work
+      if (this.engine) {
+        this.engine.aiControllers.register(aiCtrl);
+      }
+    }
+
+    if (this._aiControllers2D.length > 0) {
+      console.log(`[Scene2DManager] Created ${this._aiControllers2D.length} AI controller(s) for 2D actors`);
+    }
   }
 
   /**
@@ -1354,7 +1415,7 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, className, position: pos, rotation: rot, scale: sc, owner, overrides, result: r }); } catch {} return r; } },
+      engine:       { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, className, position: pos, rotation: rot, scale: sc, owner, overrides, result: r }); } catch {} return r; } },
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
@@ -1623,7 +1684,7 @@ export class Scene2DManager {
       physics:      physicsShim,
       scene:        sceneShim,
       animInstance: null,
-      engine:       { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {} return r; } },
+      engine:       { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {} return r; } },
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
@@ -1690,7 +1751,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
+            engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
           };
           bpEv.script.onDestroy(destroyCtx);
@@ -1710,7 +1771,7 @@ export class Scene2DManager {
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: this, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
+            engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
           };
           evEv.script.onDestroy(destroyCtx);
@@ -1736,6 +1797,12 @@ export class Scene2DManager {
     this._actorAnimBPStates.clear();
     this._actorEventScripts.clear();
     this._actorBlueprintScripts.clear();
+
+    // ── Clean up 2D AI controllers ──
+    for (const ctrl of this._aiControllers2D) {
+      ctrl.destroy();
+    }
+    this._aiControllers2D = [];
 
     // Safety-net: clear the global EventBus so stale 2D handlers never
     // remain if engine.onPlayStopped() didn't run or ran in a different order.

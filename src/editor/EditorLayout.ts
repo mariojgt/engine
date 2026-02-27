@@ -55,6 +55,11 @@ import { createIconSpan, Icons, ICON_COLORS } from './icons';
 import { ProfilerPanel } from './profiler/ProfilerPanel';
 import { ProfilerOverlay } from './profiler/ProfilerOverlay';
 import { installProfilerHooks, uninstallProfilerHooks } from './profiler/ProfilerHooks';
+import { AIAssetManager, type BehaviorTreeAsset, type BlackboardAsset, type BTTaskAsset, type BTDecoratorAsset, type BTServiceAsset, type AIControllerAsset } from './ai/AIAssetManager';
+import { BlackboardEditorPanel } from './ai/BlackboardEditorPanel';
+import { BehaviorTreeEditorPanel } from './ai/BehaviorTreeEditorPanel';
+import { AIBlueprintEditorPanel } from './ai/AIBlueprintEditorPanel';
+import { NavMeshPanel } from './NavMeshPanel';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -98,6 +103,7 @@ export class EditorLayout {
   private _properties: PropertiesPanel | null = null;
   private _particleEditor?: ParticleEditorPanel;
   private _physicsSettings: PhysicsSettingsPanel | null = null;
+  private _navMeshPanel: NavMeshPanel | null = null;
   private _projectSettings: ProjectSettingsPanel | null = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
@@ -117,6 +123,12 @@ export class EditorLayout {
   private _materialEditor: MaterialEditorPanel | null = null;
   private _shaderGraphEditor: ShaderGraphEditorPanel | null = null;
   private _soundCueEditor: SoundCueEditorPanel | null = null;
+
+  // ── AI ──
+  private _aiManager: AIAssetManager | null = null;
+  private _bbEditor: BlackboardEditorPanel | null = null;
+  private _btEditor: BehaviorTreeEditorPanel | null = null;
+  private _aiBPEditor: AIBlueprintEditorPanel | null = null;
 
   /** Profiler panel and viewport overlay */
   private _profilerPanel: ProfilerPanel | null = null;
@@ -323,6 +335,17 @@ export class EditorLayout {
       },
     });
     this._initPhysicsSettings('physics-settings');
+
+    // 5b. Navigation Mesh (tab alongside Physics)
+    this._api.addPanel({
+      id: 'navmesh-panel',
+      title: 'NavMesh',
+      component: 'default',
+      position: {
+        referencePanel: 'physics-settings',
+      },
+    });
+    this._initNavMeshPanel('navmesh-panel');
 
     // 6. Project Settings (tab alongside Physics)
     this._api.addPanel({
@@ -545,6 +568,14 @@ export class EditorLayout {
     if (!renderer) return;
     const el = renderer.element;
     this._physicsSettings = new PhysicsSettingsPanel(el, this._engine);
+  }
+
+  private _initNavMeshPanel(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._navMeshPanel = new NavMeshPanel(el, this._engine);
+    this._navMeshPanel.setScene2DManager(this.scene2DManager);
   }
 
   private _initProjectSettings(panelId: string): void {
@@ -808,6 +839,21 @@ export class EditorLayout {
   setSoundLibraryCallbacks(): void {
     if (this._assetBrowser) {
       this._assetBrowser.setSoundLibraryCallbacks((cue: SoundCueData) => this._openSoundCueEditor(cue));
+    }
+  }
+
+  /** Wire up the AIAssetManager for content browser and AI editors */
+  setAIManager(mgr: AIAssetManager): void {
+    this._aiManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setAIManager(mgr, {
+        onOpenBehaviorTree: (asset: BehaviorTreeAsset) => this._openBehaviorTreeEditor(asset),
+        onOpenBlackboard: (asset: BlackboardAsset) => this._openBlackboardEditor(asset),
+        onOpenBTTask: (asset: BTTaskAsset) => this._openBTTaskEditor(asset),
+        onOpenBTDecorator: (asset: BTDecoratorAsset) => this._openBTDecoratorEditor(asset),
+        onOpenBTService: (asset: BTServiceAsset) => this._openBTServiceEditor(asset),
+        onOpenAIController: (asset: AIControllerAsset) => this._openAIControllerEditor(asset),
+      });
     }
   }
 
@@ -1202,6 +1248,218 @@ export class EditorLayout {
     );
   }
 
+  // ============================================================
+  //  AI Editor Open Methods
+  // ============================================================
+
+  /** Open a Behavior Tree editor panel */
+  private _openBehaviorTreeEditor(bt: BehaviorTreeAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-bt-editor-' + bt.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `BT: ${bt.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Bot, '#1565C0');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._btEditor = new BehaviorTreeEditorPanel(wrapper, bt, this._aiManager, () => {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`BT: ${bt.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.Bot, '#1565C0');
+      }
+    });
+
+    // Wire create callbacks so new tasks/decorators/services can be created from BT canvas
+    this._btEditor.setCreateCallbacks({
+      onCreateTask: (name: string) => {
+        if (!this._aiManager) return;
+        const task = this._aiManager.createTask(name);
+        const fm = this._assetBrowser?.getFolderManager();
+        if (fm) fm.setAssetLocation(task.id, 'btTask', 'root');
+      },
+      onCreateDecorator: (name: string) => {
+        if (!this._aiManager) return;
+        const dec = this._aiManager.createDecorator(name);
+        const fm = this._assetBrowser?.getFolderManager();
+        if (fm) fm.setAssetLocation(dec.id, 'btDecorator', 'root');
+      },
+      onCreateService: (name: string) => {
+        if (!this._aiManager) return;
+        const svc = this._aiManager.createService(name);
+        const fm = this._assetBrowser?.getFolderManager();
+        if (fm) fm.setAssetLocation(svc.id, 'btService', 'root');
+      },
+      onOpenTask: (id: string) => {
+        const task = this._aiManager?.getTask(id);
+        if (task) this._openBTTaskEditor(task);
+      },
+      onOpenDecorator: (id: string) => {
+        const dec = this._aiManager?.getDecorator(id);
+        if (dec) this._openBTDecoratorEditor(dec);
+      },
+      onOpenService: (id: string) => {
+        const svc = this._aiManager?.getService(id);
+        if (svc) this._openBTServiceEditor(svc);
+      },
+    });
+  }
+
+  /** Open a Blackboard editor panel */
+  private _openBlackboardEditor(bb: BlackboardAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-bb-editor-' + bb.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `BB: ${bb.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.ClipboardList, '#2E7D32');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._bbEditor = new BlackboardEditorPanel(wrapper, bb, this._aiManager, () => {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`BB: ${bb.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.ClipboardList, '#2E7D32');
+      }
+    });
+  }
+
+  /** Open a BT Task blueprint editor panel */
+  private _openBTTaskEditor(task: BTTaskAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-task-editor-' + task.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `Task: ${task.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Zap, '#E65100');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._aiBPEditor = new AIBlueprintEditorPanel(wrapper, task, 'btTask', this._aiManager);
+  }
+
+  /** Open a BT Decorator blueprint editor panel */
+  private _openBTDecoratorEditor(dec: BTDecoratorAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-dec-editor-' + dec.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `Decorator: ${dec.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Shield, '#6A1B9A');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._aiBPEditor = new AIBlueprintEditorPanel(wrapper, dec, 'btDecorator', this._aiManager);
+  }
+
+  /** Open a BT Service blueprint editor panel */
+  private _openBTServiceEditor(svc: BTServiceAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-svc-editor-' + svc.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `Service: ${svc.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Activity, '#00838F');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._aiBPEditor = new AIBlueprintEditorPanel(wrapper, svc, 'btService', this._aiManager);
+  }
+
+  /** Open an AI Controller blueprint editor panel */
+  private _openAIControllerEditor(aic: AIControllerAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'ai-ctrl-editor-' + aic.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `AI Ctrl: ${aic.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Bot, '#1565C0');
+
+    try { this._api.getPanel('viewport')?.group.api.setSize({ height: 300 }); } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._aiManager) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    renderer.element.appendChild(wrapper);
+
+    this._aiBPEditor = new AIBlueprintEditorPanel(wrapper, aic, 'aiController', this._aiManager);
+  }
+
   private _closeTypeEditor(): void {
     if (this._animBPEditor) {
       this._animBPEditor.dispose();
@@ -1223,10 +1481,22 @@ export class EditorLayout {
       this._soundCueEditor.dispose();
       this._soundCueEditor = null;
     }
+    if (this._bbEditor) {
+      this._bbEditor.dispose();
+      this._bbEditor = null;
+    }
+    if (this._btEditor) {
+      this._btEditor.dispose();
+      this._btEditor = null;
+    }
+    if (this._aiBPEditor) {
+      this._aiBPEditor.dispose();
+      this._aiBPEditor = null;
+    }
 
     const panels = this._api.panels;
     for (const p of panels) {
-      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-') || p.id.startsWith('sound-cue-editor-') || p.id.startsWith('savegame-editor-')) {
+      if (p.id.startsWith('struct-editor-') || p.id.startsWith('enum-editor-') || p.id.startsWith('anim-bp-editor-') || p.id.startsWith('widget-bp-editor-') || p.id.startsWith('material-editor-') || p.id.startsWith('sound-cue-editor-') || p.id.startsWith('savegame-editor-') || p.id.startsWith('ai-bt-editor-') || p.id.startsWith('ai-bb-editor-') || p.id.startsWith('ai-task-editor-') || p.id.startsWith('ai-dec-editor-') || p.id.startsWith('ai-svc-editor-') || p.id.startsWith('ai-ctrl-editor-')) {
         this._api.removePanel(p);
       }
     }
@@ -1378,6 +1648,11 @@ export class EditorLayout {
         const vp = this._api.getPanel('viewport');
         if (vp) vp.setTitle('3D Viewport');
       } catch (_e) {}
+    }
+
+    // Refresh NavMeshPanel so it shows 2D/3D-specific controls
+    if (this._navMeshPanel) {
+      this._navMeshPanel.refresh();
     }
   }
 

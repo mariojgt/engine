@@ -23,6 +23,9 @@
   "dependencies": {
     "@dimforge/rapier2d-compat": "^0.19.3",
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "@recast-navigation/core": "^0.43.0",
+    "@recast-navigation/generators": "^0.43.0",
+    "@recast-navigation/three": "^0.43.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
@@ -30,6 +33,7 @@
     "lucide": "^0.574.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "recast-navigation": "^0.43.0",
     "rete": "^2.0.6",
     "rete-area-plugin": "^2.1.5",
     "rete-connection-plugin": "^2.0.5",

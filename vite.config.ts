@@ -7,6 +7,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  optimizeDeps: {
+    exclude: ['recast-navigation'],
+  },
   build: {
     outDir: 'dist',
     target: 'esnext',

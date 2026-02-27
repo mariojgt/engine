@@ -7,6 +7,7 @@ import { SpectatorControllerManager } from './SpectatorController';
 import { defaultSpectatorPawnConfig } from './SpectatorController';
 import { PlayerControllerManager, PlayerController } from './PlayerController';
 import { AIControllerManager, AIController } from './AIController';
+import { NavMeshSystem } from './ai/NavMeshSystem';
 import type { Controller } from './Controller';
 import type { AnimationInstance } from './AnimationInstance';
 import { UIManager } from './UIManager';
@@ -27,6 +28,7 @@ export class Engine {
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
+  public navMeshSystem: NavMeshSystem = new NavMeshSystem();
   public uiManager: UIManager = new UIManager();
   public audio: AudioEngine = new AudioEngine();
   public eventBus: EventBus = EventBus.getInstance();
@@ -432,6 +434,23 @@ export class Engine {
     }
 
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
+
+    // ── 5. Initialize NavMesh & register AI agents ──
+    // NavMesh is generated on-demand (triggered by editor panel bake
+    // or at runtime via blueprint code). If navMesh data was pre-baked
+    // and loaded, register all AI controllers as crowd agents.
+    if (this.navMeshSystem.isReady) {
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.registerNavMeshAgent(this.navMeshSystem);
+      }
+      console.log(`[Engine] NavMesh: ${this.aiControllers.controllers.length} AI agents registered`);
+    } else {
+      // Provide the navMeshSystem reference even without baked data
+      // so moveTo can use waypoint pathfinding if NavMesh is generated later
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.navMeshSystem = this.navMeshSystem;
+      }
+    }
   }
 
   /** Called when Stop is pressed — fires OnDestroy on all scripts */
@@ -459,6 +478,10 @@ export class Engine {
     this.aiControllers.destroyAll();
     this.playerControllers.destroyAll();
     this._activeControllers = [];
+
+    // Destroy NavMesh system (crowd agents, navmesh, debug vis)
+    this.navMeshSystem.destroy();
+    this.navMeshSystem = new NavMeshSystem();
     for (const go of this.scene.gameObjects) {
       go.characterController = null;
       go.aiController = null;
@@ -572,6 +595,9 @@ export class Engine {
       this.spectatorControllers.update(dt);
       // Update AI controllers
       this.aiControllers.update(dt);
+
+      // Update NavMesh crowd simulation
+      this.navMeshSystem.update(dt);
 
       // Update animation blueprint instances AND skeletal mesh mixers
       // (combined into a single pass over gameObjects for efficiency)

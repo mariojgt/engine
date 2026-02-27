@@ -701,3 +701,47 @@ export {
   IsDragSelectingNode,
   GetDragSelectionCountNode,
 } from './selection/DragSelectionNodes';
+
+// ── AI Nodes ────────────────────────────────────────────────
+export {
+  AIReceiveExecuteNode,
+  AIReceiveTickNode,
+  AIReceiveAbortNode,
+  FinishExecuteNode,
+  AIPerformConditionCheckNode,
+  AIObserverActivatedNode,
+  AIObserverDeactivatedNode,
+  ReturnNode,
+  AIServiceActivatedNode,
+  AIServiceTickNode,
+  AIServiceDeactivatedNode,
+  OnPossessNode,
+  OnUnpossessNode,
+  OnMoveCompletedNode,
+  OnPerceptionUpdatedNode,
+  RunBehaviorTreeNode,
+  MoveToLocationNode,
+  GetBlackboardValueNode,
+  SetBlackboardValueNode,
+  ClearBlackboardValueNode,
+  RotateToFaceNode,
+} from './ai/AINodes';
+
+// ── NavMesh Nodes ───────────────────────────────────────────
+export {
+  NavMeshBuildNode,
+  NavMeshIsReadyNode,
+  NavMeshFindPathNode,
+  NavMeshFindClosestPointNode,
+  NavMeshRandomPointNode,
+  NavMeshAddAgentNode,
+  NavMeshRemoveAgentNode,
+  NavMeshAgentMoveToNode,
+  NavMeshGetAgentPositionNode,
+  NavMeshGetAgentVelocityNode,
+  NavMeshAgentReachedTargetNode,
+  NavMeshAddBoxObstacleNode,
+  NavMeshAddCylinderObstacleNode,
+  NavMeshRemoveObstacleNode,
+  NavMeshToggleDebugNode,
+} from './ai/NavMeshNodes';
