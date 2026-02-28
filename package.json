@@ -33,7 +33,7 @@
     "lucide": "^0.574.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "recast-navigation": "^0.43.0",
+    "recast-navigation": "0.43.0",
     "rete": "^2.0.6",
     "rete-area-plugin": "^2.1.5",
     "rete-connection-plugin": "^2.0.5",
