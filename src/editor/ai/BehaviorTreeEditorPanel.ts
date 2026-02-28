@@ -454,15 +454,38 @@ export class BehaviorTreeEditorPanel {
     }
 
     // Properties
+
+    // Look up the BuiltinNodeDef for this node to determine property types
+    const allBuiltinDefs = [...BUILTIN_TASKS, ...BUILTIN_DECORATORS, ...BUILTIN_SERVICES];
+    const builtinDef = node.builtinId ? allBuiltinDefs.find(d => d.id === node.builtinId) : undefined;
+
+    let expectedProps: { name: string, type: string, defVal: any }[] = [];
+    if (builtinDef) {
+      expectedProps = builtinDef.properties.map(p => ({ name: p.name, type: p.type, defVal: p.default }));
+    } else if (node.assetRef) {
+      let bp;
+      if (node.type === 'task') bp = this._manager.getTask(node.assetRef)?.blueprintData;
+      else if (node.type === 'decorator') bp = this._manager.getDecorator(node.assetRef)?.blueprintData;
+      else if (node.type === 'service') bp = this._manager.getService(node.assetRef)?.blueprintData;
+
+      if (bp) {
+        // Here we just use all variables. 
+        expectedProps = bp.variables.map(v => ({ name: v.name, type: v.type, defVal: v.defaultValue }));
+      }
+    }
+
+    // Ensure properties exist in node.properties so the loop below sees them
+    for (const p of expectedProps) {
+      if (!(p.name in node.properties)) {
+        node.properties[p.name] = (p.type === 'BlackboardKeySelector' || p.type === 'BlackboardKey') ? '' : p.defVal;
+      }
+    }
+
     if (Object.keys(node.properties).length > 0) {
       const propTitle = document.createElement('div');
       propTitle.className = 'ai-bt-detail-props-title';
       propTitle.textContent = 'Properties';
       this._rightPanel.appendChild(propTitle);
-
-      // Look up the BuiltinNodeDef for this node to determine property types
-      const allBuiltinDefs = [...BUILTIN_TASKS, ...BUILTIN_DECORATORS, ...BUILTIN_SERVICES];
-      const builtinDef = node.builtinId ? allBuiltinDefs.find(d => d.id === node.builtinId) : undefined;
 
       // Get blackboard keys for dropdown
       const bbAsset = this._asset.blackboardId ? this._manager.getBlackboard(this._asset.blackboardId) : undefined;
@@ -476,8 +499,8 @@ export class BehaviorTreeEditorPanel {
         lbl.textContent = key;
 
         // Check if this property is a BlackboardKey type
-        const propDef = builtinDef?.properties.find(p => p.name === key);
-        const isBlackboardKey = propDef?.type === 'BlackboardKey';
+        const propDef = expectedProps.find(p => p.name === key);
+        const isBlackboardKey = propDef?.type === 'BlackboardKey' || propDef?.type === 'BlackboardKeySelector';
 
         if (isBlackboardKey) {
           // Render a <select> dropdown populated from the blackboard
@@ -1078,6 +1101,22 @@ export class BehaviorTreeEditorPanel {
   }
 
   private _addBuiltinNode(label: string, x: number, y: number, def?: { id: string; category: string; properties: { name: string; default: any }[] }): void {
+    if (!def) {
+      if (['Sequence', 'Selector', 'Simple Parallel', 'Random Selector'].includes(label)) {
+        return this._addCompositeNode(label as any, x, y);
+      }
+      const allBuiltins = [...BUILTIN_TASKS, ...BUILTIN_DECORATORS, ...BUILTIN_SERVICES];
+      def = allBuiltins.find(d => d.label === label);
+      if (!def) {
+        const customTask = this._manager.getAllTasks().find(t => t.name === label);
+        if (customTask) return this._addCustomTaskNode(customTask.id, customTask.name, x, y);
+        const customDec = this._manager.getAllDecorators().find(d => d.name === label);
+        if (customDec) return this._addCustomDecoratorNode(customDec.id, customDec.name, x, y);
+        const customSvc = this._manager.getAllServices().find(s => s.name === label);
+        if (customSvc) return this._addCustomServiceNode(customSvc.id, customSvc.name, x, y);
+      }
+    }
+
     const id = `btn_${Date.now().toString(36)}`;
     const type: BTNodeType = def?.category === 'decorator' ? 'decorator' : def?.category === 'service' ? 'service' : 'task';
     const props: Record<string, any> = {};

@@ -21,6 +21,7 @@
 // ============================================================
 
 import * as THREE from 'three';
+import { EventBus } from './EventBus';
 import type { GameObject } from './GameObject';
 import { Controller, type Pawn, type ControllerType } from './Controller';
 import type { CharacterController } from './CharacterController';
@@ -110,12 +111,15 @@ export class AIController extends Controller {
 
   /** Set a blackboard value */
   setBlackboardValue(key: string, value: any): void {
+    console.log(`[AIController.setBlackboardValue] key="${key}" value=`, value, `| BB has ${this.blackboard.size} entries`);
     this.blackboard.set(key, value);
+    EventBus.getInstance().emit(`AI_Blackboard_Set`, this.gameObject?.id, this.gameObject?.name, key, value);
   }
 
   /** Clear (remove) a blackboard value */
   clearBlackboardValue(key: string): void {
     this.blackboard.delete(key);
+    EventBus.getInstance().emit(`AI_Blackboard_Clear`, this.gameObject?.id, this.gameObject?.name, key);
   }
 
   // ---- NavMesh Pathfinding ----
@@ -179,6 +183,8 @@ export class AIController extends Controller {
     this.moveTarget = new THREE.Vector3(x, y, z);
     this.state = 'movingTo';
     this._onArrived = onArrived ?? null;
+
+    console.log(`[AIController.moveTo] target=(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) useNavMesh=${this.useNavMesh} navMeshReady=${this.navMeshSystem?.isReady} is2D=${this.is2D} hasCC=${!!((this.gameObject as any).characterController)} hasCM2D=${!!((this.gameObject as any).characterMovement2D)}`);
 
     // ── NavMesh path ──
     if (this.useNavMesh && this.navMeshSystem && this.navMeshSystem.isReady) {
@@ -346,17 +352,24 @@ export class AIController extends Controller {
       // Apply focal point (face direction)
       if (this.focalPoint) this._lookAt2D(this.focalPoint);
     } else {
-      // ── 3D mode: drive CharacterController ──
+      // ── 3D mode: drive CharacterController (or fallback to direct movement) ──
       const cc = go.characterController as CharacterController | null;
-      if (!cc) return;
 
       switch (this.state) {
         case 'idle':       break;
-        case 'movingTo':   this._updateMoveTo(dt, cc); break;
-        case 'patrolling': this._updatePatrol(dt, cc); break;
-        case 'following':  this._updateFollow(dt, cc); break;
+        case 'movingTo':
+          if (cc) { this._updateMoveTo(dt, cc); }
+          else    { this._updateMoveToFallback3D(dt); }
+          break;
+        case 'patrolling':
+          if (cc) this._updatePatrol(dt, cc);
+          else    this._updatePatrolFallback3D(dt);
+          break;
+        case 'following':
+          if (cc) this._updateFollow(dt, cc);
+          break;
       }
-      if (this.focalPoint) this._lookAt(this.focalPoint, dt, cc);
+      if (this.focalPoint && cc) this._lookAt(this.focalPoint, dt, cc);
     }
   }
 
@@ -561,6 +574,116 @@ export class AIController extends Controller {
       { x: toTarget.x, y: 0, z: -toTarget.z },
       this.config.moveScale,
     );
+  }
+
+  // ============================================================
+  //  3D Fallback — direct mesh position movement (no CharacterController)
+  // ============================================================
+
+  /**
+   * Move the pawn toward the target by directly updating mesh.position.
+   * Used when there is no CharacterController attached to the pawn.
+   */
+  private _updateMoveToFallback3D(dt: number): void {
+    if (!this.moveTarget) {
+      this.state = 'idle';
+      return;
+    }
+
+    // ── NavMesh waypoint-following (no crowd, no CharacterController) ──
+    if (this._pathWaypoints.length > 0) {
+      const waypoint = this._pathWaypoints[this._pathIndex];
+      const pos = this.gameObject.mesh.position;
+      const dx = waypoint.x - pos.x;
+      const dz = waypoint.z - pos.z;
+      const distToWP = Math.sqrt(dx * dx + dz * dz);
+
+      if (distToWP <= this.config.acceptanceRadius) {
+        this._pathIndex++;
+        if (this._pathIndex >= this._pathWaypoints.length) {
+          this.state = 'idle';
+          this.moveTarget = null;
+          this._pathWaypoints = [];
+          this._pathIndex = 0;
+          if (this._onArrived) { const cb = this._onArrived; this._onArrived = null; cb(); }
+          return;
+        }
+      }
+      const wp = this._pathWaypoints[this._pathIndex];
+      const toWP = new THREE.Vector3(wp.x - pos.x, 0, wp.z - pos.z);
+      const dWP = toWP.length();
+      if (dWP > 0.001) {
+        toWP.normalize();
+        const speed = 200 * this.config.moveScale * dt;
+        const step = Math.min(speed, dWP);
+        pos.x += toWP.x * step;
+        pos.z += toWP.z * step;
+        // Face movement direction
+        this.gameObject.mesh.rotation.y = Math.atan2(toWP.x, toWP.z);
+      }
+      return;
+    }
+
+    // ── Direct movement (no NavMesh, no CharacterController) ──
+    const pos = this.gameObject.mesh.position;
+    const dx = this.moveTarget.x - pos.x;
+    const dz = this.moveTarget.z - pos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist <= this.config.acceptanceRadius) {
+      this.state = 'idle';
+      this.moveTarget = null;
+      if (this._onArrived) { const cb = this._onArrived; this._onArrived = null; cb(); }
+      return;
+    }
+
+    const speed = 200 * this.config.moveScale * dt;
+    const step = Math.min(speed, dist);
+    pos.x += (dx / dist) * step;
+    pos.z += (dz / dist) * step;
+    // Face movement direction
+    if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
+      this.gameObject.mesh.rotation.y = Math.atan2(dx / dist, dz / dist);
+    }
+  }
+
+  /**
+   * Patrol the pawn through waypoints by directly updating mesh.position.
+   * Used when there is no CharacterController attached to the pawn.
+   */
+  private _updatePatrolFallback3D(dt: number): void {
+    if (this.patrolPoints.length === 0) { this.state = 'idle'; return; }
+    if (this._patrolWaitTimer > 0) { this._patrolWaitTimer -= dt; return; }
+
+    if (!this.moveTarget) {
+      this.patrolIndex++;
+      if (this.patrolIndex >= this.patrolPoints.length) {
+        if (this.patrolLoop) this.patrolIndex = 0;
+        else { this.state = 'idle'; return; }
+      }
+      const p = this.patrolPoints[this.patrolIndex];
+      this.moveTarget = new THREE.Vector3(p.x, p.y, p.z);
+    }
+
+    const pos = this.gameObject.mesh.position;
+    const dx = this.moveTarget!.x - pos.x;
+    const dz = this.moveTarget!.z - pos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist <= this.config.acceptanceRadius) {
+      const wp = this.patrolPoints[this.patrolIndex];
+      if (wp.waitTime > 0) this._patrolWaitTimer = wp.waitTime;
+      this.moveTarget = null;
+      return;
+    }
+
+    const speed = 200 * this.config.moveScale * dt;
+    const step = Math.min(speed, dist);
+    pos.x += (dx / dist) * step;
+    pos.z += (dz / dist) * step;
+    if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
+      this.gameObject.mesh.rotation.y = Math.atan2(dx / dist, dz / dist);
+    }
   }
 
   private _updatePatrol(dt: number, cc: CharacterController): void {

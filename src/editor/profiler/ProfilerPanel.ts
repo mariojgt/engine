@@ -108,7 +108,7 @@ function sortCompare(a: any, b: any, dir: SortDir): number {
 
 // ── Types ────────────────────────────────────────────────
 
-type TabId = 'scene' | 'classes' | 'nodes' | 'events';
+type TabId = 'scene' | 'classes' | 'nodes' | 'events' | 'ai';
 
 interface TabSort {
   column: string;
@@ -148,6 +148,7 @@ export class ProfilerPanel {
     classes: { column: 'instances', dir: 'desc' },
     nodes: { column: 'execCount', dir: 'desc' },
     events: { column: 'id', dir: 'desc' },
+    ai: { column: 'id', dir: 'desc' },
   };
 
   // Callback for viewport overlay sync
@@ -261,6 +262,7 @@ export class ProfilerPanel {
       { id: 'classes', label: 'Classes & Components' },
       { id: 'nodes', label: 'Node Execution' },
       { id: 'events', label: 'Events Log' },
+      { id: 'ai', label: 'AI & Blackboard' },
     ];
     for (const t of tabDefs) {
       const tab = document.createElement('div');
@@ -552,6 +554,7 @@ export class ProfilerPanel {
       case 'classes': this._renderClassesTab(search); break;
       case 'nodes': this._renderNodesTab(search); break;
       case 'events': this._renderEventsTab(search); break;
+      case 'ai': this._renderAITab(search); break;
     }
   }
 
@@ -872,6 +875,71 @@ export class ProfilerPanel {
     this._tabContent.innerHTML = html;
 
     this._wireTableSort('events');
+    this._tabContent.querySelectorAll('tr[data-event-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = Number((row as HTMLElement).dataset.eventId);
+        this._openDetail('event', id);
+        this._renderTabContent();
+      });
+    });
+  }
+
+  // ── Tab 5: AI & Blackboard ─────────────────────────────
+
+  private _renderAITab(search: string): void {
+    const store = this._store;
+    // We filter for AI Blackboard specific events
+    let aiEvents = store.events.filter(e => e.type === 'AI_Blackboard_Set' || e.type === 'AI_Blackboard_Clear');
+
+    if (search) {
+      aiEvents = aiEvents.filter(e =>
+        e.sourceActorName.toLowerCase().includes(search) ||
+        e.detail.toLowerCase().includes(search)
+      );
+    }
+
+    const sort = this._tabSorts.ai;
+    aiEvents.sort((a: any, b: any) => sortCompare(a[sort.column], b[sort.column], sort.dir));
+
+    if (aiEvents.length === 0) {
+      const msg = store.isRecording
+        ? 'Recording… AI actions will appear as they fire'
+        : store.isReplaying
+        ? 'No AI actions in this session'
+        : 'Press Play, then ● Record to track AI';
+      this._tabContent.innerHTML = `<div class="profiler-empty"><span class="profiler-empty-icon">🤖</span><span>${msg}</span></div>`;
+      return;
+    }
+
+    const q = this._globalSearch || this._tabSearch;
+    const highlight = (text: string) => {
+      if (!q) return text;
+      const regex = new RegExp(`(${q})`, 'gi');
+      return text.replace(regex, '<mark>$1</mark>');
+    };
+
+    let html = '<table class="profiler-table"><thead><tr>';
+    html += '<th data-sort="frame">Frame</th>';
+    html += '<th data-sort="time">Time</th>';
+    html += '<th data-sort="sourceActorName">Actor</th>';
+    html += '<th data-sort="detail">Action</th>';
+    html += '</tr></thead><tbody>';
+
+    for (const ev of aiEvents) {
+      html += `<tr data-event-id="${ev.id}" style="cursor:pointer;">
+        <td style="width: 80px;">${ev.frame}</td>
+        <td style="width: 80px;">${ev.time.toFixed(2)}s</td>
+        <td style="width: 150px;">${highlight(ev.sourceActorName)}</td>
+        <td><div style="display:flex; align-items:center; gap:6px;">
+          ${highlight(ev.detail)}
+        </div></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    this._tabContent.innerHTML = html;
+
+    // Wire table sorting & clicking
+    this._wireTableSort('ai');
     this._tabContent.querySelectorAll('tr[data-event-id]').forEach(row => {
       row.addEventListener('click', () => {
         const id = Number((row as HTMLElement).dataset.eventId);

@@ -33,6 +33,8 @@ import {
   MathSubtractNode,
   MathMultiplyNode,
   MathDivideNode,
+  MakeVectorNode,
+  BreakVectorNode,
   TimeNode,
   DeltaTimeNode,
   FloatNode,
@@ -221,6 +223,7 @@ import {
   IsPossessingNode,
   // AI Controller Nodes
   AIMoveToNode,
+  AIMoveToVectorNode,
   AIStopMovementNode,
   AISetFocalPointNode,
   AIClearFocalPointNode,
@@ -422,6 +425,12 @@ import {
   GetBlackboardValueNode,
   SetBlackboardValueNode,
   ClearBlackboardValueNode,
+  GetBlackboardValueAsBoolNode,
+  GetBlackboardValueAsFloatNode,
+  GetBlackboardValueAsVectorNode,
+  SetBlackboardValueAsBoolNode,
+  SetBlackboardValueAsFloatNode,
+  SetBlackboardValueAsVectorNode,
   RotateToFaceNode,
   // NavMesh Nodes
   NavMeshBuildNode,
@@ -1159,9 +1168,47 @@ function resolveValue(
   // Blackboard
   if (node instanceof GetBlackboardValueNode) {
     const kS = inputSrc.get(`${nodeId}.key`);
-    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : "''";
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
     return `(gameObject.aiController ? gameObject.aiController.getBlackboardValue(${key}) : null)`;
   }
+  if (node instanceof GetBlackboardValueAsBoolNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (gameObject.aiController.getBlackboardValue(${key}) || false) : false)`;
+  }
+  if (node instanceof GetBlackboardValueAsFloatNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (parseFloat(gameObject.aiController.getBlackboardValue(${key})) || 0) : 0)`;
+  }
+  if (node instanceof GetBlackboardValueAsVectorNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (gameObject.aiController.getBlackboardValue(${key}) || {x:0, y:0, z:0}) : {x:0, y:0, z:0})`;
+  }
+  
+  if (node instanceof MakeVectorNode) {
+    const xs = inputSrc.get(`${nodeId}.x`);
+    const ys = inputSrc.get(`${nodeId}.y`);
+    const zs = inputSrc.get(`${nodeId}.z`);
+    const cx = (node.inputs['x']?.control as any)?.value ?? 0;
+    const cy = (node.inputs['y']?.control as any)?.value ?? 0;
+    const cz = (node.inputs['z']?.control as any)?.value ?? 0;
+    const x = xs ? resolveValue(xs.nid, xs.ok, nodeMap, inputSrc, bp) : cx;
+    const y = ys ? resolveValue(ys.nid, ys.ok, nodeMap, inputSrc, bp) : cy;
+    const z = zs ? resolveValue(zs.nid, zs.ok, nodeMap, inputSrc, bp) : cz;
+    return `{ x: ${x}, y: ${y}, z: ${z} }`;
+  }
+  if (node instanceof BreakVectorNode) {
+    const vecS = inputSrc.get(`${nodeId}.vec`);
+    const vec = vecS ? resolveValue(vecS.nid, vecS.ok, nodeMap, inputSrc, bp) : "{ x: 0, y: 0, z: 0 }";
+    return `(${vec}).${outputKey}`;
+  }
+
   // RunBehaviorTree / MoveToLocation / RotateToFace — result outputs (set by genAction temp vars)
   if (node instanceof RunBehaviorTreeNode) {
     if (outputKey === 'success') return `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -3849,6 +3896,12 @@ function genAction(
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
+  if (node instanceof AIMoveToVectorNode) {
+    const locS = inputSrc.get(`${nodeId}.location`);
+    lines.push(`{ const _ai = gameObject.aiController; const _loc = ${locS ? rv(locS.nid, locS.ok) : '{x:0,y:0,z:0}'}; if (_ai && _loc) _ai.moveTo(_loc.x, _loc.y, _loc.z); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
   if (node instanceof AIStopMovementNode) {
     lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.stopMovement(); }`);
     lines.push(...we(nodeId, 'exec'));
@@ -3915,15 +3968,47 @@ function genAction(
   if (node instanceof SetBlackboardValueNode) {
     const kS = inputSrc.get(`${nodeId}.key`);
     const vS = inputSrc.get(`${nodeId}.value`);
-    const key = kS ? rv(kS.nid, kS.ok) : "''";
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     const val = vS ? rv(vS.nid, vS.ok) : 'null';
-    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB Set]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsBoolNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : 'false';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetBool]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, Boolean(${val} || false)); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsFloatNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : '0';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetFloat]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, parseFloat(${val} || 0)); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsVectorNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : '{x:0, y:0, z:0}';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetVec]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
   if (node instanceof ClearBlackboardValueNode) {
     const kS = inputSrc.get(`${nodeId}.key`);
-    const key = kS ? rv(kS.nid, kS.ok) : "''";
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.clearBlackboardValue(${key}); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
@@ -7264,7 +7349,7 @@ function showContextMenu(
 //  Dialogs — Add Variable, Add Function/Macro, Edit Variable, Struct
 // ============================================================
 function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?: VarType): string {
-  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget'] as const;
+  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget', 'BlackboardKeySelector'] as const;
   let html = '';
   for (const t of base) {
     html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;
@@ -7858,6 +7943,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof MathSubtractNode) return 'MathSubtractNode';
   if (node instanceof MathMultiplyNode) return 'MathMultiplyNode';
   if (node instanceof MathDivideNode) return 'MathDivideNode';
+  if (node instanceof MakeVectorNode) return 'MakeVectorNode';
+  if (node instanceof BreakVectorNode) return 'BreakVectorNode';
   if (node instanceof SineNode) return 'SineNode';
   if (node instanceof CosineNode) return 'CosineNode';
   if (node instanceof AbsNode) return 'AbsNode';
@@ -8039,6 +8126,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof IsPossessingNode) return 'IsPossessingNode';
   // AI Controller nodes
   if (node instanceof AIMoveToNode) return 'AIMoveToNode';
+  if (node instanceof AIMoveToVectorNode) return 'AIMoveToVectorNode';
   if (node instanceof AIStopMovementNode) return 'AIStopMovementNode';
   if (node instanceof AISetFocalPointNode) return 'AISetFocalPointNode';
   if (node instanceof AIClearFocalPointNode) return 'AIClearFocalPointNode';
@@ -8184,6 +8272,12 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetBlackboardValueNode) return 'GetBlackboardValueNode';
   if (node instanceof SetBlackboardValueNode) return 'SetBlackboardValueNode';
   if (node instanceof ClearBlackboardValueNode) return 'ClearBlackboardValueNode';
+  if (node instanceof GetBlackboardValueAsBoolNode) return 'GetBlackboardValueAsBoolNode';
+  if (node instanceof GetBlackboardValueAsFloatNode) return 'GetBlackboardValueAsFloatNode';
+  if (node instanceof GetBlackboardValueAsVectorNode) return 'GetBlackboardValueAsVectorNode';
+  if (node instanceof SetBlackboardValueAsBoolNode) return 'SetBlackboardValueAsBoolNode';
+  if (node instanceof SetBlackboardValueAsFloatNode) return 'SetBlackboardValueAsFloatNode';
+  if (node instanceof SetBlackboardValueAsVectorNode) return 'SetBlackboardValueAsVectorNode';
   if (node instanceof RotateToFaceNode) return 'RotateToFaceNode';
 
   // Fallback: use the node label for any NODE_PALETTE-registered node
@@ -8244,6 +8338,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   for (const [key, inp] of Object.entries(node.inputs)) {
     const ctrl = (inp as any)?.control;
     if (ctrl instanceof BoolSelectControl) {
+      inputControls[key] = ctrl.value;
+    } else if (ctrl instanceof ClassicPreset.InputControl) {
       inputControls[key] = ctrl.value;
     }
   }
@@ -8584,6 +8680,19 @@ function createNodeFromData(
     case 'MathSubtractNode': return new MathSubtractNode();
     case 'MathMultiplyNode': return new MathMultiplyNode();
     case 'MathDivideNode':   return new MathDivideNode();
+    case 'MakeVectorNode':
+    case 'Make Vector': {
+      const n = new MakeVectorNode();
+      if (d.inputControls) {
+        for (const [key, val] of Object.entries(d.inputControls)) {
+          const ctrl = (n.inputs as any)?.[key]?.control;
+          if (ctrl && 'value' in ctrl) ctrl.value = val;
+        }
+      }
+      return n;
+    }
+    case 'BreakVectorNode':
+    case 'Break Vector':     return new BreakVectorNode();
     case 'SineNode':         return new SineNode();
     case 'CosineNode':       return new CosineNode();
     case 'AbsNode':          return new AbsNode();
@@ -8793,6 +8902,8 @@ function createNodeFromData(
     case 'IsPossessingNode':                return new IsPossessingNode();
     // AI Controller nodes
     case 'AIMoveToNode':                    return new AIMoveToNode();
+    case 'AIMoveToVectorNode':
+    case 'AI Move To (Vector)':             return new AIMoveToVectorNode();
     case 'AIStopMovementNode':              return new AIStopMovementNode();
     case 'AISetFocalPointNode':             return new AISetFocalPointNode();
     case 'AIClearFocalPointNode':           return new AIClearFocalPointNode();
@@ -9282,11 +9393,59 @@ function createNodeFromData(
     case 'MoveToLocationNode':
     case 'Move To Location':                return new MoveToLocationNode();
     case 'GetBlackboardValueNode':
-    case 'Get Blackboard Value':            return new GetBlackboardValueNode();
+    case 'Get Blackboard Value': {
+      const n = new GetBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
     case 'SetBlackboardValueNode':
-    case 'Set Blackboard Value':            return new SetBlackboardValueNode();
+    case 'Set Blackboard Value': {
+      const n = new SetBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
     case 'ClearBlackboardValueNode':
-    case 'Clear Blackboard Value':          return new ClearBlackboardValueNode();
+    case 'Clear Blackboard Value': {
+      const n = new ClearBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsBoolNode':
+    case 'Get Blackboard Value as Bool': {
+      const n = new GetBlackboardValueAsBoolNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsFloatNode':
+    case 'Get Blackboard Value as Float': {
+      const n = new GetBlackboardValueAsFloatNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsVectorNode':
+    case 'Get Blackboard Value as Vector': {
+      const n = new GetBlackboardValueAsVectorNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsBoolNode':
+    case 'Set Blackboard Value as Bool': {
+      const n = new SetBlackboardValueAsBoolNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsFloatNode':
+    case 'Set Blackboard Value as Float': {
+      const n = new SetBlackboardValueAsFloatNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsVectorNode':
+    case 'Set Blackboard Value as Vector': {
+      const n = new SetBlackboardValueAsVectorNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
     case 'RotateToFaceNode':
     case 'Rotate To Face':                  return new RotateToFaceNode();
 
@@ -9300,6 +9459,7 @@ function createNodeFromData(
           for (const [key, val] of Object.entries(d.inputControls)) {
             const ctrl = (n.inputs as any)?.[key]?.control;
             if (ctrl && typeof ctrl.setValue === 'function') ctrl.setValue(val as number);
+            else if (ctrl && 'value' in ctrl) ctrl.value = val;
           }
         }
         // Restore BTSelectControl values (e.g. RunBehaviorTreeNode)

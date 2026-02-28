@@ -286,33 +286,94 @@ export class BehaviorTreeManager {
           task.id = data.id;
           task.name = data.label;
           const targetKey = data.properties?.TargetKey ?? '';
-          const acceptableRadius = data.properties?.AcceptableRadius ?? 50;
+          const acceptableRadius = parseFloat(data.properties?.AcceptableRadius ?? 50);
+
+          const movingState = new WeakMap<any, { isMoving: boolean; lastTx?: number; lastTy?: number; lastTz?: number; loggedOnce?: boolean }>();
+
           task.executeFn = (ctx) => {
-            if (!targetKey) return BTNodeState.Failure;
+            if (!targetKey) {
+              console.warn(`[BT MoveTo] No TargetKey configured — set the TargetKey property on the Move To node in the BT Editor`);
+              return BTNodeState.Failure;
+            }
             const target = ctx.blackboard.get(targetKey);
-            if (!target) return BTNodeState.Failure;
+
+            // Debug: log blackboard state on first execution
+            let st = movingState.get(ctx);
+            if (!st) {
+              st = { isMoving: false };
+              movingState.set(ctx, st);
+            }
+            if (!st.loggedOnce) {
+              st.loggedOnce = true;
+              console.log(`[BT MoveTo] TargetKey="${targetKey}" value=`, target,
+                `| All BB keys:`, [...ctx.blackboard.keys()],
+                `| All BB entries:`, [...ctx.blackboard.entries()]);
+            }
+
+            if (target == null) {
+              console.warn(`[BT MoveTo] Blackboard key "${targetKey}" not found or null. Available keys:`, [...ctx.blackboard.keys()]);
+              return BTNodeState.Failure;
+            }
+
+            let tx = 0, ty = 0, tz = 0;
+            if (typeof target === 'object' && target !== null && typeof target.x === 'number') {
+              tx = target.x; ty = target.y || 0; tz = target.z || 0;
+            } else if (target?.position) {
+              tx = target.position.x; ty = target.position.y; tz = target.position.z;
+            } else {
+              console.warn(`[BT MoveTo] Target value for key "${targetKey}" is not a vector or actor:`, target);
+              return BTNodeState.Failure;
+            }
+
             const ctrl = ctx.aiController;
-            if (ctrl && typeof ctrl.moveTo === 'function') {
-              const result = ctrl.moveTo(target, acceptableRadius);
-              if (result === 'Running') return BTNodeState.Running;
-              if (result === false || result === 'Failure') return BTNodeState.Failure;
+            const pawn = ctx.gameObject;
+            if (!pawn?.position) {
+              console.warn(`[BT MoveTo] Pawn has no position property`);
+              return BTNodeState.Failure;
+            }
+
+            const dx = tx - pawn.position.x;
+            const dy = ty - pawn.position.y;
+            const dz = tz - pawn.position.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist <= acceptableRadius) {
+              if (ctrl && ctrl.state === 'movingTo') ctrl.stopMovement();
+              movingState.delete(ctx);
               return BTNodeState.Success;
             }
-            // Fallback: simple move toward target for pawns with position
-            const pawn = ctx.gameObject;
-            if (pawn?.position && target) {
-              const tx = target.x ?? target.position?.x ?? 0;
-              const tz = target.z ?? target.position?.z ?? 0;
-              const dx = tx - pawn.position.x;
-              const dz = tz - pawn.position.z;
-              const dist = Math.sqrt(dx * dx + dz * dz);
-              if (dist <= acceptableRadius) return BTNodeState.Success;
-              const speed = 200 * ctx.deltaTime;
-              pawn.position.x += (dx / dist) * Math.min(speed, dist);
-              pawn.position.z += (dz / dist) * Math.min(speed, dist);
+
+            if (ctrl && typeof ctrl.moveTo === 'function') {
+              const changed = st.lastTx !== tx || st.lastTy !== ty || st.lastTz !== tz;
+              if (!st.isMoving || changed) {
+                console.log(`[BT MoveTo] Calling ctrl.moveTo(${tx}, ${ty}, ${tz}) dist=${dist.toFixed(1)} radius=${acceptableRadius}`);
+                ctrl.moveTo(tx, ty, tz);
+                st.isMoving = true;
+                st.lastTx = tx;
+                st.lastTy = ty;
+                st.lastTz = tz;
+              }
+              // If the AIController finished movement (state went idle) but
+              // we're still far away, treat it as needing to re-issue moveTo
+              if (st.isMoving && ctrl.state !== 'movingTo') {
+                // Re-issue moveTo in case movement finished prematurely
+                ctrl.moveTo(tx, ty, tz);
+              }
               return BTNodeState.Running;
             }
-            return BTNodeState.Failure;
+
+            // Fallback: simple move toward target for pawns with no AIController
+            const speed = 200 * ctx.deltaTime;
+            const step = Math.min(speed, dist);
+            pawn.position.x += (dx / dist) * step;
+            pawn.position.y += (dy / dist) * step;
+            pawn.position.z += (dz / dist) * step;
+            return BTNodeState.Running;
+          };
+
+          task.abortFn = (ctx) => {
+            if (ctx.aiController) ctx.aiController.stopMovement();
+            movingState.delete(ctx);
           };
           rtNode = task;
 
@@ -440,7 +501,7 @@ export class BehaviorTreeManager {
             console.log(`[BT] FULL TASK CODE for "${data.label}":\n`, code);
             if (code && code.length > 0) {
               try {
-                const compiled = this._compileTaskCode(code);
+                const compiled = this._compileTaskCode(code, data.properties);
                 console.log(`[BT] Custom task "${data.label}": compiled beginPlay=${!!compiled?.beginPlay} tick=${!!compiled?.tick} onDestroy=${!!compiled?.onDestroy}`);
                 if (compiled) {
                   let initialized = false;
@@ -567,8 +628,9 @@ export class BehaviorTreeManager {
    * Compile a task's generated code (with __beginPlay__ / __tick__ / __onDestroy__ markers)
    * into lifecycle functions, mirroring ScriptComponent._compileShared().
    * Returns functions whose return values are captured (unlike ScriptComponent which ignores them).
+   * @param properties Optional property overrides from the Behavior Tree node to inject into script variables.
    */
-  private _compileTaskCode(code: string): {
+  private _compileTaskCode(code: string, properties?: Record<string, any>): {
     beginPlay: ((ctx: any) => any) | null;
     tick: ((ctx: any) => any) | null;
     onDestroy: ((ctx: any) => any) | null;
@@ -580,6 +642,14 @@ export class BehaviorTreeManager {
 
     if (!beginPlayCode && !tickCode && !destroyCode && !preamble) {
       return null;
+    }
+
+    let overrides = '';
+    if (properties) {
+      overrides = '// Property overrides from BT Editor\n' + Object.entries(properties).map(([k, v]) => {
+        const safeName = k.replace(/[^a-zA-Z0-9_]/g, '_');
+        return `if (typeof __var_${safeName} !== 'undefined') { __var_${safeName} = ${JSON.stringify(v)}; }`;
+      }).join('\n');
     }
 
     // Build a factory function identical to ScriptComponent._compileShared,
@@ -607,6 +677,8 @@ export class BehaviorTreeManager {
   var gameObject, deltaTime, elapsedTime, print, __physics, __scene, __uiManager, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __engine, __gameInstance, __ctx, __pTrack, __aiController;
 
 ${preamble}
+
+${overrides}
 
 var __bp = null;
 var __tk = null;

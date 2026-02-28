@@ -11,6 +11,7 @@ export function socketForType(type: VarType): ClassicPreset.Socket {
     case 'Boolean': return boolSocket;
     case 'Vector3': return vec3Socket;
     case 'String':  return strSocket;
+    case 'BlackboardKeySelector': return strSocket;
     case 'Color':   return colorSocket;
     case 'ObjectRef': return objectSocket;
     case 'Widget':  return widgetSocket;

@@ -535,6 +535,7 @@ export class NavMeshSystem {
     const result = this._navMeshQuery.findRandomPointAroundCircle(
       { x: center.x, y: center.y, z: center.z },
       radius,
+      { halfExtents: { x: 500, y: 500, z: 500 } }
     );
     if (!result.success) return null;
     return new THREE.Vector3(result.randomPoint.x, result.randomPoint.y, result.randomPoint.z);

@@ -38,6 +38,7 @@ export { MathAddNode }      from './math/MathAddNode';
 export { MathSubtractNode } from './math/MathSubtractNode';
 export { MathMultiplyNode } from './math/MathMultiplyNode';
 export { MathDivideNode }   from './math/MathDivideNode';
+export { MakeVectorNode, BreakVectorNode } from './math/VectorNodes';
 export { SineNode }         from './math/SineNode';
 export { CosineNode }       from './math/CosineNode';
 export { AbsNode }          from './math/AbsNode';
@@ -243,6 +244,7 @@ export {
 // ── AI Controller ───────────────────────────────────────────
 export {
   AIMoveToNode,
+  AIMoveToVectorNode,
   AIStopMovementNode,
   AISetFocalPointNode,
   AIClearFocalPointNode,
@@ -725,6 +727,12 @@ export {
   SetBlackboardValueNode,
   ClearBlackboardValueNode,
   RotateToFaceNode,
+  GetBlackboardValueAsBoolNode,
+  GetBlackboardValueAsFloatNode,
+  GetBlackboardValueAsVectorNode,
+  SetBlackboardValueAsBoolNode,
+  SetBlackboardValueAsFloatNode,
+  SetBlackboardValueAsVectorNode,
 } from './ai/AINodes';
 
 export { BTSelectControl } from './ai/BTSelectControl';

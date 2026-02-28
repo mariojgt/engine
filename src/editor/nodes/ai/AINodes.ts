@@ -5,7 +5,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { registerNode, execSocket, numSocket, boolSocket, strSocket, objectSocket, actorRefSocket } from '../sockets';
+import { registerNode, execSocket, numSocket, boolSocket, strSocket, objectSocket, actorRefSocket, vec3Socket } from '../sockets';
 import { BTSelectControl } from './BTSelectControl';
 
 // ── Category color ──
@@ -215,7 +215,9 @@ registerNode('AI Move To Location', 'AI', () => new MoveToLocationNode());
 export class GetBlackboardValueNode extends ClassicPreset.Node {
   constructor() {
     super('Get Blackboard Value');
-    this.addInput('key', new ClassicPreset.Input(strSocket, 'Key Name'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key Name');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
     this.addOutput('value', new ClassicPreset.Output(objectSocket, 'Value'));
   }
 }
@@ -226,7 +228,9 @@ export class SetBlackboardValueNode extends ClassicPreset.Node {
     super('Set Blackboard Value');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
-    this.addInput('key', new ClassicPreset.Input(strSocket, 'Key Name'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key Name');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
     this.addInput('value', new ClassicPreset.Input(objectSocket, 'Value'));
   }
 }
@@ -237,7 +241,9 @@ export class ClearBlackboardValueNode extends ClassicPreset.Node {
     super('Clear Blackboard Value');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
-    this.addInput('key', new ClassicPreset.Input(strSocket, 'Key Name'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key Name');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
   }
 }
 registerNode('Clear Blackboard Value', 'AI', () => new ClearBlackboardValueNode());
@@ -253,3 +259,80 @@ export class RotateToFaceNode extends ClassicPreset.Node {
   }
 }
 registerNode('AI Rotate To Face', 'AI', () => new RotateToFaceNode());
+
+// ============================================================
+//  Blackboard Nodes
+// ============================================================
+
+export class GetBlackboardValueAsBoolNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Blackboard Value as Bool');
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addOutput('val', new ClassicPreset.Output(boolSocket, 'Value'));
+  }
+}
+registerNode('Get Blackboard Value as Bool', 'AI', () => new GetBlackboardValueAsBoolNode());
+
+export class GetBlackboardValueAsFloatNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Blackboard Value as Float');
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addOutput('val', new ClassicPreset.Output(numSocket, 'Value'));
+  }
+}
+registerNode('Get Blackboard Value as Float', 'AI', () => new GetBlackboardValueAsFloatNode());
+
+export class GetBlackboardValueAsVectorNode extends ClassicPreset.Node {
+  constructor() {
+    super('Get Blackboard Value as Vector');
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addOutput('val', new ClassicPreset.Output(vec3Socket, 'Value'));
+  }
+}
+registerNode('Get Blackboard Value as Vector', 'AI', () => new GetBlackboardValueAsVectorNode());
+
+export class SetBlackboardValueAsBoolNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Blackboard Value as Bool');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addInput('val', new ClassicPreset.Input(boolSocket, 'Value'));
+  }
+}
+registerNode('Set Blackboard Value as Bool', 'AI', () => new SetBlackboardValueAsBoolNode());
+
+export class SetBlackboardValueAsFloatNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Blackboard Value as Float');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addInput('val', new ClassicPreset.Input(numSocket, 'Value'));
+  }
+}
+registerNode('Set Blackboard Value as Float', 'AI', () => new SetBlackboardValueAsFloatNode());
+
+export class SetBlackboardValueAsVectorNode extends ClassicPreset.Node {
+  constructor() {
+    super('Set Blackboard Value as Vector');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
+    const keyIn = new ClassicPreset.Input(strSocket, 'Key (Selector)');
+    keyIn.addControl(new ClassicPreset.InputControl('text', { initial: '' }));
+    this.addInput('key', keyIn);
+    this.addInput('val', new ClassicPreset.Input(vec3Socket, 'Value'));
+  }
+}
+registerNode('Set Blackboard Value as Vector', 'AI', () => new SetBlackboardValueAsVectorNode());
+
