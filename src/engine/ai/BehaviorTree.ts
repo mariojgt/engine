@@ -34,8 +34,13 @@ export abstract class BTNode {
 export class BTSequence extends BTNode {
   public children: BTNode[] = [];
   private _runningIndex: number = 0;
+  private _logged = false;
 
   tick(context: BTContext): BTNodeState {
+    if (!this._logged) {
+      this._logged = true;
+      console.log(`[BT] BTSequence.tick: name="${this.name}" children=${this.children.length} childNames=[${this.children.map(c => `"${c.name}"`).join(', ')}]`);
+    }
     for (let i = this._runningIndex; i < this.children.length; i++) {
       const state = this.children[i].tick(context);
       
@@ -151,8 +156,13 @@ export class BTWaitTask extends BTNode {
 export class BTCustomTask extends BTNode {
   public executeFn: ((context: BTContext) => BTNodeState) | null = null;
   public abortFn: ((context: BTContext) => void) | null = null;
+  private _logged = false;
 
   tick(context: BTContext): BTNodeState {
+    if (!this._logged) {
+      this._logged = true;
+      console.log(`[BT] BTCustomTask.tick: name="${this.name}" hasExecuteFn=${!!this.executeFn}`);
+    }
     if (this.executeFn) {
       return this.executeFn(context);
     }
@@ -171,9 +181,14 @@ export class BTCustomTask extends BTNode {
 export class BehaviorTree {
   public root: BTNode | null = null;
   public isRunning: boolean = false;
+  private _tickLogged = false;
 
   tick(context: BTContext): void {
     if (!this.root) return;
+    if (!this._tickLogged) {
+      this._tickLogged = true;
+      console.log(`[BT] BehaviorTree.tick: root=${this.root.constructor.name} rootName="${this.root.name}" rootId="${this.root.id}"`);
+    }
     this.isRunning = true;
     
     const state = this.root.tick(context);

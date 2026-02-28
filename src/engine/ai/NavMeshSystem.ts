@@ -221,18 +221,82 @@ export class NavMeshSystem {
     const meshes: THREE.Mesh[] = [];
     const box = boundsMin && boundsMax ? new THREE.Box3(boundsMin, boundsMax) : null;
 
-    scene.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
+    scene.traverse((obj: any) => {
+      // Must be a mesh with geometry
+      if (!obj.isMesh) return;
       if (!obj.geometry) return;
-      // Skip debug helpers, navmesh visualization, invisible objects
-      if (obj.userData.__navmeshHelper) return;
-      if (obj.userData.__crowdHelper) return;
-      if (obj.userData.__gizmo) return;
-      if (obj.userData.__transformControl) return;
-      if (obj.visible === false) return;
-      if (excludeNames && excludeNames.has(obj.name)) return;
 
-      // Optional bounds filter
+      // ── Allow-list: certain objects are explicitly valid walkable geometry ──
+      const isExplicitlyWalkable = obj.userData?.__isDevGroundPlane === true;
+
+      // ── Walk the entire parent chain checking for exclusion flags ──
+      let current = obj;
+      let shouldSkip = false;
+      while (current) {
+        // Skip invisible branches entirely
+        if (current.visible === false) {
+          shouldSkip = true;
+          break;
+        }
+
+        if (current.userData) {
+          // Skip all known editor / debug / helper flags
+          if (
+            current.userData.__navmeshHelper ||
+            current.userData.__crowdHelper ||
+            current.userData.__gizmo ||
+            current.userData.__transformControl ||
+            current.userData.__isViewportHelper ||
+            current.userData.__isTransformPivot ||
+            current.userData.__isTriggerHelper ||
+            current.userData.__isLightHelper ||
+            current.userData.__isCollisionHelper ||
+            current.userData.__lightIcon ||
+            current.userData.__lightRange ||
+            current.userData.__cameraIcon ||
+            current.userData.isGizmo
+          ) {
+            shouldSkip = true;
+            break;
+          }
+
+          // Scene composition helpers (grid, axes, sky, fog vol, post-process, etc.)
+          // BUT allow explicitly walkable geometry like the DevGroundPlane through
+          if (current.userData.__isSceneCompositionHelper && !isExplicitlyWalkable) {
+            shouldSkip = true;
+            break;
+          }
+        }
+
+        // Skip by explicit name exclusion set
+        if (excludeNames && excludeNames.has(current.name)) {
+          shouldSkip = true;
+          break;
+        }
+
+        // Catch Three.js built-in helpers / controls by type string
+        const cType = (current as any).type;
+        if (
+          cType === 'TransformControlsGizmo' ||
+          cType === 'TransformControlsPlane' ||
+          cType === 'GridHelper' ||
+          cType === 'AxesHelper' ||
+          cType === 'ArrowHelper' ||
+          cType === 'BoxHelper' ||
+          cType === 'DirectionalLightHelper' ||
+          cType === 'SpotLightHelper' ||
+          cType === 'PointLightHelper'
+        ) {
+          shouldSkip = true;
+          break;
+        }
+
+        current = current.parent;
+      }
+
+      if (shouldSkip) return;
+
+      // Optional bounding box filter
       if (box) {
         if (!obj.geometry.boundingBox) {
           obj.geometry.computeBoundingBox();
@@ -271,6 +335,8 @@ export class NavMeshSystem {
       await this.init();
     }
 
+    scene.updateMatrixWorld(true);
+
     const cfg = { ...this.config, ...config };
 
     // If no bounds provided, auto-detect from scene geometry to prevent
@@ -282,38 +348,35 @@ export class NavMeshSystem {
       boundsMin = new THREE.Vector3(cfg.boundsMin.x, cfg.boundsMin.y, cfg.boundsMin.z);
       boundsMax = new THREE.Vector3(cfg.boundsMax.x, cfg.boundsMax.y, cfg.boundsMax.z);
     } else {
-      // Auto-detect bounds from all meshes in the scene
-      const autoBox = new THREE.Box3();
-      let foundAny = false;
-      const tmpBox = new THREE.Box3();
-      scene.traverse((obj: any) => {
-        if (!(obj instanceof THREE.Mesh)) return;
-        if (!obj.geometry) return;
-        if (obj.userData.__navmeshHelper) return;
-        if (obj.userData.__crowdHelper) return;
-        if (obj.visible === false) return;
-        obj.geometry.computeBoundingBox();
-        if (obj.geometry.boundingBox) {
-          tmpBox.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
-          autoBox.union(tmpBox);
-          foundAny = true;
+      // Auto-detect bounds from properly filtered walkable meshes only
+      const walkable = this.collectSceneGeometry(scene);
+      if (walkable.length > 0) {
+        const autoBox = new THREE.Box3();
+        const tmpBox = new THREE.Box3();
+        for (const mesh of walkable) {
+          mesh.geometry.computeBoundingBox();
+          if (mesh.geometry.boundingBox) {
+            tmpBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+            autoBox.union(tmpBox);
+          }
         }
-      });
-      if (foundAny) {
-        // Clamp very large bounds (e.g. 1000×1000 ground plane) to a reasonable area
-        const maxExtent = 200; // Max 200 units in any direction
-        boundsMin = new THREE.Vector3(
-          Math.max(autoBox.min.x, -maxExtent),
-          Math.max(autoBox.min.y, -maxExtent),
-          Math.max(autoBox.min.z, -maxExtent),
-        );
-        boundsMax = new THREE.Vector3(
-          Math.min(autoBox.max.x, maxExtent),
-          Math.min(autoBox.max.y, maxExtent),
-          Math.min(autoBox.max.z, maxExtent),
-        );
+        boundsMin = autoBox.min.clone();
+        boundsMax = autoBox.max.clone();
         console.log(`[NavMesh] Auto-detected bounds: (${boundsMin.x.toFixed(1)}, ${boundsMin.y.toFixed(1)}, ${boundsMin.z.toFixed(1)}) → (${boundsMax.x.toFixed(1)}, ${boundsMax.y.toFixed(1)}, ${boundsMax.z.toFixed(1)})`);
       }
+    }
+
+    // ── Safety clamp: prevent Recast WASM from allocating absurd heightfields ──
+    // With cellSize 0.2 a 1000-unit span is 5000 cells/axis → ~25M cells, safe.
+    // Anything beyond that risks WASM OOM.
+    const MAX_NAVMESH_EXTENT = 500;
+    if (boundsMin && boundsMax) {
+      boundsMin.x = Math.max(boundsMin.x, -MAX_NAVMESH_EXTENT);
+      boundsMin.y = Math.max(boundsMin.y, -MAX_NAVMESH_EXTENT);
+      boundsMin.z = Math.max(boundsMin.z, -MAX_NAVMESH_EXTENT);
+      boundsMax.x = Math.min(boundsMax.x, MAX_NAVMESH_EXTENT);
+      boundsMax.y = Math.min(boundsMax.y, MAX_NAVMESH_EXTENT);
+      boundsMax.z = Math.min(boundsMax.z, MAX_NAVMESH_EXTENT);
     }
 
     const meshes = this.collectSceneGeometry(scene, boundsMin, boundsMax);
@@ -343,11 +406,19 @@ export class NavMeshSystem {
     };
 
     if (boundsMin && boundsMax) {
-      recastConfig.bounds = [
-        [boundsMin.x, boundsMin.y, boundsMin.z],
-        [boundsMax.x, boundsMax.y, boundsMax.z]
-      ];
-    }
+        // Essential FIX for flat surfaces (e.g. perfectly flat dev ground planes).
+        // Recast voxelizer fails/ignores bounds if the Y extent is exactly 0.
+        // We enforce a minimum height so flat floors always process properly.
+        if (Math.abs(boundsMax.y - boundsMin.y) < 1) {
+          boundsMin.y -= 1;
+          boundsMax.y += 1;
+        }
+
+        recastConfig.bounds = [
+          [boundsMin.x, boundsMin.y, boundsMin.z],
+          [boundsMax.x, boundsMax.y, boundsMax.z]
+        ];
+      }
 
     // Clean up any existing navmesh
     this._destroyNavMesh();

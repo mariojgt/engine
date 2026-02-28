@@ -727,6 +727,8 @@ export {
   RotateToFaceNode,
 } from './ai/AINodes';
 
+export { BTSelectControl } from './ai/BTSelectControl';
+
 // ── NavMesh Nodes ───────────────────────────────────────────
 export {
   NavMeshBuildNode,

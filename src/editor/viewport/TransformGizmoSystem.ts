@@ -71,7 +71,12 @@ export class TransformGizmoSystem {
     this.controls.setSize(0.75);
     this.controls.setSpace('world');
 
-    scene.add(this.controls.getHelper());
+    // Tag the entire gizmo hierarchy so systems like NavMesh can skip it
+    const helper = this.controls.getHelper();
+    helper.traverse((child: THREE.Object3D) => {
+      child.userData.__gizmo = true;
+    });
+    scene.add(helper);
 
     // Events
     this.controls.addEventListener('dragging-changed', (event: any) => {

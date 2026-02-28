@@ -68,6 +68,12 @@ export class BehaviorTreeEditorPanel {
   private _dragOffsetX = 0;
   private _dragOffsetY = 0;
 
+  // Connection dragging state
+  private _isConnecting = false;
+  private _connectFromNodeId: string | null = null;  // parent node (dragging from bottom connector)
+  private _connectEndX = 0;  // current mouse position in node-space
+  private _connectEndY = 0;
+
   // DOM elements
   private _leftPanel: HTMLElement | null = null;
   private _rightPanel: HTMLElement | null = null;
@@ -239,6 +245,34 @@ export class BehaviorTreeEditorPanel {
       }
       if (e.button === 0) {
         const { nodeX, nodeY } = this._screenToNode(e.offsetX, e.offsetY);
+
+        // Check if clicking on a bottom connector (output) to start a connection
+        const outputHit = this._hitTestOutputConnector(nodeX, nodeY);
+        if (outputHit) {
+          this._isConnecting = true;
+          this._connectFromNodeId = outputHit.id;
+          this._connectEndX = nodeX;
+          this._connectEndY = nodeY;
+          return;
+        }
+
+        // Check if clicking on a top connector (input) to disconnect
+        const inputHit = this._hitTestInputConnector(nodeX, nodeY);
+        if (inputHit) {
+          // Disconnect this node from its parent and start dragging
+          // the wire from the parent so the user can re-attach it
+          const parentId = this._findParentOf(inputHit.id);
+          if (parentId) {
+            this._disconnectChild(parentId, inputHit.id);
+            this._isConnecting = true;
+            this._connectFromNodeId = parentId;
+            this._connectEndX = nodeX;
+            this._connectEndY = nodeY;
+            this._draw();
+            return;
+          }
+        }
+
         const hitNode = this._hitTest(nodeX, nodeY);
         if (hitNode) {
           this._selectedNodeId = hitNode.id;
@@ -263,6 +297,13 @@ export class BehaviorTreeEditorPanel {
         this._draw();
         return;
       }
+      if (this._isConnecting) {
+        const { nodeX, nodeY } = this._screenToNode(e.offsetX, e.offsetY);
+        this._connectEndX = nodeX;
+        this._connectEndY = nodeY;
+        this._draw();
+        return;
+      }
       if (this._isDragging && this._dragNodeId) {
         const { nodeX, nodeY } = this._screenToNode(e.offsetX, e.offsetY);
         const node = this._asset.nodes[this._dragNodeId];
@@ -271,10 +312,31 @@ export class BehaviorTreeEditorPanel {
           node.y = nodeY - this._dragOffsetY;
           this._draw();
         }
+        return;
+      }
+      // Cursor feedback: crosshair over connectors, grab over nodes
+      const { nodeX, nodeY } = this._screenToNode(e.offsetX, e.offsetY);
+      if (this._hitTestOutputConnector(nodeX, nodeY) || this._hitTestInputConnector(nodeX, nodeY)) {
+        canvas.style.cursor = 'crosshair';
+      } else if (this._hitTest(nodeX, nodeY)) {
+        canvas.style.cursor = 'grab';
+      } else {
+        canvas.style.cursor = 'default';
       }
     });
 
-    canvas.addEventListener('mouseup', () => {
+    canvas.addEventListener('mouseup', (e) => {
+      if (this._isConnecting && this._connectFromNodeId) {
+        const { nodeX, nodeY } = this._screenToNode(e.offsetX, e.offsetY);
+        const targetNode = this._hitTestInputConnector(nodeX, nodeY);
+        if (targetNode) {
+          this._createConnection(this._connectFromNodeId, targetNode.id);
+        }
+        this._isConnecting = false;
+        this._connectFromNodeId = null;
+        this._draw();
+        return;
+      }
       this._isPanning = false;
       this._isDragging = false;
       this._dragNodeId = null;
@@ -398,23 +460,77 @@ export class BehaviorTreeEditorPanel {
       propTitle.textContent = 'Properties';
       this._rightPanel.appendChild(propTitle);
 
+      // Look up the BuiltinNodeDef for this node to determine property types
+      const allBuiltinDefs = [...BUILTIN_TASKS, ...BUILTIN_DECORATORS, ...BUILTIN_SERVICES];
+      const builtinDef = node.builtinId ? allBuiltinDefs.find(d => d.id === node.builtinId) : undefined;
+
+      // Get blackboard keys for dropdown
+      const bbAsset = this._asset.blackboardId ? this._manager.getBlackboard(this._asset.blackboardId) : undefined;
+      const bbKeys: BlackboardKey[] = bbAsset?.keys ?? [];
+
       for (const [key, val] of Object.entries(node.properties)) {
         const row = document.createElement('div');
         row.className = 'ai-bb-field-row';
         const lbl = document.createElement('label');
         lbl.className = 'ai-bb-field-label';
         lbl.textContent = key;
-        const inp = document.createElement('input');
-        inp.type = typeof val === 'number' ? 'number' : typeof val === 'boolean' ? 'checkbox' : 'text';
-        inp.className = 'ai-field-input';
-        if (typeof val === 'boolean') inp.checked = val;
-        else inp.value = String(val ?? '');
-        inp.addEventListener('change', () => {
-          node.properties[key] = inp.type === 'number' ? parseFloat(inp.value) : inp.type === 'checkbox' ? inp.checked : inp.value;
-          this._asset.modifiedAt = Date.now();
-        });
-        row.appendChild(lbl);
-        row.appendChild(inp);
+
+        // Check if this property is a BlackboardKey type
+        const propDef = builtinDef?.properties.find(p => p.name === key);
+        const isBlackboardKey = propDef?.type === 'BlackboardKey';
+
+        if (isBlackboardKey) {
+          // Render a <select> dropdown populated from the blackboard
+          const sel = document.createElement('select');
+          sel.className = 'ai-field-input';
+          sel.style.cursor = 'pointer';
+
+          // Empty option
+          const emptyOpt = document.createElement('option');
+          emptyOpt.value = '';
+          emptyOpt.textContent = '— Select Key —';
+          sel.appendChild(emptyOpt);
+
+          for (const bbKey of bbKeys) {
+            const opt = document.createElement('option');
+            opt.value = bbKey.name;
+            opt.textContent = bbKey.name;
+            // Show key type as a hint
+            opt.title = `Type: ${bbKey.type}`;
+            sel.appendChild(opt);
+          }
+
+          sel.value = String(val ?? '');
+          sel.addEventListener('change', () => {
+            node.properties[key] = sel.value;
+            this._asset.modifiedAt = Date.now();
+          });
+          row.appendChild(lbl);
+          row.appendChild(sel);
+
+          // Add key type indicator badge if a key is selected
+          if (val) {
+            const selectedKey = bbKeys.find(k => k.name === val);
+            if (selectedKey) {
+              const badge = document.createElement('span');
+              badge.style.cssText = 'font-size:10px;color:#888;margin-left:6px;padding:1px 5px;border-radius:3px;background:#1e1e2e;';
+              badge.textContent = selectedKey.type;
+              row.appendChild(badge);
+            }
+          }
+        } else {
+          const inp = document.createElement('input');
+          inp.type = typeof val === 'number' ? 'number' : typeof val === 'boolean' ? 'checkbox' : 'text';
+          inp.className = 'ai-field-input';
+          if (typeof val === 'boolean') inp.checked = val;
+          else inp.value = String(val ?? '');
+          inp.addEventListener('change', () => {
+            node.properties[key] = inp.type === 'number' ? parseFloat(inp.value) : inp.type === 'checkbox' ? inp.checked : inp.value;
+            this._asset.modifiedAt = Date.now();
+          });
+          row.appendChild(lbl);
+          row.appendChild(inp);
+        }
         this._rightPanel.appendChild(row);
       }
     }
@@ -485,6 +601,26 @@ export class BehaviorTreeEditorPanel {
     // Draw nodes
     for (const node of Object.values(this._asset.nodes)) {
       this._drawNode(ctx, node);
+    }
+
+    // Draw temporary connection wire while dragging
+    if (this._isConnecting && this._connectFromNodeId) {
+      const fromNode = this._asset.nodes[this._connectFromNodeId];
+      if (fromNode) {
+        const px = fromNode.x + NODE_WIDTH / 2;
+        const py = fromNode.y + NODE_HEIGHT;
+        const mx = this._connectEndX;
+        const my = this._connectEndY;
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        const midY = (py + my) / 2;
+        ctx.bezierCurveTo(px, midY, mx, midY, mx, my);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     ctx.restore();
@@ -569,18 +705,36 @@ export class BehaviorTreeEditorPanel {
 
     // Top connector (not for root)
     if (!isRoot) {
-      ctx.fillStyle = '#aaa';
+      const tcx = x + NODE_WIDTH / 2;
+      const tcy = y;
+      const isHoverTarget = this._isConnecting;
+      // Outer glow when a connection is being dragged
+      if (isHoverTarget) {
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+        ctx.beginPath();
+        ctx.arc(tcx, tcy, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = isHoverTarget ? '#fbbf24' : '#aaa';
       ctx.beginPath();
-      ctx.arc(x + NODE_WIDTH / 2, y, 5, 0, Math.PI * 2);
+      ctx.arc(tcx, tcy, 6, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // Bottom connector (for root and composites)
     if (isRoot || node.type === 'composite') {
+      const bcx = x + NODE_WIDTH / 2;
+      const bcy = y + NODE_HEIGHT;
       ctx.fillStyle = '#aaa';
       ctx.beginPath();
-      ctx.arc(x + NODE_WIDTH / 2, y + NODE_HEIGHT, 5, 0, Math.PI * 2);
+      ctx.arc(bcx, bcy, 6, 0, Math.PI * 2);
       ctx.fill();
+      // Small '+' hint
+      ctx.fillStyle = '#222';
+      ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('+', bcx, bcy);
     }
 
     // Decorator badges (small purple diamonds above node)
@@ -650,6 +804,89 @@ export class BehaviorTreeEditorPanel {
       }
     }
     return null;
+  }
+
+  /** Hit-test the bottom connector (output) of root/composite nodes */
+  private _hitTestOutputConnector(nx: number, ny: number): BTNodeData | null {
+    const CONNECTOR_RADIUS = 8; // slightly larger than visual 5px for easier clicking
+    for (const node of Object.values(this._asset.nodes)) {
+      if (node.type !== 'root' && node.type !== 'composite') continue;
+      const cx = node.x + NODE_WIDTH / 2;
+      const cy = node.y + NODE_HEIGHT;
+      const dx = nx - cx;
+      const dy = ny - cy;
+      if (dx * dx + dy * dy <= CONNECTOR_RADIUS * CONNECTOR_RADIUS) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  /** Hit-test the top connector (input) of non-root nodes */
+  private _hitTestInputConnector(nx: number, ny: number): BTNodeData | null {
+    const CONNECTOR_RADIUS = 8;
+    for (const node of Object.values(this._asset.nodes)) {
+      if (node.type === 'root') continue;
+      const cx = node.x + NODE_WIDTH / 2;
+      const cy = node.y;
+      const dx = nx - cx;
+      const dy = ny - cy;
+      if (dx * dx + dy * dy <= CONNECTOR_RADIUS * CONNECTOR_RADIUS) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  /** Find the parent node of a given child */
+  private _findParentOf(childId: string): string | null {
+    for (const node of Object.values(this._asset.nodes)) {
+      if (node.children.includes(childId)) return node.id;
+    }
+    return null;
+  }
+
+  /** Disconnect a child from its parent */
+  private _disconnectChild(parentId: string, childId: string): void {
+    const parent = this._asset.nodes[parentId];
+    if (!parent) return;
+    parent.children = parent.children.filter(id => id !== childId);
+    this._asset.modifiedAt = Date.now();
+  }
+
+  /** Create a connection (parent → child), preventing duplicates and cycles */
+  private _createConnection(parentId: string, childId: string): void {
+    const parent = this._asset.nodes[parentId];
+    const child = this._asset.nodes[childId];
+    if (!parent || !child) return;
+    // Only root and composite nodes can have children
+    if (parent.type !== 'root' && parent.type !== 'composite') return;
+    // Can't connect to self
+    if (parentId === childId) return;
+    // Can't connect to root
+    if (child.type === 'root') return;
+    // Remove from any existing parent first (a node can only have one parent in a tree)
+    const existingParent = this._findParentOf(childId);
+    if (existingParent) {
+      this._disconnectChild(existingParent, childId);
+    }
+    // Prevent duplicate
+    if (parent.children.includes(childId)) return;
+    // Simple cycle check: child can't be an ancestor of parent
+    if (this._isAncestorOf(childId, parentId)) return;
+    parent.children.push(childId);
+    this._asset.modifiedAt = Date.now();
+  }
+
+  /** Check if nodeA is an ancestor of nodeB */
+  private _isAncestorOf(nodeA: string, nodeB: string): boolean {
+    const nodeData = this._asset.nodes[nodeA];
+    if (!nodeData) return false;
+    for (const childId of nodeData.children) {
+      if (childId === nodeB) return true;
+      if (this._isAncestorOf(childId, nodeB)) return true;
+    }
+    return false;
   }
 
   // ============================================================

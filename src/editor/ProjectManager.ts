@@ -122,6 +122,8 @@ const SOUND_CUES_DIR = 'SoundCues';
 const CONFIG_DIR = 'Config';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const FOLDER_STRUCTURE_FILE = 'Config/folders.json';
+const NAVMESH_BIN_FILE = 'Config/navmesh.bin';
+const NAVMESH_CONFIG_FILE = 'Config/navmesh_config.json';
 const DEFAULT_SCENE = 'DefaultScene';
 
 export class ProjectManager {
@@ -473,6 +475,9 @@ export class ProjectManager {
       // Load composition (environment actors)
       await this._loadComposition();
 
+      // Load NavMesh binary + config
+      await this._loadNavMesh();
+
       // Load active scene
       await this._loadScene(meta.activeScene);
 
@@ -574,6 +579,10 @@ export class ProjectManager {
       // Save folder structure
       await this._saveFolderStructure();
       console.log('[ProjectManager]   ✓ folder structure');
+
+      // Save NavMesh binary + config
+      await this._saveNavMesh();
+      console.log('[ProjectManager]   ✓ navmesh');
 
       // Save composition (environment actors)
       await this._saveComposition();
@@ -1828,6 +1837,73 @@ export class ProjectManager {
           console.warn(`Failed to load font file ${name}:`, e);
         }
       }
+    }
+  }
+
+  // ============================================================
+  //  NavMesh Persistence
+  // ============================================================
+
+  private async _saveNavMesh(): Promise<void> {
+    if (!this._projectPath) return;
+
+    const navSys = this._engine.navMeshSystem;
+
+    // Save NavMesh config as JSON
+    try {
+      const configPath = `${this._projectPath}/${NAVMESH_CONFIG_FILE}`;
+      await fsWrite(configPath, JSON.stringify(navSys.config, null, 2));
+    } catch (err) {
+      console.warn('[ProjectManager] Failed to save navmesh config:', err);
+    }
+
+    // Save NavMesh binary data (only if a navmesh has been built)
+    const binData = navSys.exportNavMesh();
+    if (binData) {
+      try {
+        const binPath = `${this._projectPath}/${NAVMESH_BIN_FILE}`;
+        await fsWriteBinary(binPath, binData);
+        console.log(`[ProjectManager]   NavMesh binary saved (${binData.byteLength} bytes)`);
+      } catch (err) {
+        console.warn('[ProjectManager] Failed to save navmesh binary:', err);
+      }
+    }
+  }
+
+  private async _loadNavMesh(): Promise<void> {
+    if (!this._projectPath) return;
+
+    const navSys = this._engine.navMeshSystem;
+
+    // Load NavMesh config
+    try {
+      const configPath = `${this._projectPath}/${NAVMESH_CONFIG_FILE}`;
+      if (await fsExists(configPath)) {
+        const raw = await fsRead(configPath);
+        const savedConfig = JSON.parse(raw);
+        navSys.config = { ...navSys.config, ...savedConfig };
+        console.log('[ProjectManager]   ✓ navmesh config loaded');
+      }
+    } catch (err) {
+      console.warn('[ProjectManager] Failed to load navmesh config:', err);
+    }
+
+    // Load NavMesh binary
+    try {
+      const binPath = `${this._projectPath}/${NAVMESH_BIN_FILE}`;
+      if (await fsExists(binPath)) {
+        const data = await fsReadBinary(binPath);
+        if (data && data.byteLength > 0) {
+          const ok = await navSys.importNavMeshData(data);
+          if (ok) {
+            console.log(`[ProjectManager]   ✓ navmesh loaded (${data.byteLength} bytes)`);
+          } else {
+            console.warn('[ProjectManager]   NavMesh import returned false');
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ProjectManager] Failed to load navmesh binary:', err);
     }
   }
 

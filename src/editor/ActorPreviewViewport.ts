@@ -162,7 +162,12 @@ export class ActorPreviewViewport {
       this._syncMeshToData();
     });
 
-    this._scene.add(this._transformControls.getHelper());
+    // Tag the entire gizmo hierarchy so NavMesh / raycasts can skip it
+    const helper = this._transformControls.getHelper();
+    helper.traverse((child: THREE.Object3D) => {
+      child.userData.__gizmo = true;
+    });
+    this._scene.add(helper);
   }
 
   private _setupEvents(): void {

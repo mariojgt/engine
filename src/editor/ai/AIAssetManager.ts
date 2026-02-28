@@ -296,6 +296,10 @@ function aiUid(): string {
 // ============================================================
 
 export class AIAssetManager {
+  // ── Singleton ──
+  private static _instance: AIAssetManager | null = null;
+  static getInstance(): AIAssetManager | null { return AIAssetManager._instance; }
+
   // ── Storage ──
   private _blackboards = new Map<string, BlackboardAsset>();
   private _behaviorTrees = new Map<string, BehaviorTreeAsset>();
@@ -318,6 +322,10 @@ export class AIAssetManager {
   private _dismissedHints = new Set<string>();
   isHintDismissed(hintKey: string): boolean { return this._dismissedHints.has(hintKey); }
   dismissHint(hintKey: string): void { this._dismissedHints.add(hintKey); }
+
+  constructor() {
+    AIAssetManager._instance = this;
+  }
 
   // ── Recent nodes for search ──
   private _recentNodes: string[] = [];
@@ -486,6 +494,46 @@ export class AIAssetManager {
 
   createTask(name: string): BTTaskAsset {
     const bp = new BlueprintData();
+
+    // ── Pre-populate with UE-style task template nodes ──
+    // AIReceiveExecute → FinishExecute (success flow)
+    // AIReceiveAbort (abort handling)
+    const receiveExecId = 'tmpl_recv_exec_' + Date.now().toString(36);
+    const finishExecId = 'tmpl_finish_exec_' + Date.now().toString(36);
+    const receiveAbortId = 'tmpl_recv_abort_' + Date.now().toString(36);
+
+    bp.eventGraph.nodeData = {
+      nodes: [
+        {
+          id: receiveExecId,
+          type: 'AI Receive Execute',
+          position: { x: 100, y: 150 },
+          data: { label: 'AI Receive Execute' },
+        },
+        {
+          id: finishExecId,
+          type: 'Finish Execute',
+          position: { x: 550, y: 150 },
+          data: { label: 'Finish Execute' },
+        },
+        {
+          id: receiveAbortId,
+          type: 'AI Receive Abort',
+          position: { x: 100, y: 400 },
+          data: { label: 'AI Receive Abort' },
+        },
+      ],
+      connections: [
+        {
+          id: 'tmpl_conn_' + Date.now().toString(36),
+          source: receiveExecId,
+          sourceOutput: 'exec',
+          target: finishExecId,
+          targetInput: 'exec',
+        },
+      ],
+    };
+
     const task: BTTaskAsset = {
       id: aiUid(),
       name,
@@ -514,6 +562,38 @@ export class AIAssetManager {
 
   createDecorator(name: string): BTDecoratorAsset {
     const bp = new BlueprintData();
+
+    // ── Pre-populate with UE-style decorator template ──
+    // AIPerformConditionCheck → ReturnNode
+    const condCheckId = 'tmpl_cond_check_' + Date.now().toString(36);
+    const returnId = 'tmpl_return_' + Date.now().toString(36);
+
+    bp.eventGraph.nodeData = {
+      nodes: [
+        {
+          id: condCheckId,
+          type: 'AI Perform Condition Check',
+          position: { x: 100, y: 150 },
+          data: { label: 'AI Perform Condition Check' },
+        },
+        {
+          id: returnId,
+          type: 'Return Node',
+          position: { x: 550, y: 150 },
+          data: { label: 'Return Node' },
+        },
+      ],
+      connections: [
+        {
+          id: 'tmpl_conn_' + Date.now().toString(36),
+          source: condCheckId,
+          sourceOutput: 'exec',
+          target: returnId,
+          targetInput: 'exec',
+        },
+      ],
+    };
+
     const dec: BTDecoratorAsset = {
       id: aiUid(),
       name,
@@ -542,6 +622,37 @@ export class AIAssetManager {
 
   createService(name: string): BTServiceAsset {
     const bp = new BlueprintData();
+
+    // ── Pre-populate with UE-style service template ──
+    // AIServiceActivated, AIServiceTick, AIServiceDeactivated
+    const activatedId = 'tmpl_svc_act_' + Date.now().toString(36);
+    const tickId = 'tmpl_svc_tick_' + Date.now().toString(36);
+    const deactivatedId = 'tmpl_svc_deact_' + Date.now().toString(36);
+
+    bp.eventGraph.nodeData = {
+      nodes: [
+        {
+          id: activatedId,
+          type: 'AI Service Activated',
+          position: { x: 100, y: 100 },
+          data: { label: 'AI Service Activated' },
+        },
+        {
+          id: tickId,
+          type: 'AI Service Tick',
+          position: { x: 100, y: 300 },
+          data: { label: 'AI Service Tick' },
+        },
+        {
+          id: deactivatedId,
+          type: 'AI Service Deactivated',
+          position: { x: 100, y: 500 },
+          data: { label: 'AI Service Deactivated' },
+        },
+      ],
+      connections: [],
+    };
+
     const svc: BTServiceAsset = {
       id: aiUid(),
       name,

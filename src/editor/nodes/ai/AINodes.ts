@@ -6,6 +6,7 @@
 
 import { ClassicPreset } from 'rete';
 import { registerNode, execSocket, numSocket, boolSocket, strSocket, objectSocket, actorRefSocket } from '../sockets';
+import { BTSelectControl } from './BTSelectControl';
 
 // ── Category color ──
 // Registered in sockets.ts NODE_CATEGORY_COLORS (we'll add 'AI' category)
@@ -173,12 +174,24 @@ export class OnPerceptionUpdatedNode extends ClassicPreset.Node {
 registerNode('On Perception Updated', 'AI', () => new OnPerceptionUpdatedNode());
 
 export class RunBehaviorTreeNode extends ClassicPreset.Node {
+  public selectedBTId: string = '';
+  public selectedBTName: string = '';
+
   constructor() {
     super('Run Behavior Tree');
     this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
     this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
-    this.addInput('behaviorTree', new ClassicPreset.Input(strSocket, 'Behavior Tree'));
+
+    // Dropdown control to select a Behavior Tree asset
+    const btCtrl = new BTSelectControl('', (val: string) => {
+      this.selectedBTId = val;
+      this.selectedBTName = btCtrl.displayName;
+    });
+    this.addControl('btSelect', btCtrl);
+
     this.addOutput('success', new ClassicPreset.Output(boolSocket, 'Success'));
+    this.addOutput('controller', new ClassicPreset.Output(objectSocket, 'Controller'));
+    this.addOutput('pawn', new ClassicPreset.Output(actorRefSocket, 'Pawn'));
   }
 }
 registerNode('Run Behavior Tree', 'AI', () => new RunBehaviorTreeNode());

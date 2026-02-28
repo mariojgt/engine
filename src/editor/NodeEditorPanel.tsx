@@ -417,6 +417,7 @@ import {
   OnMoveCompletedNode,
   OnPerceptionUpdatedNode,
   RunBehaviorTreeNode,
+  BTSelectControl,
   MoveToLocationNode,
   GetBlackboardValueNode,
   SetBlackboardValueNode,
@@ -1132,12 +1133,12 @@ function resolveValue(
       node instanceof AIPerformConditionCheckNode || node instanceof AIObserverActivatedNode ||
       node instanceof AIObserverDeactivatedNode || node instanceof AIServiceActivatedNode ||
       node instanceof AIServiceDeactivatedNode) {
-    if (outputKey === 'ownerController') return `(gameObject.aiController || null)`;
+    if (outputKey === 'ownerController') return `__aiController`;
     if (outputKey === 'controlledPawn') return `gameObject`;
     return 'null';
   }
   if (node instanceof AIReceiveTickNode || node instanceof AIServiceTickNode) {
-    if (outputKey === 'ownerController') return `(gameObject.aiController || null)`;
+    if (outputKey === 'ownerController') return `__aiController`;
     if (outputKey === 'controlledPawn') return `gameObject`;
     if (outputKey === 'deltaTime') return `deltaTime`;
     return 'null';
@@ -1164,7 +1165,9 @@ function resolveValue(
   // RunBehaviorTree / MoveToLocation / RotateToFace — result outputs (set by genAction temp vars)
   if (node instanceof RunBehaviorTreeNode) {
     if (outputKey === 'success') return `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    return 'false';
+    if (outputKey === 'controller') return `__rbt_ctrl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'pawn') return `__rbt_pawn_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'null';
   }
   if (node instanceof MoveToLocationNode) {
     if (outputKey === 'success') return `__mtl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -3926,10 +3929,15 @@ function genAction(
     return lines;
   }
   if (node instanceof RunBehaviorTreeNode) {
-    const btS = inputSrc.get(`${nodeId}.behaviorTree`);
+    const btCtrl = node.controls['btSelect'] as any;
+    const btId = btCtrl?.value || '';
     const v = `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const ctrlVar = `__rbt_ctrl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const pawnVar = `__rbt_pawn_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     lines.push(`var ${v} = false;`);
-    lines.push(`{ const _ai = gameObject.aiController; if (_ai && __engine && __engine.behaviorTreeManager) { const _btAsset = __engine.behaviorTreeManager.get(${btS ? rv(btS.nid, btS.ok) : "''"}); if (_btAsset) { const _bt = __engine.behaviorTreeManager.instantiate(_btAsset); _ai.runBehaviorTree(_bt); ${v} = true; } } }`);
+    lines.push(`var ${ctrlVar} = null;`);
+    lines.push(`var ${pawnVar} = null;`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai && __engine && __engine.behaviorTreeManager) { const _btAsset = __engine.behaviorTreeManager.get('${btId}'); if (_btAsset) { const _bt = __engine.behaviorTreeManager.instantiate(_btAsset); _ai.runBehaviorTree(_bt); ${v} = true; ${ctrlVar} = _ai; ${pawnVar} = gameObject; } } }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
@@ -8155,6 +8163,29 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof EmitEventNode) return 'EmitEventNode';
   if (node instanceof OnEventNode) return 'OnEventNode';
 
+  // AI Blueprint nodes
+  if (node instanceof AIReceiveExecuteNode) return 'AIReceiveExecuteNode';
+  if (node instanceof AIReceiveTickNode) return 'AIReceiveTickNode';
+  if (node instanceof AIReceiveAbortNode) return 'AIReceiveAbortNode';
+  if (node instanceof FinishExecuteNode) return 'FinishExecuteNode';
+  if (node instanceof AIPerformConditionCheckNode) return 'AIPerformConditionCheckNode';
+  if (node instanceof AIObserverActivatedNode) return 'AIObserverActivatedNode';
+  if (node instanceof AIObserverDeactivatedNode) return 'AIObserverDeactivatedNode';
+  if (node instanceof ReturnNode) return 'ReturnNode';
+  if (node instanceof AIServiceActivatedNode) return 'AIServiceActivatedNode';
+  if (node instanceof AIServiceTickNode) return 'AIServiceTickNode';
+  if (node instanceof AIServiceDeactivatedNode) return 'AIServiceDeactivatedNode';
+  if (node instanceof OnPossessNode) return 'OnPossessNode';
+  if (node instanceof OnUnpossessNode) return 'OnUnpossessNode';
+  if (node instanceof OnMoveCompletedNode) return 'OnMoveCompletedNode';
+  if (node instanceof OnPerceptionUpdatedNode) return 'OnPerceptionUpdatedNode';
+  if (node instanceof RunBehaviorTreeNode) return 'RunBehaviorTreeNode';
+  if (node instanceof MoveToLocationNode) return 'MoveToLocationNode';
+  if (node instanceof GetBlackboardValueNode) return 'GetBlackboardValueNode';
+  if (node instanceof SetBlackboardValueNode) return 'SetBlackboardValueNode';
+  if (node instanceof ClearBlackboardValueNode) return 'ClearBlackboardValueNode';
+  if (node instanceof RotateToFaceNode) return 'RotateToFaceNode';
+
   // Fallback: use the node label for any NODE_PALETTE-registered node
   const paletteEntry = NODE_PALETTE.find(e => e.label === (node as any).label);
   if (paletteEntry) return (node as any).label;
@@ -8192,6 +8223,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as AxisMappingSelectControl).value;
     } else if (ctrl instanceof EventSelectControl) {
       controls[key] = (ctrl as EventSelectControl).value;
+    } else if (ctrl instanceof BTSelectControl) {
+      controls[key] = { id: (ctrl as BTSelectControl).value, name: (ctrl as BTSelectControl).displayName };
     } else if (ctrl instanceof ColorPickerControl) {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
@@ -8276,6 +8309,10 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     const negCtrl = ia.controls['negKey'] as KeySelectControl | undefined;
     data.positiveKey = posCtrl?.value ?? ia.positiveKey;
     data.negativeKey = negCtrl?.value ?? ia.negativeKey;
+  } else if (node instanceof RunBehaviorTreeNode) {
+    const btCtrl = node.controls['btSelect'] as BTSelectControl | undefined;
+    data.selectedBTId = btCtrl?.value ?? (node as RunBehaviorTreeNode).selectedBTId;
+    data.selectedBTName = btCtrl?.displayName ?? (node as RunBehaviorTreeNode).selectedBTName;
   } else if (node instanceof FunctionEntryNode) {
     data.funcId = node.funcId;
   } else if (node instanceof FunctionReturnNode) {
@@ -9200,6 +9237,59 @@ function createNodeFromData(
       return n;
     }
 
+    // ── AI Blueprint Nodes (explicit entries for deserialization) ──
+    case 'AIReceiveExecuteNode':
+    case 'AI Receive Execute':              return new AIReceiveExecuteNode();
+    case 'AIReceiveTickNode':
+    case 'AI Receive Tick':                 return new AIReceiveTickNode();
+    case 'AIReceiveAbortNode':
+    case 'AI Receive Abort':                return new AIReceiveAbortNode();
+    case 'FinishExecuteNode':
+    case 'Finish Execute':                  return new FinishExecuteNode();
+    case 'AIPerformConditionCheckNode':
+    case 'AI Perform Condition Check':      return new AIPerformConditionCheckNode();
+    case 'AIObserverActivatedNode':
+    case 'AI Observer Activated':           return new AIObserverActivatedNode();
+    case 'AIObserverDeactivatedNode':
+    case 'AI Observer Deactivated':         return new AIObserverDeactivatedNode();
+    case 'ReturnNode':
+    case 'Return':                          return new ReturnNode();
+    case 'AIServiceActivatedNode':
+    case 'AI Service Activated':            return new AIServiceActivatedNode();
+    case 'AIServiceTickNode':
+    case 'AI Service Tick':                 return new AIServiceTickNode();
+    case 'AIServiceDeactivatedNode':
+    case 'AI Service Deactivated':          return new AIServiceDeactivatedNode();
+    case 'OnPossessNode':
+    case 'On Possess':                      return new OnPossessNode();
+    case 'OnUnpossessNode':
+    case 'On Unpossess':                    return new OnUnpossessNode();
+    case 'OnMoveCompletedNode':
+    case 'On Move Completed':               return new OnMoveCompletedNode();
+    case 'OnPerceptionUpdatedNode':
+    case 'On Perception Updated':           return new OnPerceptionUpdatedNode();
+    case 'RunBehaviorTreeNode':
+    case 'Run Behavior Tree': {
+      const n = new RunBehaviorTreeNode();
+      if (d.selectedBTId) {
+        const btCtrl = n.controls['btSelect'] as BTSelectControl | undefined;
+        if (btCtrl) btCtrl.setValue(d.selectedBTId);
+        n.selectedBTId = d.selectedBTId;
+        n.selectedBTName = d.selectedBTName || '';
+      }
+      return n;
+    }
+    case 'MoveToLocationNode':
+    case 'Move To Location':                return new MoveToLocationNode();
+    case 'GetBlackboardValueNode':
+    case 'Get Blackboard Value':            return new GetBlackboardValueNode();
+    case 'SetBlackboardValueNode':
+    case 'Set Blackboard Value':            return new SetBlackboardValueNode();
+    case 'ClearBlackboardValueNode':
+    case 'Clear Blackboard Value':          return new ClearBlackboardValueNode();
+    case 'RotateToFaceNode':
+    case 'Rotate To Face':                  return new RotateToFaceNode();
+
     default: {
       // Fallback: try NODE_PALETTE factory for registered nodes (trace nodes, physics 2D, etc.)
       const paletteEntry = NODE_PALETTE.find(e => e.label === nd.type || e.label === d.label);
@@ -9210,6 +9300,24 @@ function createNodeFromData(
           for (const [key, val] of Object.entries(d.inputControls)) {
             const ctrl = (n.inputs as any)?.[key]?.control;
             if (ctrl && typeof ctrl.setValue === 'function') ctrl.setValue(val as number);
+          }
+        }
+        // Restore BTSelectControl values (e.g. RunBehaviorTreeNode)
+        if (n instanceof RunBehaviorTreeNode && d.selectedBTId) {
+          const btCtrl = n.controls['btSelect'] as BTSelectControl | undefined;
+          if (btCtrl) btCtrl.setValue(d.selectedBTId);
+          n.selectedBTId = d.selectedBTId;
+          n.selectedBTName = d.selectedBTName || '';
+        }
+        // Restore general controls saved as { id, name } or simple values
+        if (d.controls) {
+          for (const [key, val] of Object.entries(d.controls)) {
+            const ctrl = n.controls[key];
+            if (ctrl instanceof BTSelectControl && val && typeof val === 'object' && 'id' in (val as any)) {
+              ctrl.setValue((val as any).id);
+            } else if (ctrl && typeof (ctrl as any).setValue === 'function' && typeof val !== 'object') {
+              (ctrl as any).setValue(val);
+            }
           }
         }
         return n;
@@ -10769,6 +10877,40 @@ async function createGraphEditor(
               },
             },
               React.createElement('option', { value: '' }, '-- Select Event --'),
+              ...options.map(o =>
+                React.createElement('option', { key: o.id, value: o.id }, o.name),
+              ),
+            );
+          };
+        }
+        if (data.payload instanceof BTSelectControl) {
+          const ctrl = data.payload as BTSelectControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const options = ctrl.getOptions();
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => {
+                const newVal = e.target.value;
+                ctrl.setValue(newVal);
+                setVal(newVal);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: val ? '#4fc3f7' : '#666',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: 140,
+              },
+            },
+              React.createElement('option', { value: '' }, '-- Select Behavior Tree --'),
               ...options.map(o =>
                 React.createElement('option', { key: o.id, value: o.id }, o.name),
               ),

@@ -402,43 +402,46 @@ export class NavMeshPanel {
    * Auto-detect 3D walkable bounds from scene geometry.
    */
   private _autoDetect3DBounds(): void {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    let found = false;
-
     const scene = this._engine.scene.threeScene;
-    const box = new THREE.Box3();
-    
-    scene.traverse((obj: any) => {
-      if (!(obj instanceof THREE.Mesh)) return;
-      if (!obj.geometry) return;
-      if (obj.userData.__navmeshHelper) return;
-      if (obj.userData.__crowdHelper) return;
-      if (obj.visible === false) return;
+    scene.updateMatrixWorld(true);
 
-      obj.geometry.computeBoundingBox();
-      if (obj.geometry.boundingBox) {
-        box.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
-        if (box.min.x < minX) minX = box.min.x;
-        if (box.min.y < minY) minY = box.min.y;
-        if (box.min.z < minZ) minZ = box.min.z;
-        if (box.max.x > maxX) maxX = box.max.x;
-        if (box.max.y > maxY) maxY = box.max.y;
-        if (box.max.z > maxZ) maxZ = box.max.z;
-        found = true;
-      }
-    });
+    // Use NavMeshSystem's collectSceneGeometry so bounds only include
+    // actual walkable meshes (sky spheres, gizmos, helpers are excluded).
+    const navSys = this._engine.navMeshSystem;
+    const meshes = navSys.collectSceneGeometry(scene);
 
-    if (!found) {
+    if (meshes.length === 0) {
       this._boundsMin = { x: -10, y: -10, z: -10 };
       this._boundsMax = { x: 10, y: 10, z: 10 };
       this._setStatus('warning', 'No 3D geometry found — using defaults');
-    } else {
-      const margin = 1;
-      this._boundsMin = { x: minX - margin, y: minY - margin, z: minZ - margin };
-      this._boundsMax = { x: maxX + margin, y: maxY + margin, z: maxZ + margin };
-      this._setStatus('none', `Bounds: (${this._boundsMin.x.toFixed(1)}, ${this._boundsMin.y.toFixed(1)}, ${this._boundsMin.z?.toFixed(1)}) → (${this._boundsMax.x.toFixed(1)}, ${this._boundsMax.y.toFixed(1)}, ${this._boundsMax.z?.toFixed(1)})`);
+      return;
     }
+
+    const autoBox = new THREE.Box3();
+    const tmpBox = new THREE.Box3();
+    for (const mesh of meshes) {
+      mesh.geometry.computeBoundingBox();
+      if (mesh.geometry.boundingBox) {
+        tmpBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+        autoBox.union(tmpBox);
+      }
+    }
+
+    // Safety clamp — prevent Recast WASM from allocating absurd heightfields.
+    // With cellSize 0.2 a 500-unit span is 2500 cells per axis, very manageable.
+    const MAX_NAVMESH_EXTENT = 500;
+    const margin = 1;
+    this._boundsMin = {
+      x: Math.max(autoBox.min.x - margin, -MAX_NAVMESH_EXTENT),
+      y: Math.max(autoBox.min.y - margin, -MAX_NAVMESH_EXTENT),
+      z: Math.max(autoBox.min.z - margin, -MAX_NAVMESH_EXTENT),
+    };
+    this._boundsMax = {
+      x: Math.min(autoBox.max.x + margin, MAX_NAVMESH_EXTENT),
+      y: Math.min(autoBox.max.y + margin, MAX_NAVMESH_EXTENT),
+      z: Math.min(autoBox.max.z + margin, MAX_NAVMESH_EXTENT),
+    };
+    this._setStatus('none', `Bounds: (${this._boundsMin.x.toFixed(1)}, ${this._boundsMin.y.toFixed(1)}, ${this._boundsMin.z?.toFixed(1)}) → (${this._boundsMax.x.toFixed(1)}, ${this._boundsMax.y.toFixed(1)}, ${this._boundsMax.z?.toFixed(1)})`);
   }
 
   /**

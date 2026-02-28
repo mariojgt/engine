@@ -114,6 +114,7 @@ export class AIBlueprintEditorPanel {
       asset.blueprintData,
       asset.name,
       (code: string) => {
+        console.log(`[AI BP] onCompile for "${asset.name}" (id=${(asset as any).id}): codeLength=${code.length} preview="${code.slice(0, 100)}..."`);
         (asset as any).compiledCode = code;
         (asset as any).modifiedAt = Date.now();
         onCompile?.(code);

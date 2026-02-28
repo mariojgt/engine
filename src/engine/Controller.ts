@@ -51,6 +51,11 @@ export abstract class Controller {
   /** The blueprint class name this controller was created from (empty = default) */
   public blueprintClassName: string = '';
 
+  /** Human-readable name for this controller (used by blueprint code e.g. Print String) */
+  public get name(): string {
+    return this.blueprintClassName || this.controllerType || this.id;
+  }
+
   constructor(id?: string) {
     this.id = id ?? Controller._uid();
   }

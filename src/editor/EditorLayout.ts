@@ -723,6 +723,10 @@ export class EditorLayout {
     };
 
     this._actorEditor = new ActorEditorPanel(wrapper, asset, onCompile, onAssetChanged, this.assetManager, this._onSave ?? undefined);
+    // Wire up AI asset manager for AI controller picker in controller dropdown
+    if (this._aiManager) {
+      this._actorEditor.setAIManager(this._aiManager);
+    }
     // Wire up mesh manager for skeletal mesh picker
     if (this._meshManager) {
       this._actorEditor.setMeshManager(this._meshManager);

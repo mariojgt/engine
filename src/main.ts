@@ -169,6 +169,20 @@ async function main() {
   const aiManager = new AIAssetManager();
   projectManager.setAIManager(aiManager);
   editor.setAIManager(aiManager);
+  engine.aiAssetManager = aiManager;
+
+  // Create BehaviorTreeManager so generated RunBehaviorTree code can instantiate BTs at runtime
+  const { BehaviorTreeManager } = await import('./engine/BehaviorTreeManager');
+  engine.behaviorTreeManager = new BehaviorTreeManager(
+    (id: string) => aiManager.getBehaviorTree(id),
+    (assetRef: string) => {
+      const task = aiManager.getTask(assetRef);
+      const code = task ? task.compiledCode : undefined;
+      console.log(`[BT] _getTaskCode("${assetRef}"): taskFound=${!!task} codeLength=${code ? code.length : 'undefined'} codePreview="${(code || '').slice(0, 80)}..."`);
+      return code;
+    },
+  );
+  engine.behaviorTreeManager.setEngine(engine);
 
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);
