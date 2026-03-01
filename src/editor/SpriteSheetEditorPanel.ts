@@ -79,8 +79,10 @@ export class SpriteSheetEditorPanel {
 
     const saveBtn = this._makeBtn('Save', () => { if (this._asset) this._onSave?.(this._asset); });
     const revertBtn = this._makeBtn('Revert', () => { /* TODO */ });
+    const importAseBtn = this._makeBtn('Import Aseprite JSON', () => this._importAseprite());
     header.appendChild(saveBtn);
     header.appendChild(revertBtn);
+    header.appendChild(importAseBtn);
     root.appendChild(header);
 
     // Main split: left (texture + selected) | right (sprite list + animations + preview)
@@ -504,6 +506,126 @@ export class SpriteSheetEditorPanel {
     btn.onmouseleave = () => { btn.style.background = '#45475a'; };
     btn.onclick = onClick;
     return btn;
+  }
+
+  // ---- Phase 1.4: Import Aseprite JSON -----------------------------------------------
+
+  /**
+   * Open a file picker for an Aseprite-exported JSON file and import its
+   * frame / frameTags data into the current SpriteSheetAsset.
+   *
+   * Supports both Aseprite export formats:
+   *  - Array format:  `{ "frames": [ { "filename", "frame": {x,y,w,h}, "duration" }, … ] }`
+   *  - Hash format:   `{ "frames": { "sprite_0": { "frame": {x,y,w,h}, "duration" }, … } }`
+   *
+   * frameTags are converted to SpriteAnimationDef entries.  If the asset already
+   * has sprites / animations the user is asked to confirm before overwriting.
+   */
+  private _importAseprite(): void {
+    if (!this._asset) { alert('Open a Sprite Sheet asset first.'); return; }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      let json: any;
+      try {
+        json = JSON.parse(await file.text());
+      } catch {
+        alert('Failed to parse JSON — make sure you exported with Aseprite "JSON Data" option.');
+        return;
+      }
+
+      // ---- Normalise frames to a flat ordered array ----
+      type AseFrame = { filename: string; frame: { x: number; y: number; w: number; h: number }; duration: number };
+      let frameArray: AseFrame[];
+      if (Array.isArray(json.frames)) {
+        frameArray = json.frames as AseFrame[];
+      } else if (json.frames && typeof json.frames === 'object') {
+        // Hash format: keys are filenames
+        frameArray = Object.entries(json.frames).map(([filename, data]: [string, any]) => ({
+          filename,
+          frame: data.frame,
+          duration: data.duration ?? 100,
+        }));
+      } else {
+        alert('Unrecognised Aseprite JSON structure — could not find a "frames" key.');
+        return;
+      }
+
+      if (frameArray.length === 0) { alert('No frames found in the file.'); return; }
+
+      // ---- Confirm if data already exists ----
+      const hasExisting = (this._asset!.sprites?.length ?? 0) > 0 || (this._asset!.animations?.length ?? 0) > 0;
+      if (hasExisting) {
+        if (!confirm(
+          `The asset already has ${this._asset!.sprites?.length ?? 0} sprites ` +
+          `and ${this._asset!.animations?.length ?? 0} animations.\n\n` +
+          `Importing will REPLACE them.  Continue?`
+        )) return;
+      }
+
+      // ---- Build SpriteData entries ----
+      const stripExt = (s: string) => s.replace(/\.[^.]+$/, '').replace(/\s*\d+$/, '').trim();
+      const sprites: SpriteData[] = frameArray.map((f, i) => ({
+        spriteId: `ase_${i}`,
+        name: stripExt(f.filename) || `frame_${i}`,
+        x: f.frame.x,
+        y: f.frame.y,
+        width: f.frame.w,
+        height: f.frame.h,
+        pivot: { x: 0.5, y: 0 },
+      }));
+
+      // ---- Build SpriteAnimationDef entries from frameTags ----
+      const anims: SpriteAnimationDef[] = [];
+      const frameTags: Array<{ name: string; from: number; to: number; direction?: string }> =
+        json.meta?.frameTags ?? json.meta?.slices ?? [];
+
+      for (const tag of frameTags) {
+        const tagFrames = sprites.slice(tag.from, tag.to + 1);
+        if (tagFrames.length === 0) continue;
+        // Average duration across the tag's frames (Aseprite stores per-frame ms)
+        const avgMs = frameArray
+          .slice(tag.from, tag.to + 1)
+          .reduce((sum, f) => sum + (f.duration ?? 100), 0) / tagFrames.length;
+        const fps = Math.max(1, Math.round(1000 / avgMs));
+        anims.push({
+          animId: `ase_anim_${anims.length}`,
+          animName: tag.name,
+          frames: tagFrames.map(s => s.spriteId),
+          fps,
+          loop: tag.direction !== 'pingpong',   // treat ping-pong as looping too
+          events: [],
+        });
+      }
+
+      // If no tags, create a single "Default" animation with all frames
+      if (anims.length === 0 && sprites.length > 0) {
+        const avgMs = frameArray.reduce((s, f) => s + (f.duration ?? 100), 0) / frameArray.length;
+        anims.push({
+          animId: 'ase_anim_0',
+          animName: 'Default',
+          frames: sprites.map(s => s.spriteId),
+          fps: Math.max(1, Math.round(1000 / avgMs)),
+          loop: true,
+          events: [],
+        });
+      }
+
+      // ---- Commit to asset ----
+      this._asset!.sprites    = sprites;
+      this._asset!.animations = anims;
+      this._selectedSprite    = sprites[0] ?? null;
+      this._selectedAnim      = anims[0] ?? null;
+      this._renderAll();
+      this._onAssetChanged?.();
+      console.log(`[SpriteSheetEditor] Imported ${sprites.length} frames, ${anims.length} animations from "${file.name}".`);
+    };
+    input.click();
   }
 
   dispose(): void {

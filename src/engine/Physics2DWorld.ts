@@ -63,10 +63,7 @@ export class Physics2DWorld {
     this.world = new this._rapier.World(
       new this._rapier.Vector2(gx / this.pixelsPerUnit, gy / this.pixelsPerUnit)
     );
-    // autoDrain=false so events accumulate across multiple fixed sub-steps
-    // within a single frame.  processEvents() (called externally after scripts
-    // have registered their listeners) will drain and clear the queue.
-    this.eventQueue = new this._rapier.EventQueue(false);
+    this.eventQueue = new this._rapier.EventQueue(true);
     this._initialized = true;
     this._accumulator = 0;
     // Clear ALL maps — every entry from the previous play session is now invalid
@@ -85,23 +82,6 @@ export class Physics2DWorld {
     return { pixelsPerUnit: this.pixelsPerUnit };
   }
 
-  // ---- Cleanup ----
-
-  dispose(): void {
-    if (this.world) {
-      try { this.world.free(); } catch (_) { /* ignore if already freed */ }
-      this.world = null;
-    }
-    if (this.eventQueue) {
-      try { this.eventQueue.free(); } catch (_) { /* ignore */ }
-      this.eventQueue = null;
-    }
-    this._initialized = false;
-    this.isPlaying = false;
-    this.bodyMap.clear();
-    this._layerBodies.clear();
-  }
-
   // ---- Stepping ----
 
   step(deltaTime: number): void {
@@ -115,10 +95,7 @@ export class Physics2DWorld {
       steps++;
     }
     this.syncToThreeJS();
-    // NOTE: processEvents() is intentionally NOT called here.
-    // Scene2DManager calls it *after* all actor scripts have executed
-    // their BeginPlay / Tick, guaranteeing event listeners are registered
-    // before Rapier collision events are drained.
+    this.processEvents();
   }
 
   syncToThreeJS(): void {
@@ -160,10 +137,6 @@ export class Physics2DWorld {
     });
   }
 
-  private _groundCheckOrigin: any = null;
-  private _groundCheckDir: any = null;
-  private _groundCheckRay: any = null;
-
   /** Check if a body is grounded by casting a ray from the centre downward past its feet.
    *  We derive the correct cast distance from the body's first tracked collider so the
    *  ray always extends to (collider bottom + skin) regardless of character size.
@@ -189,17 +162,10 @@ export class Physics2DWorld {
       } catch (_e) { /* fall through to default */ }
     }
 
-    if (!this._groundCheckOrigin) {
-      this._groundCheckOrigin = new this._rapier.Vector2(pos.x, pos.y);
-      this._groundCheckDir = new this._rapier.Vector2(0, -1);
-      this._groundCheckRay = new this._rapier.Ray(this._groundCheckOrigin, this._groundCheckDir);
-    } else {
-      this._groundCheckOrigin.x = pos.x;
-      this._groundCheckOrigin.y = pos.y;
-      // Ray direction is always (0, -1)
-    }
-
-    const hit = this.world.castRay(this._groundCheckRay, maxToi, true, undefined, undefined, undefined, rigidBody);
+    const origin = new this._rapier.Vector2(pos.x, pos.y);
+    const dir    = new this._rapier.Vector2(0, -1);
+    const ray    = new this._rapier.Ray(origin, dir);
+    const hit    = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, rigidBody);
     return hit !== null;
   }
 
@@ -223,10 +189,7 @@ export class Physics2DWorld {
       // Resolve collider handles to actors
       const collider1 = this.world?.getCollider(handle1);
       const collider2 = this.world?.getCollider(handle2);
-      if (!collider1 || !collider2) {
-        console.warn('[Physics2DWorld] processEvents: could not resolve collider handles', handle1, handle2);
-        return;
-      }
+      if (!collider1 || !collider2) return;
 
       const rb1 = collider1.parent();
       const rb2 = collider2.parent();
@@ -238,10 +201,6 @@ export class Physics2DWorld {
       const isTrigger1 = collider1.isSensor();
       const isTrigger2 = collider2.isSensor();
       const isTrigger = isTrigger1 || isTrigger2;
-
-      const name1 = entry1?.actor?.name ?? `<no-actor h=${rb1.handle}>`;
-      const name2 = entry2?.actor?.name ?? `<no-actor h=${rb2.handle}>`;
-      console.log(`[Physics2DWorld] collision event: ${name1} ↔ ${name2} | started=${started} trigger=${isTrigger} sensor1=${isTrigger1} sensor2=${isTrigger2}`);
 
       if (entry1?.actor?.emit && entry2?.actor) {
         const eventType = isTrigger
@@ -361,7 +320,6 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.cuboid(halfW, halfH)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1) // reduced from 0.3 — prevents unnatural bouncing on landing
-      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
@@ -390,7 +348,6 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.ball(radius)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1)
-      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
@@ -417,7 +374,6 @@ export class Physics2DWorld {
     const desc = this._rapier.ColliderDesc.capsule(halfHeight, radius)
       .setFriction(options.friction ?? 0.5)
       .setRestitution(options.restitution ?? 0.1)
-      .setActiveCollisionTypes(this._rapier.ActiveCollisionTypes.ALL)
       .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
     if (options.isTrigger) desc.setSensor(true);
     if (options.offsetX || options.offsetY) {
@@ -448,6 +404,48 @@ export class Physics2DWorld {
     if (!col) {
       console.warn('[Physics2DWorld] addStaticBox — addBoxCollider returned null for (%s,%s) half=(%s,%s)', cx, cy, w/2, h/2);
     }
+    if (!this._layerBodies.has(layerId)) this._layerBodies.set(layerId, []);
+    this._layerBodies.get(layerId)!.push(rb);
+  }
+
+  // ---- Tilemap helper: static triangle for slope tiles ----
+
+  /**
+   * Emit a static triangle collider at the three given world-space vertices.
+   * Used by TilemapCollisionBuilder for slope-left / slope-right tiles.
+   * Vertices should be wound counter-clockwise viewed from +Z (standard for Rapier2D).
+   */
+  addStaticTriangle(
+    layerId: string,
+    x1: number, y1: number,
+    x2: number, y2: number,
+    x3: number, y3: number,
+  ): void {
+    if (!this.world || !this._rapier) {
+      console.warn('[Physics2DWorld] addStaticTriangle skipped — world=%s rapier=%s', !!this.world, !!this._rapier);
+      return;
+    }
+
+    // Rapier triangle vertices must be in the body's LOCAL space.
+    // Place the body at the centroid, then express each vertex relative to it.
+    const cx = (x1 + x2 + x3) / 3;
+    const cy = (y1 + y2 + y3) / 3;
+
+    const rb = this.addStaticBody(cx, cy);
+    if (!rb) return;
+
+    const V = this._rapier.Vector2;
+    const desc = this._rapier.ColliderDesc.triangle(
+      new V(x1 - cx, y1 - cy),
+      new V(x2 - cx, y2 - cy),
+      new V(x3 - cx, y3 - cy),
+    )
+      .setFriction(0.5)
+      .setRestitution(0.05)
+      .setActiveEvents(this._rapier.ActiveEvents.COLLISION_EVENTS);
+
+    this.world.createCollider(desc, rb);
+
     if (!this._layerBodies.has(layerId)) this._layerBodies.set(layerId, []);
     this._layerBodies.get(layerId)!.push(rb);
   }
@@ -491,7 +489,6 @@ export class Physics2DWorld {
     normal?: { x: number; y: number };
     distance?: number;
     handle?: number;
-    hitActor?: any;
   } {
     if (!this.world || !this._rapier) return { hit: false };
 
@@ -517,22 +514,12 @@ export class Physics2DWorld {
           normal = { x: normalResult.normal.x, y: normalResult.normal.y };
         }
       }
-      // Resolve the hit actor from the collider's parent rigid body
-      let hitActor: any = null;
-      if (hitCollider) {
-        const parentBody = hitCollider.parent();
-        if (parentBody) {
-          const entry = this.bodyMap.get(parentBody.handle);
-          if (entry) hitActor = entry.actor;
-        }
-      }
       return {
         hit: true,
         point: hitPoint,
         normal,
         distance: toi,
         handle: hitCollider?.handle,
-        hitActor,
       };
     }
     return { hit: false };

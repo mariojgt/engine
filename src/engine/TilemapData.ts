@@ -63,7 +63,18 @@ export interface TilesetAsset {
 export interface TileDefData {
   tileId: number;
   tags: string[];
-  collision: 'none' | 'full' | 'top' | 'bottom' | 'left' | 'right';
+  /**
+   * Collision shape for this tile:
+   *   none        — no physics body
+   *   full        — solid box covering the whole tile
+   *   top/bottom/left/right — half-box on that edge (ledge/wall)
+   *   slope-left  — ramp rising toward the LEFT  ( /| shape )
+   *   slope-right — ramp rising toward the RIGHT ( |\ shape )
+   *   platform    — one-way thin ledge at the TOP of the tile
+   */
+  collision: 'none' | 'full' | 'top' | 'bottom' | 'left' | 'right' | 'slope-left' | 'slope-right' | 'platform';
+  /** Additional user-defined physics shape (overrides collision field when set) */
+  physicsShape?: 'box' | 'slope-left' | 'slope-right' | 'platform';
 }
 
 export interface TilemapLayer {
@@ -186,12 +197,17 @@ export class TilemapCollisionBuilder {
     for (const key of Object.keys(tiles)) {
       const [x, y] = key.split(',').map(Number);
       const tileId = tiles[key];
+      // Slopes and platforms are ALWAYS emitted individually in rebuild().
+      // They must never enter the greedy-merge grid or they produce wrong box shapes.
+      const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
+      const tileCol = tileDef?.physicsShape ?? tileDef?.collision;
+      if (tileCol === 'slope-left' || tileCol === 'slope-right' || tileCol === 'platform') continue;
+
       // When forceFullCollision is true (layer.hasCollision = true) every placed
       // tile is solid — no need to look up per-tile collision flags.
       // When false we respect individual TileDefData settings (used for
       // mixed-collision tilesets, one-way platforms, etc.).
       if (!forceFullCollision) {
-        const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
         if (!tileDef || tileDef.collision === 'none') continue;
       }
       const idx = (y - minY) * w + (x - minX);
@@ -264,6 +280,53 @@ export class TilemapCollisionBuilder {
       const cx = rect.x * (tileset.tileWidth / ppu) + w / 2;
       const cy = rect.y * (tileset.tileHeight / ppu) + h / 2;
       physics2DWorld.addStaticBox(layer.layerId, cx, cy, w, h);
+    }
+
+    // ---- Second pass: individual slope / platform tiles ----
+    // These were excluded from greedy-merge and need their own shaped colliders.
+    const tw = tileset.tileWidth  / ppu;
+    const th = tileset.tileHeight / ppu;
+    for (const [key, tileId] of Object.entries(layer.tiles)) {
+      const [tx, ty] = key.split(',').map(Number);
+      const def = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
+      if (!def) continue;
+      const shape = def.physicsShape ?? def.collision;
+      const bx = tx * tw;  // tile origin X (world units)
+      const by = ty * th;  // tile origin Y (world units)
+
+      if (shape === 'slope-left') {
+        // Ramp rising toward left:  top-left vertex is the apex
+        //   (bx, by)        ← apex
+        //   (bx+tw, by+th)  ← bottom-right
+        //   (bx,    by+th)  ← bottom-left
+        physics2DWorld.addStaticTriangle(
+          layer.layerId,
+          bx,      by,
+          bx + tw, by + th,
+          bx,      by + th,
+        );
+      } else if (shape === 'slope-right') {
+        // Ramp rising toward right: top-right vertex is the apex
+        //   (bx,    by+th)  ← bottom-left
+        //   (bx+tw, by)     ← apex
+        //   (bx+tw, by+th)  ← bottom-right
+        physics2DWorld.addStaticTriangle(
+          layer.layerId,
+          bx,      by + th,
+          bx + tw, by,
+          bx + tw, by + th,
+        );
+      } else if (shape === 'platform') {
+        // One-way thin ledge at the top of the tile (15% height)
+        const platH = th * 0.15;
+        physics2DWorld.addStaticBox(
+          layer.layerId,
+          bx + tw / 2,
+          by + platH / 2,
+          tw,
+          platH,
+        );
+      }
     }
   }
 }
