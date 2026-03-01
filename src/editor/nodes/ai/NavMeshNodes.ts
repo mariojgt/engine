@@ -64,6 +64,8 @@ registerNode('NavMesh Closest Point', 'AI', () => new NavMeshFindClosestPointNod
 export class NavMeshRandomPointNode extends ClassicPreset.Node {
   constructor() {
     super('NavMesh Random Point');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addOutput('execOut', new ClassicPreset.Output(execSocket, '▶'));
     this.addInput('center', new ClassicPreset.Input(vec3Socket, 'Center'));
     this.addInput('radius', new ClassicPreset.Input(numSocket, 'Radius'));
     this.addOutput('point', new ClassicPreset.Output(vec3Socket, 'Random Point'));

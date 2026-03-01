@@ -1,4 +1,4 @@
-import './styles.css';
+﻿import './styles.css';
 import 'dockview-core/dist/styles/dockview.css';
 import { initFeatherSelect } from './editor/FeatherSelect';
 import { Engine } from './engine';
@@ -678,7 +678,7 @@ async function main() {
         // Fallback to in-editor mode
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         const pawnCam = engine.characterControllers.getActiveCamera()
           ?? engine.spectatorControllers.getActiveCamera();
@@ -709,7 +709,7 @@ async function main() {
         // Enable 3D physics isPlaying so the script tick loop runs
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         // Cache asset managers before play so runtime spawnActorFromClassId always works
         // (even if the scene starts with zero actors — side-effect caching wouldn't fire)
@@ -791,7 +791,7 @@ async function main() {
         // ── 3D Play Mode ──
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         const pawnCam = engine.characterControllers.getActiveCamera()
           ?? engine.spectatorControllers.getActiveCamera();

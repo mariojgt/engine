@@ -511,7 +511,7 @@ export class CharacterController implements Pawn {
     // 3. Calculate desired movement direction
     const moveDir = this.config.useBuiltInMovement
       ? this._calculateMovementDirection()
-      : this._moveDirVec.set(0, 0, 0);
+      : new THREE.Vector3();
 
     // 4. Coyote time — allow jumping for a short grace period after leaving ground
     if (this.isGrounded) {
@@ -548,10 +548,8 @@ export class CharacterController implements Pawn {
       this._applyHorizontalPhysics(moveDir, this.pendingMovement, dt, isRunning);
 
       // Vertical-only from movement component (gravity, jump)
-      const zeroDir = this._zeroMoveDirVec;
-      zeroDir.set(0, 0, 0);
-      const zeroPending = this._zeroPendingVec;
-      zeroPending.set(0, 0, 0);
+      const zeroDir = new THREE.Vector3();
+      const zeroPending = new THREE.Vector3();
       displacement = this.movementComponent.computeDisplacement(
         dt, zeroDir, zeroPending,
         jumpInput && effectiveGroundedForJump, isCrouching, isRunning,
@@ -594,8 +592,7 @@ export class CharacterController implements Pawn {
     this.movementComponent.onGroundResult(grounded, this.input.run);
 
     // 12. Orient mesh rotation to movement direction
-    const moveVel = this._moveVelVec;
-    moveVel.set(this._horizontalVelocity.x, 0, this._horizontalVelocity.z);
+    const moveVel = new THREE.Vector3(this._horizontalVelocity.x, 0, this._horizontalVelocity.z);
     this._updateMeshRotation(moveVel, dt);
 
     // 13. Sync mesh to physics body position (body pos = feet position)
@@ -731,8 +728,6 @@ export class CharacterController implements Pawn {
 
   // ---- Mesh rotation: orient to movement (UE-style) ----
 
-  private _flatVel = new THREE.Vector2();
-
   private _updateMeshRotation(moveVel: THREE.Vector3, dt: number): void {
     const rot = this.config.rotation;
     if (!rot) {
@@ -750,8 +745,7 @@ export class CharacterController implements Pawn {
 
     // Orient to movement direction (third-person)
     if (rot.orientRotationToMovement) {
-      this._flatVel.set(moveVel.x, moveVel.z);
-      const flatVel = this._flatVel;
+      const flatVel = new THREE.Vector2(moveVel.x, moveVel.z);
       if (flatVel.lengthSq() > 0.001) {
         const targetYaw = Math.atan2(moveVel.x, moveVel.z);
         const maxRotation = (rot.rotationRate * Math.PI / 180) * dt;
@@ -772,15 +766,8 @@ export class CharacterController implements Pawn {
 
   // ---- Movement direction (WASD -> world-space) ----
 
-  private _moveDirVec = new THREE.Vector3();
-  private _moveEuler = new THREE.Euler();
-  private _zeroMoveDirVec = new THREE.Vector3();
-  private _zeroPendingVec = new THREE.Vector3();
-  private _moveVelVec = new THREE.Vector3();
-
   private _calculateMovementDirection(): THREE.Vector3 {
-    const dir = this._moveDirVec;
-    dir.set(0, 0, 0);
+    const dir = new THREE.Vector3();
     if (this.input.moveForward) dir.z -= 1;
     if (this.input.moveBackward) dir.z += 1;
     if (this.input.moveLeft) dir.x -= 1;
@@ -790,8 +777,8 @@ export class CharacterController implements Pawn {
     if (this.movementMode === 'flying') {
       if (dir.lengthSq() > 0) dir.normalize();
       // Rotate by camera yaw + pitch for 3D flight direction
-      this._moveEuler.set(this.pitch, this.yaw, 0, 'YXZ');
-      dir.applyEuler(this._moveEuler);
+      const euler = new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ');
+      dir.applyEuler(euler);
       // Jump = ascend, Crouch = descend (world Y)
       if (this.input.jump) dir.y += 1;
       if (this.input.crouch) dir.y -= 1;
@@ -802,8 +789,8 @@ export class CharacterController implements Pawn {
     // ---- Swimming mode: 3D with slight pitch influence ----
     if (this.movementMode === 'swimming') {
       if (dir.lengthSq() > 0) dir.normalize();
-      this._moveEuler.set(this.pitch * 0.5, this.yaw, 0, 'YXZ');
-      dir.applyEuler(this._moveEuler);
+      const euler = new THREE.Euler(this.pitch * 0.5, this.yaw, 0, 'YXZ');
+      dir.applyEuler(euler);
       if (this.input.jump) dir.y += 1;
       if (this.input.crouch) dir.y -= 1;
       if (dir.lengthSq() > 1) dir.normalize();
@@ -814,8 +801,8 @@ export class CharacterController implements Pawn {
     dir.normalize();
 
     // Rotate direction by camera yaw
-    this._moveEuler.set(0, this.yaw, 0, 'YXZ');
-    dir.applyEuler(this._moveEuler);
+    const euler = new THREE.Euler(0, this.yaw, 0, 'YXZ');
+    dir.applyEuler(euler);
 
     // Air control is now handled in _applyHorizontalPhysics —
     // just return the raw direction for the velocity system.
@@ -841,14 +828,6 @@ export class CharacterController implements Pawn {
   // ---- Camera update ----
   // Fix 1: Camera raycasts IGNORE own character capsule
   // Fix 3: Camera mode is locked; only changes via setCameraMode() blueprint node
-
-  // ---- Reusable objects for per-frame calculations ----
-  private _boomOrigin = new THREE.Vector3();
-  private _armDir = new THREE.Vector3();
-  private _idealCamPos = new THREE.Vector3();
-  private _rayOrigin = { x: 0, y: 0, z: 0 };
-  private _rayDir = { x: 0, y: 0, z: 0 };
-  private _springArmRay: any = null;
 
   private _updateCamera(dt: number, physics: PhysicsWorld): void {
     const cam = this.config.camera;
@@ -880,12 +859,11 @@ export class CharacterController implements Pawn {
       }
 
       // -- 1. Compute boom origin --
-      this._boomOrigin.set(
+      const boomOrigin = new THREE.Vector3(
         charPos.x + sa.targetOffset.x,
         charPos.y + sa.targetOffset.y,
         charPos.z + sa.targetOffset.z,
       );
-      const boomOrigin = this._boomOrigin;
 
       // -- 2. Effective yaw/pitch (with optional rotation lag) --
       let effectiveYaw = this.yaw;
@@ -903,24 +881,20 @@ export class CharacterController implements Pawn {
       }
 
       // -- 3. Arm direction --
-      this._armDir.set(
+      const armDir = new THREE.Vector3(
         Math.sin(effectiveYaw) * Math.cos(effectivePitch),
         -Math.sin(effectivePitch),
         Math.cos(effectiveYaw) * Math.cos(effectivePitch),
       );
-      const armDir = this._armDir;
 
       let effectiveArmLength = sa.armLength;
 
       // -- 4. Spring Arm collision test (Fix 1: ignores own character) --
       if (sa.doCollisionTest && physics.world) {
-        this._rayOrigin.x = boomOrigin.x;
-        this._rayOrigin.y = boomOrigin.y;
-        this._rayOrigin.z = boomOrigin.z;
-        this._rayDir.x = armDir.x;
-        this._rayDir.y = armDir.y;
-        this._rayDir.z = armDir.z;
-        const ray = new RAPIER.Ray(this._rayOrigin, this._rayDir);
+        const ray = new RAPIER.Ray(
+          { x: boomOrigin.x, y: boomOrigin.y, z: boomOrigin.z },
+          { x: armDir.x, y: armDir.y, z: armDir.z },
+        );
 
         // Build collision groups from the spring arm's camera collision profile.
         // Only channels marked "block" will cause the arm to retract.
@@ -953,12 +927,11 @@ export class CharacterController implements Pawn {
       this._currentArmLength += (effectiveArmLength - this._currentArmLength) * Math.min(1, lerpSpeed * dt);
 
       // -- 5. Compute camera position --
-      this._idealCamPos.set(
+      const idealCamPos = new THREE.Vector3(
         boomOrigin.x + armDir.x * this._currentArmLength + sa.socketOffset.x,
         boomOrigin.y + armDir.y * this._currentArmLength + sa.socketOffset.y,
         boomOrigin.z + armDir.z * this._currentArmLength + sa.socketOffset.z,
       );
-      const idealCamPos = this._idealCamPos;
 
       // -- 6. Optional position lag --
       if (sa.enableCameraLag && this._lagInitialized) {
@@ -988,8 +961,6 @@ export class CharacterController implements Pawn {
 
   // ---- Top-Down / Isometric / RTS camera ----
 
-  private _lookTarget = new THREE.Vector3();
-
   private _updateTopDownCamera(dt: number): void {
     const charPos = this.gameObject.mesh.position;
     const td = this.config.topDownCamera;
@@ -1013,15 +984,17 @@ export class CharacterController implements Pawn {
     }
 
     // Compute look-at target
-    const lookTarget = this._lookTarget;
+    let lookTarget: THREE.Vector3;
     if (this.activeCameraMode === 'rts') {
-      lookTarget.set(
+      // RTS: camera is free-panning, centered on panOffset
+      lookTarget = new THREE.Vector3(
         charPos.x + this._topDownPanOffset.x,
         charPos.y,
         charPos.z + this._topDownPanOffset.z,
       );
     } else {
-      lookTarget.copy(charPos);
+      // topDown / isometric: camera follows character
+      lookTarget = charPos.clone();
     }
 
     // Camera angle (0 = straight down, 45 = isometric)
@@ -1043,19 +1016,30 @@ export class CharacterController implements Pawn {
 
   // ---- Blueprint API ----
 
-  private _addMoveInputDir = new THREE.Vector3();
-  private _addMoveInputEuler = new THREE.Euler();
-
   addMovementInput(dir: {x: number; y: number; z: number}, scale: number): void {
-    const localDir = this._addMoveInputDir;
-    localDir.set(dir.x, dir.y, -dir.z);
-    this._addMoveInputEuler.set(0, this.yaw, 0, 'YXZ');
-    localDir.applyEuler(this._addMoveInputEuler);
+    const localDir = new THREE.Vector3(dir.x, dir.y, -dir.z);
+    const euler = new THREE.Euler(0, this.yaw, 0, 'YXZ');
+    localDir.applyEuler(euler);
 
-    const speed = this._currentSpeed();
+    // Use configured max speed (not current momentum speed which is 0 at rest)
+    const speed = this._currentSpeedForRun(this.input.run);
     this.pendingMovement.x += localDir.x * scale * speed;
     this.pendingMovement.y += localDir.y * scale * speed;
     this.pendingMovement.z += localDir.z * scale * speed;
+  }
+
+  /**
+   * World-space movement input for AI controllers.
+   * Unlike addMovementInput(), this does NOT apply camera yaw rotation —
+   * the direction is treated as a world-space vector directly.
+   * Uses the configured max speed so AI can start moving from rest.
+   */
+  addWorldMovementInput(dir: {x: number; y: number; z: number}, scale: number): void {
+    // Use configured max speed (not current momentum speed which is 0 at rest)
+    const speed = this._currentSpeedForRun(false);
+    this.pendingMovement.x += dir.x * scale * speed;
+    this.pendingMovement.y += dir.y * scale * speed;
+    this.pendingMovement.z += dir.z * scale * speed;
   }
 
   jump(): void {
@@ -1328,12 +1312,6 @@ export class CharacterController implements Pawn {
       document.exitPointerLock();
     }
     this._keysDown.clear();
-
-    // Null Rapier WASM resource references so they can be GC'd cleanly
-    // (the world.free() call in PhysicsWorld.stop() frees the underlying WASM objects)
-    this.rapierController = null;
-    this.rigidBody = null;
-    this.collider = null;
 
     // Remove debug capsule from scene
     if (this._debugCapsule && this._debugCapsule.parent) {

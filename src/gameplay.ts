@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 //  Gameplay Window — Separate runtime window for play mode
 //  This file runs in the dedicated gameplay window, receiving
 //  scene data from the editor and running the game simulation.
@@ -198,7 +198,7 @@ async function startGameplay(sceneData: any): Promise<void> {
 
   // Start game runtime
   if (canvas) {
-    engine.onPlayStarted(canvas);
+    await engine.onPlayStarted(canvas);
   }
 
   // Hide loading overlay

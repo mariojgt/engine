@@ -530,15 +530,21 @@ export class NavMeshSystem {
   findRandomPoint(
     center: THREE.Vector3,
     radius: number,
-  ): THREE.Vector3 | null {
+  ): { point: THREE.Vector3; success: boolean } | null {
     if (!this._navMeshQuery) return null;
+    // Scale search halfExtents with the radius so polygon lookup always covers
+    // the search area. Minimum of 20 units ensures tiny radii still find a poly.
+    const ext = Math.max(Math.abs(radius) * 2, 20);
     const result = this._navMeshQuery.findRandomPointAroundCircle(
       { x: center.x, y: center.y, z: center.z },
       radius,
-      { halfExtents: { x: 500, y: 500, z: 500 } }
+      { halfExtents: { x: ext, y: ext, z: ext } }
     );
     if (!result.success) return null;
-    return new THREE.Vector3(result.randomPoint.x, result.randomPoint.y, result.randomPoint.z);
+    return {
+      point: new THREE.Vector3(result.randomPoint.x, result.randomPoint.y, result.randomPoint.z),
+      success: true,
+    };
   }
 
   // ──────────────────────────────────────────────────────────

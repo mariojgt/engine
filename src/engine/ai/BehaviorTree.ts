@@ -34,13 +34,8 @@ export abstract class BTNode {
 export class BTSequence extends BTNode {
   public children: BTNode[] = [];
   private _runningIndex: number = 0;
-  private _logged = false;
 
   tick(context: BTContext): BTNodeState {
-    if (!this._logged) {
-      this._logged = true;
-      console.log(`[BT] BTSequence.tick: name="${this.name}" children=${this.children.length} childNames=[${this.children.map(c => `"${c.name}"`).join(', ')}]`);
-    }
     for (let i = this._runningIndex; i < this.children.length; i++) {
       const state = this.children[i].tick(context);
       
@@ -156,13 +151,8 @@ export class BTWaitTask extends BTNode {
 export class BTCustomTask extends BTNode {
   public executeFn: ((context: BTContext) => BTNodeState) | null = null;
   public abortFn: ((context: BTContext) => void) | null = null;
-  private _logged = false;
 
   tick(context: BTContext): BTNodeState {
-    if (!this._logged) {
-      this._logged = true;
-      console.log(`[BT] BTCustomTask.tick: name="${this.name}" hasExecuteFn=${!!this.executeFn}`);
-    }
     if (this.executeFn) {
       return this.executeFn(context);
     }
@@ -182,21 +172,24 @@ export class BehaviorTree {
   public root: BTNode | null = null;
   public isRunning: boolean = false;
   private _tickLogged = false;
+  private _loopCount = 0;
 
   tick(context: BTContext): void {
     if (!this.root) return;
     if (!this._tickLogged) {
       this._tickLogged = true;
-      console.log(`[BT] BehaviorTree.tick: root=${this.root.constructor.name} rootName="${this.root.name}" rootId="${this.root.id}"`);
+      console.log(`[BT] BehaviorTree starting: root=${this.root.constructor.name} name="${this.root.name}"`);
     }
     this.isRunning = true;
     
     const state = this.root.tick(context);
     
-    // If the tree finishes (success or failure), we typically restart it next frame
-    // in a standard game engine, or wait for an event. For now, we just let it run.
+    // When the tree completes (Success or Failure), log the restart so the user
+    // can confirm it IS looping. Root's _runningIndex is already reset to 0
+    // by BTSequence/BTSelector, so the next tick() call starts fresh automatically.
     if (state !== BTNodeState.Running) {
-      // Tree finished this tick
+      this._loopCount++;
+      console.log(`[BT] Loop #${this._loopCount} complete (${state}) — restarting next frame`);
     }
   }
 

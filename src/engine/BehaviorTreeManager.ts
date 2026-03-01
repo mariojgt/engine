@@ -327,14 +327,16 @@ export class BehaviorTreeManager {
 
             const ctrl = ctx.aiController;
             const pawn = ctx.gameObject;
-            if (!pawn?.position) {
-              console.warn(`[BT MoveTo] Pawn has no position property`);
+            // Game objects store position in mesh.position (3D) or group.position (2D)
+            const pawnPos = pawn?.mesh?.position ?? pawn?.group?.position ?? pawn?.position;
+            if (!pawnPos) {
+              console.warn(`[BT MoveTo] Pawn has no position property (expected mesh.position or group.position)`);
               return BTNodeState.Failure;
             }
 
-            const dx = tx - pawn.position.x;
-            const dy = ty - pawn.position.y;
-            const dz = tz - pawn.position.z;
+            const dx = tx - pawnPos.x;
+            const dy = ty - pawnPos.y;
+            const dz = tz - pawnPos.z;
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
             if (dist <= acceptableRadius) {
@@ -353,11 +355,10 @@ export class BehaviorTreeManager {
                 st.lastTy = ty;
                 st.lastTz = tz;
               }
-              // If the AIController finished movement (state went idle) but
-              // we're still far away, treat it as needing to re-issue moveTo
+              // If ctrl arrived (state went idle) but BT dist check not yet met,
+              // wait a couple frames before re-issuing to avoid spam
               if (st.isMoving && ctrl.state !== 'movingTo') {
-                // Re-issue moveTo in case movement finished prematurely
-                ctrl.moveTo(tx, ty, tz);
+                st.isMoving = false; // allow re-issue next frame
               }
               return BTNodeState.Running;
             }
@@ -365,9 +366,9 @@ export class BehaviorTreeManager {
             // Fallback: simple move toward target for pawns with no AIController
             const speed = 200 * ctx.deltaTime;
             const step = Math.min(speed, dist);
-            pawn.position.x += (dx / dist) * step;
-            pawn.position.y += (dy / dist) * step;
-            pawn.position.z += (dz / dist) * step;
+            pawnPos.x += (dx / dist) * step;
+            pawnPos.y += (dy / dist) * step;
+            pawnPos.z += (dz / dist) * step;
             return BTNodeState.Running;
           };
 
@@ -418,6 +419,49 @@ export class BehaviorTreeManager {
           task.executeFn = (ctx) => {
             if (!bbKey) return BTNodeState.Failure;
             ctx.blackboard.set(bbKey, bbValue);
+            return BTNodeState.Success;
+          };
+          rtNode = task;
+
+        // ── bt_navmesh_random_point ──
+        // Picks a random navigable point on the NavMesh around the pawn and
+        // stores it in a blackboard key. Falls back to a random point in a
+        // circle if no NavMesh is available so the BT can still loop.
+        } else if (builtinId === 'bt_navmesh_random_point') {
+          const task = new BTCustomTask();
+          task.id = data.id;
+          task.name = data.label;
+          const resultKey = data.properties?.BlackboardKey ?? '';
+          const radius    = parseFloat(data.properties?.Radius ?? 500);
+          task.executeFn = (ctx) => {
+            if (!resultKey) return BTNodeState.Failure;
+
+            const ctrl = ctx.aiController;
+            const meshPos = ctx.gameObject?.mesh?.position;
+            const goPos   = ctx.gameObject?.position;
+            const px = meshPos?.x ?? goPos?.x ?? 0;
+            const py = meshPos?.y ?? goPos?.y ?? 0;
+            const pz = meshPos?.z ?? goPos?.z ?? 0;
+
+            // Try NavMesh first
+            const navMesh = ctrl?.navMeshSystem;
+            if (navMesh && navMesh.isReady) {
+              // findRandomPoint accepts any {x,y,z} object at runtime
+              const result = navMesh.findRandomPoint({ x: px, y: py, z: pz } as any, radius);
+              if (result && result.success) {
+                ctx.blackboard.set(resultKey, { x: result.point.x, y: result.point.y, z: result.point.z });
+                return BTNodeState.Success;
+              }
+            }
+
+            // Fallback: random point in a horizontal circle around the pawn
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * radius;
+            ctx.blackboard.set(resultKey, {
+              x: px + Math.cos(angle) * r,
+              y: py,
+              z: pz + Math.sin(angle) * r,
+            });
             return BTNodeState.Success;
           };
           rtNode = task;

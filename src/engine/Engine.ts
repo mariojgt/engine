@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { Scene } from './Scene';
 import { PhysicsWorld } from './PhysicsWorld';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
@@ -273,7 +273,7 @@ export class Engine {
   }
 
   /** Called when Play is pressed — fires BeginPlay on all scripts */
-  onPlayStarted(canvas?: HTMLCanvasElement): void {
+  async onPlayStarted(canvas?: HTMLCanvasElement): Promise<void> {
     this._elapsedTime = 0;
     this._playStarted = true;
 
@@ -474,6 +474,33 @@ export class Engine {
       this.gameInstance.beginPlay(giCtx);
     }
 
+    // ── 4a. Auto-build NavMesh BEFORE BeginPlay so BT tasks can query it ──
+    // If the navmesh was not pre-baked (no data loaded), generate it now from
+    // the live Three.js scene so runtime BT tasks / blueprint nodes work.
+    if (!this.navMeshSystem.isReady && this.scene.threeScene) {
+      console.log('[Engine] NavMesh not yet built – auto-generating from scene geometry...');
+      try {
+        const built = await this.navMeshSystem.generateFromScene(this.scene.threeScene);
+        if (built) {
+          console.log('[Engine] NavMesh auto-built successfully.');
+        } else {
+          console.warn('[Engine] NavMesh auto-build returned false (scene may have no walkable geometry).');
+        }
+      } catch (e) {
+        console.error('[Engine] NavMesh auto-build failed:', e);
+      }
+    }
+    // Register AI controllers with the navmesh (built or pre-baked)
+    if (this.navMeshSystem.isReady) {
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.registerNavMeshAgent(this.navMeshSystem);
+      }
+      console.log(`[Engine] NavMesh: ${this.aiControllers.controllers.length} AI agents registered.`);
+    } else {
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.navMeshSystem = this.navMeshSystem;
+      }
+    }
     // ── 4. Fire BeginPlay on all actor & controller scripts ──
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
@@ -492,22 +519,7 @@ export class Engine {
 
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
 
-    // ── 5. Initialize NavMesh & register AI agents ──
-    // NavMesh is generated on-demand (triggered by editor panel bake
-    // or at runtime via blueprint code). If navMesh data was pre-baked
-    // and loaded, register all AI controllers as crowd agents.
-    if (this.navMeshSystem.isReady) {
-      for (const ctrl of this.aiControllers.controllers) {
-        ctrl.registerNavMeshAgent(this.navMeshSystem);
-      }
-      console.log(`[Engine] NavMesh: ${this.aiControllers.controllers.length} AI agents registered`);
-    } else {
-      // Provide the navMeshSystem reference even without baked data
-      // so moveTo can use waypoint pathfinding if NavMesh is generated later
-      for (const ctrl of this.aiControllers.controllers) {
-        ctrl.navMeshSystem = this.navMeshSystem;
-      }
-    }
+
   }
 
   /** Called when Stop is pressed — fires OnDestroy on all scripts */

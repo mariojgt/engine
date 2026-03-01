@@ -231,6 +231,10 @@ export const BUILTIN_TASKS: BuiltinNodeDef[] = [
     { name: 'Key', type: 'BlackboardKey', default: '', description: 'Key to set' },
     { name: 'Value', type: 'Any', default: null, description: 'Value to assign' },
   ]},
+  { id: 'bt_navmesh_random_point', label: 'NavMesh Random Point', category: 'task', description: 'Find a random navigable point on the NavMesh and store it in a blackboard key. Use this inside the BT so a new point is picked each loop.', properties: [
+    { name: 'BlackboardKey', type: 'BlackboardKey', default: '', description: 'Key to store the result Vector' },
+    { name: 'Radius', type: 'Float', default: 500, description: 'Search radius around the pawn' },
+  ]},
   { id: 'bt_rotateto', label: 'Rotate To Face Target', category: 'task', description: 'Rotate to face a target', properties: [
     { name: 'TargetKey', type: 'BlackboardKey', default: '', description: 'Blackboard key for the target to face' },
     { name: 'RotationSpeed', type: 'Float', default: 360, description: 'Degrees per second' },

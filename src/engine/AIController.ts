@@ -116,6 +116,19 @@ export class AIController extends Controller {
     EventBus.getInstance().emit(`AI_Blackboard_Set`, this.gameObject?.id, this.gameObject?.name, key, value);
   }
 
+  /**
+   * Seed the blackboard with default values from a BlackboardAsset.
+   * Only sets keys that are not already present, preserving any values written
+   * before or during the current play session.
+   */
+  initBlackboardDefaults(defaults: Array<{ name: string; defaultValue: any }>): void {
+    for (const entry of defaults) {
+      if (!this.blackboard.has(entry.name)) {
+        this.blackboard.set(entry.name, entry.defaultValue ?? null);
+      }
+    }
+  }
+
   /** Clear (remove) a blackboard value */
   clearBlackboardValue(key: string): void {
     this.blackboard.delete(key);
@@ -541,8 +554,9 @@ export class AIController extends Controller {
       const toNext = new THREE.Vector3(
         currentWP.x - pos.x, 0, currentWP.z - pos.z,
       ).normalize();
-      cc.addMovementInput(
-        { x: toNext.x, y: 0, z: -toNext.z },
+      // addWorldMovementInput: world-space, no camera-yaw rotation
+      cc.addWorldMovementInput(
+        { x: toNext.x, y: 0, z: toNext.z },
         this.config.moveScale,
       );
       return;
@@ -570,8 +584,9 @@ export class AIController extends Controller {
 
     // Navigate toward target
     toTarget.normalize();
-    cc.addMovementInput(
-      { x: toTarget.x, y: 0, z: -toTarget.z },
+    // addWorldMovementInput: world-space, no camera-yaw rotation
+    cc.addWorldMovementInput(
+      { x: toTarget.x, y: 0, z: toTarget.z },
       this.config.moveScale,
     );
   }
@@ -589,6 +604,19 @@ export class AIController extends Controller {
       this.state = 'idle';
       return;
     }
+
+    // Helper — keep Rapier rigid body in sync when we move the mesh directly.
+    // PhysicsWorld.step() syncs rigidBody → mesh every frame, which would
+    // overwrite our mesh position changes unless we also move the rigid body.
+    const syncRigidBody = (nx: number, ny: number, nz: number): void => {
+      const rb = (this.gameObject as any).rigidBody;
+      if (!rb) return;
+      if (typeof rb.setNextKinematicTranslation === 'function') {
+        rb.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
+      } else if (typeof rb.setTranslation === 'function') {
+        rb.setTranslation({ x: nx, y: ny, z: nz }, true);
+      }
+    };
 
     // ── NavMesh waypoint-following (no crowd, no CharacterController) ──
     if (this._pathWaypoints.length > 0) {
@@ -618,6 +646,7 @@ export class AIController extends Controller {
         const step = Math.min(speed, dWP);
         pos.x += toWP.x * step;
         pos.z += toWP.z * step;
+        syncRigidBody(pos.x, pos.y, pos.z);
         // Face movement direction
         this.gameObject.mesh.rotation.y = Math.atan2(toWP.x, toWP.z);
       }
@@ -641,6 +670,7 @@ export class AIController extends Controller {
     const step = Math.min(speed, dist);
     pos.x += (dx / dist) * step;
     pos.z += (dz / dist) * step;
+    syncRigidBody(pos.x, pos.y, pos.z);
     // Face movement direction
     if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
       this.gameObject.mesh.rotation.y = Math.atan2(dx / dist, dz / dist);
@@ -809,6 +839,21 @@ export class AIController extends Controller {
     this.navMeshSystem = navMesh;
     if (!navMesh.isReady) return;
 
+    // Pawns with a CharacterController are driven by Rapier physics.
+    // Registering a crowd agent would conflict: NavMeshSystem.update() sets the
+    // mesh position from the crowd, but CharacterController.update() immediately
+    // overwrites it from the Rapier rigid body every frame, so the crowd never
+    // visually moves the character.  Instead, set navMeshSystem so that moveTo()
+    // can use NavMesh path-finding (waypoints + addMovementInput) which feeds
+    // naturally into the CharacterController's physics pipeline.
+    const goAny = this.gameObject as any;
+    if (!this.is2D && goAny?.characterController) {
+      console.log(`[AIController] NavMesh enabled (waypoint-following) for "${goAny.name || 'actor'}"`);
+      return; // _navAgentId stays null — moveTo() will use findPath() instead
+    }
+
+    // For 2D pawns or mesh-only pawns (no CharacterController), the crowd agent
+    // sets the position directly — no physics conflict.
     const pos = this._getActorPosition();
     // In 2D mode, convert XY → XZ for Recast
     const navPos = this.is2D ? navMesh.to3DPosition(pos.x, pos.y) : pos;
