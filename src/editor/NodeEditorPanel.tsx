@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { NodeEditor, GetSchemes, ClassicPreset } from 'rete';
 import { AreaPlugin, AreaExtensions } from 'rete-area-plugin';
@@ -33,6 +33,8 @@ import {
   MathSubtractNode,
   MathMultiplyNode,
   MathDivideNode,
+  MakeVectorNode,
+  BreakVectorNode,
   TimeNode,
   DeltaTimeNode,
   FloatNode,
@@ -221,6 +223,7 @@ import {
   IsPossessingNode,
   // AI Controller Nodes
   AIMoveToNode,
+  AIMoveToVectorNode,
   AIStopMovementNode,
   AISetFocalPointNode,
   AIClearFocalPointNode,
@@ -231,7 +234,7 @@ import {
   GetAIStateNode,
   AIHasReachedTargetNode,
   AIGetDistanceToTargetNode,
-  // Controller ↔ Pawn Nodes
+  // Controller â†” Pawn Nodes
   GetControllerNode,
   GetControllerTypeNode,
   GetPawnNode,
@@ -400,6 +403,51 @@ import {
   EmitEventNode,
   OnEventNode,
   EventSelectControl,
+  // AI Task / BT Nodes
+  AIReceiveExecuteNode,
+  AIReceiveTickNode,
+  AIReceiveAbortNode,
+  FinishExecuteNode,
+  AIPerformConditionCheckNode,
+  AIObserverActivatedNode,
+  AIObserverDeactivatedNode,
+  ReturnNode,
+  AIServiceActivatedNode,
+  AIServiceTickNode,
+  AIServiceDeactivatedNode,
+  OnPossessNode,
+  OnUnpossessNode,
+  OnMoveCompletedNode,
+  OnPerceptionUpdatedNode,
+  RunBehaviorTreeNode,
+  BTSelectControl,
+  MoveToLocationNode,
+  GetBlackboardValueNode,
+  SetBlackboardValueNode,
+  ClearBlackboardValueNode,
+  GetBlackboardValueAsBoolNode,
+  GetBlackboardValueAsFloatNode,
+  GetBlackboardValueAsVectorNode,
+  SetBlackboardValueAsBoolNode,
+  SetBlackboardValueAsFloatNode,
+  SetBlackboardValueAsVectorNode,
+  RotateToFaceNode,
+  // NavMesh Nodes
+  NavMeshBuildNode,
+  NavMeshIsReadyNode,
+  NavMeshFindPathNode,
+  NavMeshFindClosestPointNode,
+  NavMeshRandomPointNode,
+  NavMeshAddAgentNode,
+  NavMeshRemoveAgentNode,
+  NavMeshAgentMoveToNode,
+  NavMeshGetAgentPositionNode,
+  NavMeshGetAgentVelocityNode,
+  NavMeshAgentReachedTargetNode,
+  NavMeshAddBoxObstacleNode,
+  NavMeshAddCylinderObstacleNode,
+  NavMeshRemoveObstacleNode,
+  NavMeshToggleDebugNode,
 } from './nodes';
 import { SoundLibrary } from './SoundLibrary';
 import { TextureLibrary } from './TextureLibrary';
@@ -578,7 +626,7 @@ function commentUid(): string {
 }
 
 // ============================================================
-//  Undo / Redo — lightweight history stack
+//  Undo / Redo â€” lightweight history stack
 // ============================================================
 interface HistoryState { graphJson: any; label: string; }
 class UndoManager {
@@ -617,6 +665,7 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
     case 'Boolean': return String(v.defaultValue ?? false);
     case 'String': return JSON.stringify(String(v.defaultValue ?? ''));
     case 'Color': return JSON.stringify(String(v.defaultValue ?? '#ffffff'));
+    case 'BlackboardKeySelector': return JSON.stringify(String(v.defaultValue ?? ''));
     case 'Vector3': {
       const d = v.defaultValue ?? { x: 0, y: 0, z: 0 };
       return `{ x: ${d.x ?? 0}, y: ${d.y ?? 0}, z: ${d.z ?? 0} }`;
@@ -644,7 +693,7 @@ function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').Bluep
 }
 
 // ============================================================
-//  CODE GENERATOR — shared helpers
+//  CODE GENERATOR â€” shared helpers
 // ============================================================
 
 /** Resolve struct fields from per-actor BlueprintData OR project-level StructureAssetManager */
@@ -704,14 +753,14 @@ function resolveValue(
     const vn = sanitizeName(node.varName);
     if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
     if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
-    // Enum and other types — simple value
+    // Enum and other types â€” simple value
     return `__var_${vn}`;
   }
   if (node instanceof SetVariableNode) {
     const vn = sanitizeName(node.varName);
     if (node.varType === 'Vector3') return `__var_${vn}.${outputKey}`;
     if (node.varType.startsWith('Struct:')) return `__var_${vn}.${outputKey}`;
-    // Enum and other types — simple value
+    // Enum and other types â€” simple value
     return `__var_${vn}`;
   }
   if (node instanceof MakeStructNode) {
@@ -731,24 +780,24 @@ function resolveValue(
   if (node instanceof FunctionCallNode) {
     return `__fn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
   }
-  // CallActorFunctionNode — remote function call outputs (resolved via temp var)
+  // CallActorFunctionNode â€” remote function call outputs (resolved via temp var)
   if (node instanceof CallActorFunctionNode) {
     return `__rfn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
   }
 
-  // FunctionEntryNode — parameters
+  // FunctionEntryNode â€” parameters
   if (node instanceof FunctionEntryNode) {
     if (outputKey === 'exec') return '0';
     return `__param_${sanitizeName(outputKey)}`;
   }
 
-  // CustomEventNode — event parameter outputs
+  // CustomEventNode â€” event parameter outputs
   if (node instanceof CustomEventNode) {
     if (outputKey === 'exec') return '0';
     return `__cev_param_${sanitizeName(outputKey)}`;
   }
 
-  // IsKeyDownNode — poll key state
+  // IsKeyDownNode â€” poll key state
   if (node instanceof IsKeyDownNode) {
     const ikd = node as IsKeyDownNode;
     const keyCtrl = ikd.controls['key'] as KeySelectControl | undefined;
@@ -788,7 +837,7 @@ function resolveValue(
     return `__axis_${node.id.replace(/[^a-zA-Z0-9]/g, '_')}`;
   }
 
-  // InputAxisNode — two-key axis: positive key → +1, negative key → -1
+  // InputAxisNode â€” two-key axis: positive key â†’ +1, negative key â†’ -1
   if (node instanceof InputAxisNode) {
     const ia = node as InputAxisNode;
     // Read from controls (user may have changed them via dropdown)
@@ -869,10 +918,10 @@ function resolveValue(
     return '0';
   }
 
-  // ── OnEventNode — dynamic payload field outputs ──
+  // â”€â”€ OnEventNode â€” dynamic payload field outputs â”€â”€
   if (node instanceof OnEventNode) {
     if (outputKey === 'exec') return '0';
-    // Dynamic field outputs: field_VarName → __payload.VarName
+    // Dynamic field outputs: field_VarName â†’ __payload.VarName
     if (outputKey.startsWith('field_')) {
       const fieldName = outputKey.slice(6); // strip 'field_'
       return `(__payload && __payload[${JSON.stringify(fieldName)}] != null ? __payload[${JSON.stringify(fieldName)}] : null)`;
@@ -936,7 +985,7 @@ function resolveValue(
     return `(${ref} ? ${ref}.scale.${outputKey} : 1)`;
   }
 
-  // Get Material node — returns the material asset ID on a specific slot
+  // Get Material node â€” returns the material asset ID on a specific slot
   if (node instanceof GetMeshMaterialNode) {
     const ci = (node as GetMeshMaterialNode).compIndex;
     const ref = ci === -1
@@ -1089,7 +1138,162 @@ function resolveValue(
   if (node instanceof AIGetDistanceToTargetNode) {
     return `(gameObject.aiController ? gameObject.aiController.getDistanceToTarget() : 0)`;
   }
-  // ── Controller ↔ Pawn bidirectional nodes ──
+  // â”€â”€ AI Task / BT node outputs â”€â”€
+  if (node instanceof AIReceiveExecuteNode || node instanceof AIReceiveAbortNode ||
+      node instanceof AIPerformConditionCheckNode || node instanceof AIObserverActivatedNode ||
+      node instanceof AIObserverDeactivatedNode || node instanceof AIServiceActivatedNode ||
+      node instanceof AIServiceDeactivatedNode) {
+    if (outputKey === 'ownerController') return `__aiController`;
+    if (outputKey === 'controlledPawn') return `gameObject`;
+    return 'null';
+  }
+  if (node instanceof AIReceiveTickNode || node instanceof AIServiceTickNode) {
+    if (outputKey === 'ownerController') return `__aiController`;
+    if (outputKey === 'controlledPawn') return `gameObject`;
+    if (outputKey === 'deltaTime') return `deltaTime`;
+    return 'null';
+  }
+  if (node instanceof OnPossessNode) {
+    if (outputKey === 'possessedPawn') return `gameObject`;
+    return 'null';
+  }
+  if (node instanceof OnMoveCompletedNode) {
+    if (outputKey === 'requestId') return `0`;
+    if (outputKey === 'result') return `(gameObject.aiController ? (gameObject.aiController.state === 'idle' ? 'Success' : 'InProgress') : 'Failed')`;
+    return 'null';
+  }
+  if (node instanceof OnPerceptionUpdatedNode) {
+    if (outputKey === 'updatedActors') return `[]`;
+    return 'null';
+  }
+  // Blackboard
+  if (node instanceof GetBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? gameObject.aiController.getBlackboardValue(${key}) : null)`;
+  }
+  if (node instanceof GetBlackboardValueAsBoolNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (gameObject.aiController.getBlackboardValue(${key}) || false) : false)`;
+  }
+  if (node instanceof GetBlackboardValueAsFloatNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (parseFloat(gameObject.aiController.getBlackboardValue(${key})) || 0) : 0)`;
+  }
+  if (node instanceof GetBlackboardValueAsVectorNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
+    return `(gameObject.aiController ? (gameObject.aiController.getBlackboardValue(${key}) || {x:0, y:0, z:0}) : {x:0, y:0, z:0})`;
+  }
+  
+  if (node instanceof MakeVectorNode) {
+    const xs = inputSrc.get(`${nodeId}.x`);
+    const ys = inputSrc.get(`${nodeId}.y`);
+    const zs = inputSrc.get(`${nodeId}.z`);
+    const cx = (node.inputs['x']?.control as any)?.value ?? 0;
+    const cy = (node.inputs['y']?.control as any)?.value ?? 0;
+    const cz = (node.inputs['z']?.control as any)?.value ?? 0;
+    const x = xs ? resolveValue(xs.nid, xs.ok, nodeMap, inputSrc, bp) : cx;
+    const y = ys ? resolveValue(ys.nid, ys.ok, nodeMap, inputSrc, bp) : cy;
+    const z = zs ? resolveValue(zs.nid, zs.ok, nodeMap, inputSrc, bp) : cz;
+    return `{ x: ${x}, y: ${y}, z: ${z} }`;
+  }
+  if (node instanceof BreakVectorNode) {
+    const vecS = inputSrc.get(`${nodeId}.vec`);
+    const vec = vecS ? resolveValue(vecS.nid, vecS.ok, nodeMap, inputSrc, bp) : "{ x: 0, y: 0, z: 0 }";
+    return `(${vec}).${outputKey}`;
+  }
+
+  // RunBehaviorTree / MoveToLocation / RotateToFace â€” result outputs (set by genAction temp vars)
+  if (node instanceof RunBehaviorTreeNode) {
+    if (outputKey === 'success') return `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'controller') return `__rbt_ctrl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'pawn') return `__rbt_pawn_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'null';
+  }
+  if (node instanceof MoveToLocationNode) {
+    if (outputKey === 'success') return `__mtl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof RotateToFaceNode) {
+    if (outputKey === 'success') return `__rtf_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  // â”€â”€ NavMesh expression nodes â”€â”€
+  if (node instanceof NavMeshIsReadyNode) {
+    return `(__engine && __engine.navMeshSystem ? __engine.navMeshSystem.isReady : false)`;
+  }
+  if (node instanceof NavMeshFindClosestPointNode) {
+    const posS = inputSrc.get(`${nodeId}.position`);
+    const pos = posS ? resolveValue(posS.nid, posS.ok, nodeMap, inputSrc, bp) : '{x:0,y:0,z:0}';
+    if (outputKey === 'closestPoint') return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.findClosestPoint(${pos}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+    if (outputKey === 'found') return `(__engine && __engine.navMeshSystem ? !!__engine.navMeshSystem.findClosestPoint(${pos}) : false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshRandomPointNode) {
+    // Result computed in genAction (exec flow); safe fallback if node has no exec connection
+    const v = `__nmrp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'point') return `(typeof ${v}_pt !== 'undefined' ? (${v}_pt || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+    if (outputKey === 'found') return `(typeof ${v}_ok !== 'undefined' ? (${v}_ok || false) : false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshGetAgentPositionNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.getAgentPosition(${agentId}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+  }
+  if (node instanceof NavMeshGetAgentVelocityNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    return `(__engine && __engine.navMeshSystem ? (__engine.navMeshSystem.getAgentVelocity(${agentId}) || {x:0,y:0,z:0}) : {x:0,y:0,z:0})`;
+  }
+  if (node instanceof NavMeshAgentReachedTargetNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const thS = inputSrc.get(`${nodeId}.threshold`);
+    const agentId = idS ? resolveValue(idS.nid, idS.ok, nodeMap, inputSrc, bp) : "''";
+    const threshold = thS ? resolveValue(thS.nid, thS.ok, nodeMap, inputSrc, bp) : '0.5';
+    return `(__engine && __engine.navMeshSystem ? __engine.navMeshSystem.hasAgentReachedTarget(${agentId}, ${threshold}) : false)`;
+  }
+  // NavMesh exec+result nodes â€” temp vars set in genAction
+  if (node instanceof NavMeshBuildNode) {
+    if (outputKey === 'success') return `__nmb_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshFindPathNode) {
+    const v = `__nmfp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'path') return `(${v}_path || [])`;
+    if (outputKey === 'pathFound') return `(${v}_ok || false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshAddAgentNode) {
+    const v = `__nmaa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (outputKey === 'agentId') return `(${v}_id || '')`;
+    if (outputKey === 'success') return `(${v}_ok || false)`;
+    return 'null';
+  }
+  if (node instanceof NavMeshAgentMoveToNode) {
+    if (outputKey === 'success') return `__nmamt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshAddBoxObstacleNode) {
+    if (outputKey === 'success') return `__nmabo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshAddCylinderObstacleNode) {
+    if (outputKey === 'success') return `__nmaco_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  if (node instanceof NavMeshRemoveObstacleNode) {
+    if (outputKey === 'success') return `__nmro_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return 'false';
+  }
+  // â”€â”€ Controller â†” Pawn bidirectional nodes â”€â”€
   if (node instanceof GetControllerNode) {
     if (outputKey === 'type') return `(gameObject.controller ? gameObject.controller.controllerType : 'None')`;
     if (outputKey === 'hasController') return `(!!gameObject.controller)`;
@@ -1118,7 +1322,7 @@ function resolveValue(
     return `'${ctrl?.value ?? 'walking'}'`;
   }
 
-  // ── Casting & Reference data nodes ──
+  // â”€â”€ Casting & Reference data nodes â”€â”€
   if (node instanceof GetSelfReferenceNode) {
     // Return the appropriate "Self" based on the context:
     // - Actor/Anim BP: gameObject
@@ -1153,7 +1357,7 @@ function resolveValue(
     const vn = (node as GetActorVariableNode).varName;
     return `(${targetVal} && ${targetVal}._scriptVars ? ${targetVal}._scriptVars[${JSON.stringify(vn)}] : 0)`;
   }
-  // ── Game Instance nodes ──
+  // â”€â”€ Game Instance nodes â”€â”€
   if (node instanceof GetGameInstanceNode) {
     return `(__gameInstance || null)`;
   }
@@ -1177,7 +1381,7 @@ function resolveValue(
     if (outputKey === 'valid') return `(!!(${objVal} && ${objVal}._animationInstances && ${objVal}._animationInstances[0]))`;
     return 'null';
   }
-  // ── AnimBP-specific nodes ──
+  // â”€â”€ AnimBP-specific nodes â”€â”€
   if (node instanceof TryGetPawnOwnerNode) {
     if (outputKey === 'pawn') return 'gameObject';
     if (outputKey === 'valid') return '(!!gameObject)';
@@ -1192,28 +1396,28 @@ function resolveValue(
     if (outputKey === 'dt') return 'deltaTime';
     return 'null';
   }
-  // Create Widget node — the 'widget' output resolves to the temp variable set in genAction
+  // Create Widget node â€” the 'widget' output resolves to the temp variable set in genAction
   if (node instanceof CreateWidgetNode) {
     if (outputKey === 'widget') {
       return `__wh_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     }
     return '""';
   }
-  // Spawn Actor from Class — returnValue is a temp variable set in genAction
+  // Spawn Actor from Class â€” returnValue is a temp variable set in genAction
   if (node instanceof SpawnActorFromClassNode) {
     if (outputKey === 'returnValue') {
       return `__sa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     }
     return 'null';
   }
-  // Play Sound 2D / Play Sound at Location — sourceId is set (async, reads -1 initially)
+  // Play Sound 2D / Play Sound at Location â€” sourceId is set (async, reads -1 initially)
   if (node instanceof PlaySound2DNode || node instanceof PlaySoundAtLocationNode) {
     if (outputKey === 'sourceId') {
       return `__audioSrc_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     }
     return '-1';
   }
-  // Save/Load exec nodes — temp vars set in genAction (UE-style)
+  // Save/Load exec nodes â€” temp vars set in genAction (UE-style)
   if (node instanceof CreateSaveGameObjectNode) {
     if (outputKey === 'saveObject') return `__sgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     return 'null';
@@ -1240,7 +1444,7 @@ function resolveValue(
     return 'null';
   }
   if (node instanceof CastToNode) {
-    // The castedObject output from a CastToNode — resolved via a temp variable set in genAction
+    // The castedObject output from a CastToNode â€” resolved via a temp variable set in genAction
     if (outputKey === 'castedObject') {
       const castVar = `__cast_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       return castVar;
@@ -1663,7 +1867,7 @@ function resolveValue(
       return `(__actorAssetManager ? __actorAssetManager.getAncestryChain(${classId}) : [])`;
     }
 
-    // ── Physics getters ──────────────────────────────────────
+    // â”€â”€ Physics getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Mass':
       return '(gameObject.rigidBody ? gameObject.rigidBody.mass() : 0)';
     case 'Get Velocity':
@@ -1776,7 +1980,7 @@ function resolveValue(
       return '0';
     }
 
-    // ── Type conversions ─────────────────────────────────────
+    // â”€â”€ Type conversions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Bool \u2192 Number': {
       const s = inputSrc.get(`${nodeId}.in`);
       return `(${s ? rv(s.nid, s.ok) : 'false'} ? 1 : 0)`;
@@ -1811,7 +2015,7 @@ function resolveValue(
       return s ? rv(s.nid, s.ok) : '"#ffffff"';
     }
 
-    // ── Widget / UI getters ───────────────────────────────────
+    // â”€â”€ Widget / UI getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Widget Text': {
       const n = node as GetWidgetTextNode;
       const wName = JSON.stringify(n.widgetSelector.value || '');
@@ -1850,7 +2054,7 @@ function resolveValue(
       return `(__uiManager ? __uiManager.getWidgetVariable(${widgetHandle}, ${varName}) : undefined)`;
     }
 
-    // ── 2D Physics getters ────────────────────────────────────
+    // â”€â”€ 2D Physics getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Velocity 2D': {
       if (outputKey === 'x') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().x : 0)';
       if (outputKey === 'y') return '(gameObject.getComponent && gameObject.getComponent("RigidBody2D") ? gameObject.getComponent("RigidBody2D").rigidBody.linvel().y : 0)';
@@ -1861,7 +2065,7 @@ function resolveValue(
       return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return "static"; if (_rb.rigidBody.isDynamic()) return "dynamic"; if (_rb.rigidBody.isKinematic()) return "kinematic"; return "static"; }())';
     }
 
-    // ── 2D Character getters ────────────────────────────────
+    // â”€â”€ 2D Character getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Is Grounded 2D': {
       return '(gameObject.getComponent && gameObject.getComponent("CharacterMovement2D") ? gameObject.getComponent("CharacterMovement2D").isGrounded : false)';
     }
@@ -1927,7 +2131,7 @@ function resolveValue(
       return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); if (!_rb) return 0; var _v = _rb.rigidBody.linvel(); return Math.sqrt(_v.x*_v.x + _v.y*_v.y); }())';
     }
 
-    // ── 2D Camera getters ───────────────────────────────────
+    // â”€â”€ 2D Camera getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Camera Zoom 2D': {
       return '(__engine && __engine.physics2D ? (__engine.scene2DManager ? __engine.scene2DManager.camera2D.zoom : 1) : 1)';
     }
@@ -1962,7 +2166,7 @@ function resolveValue(
       return '0';
     }
 
-    // ── 2D Sprite / Animation getters ───────────────────────
+    // â”€â”€ 2D Sprite / Animation getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Anim Variable 2D': {
       const vnS = inputSrc.get(`${nodeId}.varName`);
       const varName = vnS ? rv(vnS.nid, vnS.ok) : '""';
@@ -2001,7 +2205,7 @@ function resolveValue(
       return '(gameObject.name || "")';
     }
 
-    // ── 2D Tilemap getters ──────────────────────────────────
+    // â”€â”€ 2D Tilemap getters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Get Tile At Location': {
       const xS = inputSrc.get(`${nodeId}.x`);
       const yS = inputSrc.get(`${nodeId}.y`);
@@ -2047,14 +2251,14 @@ function resolveValue(
       return '0';
     }
 
-    // ── Audio (pure) ────────────────────────────────────────
+    // â”€â”€ Audio (pure) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Is Sound Playing': {
       const idS = inputSrc.get(`${nodeId}.sourceId`);
       const sid = idS ? rv(idS.nid, idS.ok) : '-1';
       return `(__engine && __engine.audio ? __engine.audio.isPlaying(${sid}) : false)`;
     }
 
-    // ── Gamepad (pure) ──────────────────────────────────────
+    // â”€â”€ Gamepad (pure) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Is Gamepad Connected': {
       const giS = inputSrc.get(`${nodeId}.gamepadIndex`);
       const gi = giS ? rv(giS.nid, giS.ok) : '0';
@@ -2216,7 +2420,7 @@ function resolveValue(
       return 'null';
     }
 
-    // ── Line Trace by Channel (3D) — output resolution ──
+    // â”€â”€ Line Trace by Channel (3D) â€” output resolution â”€â”€
     case 'Line Trace by Channel': {
       const v = `__lt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
@@ -2230,7 +2434,7 @@ function resolveValue(
       if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
       return 'null';
     }
-    // ── Sphere Trace by Channel (3D) — output resolution ──
+    // â”€â”€ Sphere Trace by Channel (3D) â€” output resolution â”€â”€
     case 'Sphere Trace by Channel': {
       const v = `__st3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
@@ -2244,7 +2448,7 @@ function resolveValue(
       if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
       return 'null';
     }
-    // ── Box Trace (3D) — output resolution ──
+    // â”€â”€ Box Trace (3D) â€” output resolution â”€â”€
     case 'Box Trace': {
       const v = `__bt3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
@@ -2255,7 +2459,7 @@ function resolveValue(
       if (outputKey === 'distance') return `(${v} ? ${v}.distance : 0)`;
       return 'null';
     }
-    // ── Line Trace 2D — output resolution ──
+    // â”€â”€ Line Trace 2D â€” output resolution â”€â”€
     case 'Line Trace 2D': {
       const v = `__lt2d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       if (outputKey === 'hit') return `(${v} ? !!${v}.hit : false)`;
@@ -2288,7 +2492,7 @@ function resolveValue(
       return `(${a} && ${a}.getComponentByClass ? ${a}.getComponentByClass(${c}) : null)`;
     }
 
-    // ── Save/Load (pure — UE-style) ────────────────────────
+    // â”€â”€ Save/Load (pure â€” UE-style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Does Save Game Exist': {
       const slotS = inputSrc.get(`${nodeId}.slotName`);
       const uiS = inputSrc.get(`${nodeId}.userIndex`);
@@ -2349,7 +2553,7 @@ function resolveValue(
       return `(__engine && __engine.saveLoad ? __engine.saveLoad.getSaveSlotCount() : 0)`;
     }
 
-    // ── Drag Selection value nodes ───────────────────────────
+    // â”€â”€ Drag Selection value nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Is Drag Selecting': {
       return '(gameObject.__dragSelection ? gameObject.__dragSelection.isDragging : false)';
     }
@@ -2392,13 +2596,13 @@ function genAction(
 ): string[] {
   const node = nodeMap.get(nodeId);
   if (!node) return [];
-  // Skip disabled nodes — just pass through to exec outputs
+  // Skip disabled nodes â€” just pass through to exec outputs
   if ((node as any).__disabled) {
     return walkExec(nodeId, 'exec', nodeMap, inputSrc, outputDst, bp);
   }
   const lines: string[] = [];
 
-  // ── Profiler: emit a tracking call for every action node so the profiler
+  // â”€â”€ Profiler: emit a tracking call for every action node so the profiler
   //    can see which nodes executed. __pTrack is null when profiler is inactive
   //    so the short-circuit (&&) costs virtually nothing at runtime.
   //    The 3rd arg is the node's palette category, baked at codegen time so
@@ -3366,7 +3570,7 @@ function genAction(
     return lines;
   }
 
-  // Set Static Mesh — swap the mesh asset on a component at runtime
+  // Set Static Mesh â€” swap the mesh asset on a component at runtime
   if (node instanceof SetStaticMeshNode) {
     const ci = (node as SetStaticMeshNode).compIndex;
     const ref = ci === -1
@@ -3379,7 +3583,7 @@ function genAction(
     return lines;
   }
 
-  // Set Material — change material on a mesh component slot at runtime
+  // Set Material â€” change material on a mesh component slot at runtime
   if (node instanceof SetMeshMaterialNode) {
     const ci = (node as SetMeshMaterialNode).compIndex;
     const ref = ci === -1
@@ -3673,12 +3877,12 @@ function genAction(
   // Player Controller pawn control nodes
   if (node instanceof PossessPawnNode) {
     const nS = inputSrc.get(`${nodeId}.pawnName`);
-    lines.push(`{ /* Possess Pawn — handled at engine level */ }`);
+    lines.push(`{ /* Possess Pawn â€” handled at engine level */ }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof UnpossessPawnNode) {
-    lines.push(`{ /* Unpossess Pawn — handled at engine level */ }`);
+    lines.push(`{ /* Unpossess Pawn â€” handled at engine level */ }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3688,6 +3892,12 @@ function genAction(
     const yS = inputSrc.get(`${nodeId}.y`);
     const zS = inputSrc.get(`${nodeId}.z`);
     lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.moveTo(${xS ? rv(xS.nid, xS.ok) : '0'}, ${yS ? rv(yS.nid, yS.ok) : '0'}, ${zS ? rv(zS.nid, zS.ok) : '0'}); }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof AIMoveToVectorNode) {
+    const locS = inputSrc.get(`${nodeId}.location`);
+    lines.push(`{ const _ai = gameObject.aiController; const _loc = ${locS ? rv(locS.nid, locS.ok) : '{x:0,y:0,z:0}'}; if (_ai && _loc) _ai.moveTo(_loc.x, _loc.y, _loc.z); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3730,6 +3940,226 @@ function genAction(
   if (node instanceof AIStopFollowingNode) {
     lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.stopMovement(); }`);
     lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // â”€â”€ AI Task / BT exec action nodes â”€â”€
+  if (node instanceof FinishExecuteNode) {
+    const sS = inputSrc.get(`${nodeId}.success`);
+    lines.push(`{ return ${sS ? rv(sS.nid, sS.ok) : 'true'} ? 'Success' : 'Failure'; }`);
+    return lines;
+  }
+  if (node instanceof ReturnNode) {
+    const cS = inputSrc.get(`${nodeId}.canExecute`);
+    lines.push(`{ return ${cS ? rv(cS.nid, cS.ok) : 'true'} ? 'Success' : 'Failure'; }`);
+    return lines;
+  }
+  if (node instanceof MoveToLocationNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const radius = rS ? rv(rS.nid, rS.ok) : '0.5';
+    const v = `__mtl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ const _ai = gameObject.aiController; const _t = ${target}; if (_ai && _t) { _ai.config.acceptanceRadius = ${radius}; _ai.moveTo(_t.x || 0, _t.y || 0, _t.z || 0); ${v} = true; } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.value`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : 'null';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB Set]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsBoolNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : 'false';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetBool]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, Boolean(${val} || false)); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsFloatNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : '0';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetFloat]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, parseFloat(${val} || 0)); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof SetBlackboardValueAsVectorNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const vS = inputSrc.get(`${nodeId}.val`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    const val = vS ? rv(vS.nid, vS.ok) : '{x:0, y:0, z:0}';
+    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetVec]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof ClearBlackboardValueNode) {
+    const kS = inputSrc.get(`${nodeId}.key`);
+    const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
+    const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai) _ai.clearBlackboardValue(${key}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof RunBehaviorTreeNode) {
+    const btCtrl = node.controls['btSelect'] as any;
+    const btId = btCtrl?.value || '';
+    const v = `__rbt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const ctrlVar = `__rbt_ctrl_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const pawnVar = `__rbt_pawn_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`var ${ctrlVar} = null;`);
+    lines.push(`var ${pawnVar} = null;`);
+    lines.push(`{ const _ai = gameObject.aiController; if (_ai && __engine && __engine.behaviorTreeManager) { const _btAsset = __engine.behaviorTreeManager.get('${btId}'); if (_btAsset) { const _bt = __engine.behaviorTreeManager.instantiate(_btAsset); if (_btAsset.blackboardId && __engine.aiAssetManager) { const _bbAsset = __engine.aiAssetManager.getBlackboard(_btAsset.blackboardId); if (_bbAsset && _bbAsset.keys && typeof _ai.initBlackboardDefaults === 'function') { _ai.initBlackboardDefaults(_bbAsset.keys); } } _ai.runBehaviorTree(_bt); ${v} = true; ${ctrlVar} = _ai; ${pawnVar} = gameObject; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof RotateToFaceNode) {
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const speed = sS ? rv(sS.nid, sS.ok) : '360';
+    const v = `__rtf_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ const _ai = gameObject.aiController; const _t = ${target}; if (_ai && _t) { _ai.setFocalPoint(_t.x || 0, _t.y || 0, _t.z || 0); ${v} = true; } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  // â”€â”€ NavMesh exec action nodes â”€â”€
+  if (node instanceof NavMeshBuildNode) {
+    const v = `__nmb_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    // Auto-detect 2D vs 3D: if scene2DManager exists and is in 2D mode, use generateFrom2DBounds
+    lines.push(`{ if (__engine && __engine.navMeshSystem) {`);
+    lines.push(`  if (__engine.scene2DManager && __engine.scene2DManager.is2D) {`);
+    lines.push(`    var _bMin = {x:-10,y:-10}, _bMax = {x:10,y:10}, _obs = [];`);
+    lines.push(`    var _mgr = __engine.scene2DManager;`);
+    lines.push(`    if (_mgr.tilemaps && _mgr.tilesets) {`);
+    lines.push(`      var _fMinX=Infinity,_fMinY=Infinity,_fMaxX=-Infinity,_fMaxY=-Infinity,_found=false;`);
+    lines.push(`      _mgr.tilemaps.forEach(function(tm) {`);
+    lines.push(`        var ts = _mgr.tilesets.get(tm.tilesetId); if (!ts) return;`);
+    lines.push(`        var ppu = ts.pixelsPerUnit||100, tw = ts.tileWidth/ppu, th = ts.tileHeight/ppu;`);
+    lines.push(`        tm.layers.forEach(function(layer) {`);
+    lines.push(`          Object.keys(layer.tiles).forEach(function(k) {`);
+    lines.push(`            var p = k.split(',').map(Number), cx=p[0], cy=p[1];`);
+    lines.push(`            var x0=cx*tw, y0=cy*th, x1=x0+tw, y1=y0+th;`);
+    lines.push(`            if(x0<_fMinX)_fMinX=x0; if(y0<_fMinY)_fMinY=y0; if(x1>_fMaxX)_fMaxX=x1; if(y1>_fMaxY)_fMaxY=y1; _found=true;`);
+    lines.push(`            if(layer.hasCollision) _obs.push({min:{x:x0,y:y0},max:{x:x1,y:y1}});`);
+    lines.push(`          });`);
+    lines.push(`        });`);
+    lines.push(`      });`);
+    lines.push(`      if(_found){_bMin={x:_fMinX-1,y:_fMinY-1};_bMax={x:_fMaxX+1,y:_fMaxY+1};}`);
+    lines.push(`    }`);
+    lines.push(`    __engine.navMeshSystem.generateFrom2DBounds(_bMin,_bMax,_obs).then(function(r){${v}=!!r;});`);
+    lines.push(`  } else {`);
+    lines.push(`    __engine.navMeshSystem.generateFromScene(__engine.scene.threeScene).then(function(r){${v}=!!r;});`);
+    lines.push(`  }`);
+    lines.push(`} }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshFindPathNode) {
+    const sS = inputSrc.get(`${nodeId}.start`);
+    const eS = inputSrc.get(`${nodeId}.end`);
+    const start = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
+    const end = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
+    const v = `__nmfp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v}_path = []; var ${v}_ok = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady) { var _p = __engine.navMeshSystem.findPath(${start}, ${end}); if (_p && _p.length > 0) { ${v}_path = _p; ${v}_ok = true; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+    if (node instanceof NavMeshRandomPointNode) {
+    const cS = inputSrc.get(`${nodeId}.center`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const center = cS ? rv(cS.nid, cS.ok) : '{x:0,y:0,z:0}';
+    const radius = rS ? rv(rS.nid, rS.ok) : '500';
+    const v = `__nmrp_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v}_pt = {x:0,y:0,z:0}; var ${v}_ok = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady) { var _nmrp = __engine.navMeshSystem.findRandomPoint(${center}, ${radius}); if (_nmrp) { ${v}_pt = _nmrp.point; ${v}_ok = true; } else { console.warn('[NavMesh] findRandomPoint returned null - navmesh not ready or radius too small'); } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+if (node instanceof NavMeshAddAgentNode) {
+    const aS = inputSrc.get(`${nodeId}.actor`);
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    const actor = aS ? rv(aS.nid, aS.ok) : 'null';
+    const speed = sS ? rv(sS.nid, sS.ok) : '3.5';
+    const v = `__nmaa_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v}_id = ''; var ${v}_ok = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady && ${actor}) { var _pos = ${actor}.mesh ? ${actor}.mesh.position : {x:0,y:0,z:0}; var _aid = (${actor}.name || 'agent_' + Math.random().toString(36).substr(2,6)); var _result = __engine.navMeshSystem.addAgent(_aid, _pos, ${actor}, {maxSpeed: ${speed}}); if (_result) { ${v}_id = _aid; ${v}_ok = true; } } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshRemoveAgentNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const agentId = idS ? rv(idS.nid, idS.ok) : "''";
+    lines.push(`{ if (__engine && __engine.navMeshSystem) __engine.navMeshSystem.removeAgent(${agentId}); }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAgentMoveToNode) {
+    const idS = inputSrc.get(`${nodeId}.agentId`);
+    const tS = inputSrc.get(`${nodeId}.target`);
+    const agentId = idS ? rv(idS.nid, idS.ok) : "''";
+    const target = tS ? rv(tS.nid, tS.ok) : '{x:0,y:0,z:0}';
+    const v = `__nmamt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem && __engine.navMeshSystem.isReady) { ${v} = __engine.navMeshSystem.requestMoveTarget(${agentId}, ${target}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAddBoxObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const hS = inputSrc.get(`${nodeId}.halfExtents`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const pos = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const half = hS ? rv(hS.nid, hS.ok) : '{x:1,y:1,z:1}';
+    const v = `__nmabo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.addBoxObstacle(${obsId}, ${pos}, ${half}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshAddCylinderObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const pS = inputSrc.get(`${nodeId}.position`);
+    const rS = inputSrc.get(`${nodeId}.radius`);
+    const hS = inputSrc.get(`${nodeId}.height`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const pos = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+    const radius = rS ? rv(rS.nid, rS.ok) : '1';
+    const height = hS ? rv(hS.nid, hS.ok) : '2';
+    const v = `__nmaco_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.addCylinderObstacle(${obsId}, ${pos}, ${radius}, ${height}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshRemoveObstacleNode) {
+    const idS = inputSrc.get(`${nodeId}.id`);
+    const obsId = idS ? rv(idS.nid, idS.ok) : "''";
+    const v = `__nmro_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${v} = false;`);
+    lines.push(`{ if (__engine && __engine.navMeshSystem) { ${v} = __engine.navMeshSystem.removeObstacle(${obsId}); } }`);
+    lines.push(...we(nodeId, 'execOut'));
+    return lines;
+  }
+  if (node instanceof NavMeshToggleDebugNode) {
+    lines.push(`{ if (__engine && __engine.navMeshSystem) __engine.navMeshSystem.toggleDebug(__engine.scene.threeScene); }`);
+    lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
   // Camera & Spring Arm action nodes
@@ -3873,7 +4303,7 @@ function genAction(
     return lines;
   }
 
-  // Macro Call — inline placeholder
+  // Macro Call â€” inline placeholder
   if (node instanceof MacroCallNode) {
     lines.push(`/* macro: ${node.macroName} */`);
     lines.push(...we(nodeId, 'exec'));
@@ -3915,7 +4345,7 @@ function genAction(
     return lines;
   }
 
-  // ── Casting action nodes ──
+  // â”€â”€ Casting action nodes â”€â”€
   if (node instanceof CastToNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
     const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
@@ -3951,7 +4381,7 @@ function genAction(
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
-  // ── SetAnimVarNode — sets an animation variable on the anim instance ──
+  // â”€â”€ SetAnimVarNode â€” sets an animation variable on the anim instance â”€â”€
   if (node instanceof SetAnimVarNode) {
     const vS = inputSrc.get(`${nodeId}.value`);
     const an = node as SetAnimVarNode;
@@ -3962,7 +4392,7 @@ function genAction(
     return lines;
   }
 
-  // ── EmitEventNode — emit a global event via the EventBus ──
+  // â”€â”€ EmitEventNode â€” emit a global event via the EventBus â”€â”€
   if (node instanceof EmitEventNode) {
     const eventId = (node.controls.eventId as any)?.value;
     let eventName = '';
@@ -4241,7 +4671,7 @@ function genAction(
       break;
     }
 
-    // ── Physics (extended) setters / actions ─────────────────
+    // â”€â”€ Physics (extended) setters / actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Set Mass': {
       const mS = inputSrc.get(`${nodeId}.mass`);
       const massVal = mS ? rv(mS.nid, mS.ok) : '1';
@@ -4441,7 +4871,7 @@ function genAction(
       break;
     }
 
-    // ── Stateful flow control nodes ──────────────────────────
+    // â”€â”€ Stateful flow control nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Do Once': {
       const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
       if (triggerInput === 'reset') {
@@ -4600,7 +5030,7 @@ function genAction(
       break;
     }
 
-    // ── Widget / UI action nodes ─────────────────────────────
+    // â”€â”€ Widget / UI action nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
       const bpId = JSON.stringify(wn.widgetBPId || '');
@@ -4710,7 +5140,7 @@ function genAction(
       break;
     }
 
-    // ── Widget Instance Interaction Nodes ───────────────────────────
+    // â”€â”€ Widget Instance Interaction Nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Set Widget Variable': {
       const n = node as SetWidgetVariableNode;
       const wS = inputSrc.get(`${nodeId}.widget`);
@@ -4777,13 +5207,13 @@ function genAction(
       break;
     }
     case 'Get Game Instance': {
-      // Pure node — value resolved inline via rv()
+      // Pure node â€” value resolved inline via rv()
       break;
     }
     case 'Get Game Instance Variable': {
       const ctrl = node.controls['varName'] as GameInstanceVarNameControl;
       const varName = JSON.stringify(ctrl?.value ?? '');
-      // Pure node — value resolved inline via rv()
+      // Pure node â€” value resolved inline via rv()
       break;
     }
     case 'Set Game Instance Variable': {
@@ -4796,9 +5226,9 @@ function genAction(
       break;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2D PHYSICS ACTION NODES
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     case 'Line Trace 2D': {
       const sxS = inputSrc.get(`${nodeId}.startX`); const syS = inputSrc.get(`${nodeId}.startY`);
       const exS = inputSrc.get(`${nodeId}.endX`); const eyS = inputSrc.get(`${nodeId}.endY`);
@@ -4817,14 +5247,14 @@ function genAction(
     case 'Box Overlap 2D': {
       const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
       const hwS = inputSrc.get(`${nodeId}.halfW`); const hhS = inputSrc.get(`${nodeId}.halfH`);
-      lines.push(`/* Box Overlap 2D — placeholder: Rapier2D intersection test */`);
+      lines.push(`/* Box Overlap 2D â€” placeholder: Rapier2D intersection test */`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Circle Overlap 2D': {
       const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
       const rS = inputSrc.get(`${nodeId}.radius`);
-      lines.push(`/* Circle Overlap 2D — placeholder: Rapier2D intersection test */`);
+      lines.push(`/* Circle Overlap 2D â€” placeholder: Rapier2D intersection test */`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -4885,9 +5315,9 @@ function genAction(
       break;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2D CHARACTER MOVEMENT ACTION NODES
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     case 'Add Movement Input 2D': {
       const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
       const scS = inputSrc.get(`${nodeId}.scale`);
@@ -5022,9 +5452,9 @@ function genAction(
       break;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2D CAMERA ACTION NODES
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     case 'Set Camera Follow Target 2D': {
       const tnS = inputSrc.get(`${nodeId}.targetName`);
       const smS = inputSrc.get(`${nodeId}.smoothing`);
@@ -5090,9 +5520,9 @@ function genAction(
       break;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2D SPRITE / ANIMATION ACTION NODES
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     case 'Play Animation 2D': {
       const anS = inputSrc.get(`${nodeId}.animName`);
       const loopS = inputSrc.get(`${nodeId}.loop`);
@@ -5153,7 +5583,7 @@ function genAction(
       break;
     }
 
-    // ── 2D Anim Blueprint nodes ─────────────────────────────
+    // â”€â”€ 2D Anim Blueprint nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Set Anim State 2D': {
       const snS = inputSrc.get(`${nodeId}.stateName`);
       lines.push(`{ var _ai = __animInstance || (gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai && _ai.setState) { _ai.setState(${snS ? rv(snS.nid, snS.ok) : '""'}); } }`);
@@ -5175,9 +5605,9 @@ function genAction(
       break;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2D TILEMAP ACTION NODES
-    // ══════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     case 'Set Tile At Location': {
       const xS = inputSrc.get(`${nodeId}.x`); const yS = inputSrc.get(`${nodeId}.y`);
       const lS = inputSrc.get(`${nodeId}.layer`); const tS = inputSrc.get(`${nodeId}.tileId`);
@@ -5215,12 +5645,12 @@ function genAction(
       break;
     }
     case 'Rebuild Tilemap Collision': {
-      lines.push(`{ /* Rebuild tilemap collision — handled by editor on scene save */ }`);
+      lines.push(`{ /* Rebuild tilemap collision â€” handled by editor on scene save */ }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
 
-    // ── Audio Nodes ─────────────────────────────────────────
+    // â”€â”€ Audio Nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Play Sound 2D': {
       const sS = inputSrc.get(`${nodeId}.sound`);
       const _scCtrl2D = node.controls['soundCue'] as SoundCueSelectControl | undefined;
@@ -5270,7 +5700,7 @@ function genAction(
       break;
     }
     case 'Spawn Sound at Location': {
-      // Legacy node — map to the same code as Play Sound at Location
+      // Legacy node â€” map to the same code as Play Sound at Location
       const sS = inputSrc.get(`${nodeId}.sound`);
       const _scCtrlSpawn = node.controls['soundCue'] as SoundCueSelectControl | undefined;
       const lxS = inputSrc.get(`${nodeId}.locX`);
@@ -5365,7 +5795,7 @@ function genAction(
       break;
     }
 
-    // ── Gamepad Nodes (exec-based) ──────────────────────────
+    // â”€â”€ Gamepad Nodes (exec-based) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Set Gamepad Vibration': {
       const wmS = inputSrc.get(`${nodeId}.weakMagnitude`);
       const smS = inputSrc.get(`${nodeId}.strongMagnitude`);
@@ -5380,7 +5810,7 @@ function genAction(
       break;
     }
 
-    // ── Save/Load Nodes (exec-based — UE-style) ──────────────
+    // â”€â”€ Save/Load Nodes (exec-based â€” UE-style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Create Save Game Object': {
       const varName = `__sgo_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
       const n = node as CreateSaveGameObjectNode;
@@ -5440,12 +5870,12 @@ function genAction(
       break;
     }
 
-    // ── Drag Selection action nodes ──────────────────────────
+    // â”€â”€ Drag Selection action nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     case 'Enable Drag Selection': {
       const mbS = inputSrc.get(`${nodeId}.mouseButton`);
       const mbC = node.controls['mouseButton'] as ClassicPreset.InputControl<'number'> | undefined;
       const mb = mbS ? rv(mbS.nid, mbS.ok) : (mbC ? String(mbC.value ?? 0) : '0');
-      lines.push(`{ if (!gameObject.__dragSelection) { var _DSC = __engine && __engine._DragSelectionComponent; if (_DSC) { gameObject.__dragSelection = new _DSC(); } else { console.warn('[DragSelection] DragSelectionComponent class not found on engine — drag selection will not work'); gameObject.__dragSelection = { enabled: true, mouseButton: 0, classFilter: [], selectionColor: 'rgba(0,120,215,0.25)', selectionBorderColor: 'rgba(0,120,215,0.8)', selectionBorderWidth: 1, selectionBorderStyle: 'solid', selectionBorderRadius: 0, selectionOpacity: 1, onSelectionComplete: null, _lastResult: null, isDragging: false, getSelectedCount: function(){ return this._lastResult ? this._lastResult.actors.length : 0; }, getSelectedActors: function(){ return this._lastResult ? this._lastResult.actors : []; }, getSelectedActorAt: function(i){ return this._lastResult ? (this._lastResult.actors[i] || null) : null; }, init: function(){}, destroy: function(){}, setClassFilter: function(c){ this.classFilter = Array.isArray(c) ? c : [c]; }, addClassFilter: function(c){ if (this.classFilter.indexOf(c) < 0) this.classFilter.push(c); }, clearClassFilter: function(){ this.classFilter = []; } }; } } if (gameObject.__dragSelection) { gameObject.__dragSelection.mouseButton = ${mb}; var _canvas = __engine && __engine._playCanvas; if (_canvas && typeof gameObject.__dragSelection.init === 'function') { gameObject.__dragSelection.init(_canvas, __scene, __engine); } } }`);
+      lines.push(`{ if (!gameObject.__dragSelection) { var _DSC = __engine && __engine._DragSelectionComponent; if (_DSC) { gameObject.__dragSelection = new _DSC(); } else { console.warn('[DragSelection] DragSelectionComponent class not found on engine â€” drag selection will not work'); gameObject.__dragSelection = { enabled: true, mouseButton: 0, classFilter: [], selectionColor: 'rgba(0,120,215,0.25)', selectionBorderColor: 'rgba(0,120,215,0.8)', selectionBorderWidth: 1, selectionBorderStyle: 'solid', selectionBorderRadius: 0, selectionOpacity: 1, onSelectionComplete: null, _lastResult: null, isDragging: false, getSelectedCount: function(){ return this._lastResult ? this._lastResult.actors.length : 0; }, getSelectedActors: function(){ return this._lastResult ? this._lastResult.actors : []; }, getSelectedActorAt: function(i){ return this._lastResult ? (this._lastResult.actors[i] || null) : null; }, init: function(){}, destroy: function(){}, setClassFilter: function(c){ this.classFilter = Array.isArray(c) ? c : [c]; }, addClassFilter: function(c){ if (this.classFilter.indexOf(c) < 0) this.classFilter.push(c); }, clearClassFilter: function(){ this.classFilter = []; } }; } } if (gameObject.__dragSelection) { gameObject.__dragSelection.mouseButton = ${mb}; var _canvas = __engine && __engine._playCanvas; if (_canvas && typeof gameObject.__dragSelection.init === 'function') { gameObject.__dragSelection.init(_canvas, __scene, __engine); } } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -5583,7 +6013,7 @@ function generateFullCode(
     parts.push('var __inputCleanup = [];');
   }
 
-  // ── Pre-declare stateful flow-control variables at factory (preamble) scope ──
+  // â”€â”€ Pre-declare stateful flow-control variables at factory (preamble) scope â”€â”€
   // Without `var`, the `typeof __xxx === 'undefined'` pattern inside lifecycle
   // closures would create implicit globals that persist across play sessions.
   // Declaring them here ensures they're factory-scoped and properly reset on recompile.
@@ -5607,6 +6037,40 @@ function generateFullCode(
   for (const ev of tkEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
   const odEvts = nodes.filter(n => n.label === 'Event OnDestroy');
   for (const ev of odEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // â”€â”€ AI Task lifecycle events (mapped to standard lifecycles) â”€â”€
+  // AI Receive Execute / Service Activated / Observer Activated / On Possess â†’ beginPlay
+  const aiBeginEvts = nodes.filter(n =>
+    n instanceof AIReceiveExecuteNode || n instanceof AIServiceActivatedNode ||
+    n instanceof AIObserverActivatedNode || n instanceof OnPossessNode
+  );
+  for (const ev of aiBeginEvts) beginPlayCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // AI Receive Tick / Service Tick / Condition Check / On Move Completed / On Perception â†’ tick
+  const aiTickEvts = nodes.filter(n =>
+    n instanceof AIReceiveTickNode || n instanceof AIServiceTickNode ||
+    n instanceof AIPerformConditionCheckNode || n instanceof OnPerceptionUpdatedNode
+  );
+  for (const ev of aiTickEvts) tickCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
+
+  // On Move Completed â€” poll each tick: fire when AI state transitions to idle
+  const onMoveCompletedEvts = nodes.filter(n => n instanceof OnMoveCompletedNode);
+  if (onMoveCompletedEvts.length > 0) {
+    parts.push('var __omc_prevState = "idle";');
+    for (const ev of onMoveCompletedEvts) {
+      const body = walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length) {
+        tickCode.push(`{ var _aiS = gameObject.aiController ? gameObject.aiController.state : 'idle'; if (__omc_prevState !== 'idle' && _aiS === 'idle') { ${body.join(' ')} } __omc_prevState = _aiS; }`);
+      }
+    }
+  }
+
+  // AI Receive Abort / Service Deactivated / Observer Deactivated / On Unpossess â†’ onDestroy
+  const aiEndEvts = nodes.filter(n =>
+    n instanceof AIReceiveAbortNode || n instanceof AIServiceDeactivatedNode ||
+    n instanceof AIObserverDeactivatedNode || n instanceof OnUnpossessNode
+  );
+  for (const ev of aiEndEvts) onDestroyCode.push(...walkExec(ev.id, 'exec', nodeMap, inputSrc, outputDst, bp));
 
   // Input Action/Axis Mapping Events (polled in Tick)
   const inputActionNodes = nodes.filter(n => n instanceof InputActionMappingEventNode) as InputActionMappingEventNode[];
@@ -5633,7 +6097,7 @@ function generateFullCode(
     }
   }
 
-  // Input key event listeners — inject into beginPlay & onDestroy
+  // Input key event listeners â€” inject into beginPlay & onDestroy
   if (hasInputNodes) {
     // Global key state tracking for IsKeyDown polling (keyboard + mouse buttons)
     beginPlayCode.push('var __kd_global = function(e) { __inputKeys[e.key] = true; };');
@@ -5692,7 +6156,7 @@ function generateFullCode(
     onDestroyCode.push('__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};');
   }
 
-  // ── OnEvent / EmitEvent (EventBus) nodes ────────────────────
+  // â”€â”€ OnEvent / EmitEvent (EventBus) nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const onEventNodes = nodes.filter(n => n instanceof OnEventNode) as InstanceType<typeof OnEventNode>[];
   if (onEventNodes.length > 0) {
     // Declare cleanup array at preamble (factory) scope so both __bp and __od can access it
@@ -5717,13 +6181,13 @@ function generateFullCode(
     onDestroyCode.push('__eventBusCleanup.forEach(function(fn) { fn(); }); __eventBusCleanup = [];');
   }
 
-  // ── Drag Selection Complete event nodes ─────────────────────
+  // â”€â”€ Drag Selection Complete event nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const dragSelCompleteNodes = nodes.filter(n => n.label === 'On Drag Selection Complete');
   if (dragSelCompleteNodes.length > 0) {
     for (const dsEvt of dragSelCompleteNodes) {
       const body = walkExec(dsEvt.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
-        // Wire the onSelectionComplete callback — the DragSelectionComponent
+        // Wire the onSelectionComplete callback â€” the DragSelectionComponent
         // will call this when a drag selection finishes.
         beginPlayCode.push(`(function() { var __ds_cb_${dsEvt.id.replace(/[^a-zA-Z0-9]/g,'_')} = function(__dsResult) { var __dragSelectedActors = __dsResult ? __dsResult.actors : []; var __dragSelectedCount = __dragSelectedActors.length; ${body.join(' ')} }; if (!gameObject.__dragSelCallbacks) gameObject.__dragSelCallbacks = []; gameObject.__dragSelCallbacks.push(__ds_cb_${dsEvt.id.replace(/[^a-zA-Z0-9]/g,'_')}); })();`);
       }
@@ -5734,7 +6198,7 @@ function generateFullCode(
     onDestroyCode.push('if (gameObject.__dragSelection) { gameObject.__dragSelection.destroy(); gameObject.__dragSelection = null; }');
   }
 
-  // ── 2D Collision / Trigger / Animation event nodes ──────────
+  // â”€â”€ 2D Collision / Trigger / Animation event nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const collBegin2D = nodes.filter(n => n.label === 'On Collision Begin 2D');
   const collEnd2D = nodes.filter(n => n.label === 'On Collision End 2D');
   const trigBegin2D = nodes.filter(n => n.label === 'On Trigger Begin 2D');
@@ -5789,7 +6253,7 @@ function generateFullCode(
     }
   }
 
-  // ── Collision / Trigger event nodes ─────────────────────────
+  // â”€â”€ Collision / Trigger event nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const triggerBeginNodes = nodes.filter(n => n instanceof OnTriggerBeginOverlapNode);
   const triggerEndNodes = nodes.filter(n => n instanceof OnTriggerEndOverlapNode);
   const actorBeginNodes = nodes.filter(n => n instanceof OnActorBeginOverlapNode);
@@ -5805,14 +6269,14 @@ function generateFullCode(
   if (hasCollisionEvents) {
     beginPlayCode.push('var __collCb = __physics.collision.registerCallbacks(gameObject.id);');
 
-    // UE-style bound Begin Overlap — filter by selfComponentName
+    // UE-style bound Begin Overlap â€” filter by selfComponentName
     for (const n of boundBeginNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
         beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { if (__ovEvt.selfComponentName !== ${JSON.stringify(n.compName)}) return; var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
       }
     }
-    // UE-style bound End Overlap — filter by selfComponentName
+    // UE-style bound End Overlap â€” filter by selfComponentName
     for (const n of boundEndNodes) {
       const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
       if (body.length > 0) {
@@ -5853,7 +6317,7 @@ function generateFullCode(
     }
   }
 
-  // ── Widget Event Nodes (ButtonOnClicked, etc.) ─────────────
+  // â”€â”€ Widget Event Nodes (ButtonOnClicked, etc.) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const buttonClickedNodes = nodes.filter(n => n instanceof ButtonOnClickedNode) as ButtonOnClickedNode[];
   const buttonPressedNodes = nodes.filter(n => n instanceof ButtonOnPressedNode) as ButtonOnPressedNode[];
   const buttonReleasedNodes = nodes.filter(n => n instanceof ButtonOnReleasedNode) as ButtonOnReleasedNode[];
@@ -5993,7 +6457,7 @@ function generateFullCode(
 
   // For Animation Blueprints: Variables live in the AnimBP's own closure,
   // NOT on the pawn's _scriptVars. The AnimBP can read the pawn's variables
-  // via CastTo → GetActorVariable (which reads pawn._scriptVars correctly).
+  // via CastTo â†’ GetActorVariable (which reads pawn._scriptVars correctly).
   if (isAnimBlueprint) {
     const sections: string[] = [];
     if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
@@ -6415,7 +6879,7 @@ function showDragPinContextMenu(
           }});
         }
       }
-      if (items.length) categories.set(`ƒ ${targetActorName} Functions`, items);
+      if (items.length) categories.set(`Æ’ ${targetActorName} Functions`, items);
     }
 
     // --- Target actor custom events (Call remotely) ---
@@ -6425,7 +6889,7 @@ function showDragPinContextMenu(
         const label = `Call ${evt.name}`;
         if (!lf || label.toLowerCase().includes(lf) || 'events'.includes(lf)) {
           items.push({ label, action: () => {
-            // For simplicity, create a CallCustomEventNode — remote event call
+            // For simplicity, create a CallCustomEventNode â€” remote event call
             // Note: this fires the event on the target actor
             const node = new CallCustomEventNode(evt.id, evt.name, evt.params, targetActorId || undefined);
             onCreateNode(node, null);
@@ -6508,7 +6972,7 @@ function showDragPinContextMenu(
         }});
       }
 
-      // Cast To entries — only for generic ObjectRef (ClassRef already know the type)
+      // Cast To entries â€” only for generic ObjectRef (ClassRef already know the type)
       if (dragSocketName === 'ObjectRef' && _actorAssetMgr) {
         for (const asset of _actorAssetMgr.assets) {
           if (!lf || `cast to ${asset.name}`.toLowerCase().includes(lf) || 'casting'.includes(lf)) {
@@ -6636,7 +7100,7 @@ function showDragPinContextMenu(
 }
 
 // ============================================================
-//  Context Menu (palette) — includes variables, functions, macros
+//  Context Menu (palette) â€” includes variables, functions, macros
 // ============================================================
 function showContextMenu(
   container: HTMLElement, x: number, y: number,
@@ -6690,7 +7154,7 @@ function showContextMenu(
       categories.set(entry.category, arr);
     }
 
-    // Variables — Get / Set
+    // Variables â€” Get / Set
     if (bp.variables.length > 0) {
       const items: { label: string; action: () => void }[] = [];
       for (const v of bp.variables) {
@@ -6702,7 +7166,7 @@ function showContextMenu(
       if (items.length) categories.set('Variables', items);
     }
 
-    // Local Variables — Get / Set (only in function graphs)
+    // Local Variables â€” Get / Set (only in function graphs)
     if (currentFuncId) {
       const fn = bp.getFunction(currentFuncId);
       if (fn && fn.localVariables.length > 0) {
@@ -6737,7 +7201,7 @@ function showContextMenu(
       if (items.length) categories.set('Macros', items);
     }
 
-    // Custom Events — Call
+    // Custom Events â€” Call
     if (bp.customEvents.length > 0) {
       const items: { label: string; action: () => void }[] = [];
       for (const evt of bp.customEvents) {
@@ -6747,7 +7211,7 @@ function showContextMenu(
       if (items.length) categories.set('Custom Events', items);
     }
 
-    // Structs — Make / Break (per-actor + project-level)
+    // Structs â€” Make / Break (per-actor + project-level)
     {
       const items: { label: string; action: () => void }[] = [];
       // Per-actor structs
@@ -6773,7 +7237,7 @@ function showContextMenu(
       if (items.length) categories.set('Structs', items);
     }
 
-    // Input — Key Event / Is Key Down / Input Axis (event graph only for Key Event)
+    // Input â€” Key Event / Is Key Down / Input Axis (event graph only for Key Event)
     {
       const items: { label: string; action: () => void }[] = [];
       if (graphType === 'event') {
@@ -6787,7 +7251,7 @@ function showContextMenu(
       if (items.length) categories.set('Input', items);
     }
 
-    // Components — dynamic entries from ComponentNodeRules
+    // Components â€” dynamic entries from ComponentNodeRules
     if (componentEntries && componentEntries.length > 0) {
       const items: { label: string; action: () => void }[] = [];
       for (const ce of componentEntries) {
@@ -6797,7 +7261,7 @@ function showContextMenu(
       if (items.length) categories.set('Components', items);
     }
 
-    // Casting — dynamic "Cast to <ClassName>" entries per actor asset
+    // Casting â€” dynamic "Cast to <ClassName>" entries per actor asset
     if (_actorAssetMgr) {
       const castItems: { label: string; action: () => void }[] = [];
       for (const asset of _actorAssetMgr.assets) {
@@ -6892,10 +7356,10 @@ function showContextMenu(
 }
 
 // ============================================================
-//  Dialogs — Add Variable, Add Function/Macro, Edit Variable, Struct
+//  Dialogs â€” Add Variable, Add Function/Macro, Edit Variable, Struct
 // ============================================================
 function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?: VarType): string {
-  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget'] as const;
+  const base = ['Float', 'Boolean', 'Vector3', 'String', 'Color', 'ObjectRef', 'Widget', 'BlackboardKeySelector'] as const;
   let html = '';
   for (const t of base) {
     html += `<option value="${t}"${selected === t ? ' selected' : ''}>${t}</option>`;
@@ -6919,7 +7383,7 @@ function buildTypeOptions(bp: import('./BlueprintData').BlueprintData, selected?
       html += `<option value="${val}"${selected === val ? ' selected' : ''}>${e.name} (Enum)</option>`;
     }
   }
-  // Actor class references — for storing typed actor/object refs as variables
+  // Actor class references â€” for storing typed actor/object refs as variables
   if (_actorAssetMgr) {
     for (const asset of _actorAssetMgr.assets) {
       const val: VarType = `ClassRef:${asset.id}`;
@@ -7060,7 +7524,7 @@ function showKeySelectDialog(parent: HTMLElement, title: string, onSelect: (key:
 }
 
 // ============================================================
-//  Parameter Editor Dialog — edit inputs/outputs for functions
+//  Parameter Editor Dialog â€” edit inputs/outputs for functions
 //  or params for custom events (reusable, struct-field-like UI)
 // ============================================================
 function showParamEditorDialog(
@@ -7223,7 +7687,7 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
       return `<div style="display:flex;gap:4px;"><input class="mybp-dialog-input" type="number" step="0.1" value="${d.x}" id="dlg-vx" style="flex:1" placeholder="X"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.y}" id="dlg-vy" style="flex:1" placeholder="Y"/><input class="mybp-dialog-input" type="number" step="0.1" value="${d.z}" id="dlg-vz" style="flex:1" placeholder="Z"/></div>`;
     }
     if (type.startsWith('Struct:')) {
-      return `<span style="color:#888;font-size:11px;">Struct — set field defaults via Set nodes</span>`;
+      return `<span style="color:#888;font-size:11px;">Struct â€” set field defaults via Set nodes</span>`;
     }
     if (type.startsWith('Enum:')) {
       const enumId = type.slice(5);
@@ -7236,15 +7700,15 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
         html += `</select>`;
         return html;
       }
-      return `<span style="color:#888;font-size:11px;">Enum — no values defined</span>`;
+      return `<span style="color:#888;font-size:11px;">Enum â€” no values defined</span>`;
     }
     if (type === 'ObjectRef' || type === 'Widget') {
-      return `<span style="color:#888;font-size:11px;">None — assigned at runtime via Cast/Get nodes</span>`;
+      return `<span style="color:#888;font-size:11px;">None â€” assigned at runtime via Cast/Get nodes</span>`;
     }
     if (type.startsWith('ClassRef:')) {
       const actorId = type.slice(9);
       const actorName = _actorAssetMgr?.assets.find(a => a.id === actorId)?.name ?? 'Actor';
-      return `<span style="color:#888;font-size:11px;">None (${actorName} Ref) — assigned at runtime via Cast nodes</span>`;
+      return `<span style="color:#888;font-size:11px;">None (${actorName} Ref) â€” assigned at runtime via Cast nodes</span>`;
     }
     return '';
   }
@@ -7335,7 +7799,7 @@ function showVariableEditor(parent: HTMLElement, v: BlueprintVariable, bp: impor
 }
 
 // ============================================================
-//  Struct Dialog — Create / Edit struct with field editor
+//  Struct Dialog â€” Create / Edit struct with field editor
 // ============================================================
 function showStructDialog(
   parent: HTMLElement,
@@ -7489,6 +7953,8 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof MathSubtractNode) return 'MathSubtractNode';
   if (node instanceof MathMultiplyNode) return 'MathMultiplyNode';
   if (node instanceof MathDivideNode) return 'MathDivideNode';
+  if (node instanceof MakeVectorNode) return 'MakeVectorNode';
+  if (node instanceof BreakVectorNode) return 'BreakVectorNode';
   if (node instanceof SineNode) return 'SineNode';
   if (node instanceof CosineNode) return 'CosineNode';
   if (node instanceof AbsNode) return 'AbsNode';
@@ -7670,6 +8136,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof IsPossessingNode) return 'IsPossessingNode';
   // AI Controller nodes
   if (node instanceof AIMoveToNode) return 'AIMoveToNode';
+  if (node instanceof AIMoveToVectorNode) return 'AIMoveToVectorNode';
   if (node instanceof AIStopMovementNode) return 'AIStopMovementNode';
   if (node instanceof AISetFocalPointNode) return 'AISetFocalPointNode';
   if (node instanceof AIClearFocalPointNode) return 'AIClearFocalPointNode';
@@ -7680,7 +8147,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof GetAIStateNode) return 'GetAIStateNode';
   if (node instanceof AIHasReachedTargetNode) return 'AIHasReachedTargetNode';
   if (node instanceof AIGetDistanceToTargetNode) return 'AIGetDistanceToTargetNode';
-  // Controller ↔ Pawn nodes
+  // Controller â†” Pawn nodes
   if (node instanceof GetControllerNode) return 'GetControllerNode';
   if (node instanceof GetControllerTypeNode) return 'GetControllerTypeNode';
   if (node instanceof GetPawnNode) return 'GetPawnNode';
@@ -7794,6 +8261,35 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof EmitEventNode) return 'EmitEventNode';
   if (node instanceof OnEventNode) return 'OnEventNode';
 
+  // AI Blueprint nodes
+  if (node instanceof AIReceiveExecuteNode) return 'AIReceiveExecuteNode';
+  if (node instanceof AIReceiveTickNode) return 'AIReceiveTickNode';
+  if (node instanceof AIReceiveAbortNode) return 'AIReceiveAbortNode';
+  if (node instanceof FinishExecuteNode) return 'FinishExecuteNode';
+  if (node instanceof AIPerformConditionCheckNode) return 'AIPerformConditionCheckNode';
+  if (node instanceof AIObserverActivatedNode) return 'AIObserverActivatedNode';
+  if (node instanceof AIObserverDeactivatedNode) return 'AIObserverDeactivatedNode';
+  if (node instanceof ReturnNode) return 'ReturnNode';
+  if (node instanceof AIServiceActivatedNode) return 'AIServiceActivatedNode';
+  if (node instanceof AIServiceTickNode) return 'AIServiceTickNode';
+  if (node instanceof AIServiceDeactivatedNode) return 'AIServiceDeactivatedNode';
+  if (node instanceof OnPossessNode) return 'OnPossessNode';
+  if (node instanceof OnUnpossessNode) return 'OnUnpossessNode';
+  if (node instanceof OnMoveCompletedNode) return 'OnMoveCompletedNode';
+  if (node instanceof OnPerceptionUpdatedNode) return 'OnPerceptionUpdatedNode';
+  if (node instanceof RunBehaviorTreeNode) return 'RunBehaviorTreeNode';
+  if (node instanceof MoveToLocationNode) return 'MoveToLocationNode';
+  if (node instanceof GetBlackboardValueNode) return 'GetBlackboardValueNode';
+  if (node instanceof SetBlackboardValueNode) return 'SetBlackboardValueNode';
+  if (node instanceof ClearBlackboardValueNode) return 'ClearBlackboardValueNode';
+  if (node instanceof GetBlackboardValueAsBoolNode) return 'GetBlackboardValueAsBoolNode';
+  if (node instanceof GetBlackboardValueAsFloatNode) return 'GetBlackboardValueAsFloatNode';
+  if (node instanceof GetBlackboardValueAsVectorNode) return 'GetBlackboardValueAsVectorNode';
+  if (node instanceof SetBlackboardValueAsBoolNode) return 'SetBlackboardValueAsBoolNode';
+  if (node instanceof SetBlackboardValueAsFloatNode) return 'SetBlackboardValueAsFloatNode';
+  if (node instanceof SetBlackboardValueAsVectorNode) return 'SetBlackboardValueAsVectorNode';
+  if (node instanceof RotateToFaceNode) return 'RotateToFaceNode';
+
   // Fallback: use the node label for any NODE_PALETTE-registered node
   const paletteEntry = NODE_PALETTE.find(e => e.label === (node as any).label);
   if (paletteEntry) return (node as any).label;
@@ -7831,6 +8327,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = (ctrl as AxisMappingSelectControl).value;
     } else if (ctrl instanceof EventSelectControl) {
       controls[key] = (ctrl as EventSelectControl).value;
+    } else if (ctrl instanceof BTSelectControl) {
+      controls[key] = { id: (ctrl as BTSelectControl).value, name: (ctrl as BTSelectControl).displayName };
     } else if (ctrl instanceof ColorPickerControl) {
       controls[key] = (ctrl as ColorPickerControl).value;
     } else if (ctrl instanceof TextureSelectControl) {
@@ -7850,6 +8348,8 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   for (const [key, inp] of Object.entries(node.inputs)) {
     const ctrl = (inp as any)?.control;
     if (ctrl instanceof BoolSelectControl) {
+      inputControls[key] = ctrl.value;
+    } else if (ctrl instanceof ClassicPreset.InputControl) {
       inputControls[key] = ctrl.value;
     }
   }
@@ -7915,6 +8415,10 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     const negCtrl = ia.controls['negKey'] as KeySelectControl | undefined;
     data.positiveKey = posCtrl?.value ?? ia.positiveKey;
     data.negativeKey = negCtrl?.value ?? ia.negativeKey;
+  } else if (node instanceof RunBehaviorTreeNode) {
+    const btCtrl = node.controls['btSelect'] as BTSelectControl | undefined;
+    data.selectedBTId = btCtrl?.value ?? (node as RunBehaviorTreeNode).selectedBTId;
+    data.selectedBTName = btCtrl?.displayName ?? (node as RunBehaviorTreeNode).selectedBTName;
   } else if (node instanceof FunctionEntryNode) {
     data.funcId = node.funcId;
   } else if (node instanceof FunctionReturnNode) {
@@ -7967,7 +8471,7 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
   }
-  // Casting & Reference nodes — dynamic data
+  // Casting & Reference nodes â€” dynamic data
   if (node instanceof CastToNode || node instanceof PureCastNode) {
     data.targetClassId = (node as any).targetClassId;
     data.targetClassName = (node as any).targetClassName;
@@ -8186,6 +8690,19 @@ function createNodeFromData(
     case 'MathSubtractNode': return new MathSubtractNode();
     case 'MathMultiplyNode': return new MathMultiplyNode();
     case 'MathDivideNode':   return new MathDivideNode();
+    case 'MakeVectorNode':
+    case 'Make Vector': {
+      const n = new MakeVectorNode();
+      if (d.inputControls) {
+        for (const [key, val] of Object.entries(d.inputControls)) {
+          const ctrl = (n.inputs as any)?.[key]?.control;
+          if (ctrl && 'value' in ctrl) ctrl.value = val;
+        }
+      }
+      return n;
+    }
+    case 'BreakVectorNode':
+    case 'Break Vector':     return new BreakVectorNode();
     case 'SineNode':         return new SineNode();
     case 'CosineNode':       return new CosineNode();
     case 'AbsNode':          return new AbsNode();
@@ -8395,6 +8912,8 @@ function createNodeFromData(
     case 'IsPossessingNode':                return new IsPossessingNode();
     // AI Controller nodes
     case 'AIMoveToNode':                    return new AIMoveToNode();
+    case 'AIMoveToVectorNode':
+    case 'AI Move To (Vector)':             return new AIMoveToVectorNode();
     case 'AIStopMovementNode':              return new AIStopMovementNode();
     case 'AISetFocalPointNode':             return new AISetFocalPointNode();
     case 'AIClearFocalPointNode':           return new AIClearFocalPointNode();
@@ -8405,7 +8924,7 @@ function createNodeFromData(
     case 'GetAIStateNode':                  return new GetAIStateNode();
     case 'AIHasReachedTargetNode':          return new AIHasReachedTargetNode();
     case 'AIGetDistanceToTargetNode':       return new AIGetDistanceToTargetNode();
-    // Controller ↔ Pawn
+    // Controller â†” Pawn
     case 'GetControllerNode':               return new GetControllerNode();
     case 'GetControllerTypeNode':           return new GetControllerTypeNode();
     case 'GetPawnNode':                     return new GetPawnNode();
@@ -8839,6 +9358,107 @@ function createNodeFromData(
       return n;
     }
 
+    // â”€â”€ AI Blueprint Nodes (explicit entries for deserialization) â”€â”€
+    case 'AIReceiveExecuteNode':
+    case 'AI Receive Execute':              return new AIReceiveExecuteNode();
+    case 'AIReceiveTickNode':
+    case 'AI Receive Tick':                 return new AIReceiveTickNode();
+    case 'AIReceiveAbortNode':
+    case 'AI Receive Abort':                return new AIReceiveAbortNode();
+    case 'FinishExecuteNode':
+    case 'Finish Execute':                  return new FinishExecuteNode();
+    case 'AIPerformConditionCheckNode':
+    case 'AI Perform Condition Check':      return new AIPerformConditionCheckNode();
+    case 'AIObserverActivatedNode':
+    case 'AI Observer Activated':           return new AIObserverActivatedNode();
+    case 'AIObserverDeactivatedNode':
+    case 'AI Observer Deactivated':         return new AIObserverDeactivatedNode();
+    case 'ReturnNode':
+    case 'Return':                          return new ReturnNode();
+    case 'AIServiceActivatedNode':
+    case 'AI Service Activated':            return new AIServiceActivatedNode();
+    case 'AIServiceTickNode':
+    case 'AI Service Tick':                 return new AIServiceTickNode();
+    case 'AIServiceDeactivatedNode':
+    case 'AI Service Deactivated':          return new AIServiceDeactivatedNode();
+    case 'OnPossessNode':
+    case 'On Possess':                      return new OnPossessNode();
+    case 'OnUnpossessNode':
+    case 'On Unpossess':                    return new OnUnpossessNode();
+    case 'OnMoveCompletedNode':
+    case 'On Move Completed':               return new OnMoveCompletedNode();
+    case 'OnPerceptionUpdatedNode':
+    case 'On Perception Updated':           return new OnPerceptionUpdatedNode();
+    case 'RunBehaviorTreeNode':
+    case 'Run Behavior Tree': {
+      const n = new RunBehaviorTreeNode();
+      if (d.selectedBTId) {
+        const btCtrl = n.controls['btSelect'] as BTSelectControl | undefined;
+        if (btCtrl) btCtrl.setValue(d.selectedBTId);
+        n.selectedBTId = d.selectedBTId;
+        n.selectedBTName = d.selectedBTName || '';
+      }
+      return n;
+    }
+    case 'MoveToLocationNode':
+    case 'Move To Location':                return new MoveToLocationNode();
+    case 'GetBlackboardValueNode':
+    case 'Get Blackboard Value': {
+      const n = new GetBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueNode':
+    case 'Set Blackboard Value': {
+      const n = new SetBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'ClearBlackboardValueNode':
+    case 'Clear Blackboard Value': {
+      const n = new ClearBlackboardValueNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsBoolNode':
+    case 'Get Blackboard Value as Bool': {
+      const n = new GetBlackboardValueAsBoolNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsFloatNode':
+    case 'Get Blackboard Value as Float': {
+      const n = new GetBlackboardValueAsFloatNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'GetBlackboardValueAsVectorNode':
+    case 'Get Blackboard Value as Vector': {
+      const n = new GetBlackboardValueAsVectorNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsBoolNode':
+    case 'Set Blackboard Value as Bool': {
+      const n = new SetBlackboardValueAsBoolNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsFloatNode':
+    case 'Set Blackboard Value as Float': {
+      const n = new SetBlackboardValueAsFloatNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'SetBlackboardValueAsVectorNode':
+    case 'Set Blackboard Value as Vector': {
+      const n = new SetBlackboardValueAsVectorNode();
+      if (d.inputControls?.key != null) { const c = (n.inputs as any)?.key?.control; if (c && 'value' in c) c.value = d.inputControls.key; }
+      return n;
+    }
+    case 'RotateToFaceNode':
+    case 'Rotate To Face':                  return new RotateToFaceNode();
+
     default: {
       // Fallback: try NODE_PALETTE factory for registered nodes (trace nodes, physics 2D, etc.)
       const paletteEntry = NODE_PALETTE.find(e => e.label === nd.type || e.label === d.label);
@@ -8849,6 +9469,25 @@ function createNodeFromData(
           for (const [key, val] of Object.entries(d.inputControls)) {
             const ctrl = (n.inputs as any)?.[key]?.control;
             if (ctrl && typeof ctrl.setValue === 'function') ctrl.setValue(val as number);
+            else if (ctrl && 'value' in ctrl) ctrl.value = val;
+          }
+        }
+        // Restore BTSelectControl values (e.g. RunBehaviorTreeNode)
+        if (n instanceof RunBehaviorTreeNode && d.selectedBTId) {
+          const btCtrl = n.controls['btSelect'] as BTSelectControl | undefined;
+          if (btCtrl) btCtrl.setValue(d.selectedBTId);
+          n.selectedBTId = d.selectedBTId;
+          n.selectedBTName = d.selectedBTName || '';
+        }
+        // Restore general controls saved as { id, name } or simple values
+        if (d.controls) {
+          for (const [key, val] of Object.entries(d.controls)) {
+            const ctrl = n.controls[key];
+            if (ctrl instanceof BTSelectControl && val && typeof val === 'object' && 'id' in (val as any)) {
+              ctrl.setValue((val as any).id);
+            } else if (ctrl && typeof (ctrl as any).setValue === 'function' && typeof val !== 'object') {
+              (ctrl as any).setValue(val);
+            }
           }
         }
         return n;
@@ -8893,7 +9532,7 @@ async function deserializeGraph(
 ): Promise<void> {
   if (!graphData || !Array.isArray(graphData.nodes)) return;
 
-  // Map old serialized IDs → new Rete node IDs
+  // Map old serialized IDs â†’ new Rete node IDs
   const idMap = new Map<string, string>();
 
   for (const nd of graphData.nodes) {
@@ -8927,7 +9566,7 @@ async function deserializeGraph(
 }
 
 // ============================================================
-//  Rete editor factory — sets up a single graph editor in a container
+//  Rete editor factory â€” sets up a single graph editor in a container
 // ============================================================
 async function createGraphEditor(
   container: HTMLElement,
@@ -9705,7 +10344,7 @@ async function createGraphEditor(
           };
         }
 
-        // ── Texture Select Control (searchable dropdown) ──────────
+        // â”€â”€ Texture Select Control (searchable dropdown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (data.payload instanceof TextureSelectControl) {
           const ctrl = data.payload as TextureSelectControl;
           return (_props: any) => {
@@ -9893,7 +10532,7 @@ async function createGraphEditor(
                       }, tex.name),
                       tex.width > 0 && React.createElement('span', {
                         style: { fontSize: 9, color: '#666' },
-                      }, `${tex.width}×${tex.height}`),
+                      }, `${tex.width}Ã—${tex.height}`),
                     ),
                   ),
                 ),
@@ -9906,7 +10545,7 @@ async function createGraphEditor(
           };
         }
 
-        // ── Sound Cue Select Control ────────────────────────────────
+        // â”€â”€ Sound Cue Select Control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (data.payload instanceof SoundCueSelectControl) {
           const ctrl = data.payload as SoundCueSelectControl;
           return (_props: any) => {
@@ -9925,7 +10564,7 @@ async function createGraphEditor(
                 cues.push({
                   id: cue.assetId,
                   name: cue.assetName,
-                  info: `${wpCount} sound${wpCount !== 1 ? 's' : ''} · ${nodeCount} nodes`,
+                  info: `${wpCount} sound${wpCount !== 1 ? 's' : ''} Â· ${nodeCount} nodes`,
                 });
               }
             }
@@ -10089,7 +10728,7 @@ async function createGraphEditor(
           };
         }
 
-        // ── Widget Variable Selector Control ────────────────────────
+        // â”€â”€ Widget Variable Selector Control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (data.payload instanceof WidgetVariableSelectorControl) {
           const ctrl = data.payload as WidgetVariableSelectorControl;
           return (_props: any) => {
@@ -10136,7 +10775,7 @@ async function createGraphEditor(
           };
         }
 
-        // ── Widget Function Selector Control ────────────────────────
+        // â”€â”€ Widget Function Selector Control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (data.payload instanceof WidgetFunctionSelectorControl) {
           const ctrl = data.payload as WidgetFunctionSelectorControl;
           return (_props: any) => {
@@ -10195,7 +10834,7 @@ async function createGraphEditor(
           };
         }
 
-        // ── Widget Event Selector Control ──────────────────────────
+        // â”€â”€ Widget Event Selector Control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (data.payload instanceof WidgetEventSelectorControl) {
           const ctrl = data.payload as WidgetEventSelectorControl;
           return (_props: any) => {
@@ -10414,6 +11053,40 @@ async function createGraphEditor(
             );
           };
         }
+        if (data.payload instanceof BTSelectControl) {
+          const ctrl = data.payload as BTSelectControl;
+          return (_props: any) => {
+            const [val, setVal] = React.useState(ctrl.value);
+            const options = ctrl.getOptions();
+            return React.createElement('select', {
+              value: val,
+              onChange: (e: any) => {
+                const newVal = e.target.value;
+                ctrl.setValue(newVal);
+                setVal(newVal);
+              },
+              onPointerDown: (e: any) => e.stopPropagation(),
+              style: {
+                width: '100%',
+                padding: '4px 6px',
+                background: '#1e1e2e',
+                color: val ? '#4fc3f7' : '#666',
+                border: '1px solid #3a3a5c',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: 140,
+              },
+            },
+              React.createElement('option', { value: '' }, '-- Select Behavior Tree --'),
+              ...options.map(o =>
+                React.createElement('option', { key: o.id, value: o.id }, o.name),
+              ),
+            );
+          };
+        }
         if (data.payload instanceof WidgetSelectorControl) {
           const ctrl = data.payload as WidgetSelectorControl;
           return (props: any) => {
@@ -10501,7 +11174,7 @@ async function createGraphEditor(
   area.use(connection);
   area.use(reactPlugin);
 
-  // ── Track last pointer position for connectiondrop menu placement ──
+  // â”€â”€ Track last pointer position for connectiondrop menu placement â”€â”€
   let _lastPointerX = 0;
   let _lastPointerY = 0;
   container.addEventListener('pointermove', (e) => {
@@ -10510,7 +11183,7 @@ async function createGraphEditor(
     _lastPointerY = e.clientY - rect.top;
   }, true);
 
-  // ── Drag-from-pin context menu (UE-style) ──
+  // â”€â”€ Drag-from-pin context menu (UE-style) â”€â”€
   // When user drags a wire from a pin and drops on empty space,
   // show a context menu filtered to compatible nodes.
   // For ClassRef_<id> pins, show the target actor's variables, functions, events.
@@ -10538,7 +11211,7 @@ async function createGraphEditor(
     }
     if (!srcSocket) return ctx;
 
-    // Don't show menu for exec pins — they just want to wire to execution
+    // Don't show menu for exec pins â€” they just want to wire to execution
     if (srcSocket.name === 'Exec') return ctx;
 
     // Determine screen position for the context menu
@@ -10592,18 +11265,18 @@ async function createGraphEditor(
           if (connectToKey) {
             try {
               if (initial.side === 'output') {
-                // Dragged from an output — connect to the new node's input
+                // Dragged from an output â€” connect to the new node's input
                 await editor.addConnection(
                   new ClassicPreset.Connection(srcNode, initial.key, node, connectToKey)
                 );
               } else {
-                // Dragged from an input — connect new node's output to the original input
+                // Dragged from an input â€” connect new node's output to the original input
                 await editor.addConnection(
                   new ClassicPreset.Connection(node, connectToKey, srcNode, initial.key)
                 );
               }
             } catch (e) {
-              // Connection might fail if sockets are incompatible — that's OK
+              // Connection might fail if sockets are incompatible â€” that's OK
             }
           }
           onChanged();
@@ -10617,14 +11290,14 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Selection state (declared early so area pipes can reference it) ──
+  // â”€â”€ Selection state (declared early so area pipes can reference it) â”€â”€
   const selectedNodeIds = new Set<string>();
   let _lastPointerEvent: PointerEvent | null = null;
   container.addEventListener('pointerdown', (e) => {
     _lastPointerEvent = e;
   }, true);
 
-  // ── UE-style controls: block Rete's default left-click area pan ──
+  // â”€â”€ UE-style controls: block Rete's default left-click area pan â”€â”€
   let _leftMouseDown = false;
   container.addEventListener('pointerdown', (e) => {
     if (e.button === 0) _leftMouseDown = true;
@@ -10639,7 +11312,7 @@ async function createGraphEditor(
   let _rcStartX = 0, _rcStartY = 0;
   let _rcStartTx = 0, _rcStartTy = 0;
 
-  // ── Connection wire coloring by socket type ──
+  // â”€â”€ Connection wire coloring by socket type â”€â”€
   area.addPipe((ctx) => {
     if (ctx.type === 'rendered') {
       const d = ctx.data as any;
@@ -10687,7 +11360,7 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Socket type-safety: auto-insert conversion nodes or block incompatible ──
+  // â”€â”€ Socket type-safety: auto-insert conversion nodes or block incompatible â”€â”€
   editor.addPipe((ctx) => {
     if (ctx.type === 'connectioncreate') {
       const { data } = ctx as any;
@@ -10732,7 +11405,7 @@ async function createGraphEditor(
             }
 
             console.warn(
-              `[Feather] Blocked connection: ${srcOutput.socket.name} → ${tgtInput.socket.name}`,
+              `[Feather] Blocked connection: ${srcOutput.socket.name} â†’ ${tgtInput.socket.name}`,
             );
             return undefined as any;           // block the connection
           }
@@ -10742,7 +11415,7 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Block Rete's built-in left-click area pan (UE-style: only right-click pans) ──
+  // â”€â”€ Block Rete's built-in left-click area pan (UE-style: only right-click pans) â”€â”€
   area.addPipe((ctx) => {
     if (ctx.type === 'translate') {
       // Block area translate when left mouse is held (Rete's default drag-to-pan).
@@ -10761,7 +11434,7 @@ async function createGraphEditor(
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Check if right-click is on a node — show node actions menu
+    // Check if right-click is on a node â€” show node actions menu
     const targetEl = e.target as HTMLElement;
     const nodeEl = targetEl.closest('[data-testid="node"]') as HTMLElement | null;
     if (nodeEl) {
@@ -10904,7 +11577,7 @@ async function createGraphEditor(
       },
       (type) => {
         if (type === 'axis') {
-          // Input Axis — create directly with default keys (user can modify in properties)
+          // Input Axis â€” create directly with default keys (user can modify in properties)
           (async () => {
             const node = new InputAxisNode('D', 'A');
             await editor.addNode(node);
@@ -10957,7 +11630,7 @@ async function createGraphEditor(
         await editor.addNode(node);
         await area.translate(node.id, { x: dropX, y: dropY });
       } else if (data.dragType === 'function') {
-        // Function drop — create FunctionCallNode
+        // Function drop â€” create FunctionCallNode
         const fn = bp.getFunction(data.funcId);
         if (fn) {
           const node = new FunctionCallNode(fn.id, fn.name, fn.inputs, fn.outputs);
@@ -10965,7 +11638,7 @@ async function createGraphEditor(
           await area.translate(node.id, { x: dropX, y: dropY });
         }
       } else if (data.dragType === 'macro') {
-        // Macro drop — create MacroCallNode
+        // Macro drop â€” create MacroCallNode
         const m = bp.getMacro(data.macroId);
         if (m) {
           const node = new MacroCallNode(m.id, m.name, m.inputs, m.outputs);
@@ -10973,7 +11646,7 @@ async function createGraphEditor(
           await area.translate(node.id, { x: dropX, y: dropY });
         }
       } else if (data.dragType === 'customEvent') {
-        // Custom event drop — create CallCustomEventNode
+        // Custom event drop â€” create CallCustomEventNode
         const evt = bp.customEvents.find(e => e.id === data.eventId);
         const params = evt ? evt.params : [];
         const node = new CallCustomEventNode(data.eventId, data.eventName, params);
@@ -10983,10 +11656,10 @@ async function createGraphEditor(
     } catch { /* not a drag item */ }
   }, true);
 
-  // ── Clipboard for copy/paste ──
+  // â”€â”€ Clipboard for copy/paste â”€â”€
   let _clipboard: { nodes: any[]; connections: any[]; offset: { x: number; y: number } } | null = null;
 
-  // ── Comment boxes ──
+  // â”€â”€ Comment boxes â”€â”€
   const comments: CommentBox[] = [];
   const commentEls = new Map<string, HTMLElement>();
   const commentLayer = document.createElement('div');
@@ -11056,7 +11729,7 @@ async function createGraphEditor(
     onChanged();
   }
 
-  // ── Undo / Redo Manager ──
+  // â”€â”€ Undo / Redo Manager â”€â”€
   const undoMgr = new UndoManager();
   let _undoThrottle: ReturnType<typeof setTimeout> | null = null;
   function pushUndo(label: string) {
@@ -11067,7 +11740,7 @@ async function createGraphEditor(
     }, 100);
   }
 
-  // ── Snap to Grid (20px increments, always on — hold Alt to disable) ──
+  // â”€â”€ Snap to Grid (20px increments, always on â€” hold Alt to disable) â”€â”€
   const GRID_SIZE = 20;
   area.addPipe((ctx) => {
     if (ctx.type === 'nodetranslate') {
@@ -11089,7 +11762,7 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Right-click drag pan (UE-style) ──
+  // â”€â”€ Right-click drag pan (UE-style) â”€â”€
   container.addEventListener('pointerdown', (e) => {
     if (e.button === 2) {
       _rcDown = true;
@@ -11127,7 +11800,7 @@ async function createGraphEditor(
     }
   });
 
-  // ── Box Select (drag rectangle on empty canvas) ──
+  // â”€â”€ Box Select (drag rectangle on empty canvas) â”€â”€
   let _boxSelecting = false;
   let _boxStart = { x: 0, y: 0 };
   const boxSelRect = document.createElement('div');
@@ -11219,7 +11892,7 @@ async function createGraphEditor(
     }
   }
 
-  // ── Prevent wheel events on UI overlays from zooming the canvas ──
+  // â”€â”€ Prevent wheel events on UI overlays from zooming the canvas â”€â”€
   container.addEventListener('wheel', (e) => {
     const target = e.target as HTMLElement;
     if (target.closest('.bp-context-menu') || target.closest('.fe-minimap') || target.closest('.mybp-dialog-overlay') || target.closest('.fe-node-action-menu')) {
@@ -11227,12 +11900,12 @@ async function createGraphEditor(
     }
   }, true);
 
-  // ── Keyboard shortcut handler ──
+  // â”€â”€ Keyboard shortcut handler â”€â”€
   function handleKeyDown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
     const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable;
 
-    // Delete / Backspace — delete selected nodes
+    // Delete / Backspace â€” delete selected nodes
     if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput) {
       if (selectedNodeIds.size > 0) {
         e.preventDefault();
@@ -11251,7 +11924,7 @@ async function createGraphEditor(
       }
     }
 
-    // Ctrl+Z — undo
+    // Ctrl+Z â€” undo
     if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !inInput) {
       e.preventDefault();
       const state = undoMgr.undo();
@@ -11266,7 +11939,7 @@ async function createGraphEditor(
       }
     }
 
-    // Ctrl+Y or Ctrl+Shift+Z — redo
+    // Ctrl+Y or Ctrl+Shift+Z â€” redo
     if (((e.key === 'y' && (e.ctrlKey || e.metaKey)) || (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)) && !inInput) {
       e.preventDefault();
       const state = undoMgr.redo();
@@ -11279,14 +11952,14 @@ async function createGraphEditor(
       }
     }
 
-    // Ctrl+A — select all
+    // Ctrl+A â€” select all
     if (e.key === 'a' && (e.ctrlKey || e.metaKey) && !inInput) {
       e.preventDefault();
       for (const n of editor.getNodes()) selectedNodeIds.add(n.id);
       syncSelectionVisuals();
     }
 
-    // F — frame selection (zoom to fit selected or all)
+    // F â€” frame selection (zoom to fit selected or all)
     if (e.key === 'f' && !inInput && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       const selected = editor.getNodes().filter(n => selectedNodeIds.has(n.id));
@@ -11294,7 +11967,7 @@ async function createGraphEditor(
       if (targets.length > 0) AreaExtensions.zoomAt(area, targets);
     }
 
-    // Ctrl+C — copy
+    // Ctrl+C â€” copy
     if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !inInput) {
       if (selectedNodeIds.size > 0) {
         e.preventDefault();
@@ -11315,7 +11988,7 @@ async function createGraphEditor(
       }
     }
 
-    // Ctrl+V — paste
+    // Ctrl+V â€” paste
     if (e.key === 'v' && (e.ctrlKey || e.metaKey) && !inInput) {
       if (_clipboard && _clipboard.nodes.length > 0) {
         e.preventDefault();
@@ -11345,7 +12018,7 @@ async function createGraphEditor(
       }
     }
 
-    // Ctrl+D — duplicate
+    // Ctrl+D â€” duplicate
     if (e.key === 'd' && (e.ctrlKey || e.metaKey) && !inInput) {
       if (selectedNodeIds.size > 0) {
         e.preventDefault();
@@ -11382,7 +12055,7 @@ async function createGraphEditor(
       }
     }
 
-    // Spacebar or Ctrl+F — quick search / node menu
+    // Spacebar or Ctrl+F â€” quick search / node menu
     if ((e.key === ' ' || (e.key === 'f' && (e.ctrlKey || e.metaKey))) && !inInput) {
       if (e.key === ' ') {
         e.preventDefault();
@@ -11406,7 +12079,7 @@ async function createGraphEditor(
       }
     }
 
-    // C — add comment box (when not in input)
+    // C â€” add comment box (when not in input)
     if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !inInput) {
       const rect = container.getBoundingClientRect();
       addComment(rect.width / 2, rect.height / 2);
@@ -11442,7 +12115,7 @@ async function createGraphEditor(
     return ctx;
   });
 
-  // ── Tooltips on nodes — show description on hover ──
+  // â”€â”€ Tooltips on nodes â€” show description on hover â”€â”€
   area.addPipe((ctx) => {
     if (ctx.type === 'rendered') {
       const d = ctx.data as any;
@@ -11493,7 +12166,7 @@ async function createGraphEditor(
           lastPickedTime = now;
         }
 
-        // Update selection tracking — Shift/Ctrl = multi-select, otherwise single select
+        // Update selection tracking â€” Shift/Ctrl = multi-select, otherwise single select
         const isMulti = _lastPointerEvent?.shiftKey || _lastPointerEvent?.ctrlKey;
         if (!isMulti) selectedNodeIds.clear();
         selectedNodeIds.add(nodeId);
@@ -11642,7 +12315,7 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAn
         (containerRef.current as any).__compileAndSave = compileAndSave;
       }
 
-      // ── Persist graph node data into BlueprintData ──
+      // â”€â”€ Persist graph node data into BlueprintData â”€â”€
       // Event graph
       bp.eventGraph.nodeData = serializeGraph(evData.editor, evData.area);
       bp.eventGraph.comments = evData.comments ? evData.comments.map(c => ({ ...c, position: { ...c.position }, size: { ...c.size } })) : [];

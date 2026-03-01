@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { Scene } from './Scene';
 import { PhysicsWorld } from './PhysicsWorld';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
@@ -7,6 +7,7 @@ import { SpectatorControllerManager } from './SpectatorController';
 import { defaultSpectatorPawnConfig } from './SpectatorController';
 import { PlayerControllerManager, PlayerController } from './PlayerController';
 import { AIControllerManager, AIController } from './AIController';
+import { NavMeshSystem } from './ai/NavMeshSystem';
 import type { Controller } from './Controller';
 import type { AnimationInstance } from './AnimationInstance';
 import { UIManager } from './UIManager';
@@ -27,6 +28,7 @@ export class Engine {
   public spectatorControllers: SpectatorControllerManager = new SpectatorControllerManager();
   public playerControllers: PlayerControllerManager = new PlayerControllerManager();
   public aiControllers: AIControllerManager = new AIControllerManager();
+  public navMeshSystem: NavMeshSystem = new NavMeshSystem();
   public uiManager: UIManager = new UIManager();
   public audio: AudioEngine = new AudioEngine();
   public eventBus: EventBus = EventBus.getInstance();
@@ -60,6 +62,19 @@ export class Engine {
    * Set by the editor so the engine can resolve controller blueprint assets.
    */
   public assetManager: import('../editor/ActorAsset').ActorAssetManager | null = null;
+
+  /**
+   * Optional reference to the AI asset manager.
+   * Set by the editor so the engine can resolve AI controller blueprints
+   * created in the AI section of the content browser.
+   */
+  public aiAssetManager: import('../editor/ai/AIAssetManager').AIAssetManager | null = null;
+
+  /**
+   * BehaviorTreeManager — bridges BT assets to runtime BehaviorTree instances.
+   * Initialised automatically when aiAssetManager is set.
+   */
+  public behaviorTreeManager: import('./BehaviorTreeManager').BehaviorTreeManager | null = null;
 
   /** PlayerStart spawn transform — set by the editor before play starts */
   public playerStartTransform: { position: { x: number; y: number; z: number }; rotationY: number } | null = null;
@@ -258,7 +273,7 @@ export class Engine {
   }
 
   /** Called when Play is pressed — fires BeginPlay on all scripts */
-  onPlayStarted(canvas?: HTMLCanvasElement): void {
+  async onPlayStarted(canvas?: HTMLCanvasElement): Promise<void> {
     this._elapsedTime = 0;
     this._playStarted = true;
 
@@ -336,6 +351,19 @@ export class Engine {
       } else if (controllerClass === 'AIController') {
         const aiCtrl = new AIController();
         aiCtrl.possess(pawn);
+        // Set the blueprint class name from the controller blueprint asset
+        if (go.controllerBlueprintId) {
+          let ctrlName = '';
+          if (this.assetManager) {
+            const a = this.assetManager.getAsset(go.controllerBlueprintId);
+            if (a) ctrlName = a.name;
+          }
+          if (!ctrlName && this.aiAssetManager) {
+            const a = this.aiAssetManager.getAIController(go.controllerBlueprintId);
+            if (a) ctrlName = a.name;
+          }
+          if (ctrlName) aiCtrl.blueprintClassName = ctrlName;
+        }
         go.controller = aiCtrl;
         go.aiController = aiCtrl;               // backwards-compat
         this.aiControllers.register(aiCtrl);
@@ -345,17 +373,48 @@ export class Engine {
     }
 
     // ── 3. Compile & attach controller blueprint scripts ──
-    if (this.assetManager) {
-      for (const go of this.scene.gameObjects) {
-        if (!go.controllerBlueprintId) continue;
-        const ctrlAsset = this.assetManager.getAsset(go.controllerBlueprintId);
-        if (!ctrlAsset || !ctrlAsset.compiledCode) continue;
+    for (const go of this.scene.gameObjects) {
+      if (!go.controllerBlueprintId) continue;
 
-        const script = new ScriptComponent();
-        script.code = ctrlAsset.compiledCode;
-        if (script.compile()) {
-          this._controllerScripts.push({ go, script });
-          console.log(`[Engine] Controller blueprint "${ctrlAsset.name}" attached to ${go.name}`);
+      // Try ActorAssetManager first, then AIAssetManager
+      let compiledCode: string | undefined;
+      let assetName = 'unknown';
+
+      if (this.assetManager) {
+        const ctrlAsset = this.assetManager.getAsset(go.controllerBlueprintId);
+        if (ctrlAsset && ctrlAsset.compiledCode) {
+          compiledCode = ctrlAsset.compiledCode;
+          assetName = ctrlAsset.name;
+        }
+      }
+
+      // Fallback: check AIAssetManager (AI Controllers created from AI section)
+      if (!compiledCode && this.aiAssetManager) {
+        const aiCtrl = this.aiAssetManager.getAIController(go.controllerBlueprintId);
+        if (aiCtrl && aiCtrl.compiledCode) {
+          compiledCode = aiCtrl.compiledCode;
+          assetName = aiCtrl.name;
+        }
+      }
+
+      if (!compiledCode) continue;
+
+      const script = new ScriptComponent();
+      script.code = compiledCode;
+      if (script.compile()) {
+        this._controllerScripts.push({ go, script });
+        console.log(`[Engine] Controller blueprint "${assetName}" attached to ${go.name}`);
+      }
+    }
+
+    // ── 3b. Pre-play check: warn about empty task compiledCode ──
+    if (this.aiAssetManager) {
+      const tasks = this.aiAssetManager.getAllTasks?.() || [];
+      for (const task of tasks) {
+        if (!task.compiledCode || task.compiledCode.trim().length === 0) {
+          console.warn(`[Engine] ⚠ AI Task "${task.name}" (${task.id}) has EMPTY compiledCode. Open its blueprint editor at least once before Play to compile it.`);
+        } else {
+          console.log(`[Engine] AI Task "${task.name}" compiledCode OK (${task.compiledCode.length} chars)`);
         }
       }
     }
@@ -415,6 +474,33 @@ export class Engine {
       this.gameInstance.beginPlay(giCtx);
     }
 
+    // ── 4a. Auto-build NavMesh BEFORE BeginPlay so BT tasks can query it ──
+    // If the navmesh was not pre-baked (no data loaded), generate it now from
+    // the live Three.js scene so runtime BT tasks / blueprint nodes work.
+    if (!this.navMeshSystem.isReady && this.scene.threeScene) {
+      console.log('[Engine] NavMesh not yet built – auto-generating from scene geometry...');
+      try {
+        const built = await this.navMeshSystem.generateFromScene(this.scene.threeScene);
+        if (built) {
+          console.log('[Engine] NavMesh auto-built successfully.');
+        } else {
+          console.warn('[Engine] NavMesh auto-build returned false (scene may have no walkable geometry).');
+        }
+      } catch (e) {
+        console.error('[Engine] NavMesh auto-build failed:', e);
+      }
+    }
+    // Register AI controllers with the navmesh (built or pre-baked)
+    if (this.navMeshSystem.isReady) {
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.registerNavMeshAgent(this.navMeshSystem);
+      }
+      console.log(`[Engine] NavMesh: ${this.aiControllers.controllers.length} AI agents registered.`);
+    } else {
+      for (const ctrl of this.aiControllers.controllers) {
+        ctrl.navMeshSystem = this.navMeshSystem;
+      }
+    }
     // ── 4. Fire BeginPlay on all actor & controller scripts ──
     let scriptCount = 0;
     for (const go of this.scene.gameObjects) {
@@ -432,6 +518,8 @@ export class Engine {
     }
 
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
+
+
   }
 
   /** Called when Stop is pressed — fires OnDestroy on all scripts */
@@ -459,6 +547,10 @@ export class Engine {
     this.aiControllers.destroyAll();
     this.playerControllers.destroyAll();
     this._activeControllers = [];
+
+    // Destroy NavMesh system (crowd agents, navmesh, debug vis)
+    this.navMeshSystem.destroy();
+    this.navMeshSystem = new NavMeshSystem();
     for (const go of this.scene.gameObjects) {
       go.characterController = null;
       go.aiController = null;
@@ -572,6 +664,9 @@ export class Engine {
       this.spectatorControllers.update(dt);
       // Update AI controllers
       this.aiControllers.update(dt);
+
+      // Update NavMesh crowd simulation
+      this.navMeshSystem.update(dt);
 
       // Update animation blueprint instances AND skeletal mesh mixers
       // (combined into a single pass over gameObjects for efficiency)

@@ -1,4 +1,4 @@
-import './styles.css';
+﻿import './styles.css';
 import 'dockview-core/dist/styles/dockview.css';
 import { initFeatherSelect } from './editor/FeatherSelect';
 import { Engine } from './engine';
@@ -15,6 +15,7 @@ import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
 import { EventAssetManager } from './editor/EventAsset';
+import { AIAssetManager } from './editor/ai/AIAssetManager';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
@@ -163,6 +164,25 @@ async function main() {
 
   // Wire up sound library callbacks into content browser
   editor.setSoundLibraryCallbacks();
+
+  // Create AI asset manager (Behavior Trees, Blackboards, Tasks, Decorators, Services, AI Controllers)
+  const aiManager = new AIAssetManager();
+  projectManager.setAIManager(aiManager);
+  editor.setAIManager(aiManager);
+  engine.aiAssetManager = aiManager;
+
+  // Create BehaviorTreeManager so generated RunBehaviorTree code can instantiate BTs at runtime
+  const { BehaviorTreeManager } = await import('./engine/BehaviorTreeManager');
+  engine.behaviorTreeManager = new BehaviorTreeManager(
+    (id: string) => aiManager.getBehaviorTree(id),
+    (assetRef: string) => {
+      const task = aiManager.getTask(assetRef);
+      const code = task ? task.compiledCode : undefined;
+      console.log(`[BT] _getTaskCode("${assetRef}"): taskFound=${!!task} codeLength=${code ? code.length : 'undefined'} codePreview="${(code || '').slice(0, 80)}..."`);
+      return code;
+    },
+  );
+  engine.behaviorTreeManager.setEngine(engine);
 
   // Wire up folder manager with project manager
   editor.setProjectManager(projectManager);
@@ -658,7 +678,7 @@ async function main() {
         // Fallback to in-editor mode
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         const pawnCam = engine.characterControllers.getActiveCamera()
           ?? engine.spectatorControllers.getActiveCamera();
@@ -689,7 +709,7 @@ async function main() {
         // Enable 3D physics isPlaying so the script tick loop runs
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         // Cache asset managers before play so runtime spawnActorFromClassId always works
         // (even if the scene starts with zero actors — side-effect caching wouldn't fire)
@@ -734,6 +754,9 @@ async function main() {
           }
         }
 
+        // ── Create AI controllers for 2D actors ──
+        editor.scene2DManager.setupAIControllers2D();
+
         // Camera follows the first character pawn using config smoothing / dead zone
         if (firstPawnActor && editor.scene2DManager.camera2D) {
           const firstPawnGO = engine.scene.gameObjects.find(
@@ -768,7 +791,7 @@ async function main() {
         // ── 3D Play Mode ──
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
-        engine.onPlayStarted(canvas ?? undefined);
+        await engine.onPlayStarted(canvas ?? undefined);
 
         const pawnCam = engine.characterControllers.getActiveCamera()
           ?? engine.spectatorControllers.getActiveCamera();

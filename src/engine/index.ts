@@ -9,6 +9,7 @@ export { Controller, type Pawn, type ControllerType } from './Controller';
 export { SpectatorController, SpectatorControllerManager, defaultSpectatorPawnConfig, type SpectatorPawnConfig } from './SpectatorController';
 export { PlayerController, PlayerControllerManager, type Possessable } from './PlayerController';
 export { AIController, AIControllerManager, type AIControllerConfig, type PatrolPoint, type AIState } from './AIController';
+export { NavMeshSystem, defaultNavMeshConfig, defaultNavMeshAgentConfig, type NavMeshConfig, type NavMeshAgentConfig, type NavMeshObstacle } from './ai/NavMeshSystem';
 export { MovementComponent } from './MovementComponent';
 export { CharacterMovementComponent } from './CharacterMovementComponent';
 export { FloatingPawnMovement, defaultFloatingPawnConfig, type FloatingPawnConfig } from './FloatingPawnMovement';

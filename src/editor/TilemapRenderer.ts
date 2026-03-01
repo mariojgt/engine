@@ -468,13 +468,13 @@ export class TilemapRenderer {
 
   /** Dispose a group and its children's geometry/materials */
   private _disposeGroup(group: THREE.Group): void {
-    group.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
+    group.traverse((child: any) => {
+      if (child.isMesh) {
         child.geometry?.dispose();
-        if (child.material instanceof THREE.Material) {
+        if (child.material?.isMaterial) {
           child.material.dispose();
         } else if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
+          child.material.forEach((m: any) => m.dispose());
         }
       }
     });

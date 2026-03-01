@@ -28,6 +28,7 @@ import { SoundLibrary, type SoundCueData, type SoundAssetData } from './SoundLib
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS, createIcon } from './icons';
+import { AIAssetManager, type AIAssetType, type BehaviorTreeAsset, type BlackboardAsset, type BTTaskAsset, type BTDecoratorAsset, type BTServiceAsset, type AIControllerAsset, type PerceptionConfigAsset, type EQSAsset, AI_ASSET_META } from './ai/AIAssetManager';
 
 // ── Type exports (preserved) ──
 
@@ -53,6 +54,14 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   animation:    { color: '#fbbf24', icon: Icons.Play,         label: 'Animation' },
   sound:        { color: '#E91E63', icon: Icons.Volume2,      label: 'Sound' },
   soundCue:     { color: '#FF5722', icon: Icons.Volume2,      label: 'Sound Cue' },
+  behaviorTree: { color: '#1565C0', icon: Icons.Bot,          label: 'Behavior Tree' },
+  blackboard:   { color: '#2E7D32', icon: Icons.ClipboardList, label: 'Blackboard' },
+  btTask:       { color: '#E65100', icon: Icons.Zap,          label: 'BT Task' },
+  btDecorator:  { color: '#6A1B9A', icon: Icons.Shield,       label: 'BT Decorator' },
+  btService:    { color: '#00838F', icon: Icons.Activity,     label: 'BT Service' },
+  aiController: { color: '#1565C0', icon: Icons.Bot,          label: 'AI Controller' },
+  perceptionConfig: { color: '#F57F17', icon: Icons.Eye,      label: 'Perception Config' },
+  eqs:          { color: '#4527A0', icon: Icons.Target,       label: 'EQS Query' },
 };
 
 function escapeCtxHtml(s: string): string {
@@ -109,6 +118,15 @@ export class ActorAssetBrowser {
   private _onDrop: AssetDropCallback;
   private _onMeshDrop: MeshDropCallback | null = null;
   private _onShowInHierarchy: ((id: string, kind: 'actor' | 'widget') => void) | null = null;
+
+  // ── AI Manager + Callbacks ──
+  private _aiManager: AIAssetManager | null = null;
+  private _onOpenBehaviorTree: ((asset: BehaviorTreeAsset) => void) | null = null;
+  private _onOpenBlackboard: ((asset: BlackboardAsset) => void) | null = null;
+  private _onOpenBTTask: ((asset: BTTaskAsset) => void) | null = null;
+  private _onOpenBTDecorator: ((asset: BTDecoratorAsset) => void) | null = null;
+  private _onOpenBTService: ((asset: BTServiceAsset) => void) | null = null;
+  private _onOpenAIController: ((asset: AIControllerAsset) => void) | null = null;
 
   // ── Drag system (preserved — no HTML5 DnD) ──
   private _dragAsset: ActorAsset | null = null;
@@ -272,6 +290,28 @@ export class ActorAssetBrowser {
     if (soundLib) {
       soundLib.onChanged(() => this._refreshGrid());
     }
+    this._refreshGrid();
+  }
+
+  public setAIManager(
+    mgr: AIAssetManager,
+    callbacks: {
+      onOpenBehaviorTree: (asset: BehaviorTreeAsset) => void;
+      onOpenBlackboard: (asset: BlackboardAsset) => void;
+      onOpenBTTask: (asset: BTTaskAsset) => void;
+      onOpenBTDecorator: (asset: BTDecoratorAsset) => void;
+      onOpenBTService: (asset: BTServiceAsset) => void;
+      onOpenAIController: (asset: AIControllerAsset) => void;
+    },
+  ): void {
+    this._aiManager = mgr;
+    this._onOpenBehaviorTree = callbacks.onOpenBehaviorTree;
+    this._onOpenBlackboard = callbacks.onOpenBlackboard;
+    this._onOpenBTTask = callbacks.onOpenBTTask;
+    this._onOpenBTDecorator = callbacks.onOpenBTDecorator;
+    this._onOpenBTService = callbacks.onOpenBTService;
+    this._onOpenAIController = callbacks.onOpenAIController;
+    mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
 
@@ -1375,6 +1415,121 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'behaviorTree': {
+        if (!this._aiManager) return null;
+        const bt = this._aiManager.getBehaviorTree(assetId);
+        if (!bt) return null;
+        const nc = Object.keys(bt.nodes).length;
+        return {
+          id: bt.id, name: bt.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Behavior Tree',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${nc} node${nc !== 1 ? 's' : ''}${bt.blackboardId ? ' · BB linked' : ''}`,
+          onOpen: () => this._onOpenBehaviorTree?.(bt),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, bt.id, bt.name, 'behaviorTree'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'blackboard': {
+        if (!this._aiManager) return null;
+        const bb = this._aiManager.getBlackboard(assetId);
+        if (!bb) return null;
+        const kc = bb.keys.length;
+        return {
+          id: bb.id, name: bb.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Blackboard',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${kc} key${kc !== 1 ? 's' : ''}`,
+          onOpen: () => this._onOpenBlackboard?.(bb),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, bb.id, bb.name, 'blackboard'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'btTask': {
+        if (!this._aiManager) return null;
+        const task = this._aiManager.getTask(assetId);
+        if (!task) return null;
+        return {
+          id: task.id, name: task.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'BT Task',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: 'Custom Task',
+          onOpen: () => this._onOpenBTTask?.(task),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, task.id, task.name, 'btTask'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'btDecorator': {
+        if (!this._aiManager) return null;
+        const dec = this._aiManager.getDecorator(assetId);
+        if (!dec) return null;
+        return {
+          id: dec.id, name: dec.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'BT Decorator',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: 'Custom Decorator',
+          onOpen: () => this._onOpenBTDecorator?.(dec),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, dec.id, dec.name, 'btDecorator'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'btService': {
+        if (!this._aiManager) return null;
+        const svc = this._aiManager.getService(assetId);
+        if (!svc) return null;
+        return {
+          id: svc.id, name: svc.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'BT Service',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: 'Custom Service',
+          onOpen: () => this._onOpenBTService?.(svc),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, svc.id, svc.name, 'btService'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'aiController': {
+        if (!this._aiManager) return null;
+        const aic = this._aiManager.getAIController(assetId);
+        if (!aic) return null;
+        return {
+          id: aic.id, name: aic.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'AI Controller',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: aic.behaviorTreeId ? 'BT linked' : 'No BT',
+          onOpen: () => this._onOpenAIController?.(aic),
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, aic.id, aic.name, 'aiController'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'perceptionConfig': {
+        if (!this._aiManager) return null;
+        const pc = this._aiManager.getPerceptionConfig(assetId);
+        if (!pc) return null;
+        const sc = pc.senses.length;
+        return {
+          id: pc.id, name: pc.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Perception Config',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${sc} sense${sc !== 1 ? 's' : ''}`,
+          onOpen: () => {},
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, pc.id, pc.name, 'perceptionConfig'),
+          dragKind: null, dragPayload: null,
+        };
+      }
+      case 'eqs': {
+        if (!this._aiManager) return null;
+        const eqs = this._aiManager.getEQS(assetId);
+        if (!eqs) return null;
+        return {
+          id: eqs.id, name: eqs.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'EQS Query',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: eqs.description || 'Environment Query',
+          onOpen: () => {},
+          onContextMenu: (e) => this._showGenericAIContextMenu(e, eqs.id, eqs.name, 'eqs'),
+          dragKind: null, dragPayload: null,
+        };
+      }
       default:
         return null;
     }
@@ -1802,7 +1957,6 @@ export class ActorAssetBrowser {
       { icon: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint), label: 'Actor Blueprint', action: () => this._createNewAsset(), keywords: 'actor bp blueprint class' },
       { icon: iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor), label: 'Character Pawn', action: () => this._createNewAsset('characterPawn'), keywords: 'character pawn player' },
       { icon: iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor), label: 'Player Controller', action: () => this._createNewAsset('playerController'), keywords: 'player controller input' },
-      { icon: iconHTML(Icons.Camera, 12, ICON_COLORS.actor), label: 'AI Controller', action: () => this._createNewAsset('aiController'), keywords: 'ai controller npc' },
     ];
     if (this._widgetBPManager) {
       bpItems.push({
@@ -1998,6 +2152,110 @@ export class ActorAssetBrowser {
     }
     if (audioItems.length > 0) {
       categories.push({ id: 'audio', label: 'Audio', icon: iconHTML(Icons.Volume2, 12, '#FF5722'), color: '#FF5722', items: audioItems });
+    }
+
+    // AI
+    if (this._aiManager) {
+      const aiItems: CbMenuItem[] = [];
+      aiItems.push({
+        icon: iconHTML(Icons.Bot, 12, '#1565C0'), label: 'Behavior Tree', keywords: 'behavior tree bt ai npc',
+        action: async () => {
+          const name = await this._showNameDialog('New Behavior Tree', 'BT_NewTree');
+          if (name) {
+            const bt = this._aiManager!.createBehaviorTree(name);
+            this._folderManager.setAssetLocation(bt.id, 'behaviorTree', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(bt.id);
+            this._refreshGrid();
+            this._onOpenBehaviorTree?.(bt);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.ClipboardList, 12, '#2E7D32'), label: 'Blackboard', keywords: 'blackboard data ai keys',
+        action: async () => {
+          const name = await this._showNameDialog('New Blackboard', 'BB_NewBlackboard');
+          if (name) {
+            const bb = this._aiManager!.createBlackboard(name);
+            this._folderManager.setAssetLocation(bb.id, 'blackboard', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(bb.id);
+            this._refreshGrid();
+            this._onOpenBlackboard?.(bb);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Zap, 12, '#E65100'), label: 'BT Task', keywords: 'task behavior tree ai action',
+        action: async () => {
+          const name = await this._showNameDialog('New BT Task', 'BTTask_NewTask');
+          if (name) {
+            const task = this._aiManager!.createTask(name);
+            this._folderManager.setAssetLocation(task.id, 'btTask', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(task.id);
+            this._refreshGrid();
+            this._onOpenBTTask?.(task);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Shield, 12, '#6A1B9A'), label: 'BT Decorator', keywords: 'decorator behavior tree ai condition',
+        action: async () => {
+          const name = await this._showNameDialog('New BT Decorator', 'BTDecorator_New');
+          if (name) {
+            const dec = this._aiManager!.createDecorator(name);
+            this._folderManager.setAssetLocation(dec.id, 'btDecorator', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(dec.id);
+            this._refreshGrid();
+            this._onOpenBTDecorator?.(dec);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Activity, 12, '#00838F'), label: 'BT Service', keywords: 'service behavior tree ai background',
+        action: async () => {
+          const name = await this._showNameDialog('New BT Service', 'BTService_New');
+          if (name) {
+            const svc = this._aiManager!.createService(name);
+            this._folderManager.setAssetLocation(svc.id, 'btService', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(svc.id);
+            this._refreshGrid();
+            this._onOpenBTService?.(svc);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Bot, 12, '#1565C0'), label: 'AI Controller', keywords: 'ai controller npc brain',
+        action: async () => {
+          const name = await this._showNameDialog('New AI Controller', 'AIC_NewController');
+          if (name) {
+            const aic = this._aiManager!.createAIController(name);
+            this._folderManager.setAssetLocation(aic.id, 'aiController', this._currentFolderId);
+            this._selectedIds.clear(); this._selectedIds.add(aic.id);
+            this._refreshGrid();
+            this._onOpenAIController?.(aic);
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Eye, 12, '#F57F17'), label: 'Perception Config', keywords: 'perception sight hearing ai sense',
+        action: async () => {
+          const name = await this._showNameDialog('New Perception Config', 'PC_NewPerception');
+          if (name) {
+            this._aiManager!.createPerceptionConfig(name);
+            this._refreshGrid();
+          }
+        }
+      });
+      aiItems.push({
+        icon: iconHTML(Icons.Target, 12, '#4527A0'), label: 'EQS Query', keywords: 'eqs environment query ai',
+        action: async () => {
+          const name = await this._showNameDialog('New EQS Query', 'EQS_NewQuery');
+          if (name) {
+            this._aiManager!.createEQS(name);
+            this._refreshGrid();
+          }
+        }
+      });
+      categories.push({ id: 'ai', label: 'AI', icon: iconHTML(Icons.Bot, 12, '#1565C0'), color: '#1565C0', items: aiItems });
     }
 
     // Import
@@ -3500,6 +3758,58 @@ export class ActorAssetBrowser {
         SoundLibrary.instance?.deleteCue(cue.assetId);
         this._folderManager.removeAssetLocation(cue.assetId, 'soundCue');
         this._selectedIds.delete(cue.assetId);
+        this._refreshGrid();
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ============================================================
+  //  AI Asset Context Menu (generic for all AI asset types)
+  // ============================================================
+
+  private _showGenericAIContextMenu(e: MouseEvent, assetId: string, assetName: string, assetType: AssetType): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', () => {
+      this._showNameDialog(`Rename ${ASSET_TYPE_META[assetType].label}`, assetName).then(n => {
+        if (!n || !this._aiManager) return;
+        switch (assetType) {
+          case 'behaviorTree': { const a = this._aiManager.getBehaviorTree(assetId); if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'blackboard':   { const a = this._aiManager.getBlackboard(assetId);   if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'btTask':       { const a = this._aiManager.getTask(assetId);          if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'btDecorator':  { const a = this._aiManager.getDecorator(assetId);     if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'btService':    { const a = this._aiManager.getService(assetId);       if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'aiController': { const a = this._aiManager.getAIController(assetId);  if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'perceptionConfig': { const a = this._aiManager.getPerceptionConfig(assetId); if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+          case 'eqs':          { const a = this._aiManager.getEQS(assetId);           if (a) { a.name = n; this._aiManager.notifyChanged(); } break; }
+        }
+      });
+    });
+
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete ${ASSET_TYPE_META[assetType].label} "${assetName}"?`)) {
+        if (this._aiManager) {
+          switch (assetType) {
+            case 'behaviorTree': this._aiManager.removeBehaviorTree(assetId); break;
+            case 'blackboard':   this._aiManager.removeBlackboard(assetId); break;
+            case 'btTask':       this._aiManager.removeTask(assetId); break;
+            case 'btDecorator':  this._aiManager.removeDecorator(assetId); break;
+            case 'btService':    this._aiManager.removeService(assetId); break;
+            case 'aiController': this._aiManager.removeAIController(assetId); break;
+            case 'perceptionConfig': this._aiManager.removePerceptionConfig(assetId); break;
+            case 'eqs':          this._aiManager.removeEQS(assetId); break;
+          }
+        }
+        this._folderManager.removeAssetLocation(assetId, assetType);
+        this._selectedIds.delete(assetId);
         this._refreshGrid();
       }
     });

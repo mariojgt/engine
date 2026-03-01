@@ -186,7 +186,7 @@ export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
   type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh'
-    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap' | 'camera2d';
+    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap' | 'camera2d' | 'navMeshBounds';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -250,6 +250,9 @@ export interface ActorComponentData {
   tilesetAssetId?: string;
   /** Camera 2D configuration (for type='camera2d' on characterPawn2D) */
   camera2dConfig?: Camera2DConfig;
+  // ── NavMesh ──
+  /** NavMesh generation config (for type='navMeshBounds') */
+  navMeshConfig?: import('../engine/ai/NavMeshSystem').NavMeshConfig;
 }
 
 /** Configuration for skeletal mesh components */

@@ -4,7 +4,7 @@
 // ============================================================
 
 import { ClassicPreset } from 'rete';
-import { execSocket, numSocket, boolSocket, strSocket } from '../sockets';
+import { execSocket, numSocket, boolSocket, strSocket, vec3Socket } from '../sockets';
 import { registerNode } from '../sockets';
 
 // ================================================================
@@ -19,6 +19,16 @@ export class AIMoveToNode extends ClassicPreset.Node {
     this.addInput('x', new ClassicPreset.Input(numSocket, 'X'));
     this.addInput('y', new ClassicPreset.Input(numSocket, 'Y'));
     this.addInput('z', new ClassicPreset.Input(numSocket, 'Z'));
+    this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
+  }
+}
+
+/** AI Move To Location (Vector) — navigate using a Vector input */
+export class AIMoveToVectorNode extends ClassicPreset.Node {
+  constructor() {
+    super('AI Move To (Vector)');
+    this.addInput('exec', new ClassicPreset.Input(execSocket, '▶'));
+    this.addInput('location', new ClassicPreset.Input(vec3Socket, 'Location'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
   }
 }
@@ -125,6 +135,7 @@ export class AIGetDistanceToTargetNode extends ClassicPreset.Node {
 // ================================================================
 
 registerNode('AI Move To', 'AI', () => new AIMoveToNode());
+registerNode('AI Move To (Vector)', 'AI', () => new AIMoveToVectorNode());
 registerNode('AI Stop Movement', 'AI', () => new AIStopMovementNode());
 registerNode('AI Set Focal Point', 'AI', () => new AISetFocalPointNode());
 registerNode('AI Clear Focal Point', 'AI', () => new AIClearFocalPointNode());

@@ -873,6 +873,35 @@ export function installProfilerHooks(engine: Engine): void {
   console.log('[Profiler] Installing hooks…');
   console.log('[Profiler]   scene.gameObjects:', scene?.gameObjects?.length);
 
+  (window as any).__profilerAiSetHandler = (actorId: number, actorName: string, key: string, value: any) => {
+    if (!store.isRecording) return;
+    store.logEvent({
+      type: 'AI_Blackboard_Set',
+      sourceActorId: actorId,
+      sourceActorName: actorName || 'Unknown AI',
+      targetActorId: null,
+      targetActorName: '',
+      detail: `Set "${key}" = ${JSON.stringify(value)}`,
+      payload: { key, value },
+      triggeredNodeCount: 0
+    });
+  };
+  (window as any).__profilerAiClearHandler = (actorId: number, actorName: string, key: string) => {
+    if (!store.isRecording) return;
+    store.logEvent({
+      type: 'AI_Blackboard_Clear',
+      sourceActorId: actorId,
+      sourceActorName: actorName || 'Unknown AI',
+      targetActorId: null,
+      targetActorName: '',
+      detail: `Clear "${key}"`,
+      payload: { key },
+      triggeredNodeCount: 0
+    });
+  };
+  eventBus.on('AI_Blackboard_Set', (window as any).__profilerAiSetHandler);
+  eventBus.on('AI_Blackboard_Clear', (window as any).__profilerAiClearHandler);
+
   // ─────────────────────────────────────────────────────
   //  HOOK 1: Wrap Engine._getCtx to return instrumented
   //  context with runtime API proxies
@@ -1492,6 +1521,13 @@ export function uninstallProfilerHooks(): void {
 
   const store = ProfilerStore.getInstance();
   store.fetchActorVariables = null;
+
+  if ((window as any).__profilerAiSetHandler) {
+    eventBus.off('AI_Blackboard_Set', (window as any).__profilerAiSetHandler);
+  }
+  if ((window as any).__profilerAiClearHandler) {
+    eventBus.off('AI_Blackboard_Clear', (window as any).__profilerAiClearHandler);
+  }
 
   console.log('[Profiler] Hooks uninstalled');
 }

@@ -94,6 +94,16 @@ export class SpriteActor implements Transform {
   public visible: boolean = true;
   public pixelsPerUnit = 100;
 
+  // ---- Controller support (AI / Player) ----
+  /** Runtime AI controller — same property name as GameObject for blueprint compat */
+  public aiController: any = null;
+  /** Runtime controller (Player or AI) — same property name as GameObject */
+  public controller: any = null;
+  /** Controller class type for play-time assignment */
+  public controllerClass: string = 'None';
+  /** Controller blueprint asset ID */
+  public controllerBlueprintId: string = '';
+
   // Physics2DWorld syncToThreeJS expects actor.group
   public group: THREE.Group;
 

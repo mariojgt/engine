@@ -32,6 +32,7 @@ export class ActorEditorPanel {
   public container: HTMLElement;
   private _asset: ActorAsset;
   private _assetManager: ActorAssetManager | null;
+  private _aiManager: import('./ai/AIAssetManager').AIAssetManager | null = null;
   private _meshManager: MeshAssetManager | null = null;
   private _animBPManager: AnimBlueprintManager | null = null;
   private _scene2DManager: Scene2DManager | null = null;
@@ -87,6 +88,11 @@ export class ActorEditorPanel {
   /** Wire up MeshAssetManager for skeletal mesh picker */
   setMeshManager(mgr: MeshAssetManager): void {
     this._meshManager = mgr;
+  }
+
+  /** Wire up AIAssetManager so the controller dropdown lists AI controllers */
+  setAIManager(mgr: import('./ai/AIAssetManager').AIAssetManager): void {
+    this._aiManager = mgr;
   }
 
   /** Wire up AnimBlueprintManager for animation blueprint picker on skeletal meshes */
@@ -899,13 +905,28 @@ export class ActorEditorPanel {
 
       // Build options list: Default types + any created controller blueprints
       const controllerOptions: string[] = ['None', 'PlayerController (Default)', 'AIController (Default)'];
-      const controllerBlueprintAssets: ActorAsset[] = [];
+      // Track all selectable controller blueprints { id, name, type }
+      const controllerBlueprintEntries: Array<{ id: string; name: string; type: 'PlayerController' | 'AIController' }> = [];
+
+      // From ActorAssetManager (actor-based controllers)
       if (this._assetManager) {
         for (const a of this._assetManager.assets) {
           if (a.actorType === 'playerController' || a.actorType === 'aiController') {
-            controllerBlueprintAssets.push(a);
+            const type = a.actorType === 'playerController' ? 'PlayerController' as const : 'AIController' as const;
+            controllerBlueprintEntries.push({ id: a.id, name: a.name, type });
             const prefix = a.actorType === 'playerController' ? 'PC' : 'AI';
             controllerOptions.push(`${prefix}: ${a.name}`);
+          }
+        }
+      }
+
+      // From AIAssetManager (AI controllers created in AI section)
+      if (this._aiManager) {
+        for (const aic of this._aiManager.getAllAIControllers()) {
+          // Avoid duplicates if somehow the same name exists in both
+          if (!controllerBlueprintEntries.some(e => e.id === aic.id)) {
+            controllerBlueprintEntries.push({ id: aic.id, name: aic.name, type: 'AIController' });
+            controllerOptions.push(`AI: ${aic.name}`);
           }
         }
       }
@@ -913,10 +934,10 @@ export class ActorEditorPanel {
       // Determine current value for the dropdown
       let currentValue = 'None';
       if (this._asset.controllerBlueprintId) {
-        const bpAsset = controllerBlueprintAssets.find(a => a.id === this._asset.controllerBlueprintId);
-        if (bpAsset) {
-          const prefix = bpAsset.actorType === 'playerController' ? 'PC' : 'AI';
-          currentValue = `${prefix}: ${bpAsset.name}`;
+        const entry = controllerBlueprintEntries.find(e => e.id === this._asset.controllerBlueprintId);
+        if (entry) {
+          const prefix = entry.type === 'PlayerController' ? 'PC' : 'AI';
+          currentValue = `${prefix}: ${entry.name}`;
         }
       } else if (this._asset.controllerClass === 'PlayerController') {
         currentValue = 'PlayerController (Default)';
@@ -936,13 +957,13 @@ export class ActorEditorPanel {
           this._asset.controllerBlueprintId = '';
         } else {
           // A specific controller blueprint was selected
-          const bpAsset = controllerBlueprintAssets.find(a => {
-            const prefix = a.actorType === 'playerController' ? 'PC' : 'AI';
-            return `${prefix}: ${a.name}` === v;
+          const entry = controllerBlueprintEntries.find(e => {
+            const prefix = e.type === 'PlayerController' ? 'PC' : 'AI';
+            return `${prefix}: ${e.name}` === v;
           });
-          if (bpAsset) {
-            this._asset.controllerClass = bpAsset.actorType === 'playerController' ? 'PlayerController' : 'AIController';
-            this._asset.controllerBlueprintId = bpAsset.id;
+          if (entry) {
+            this._asset.controllerClass = entry.type;
+            this._asset.controllerBlueprintId = entry.id;
           }
         }
         this._asset.touch();

@@ -219,7 +219,7 @@ export class SceneCompositionManager {
         }
       }
       // Remove shadow ground plane
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.ShadowMaterial) {
+      if ((child as any).isMesh && (child as THREE.Mesh).material instanceof THREE.ShadowMaterial) {
         if (!child.userData.__isSceneCompositionHelper) {
           toRemove.push(child);
         }
