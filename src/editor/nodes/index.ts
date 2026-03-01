@@ -755,3 +755,27 @@ export {
   NavMeshRemoveObstacleNode,
   NavMeshToggleDebugNode,
 } from './ai/NavMeshNodes';
+
+// ── DataTable Nodes ─────────────────────────────────────────
+export {
+  DataTableSelectControl,
+  dataTableSocket,
+  rowHandleSocket,
+  strArraySocket,
+  GetDataTableRowNode,
+  GetDataTableRowPureNode,
+  GetAllDataTableRowsNode,
+  GetDataTableRowNamesNode,
+  DoesDataTableRowExistNode,
+  GetDataTableRowCountNode,
+  FindRowsByPredicateNode,
+  ForEachDataTableRowNode,
+  MakeDataTableRowHandleNode,
+  ResolveDataTableRowHandleNode,
+  IsDataTableRowHandleValidNode,
+  AddDataTableRowRuntimeNode,
+  RemoveDataTableRowRuntimeNode,
+  UpdateDataTableRowRuntimeNode,
+  GetDataTableFieldNode,
+  DataTableFieldSelectControl,
+} from './datatable/DataTableNodes';

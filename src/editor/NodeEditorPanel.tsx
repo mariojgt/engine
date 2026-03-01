@@ -373,6 +373,23 @@ import {
   SaveGameToSlotNode,
   LoadGameFromSlotNode,
   DeleteGameInSlotNode,
+  // DataTable nodes
+  DataTableSelectControl,
+  GetDataTableRowNode,
+  GetDataTableRowPureNode,
+  GetAllDataTableRowsNode,
+  GetDataTableRowNamesNode,
+  DoesDataTableRowExistNode,
+  GetDataTableRowCountNode,
+  ForEachDataTableRowNode,
+  MakeDataTableRowHandleNode,
+  ResolveDataTableRowHandleNode,
+  IsDataTableRowHandleValidNode,
+  AddDataTableRowRuntimeNode,
+  RemoveDataTableRowRuntimeNode,
+  UpdateDataTableRowRuntimeNode,
+  GetDataTableFieldNode,
+  DataTableFieldSelectControl,
   // Flow Control (extended)
   ForEachLoopNode,
   ForEachLoopWithBreakNode,
@@ -524,6 +541,16 @@ export function setSaveGameManager(mgr: any): void {
 }
 
 // ============================================================
+//  Module-level reference to DataTableAssetManager
+//  (set once at startup so DataTable dropdowns can populate)
+// ============================================================
+let _dataTableMgr: import('./DataTableAsset').DataTableAssetManager | null = null;
+
+export function setDataTableAssetManager(mgr: import('./DataTableAsset').DataTableAssetManager): void {
+  _dataTableMgr = mgr;
+}
+
+// ============================================================
 //  Module-level reference to GameInstanceBlueprintManager
 //  (set once at startup so GI variable dropdowns can populate)
 // ============================================================
@@ -609,6 +636,14 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof SetInputModeNode || node instanceof ShowMouseCursorNode ||
       node instanceof GetWidgetVariableNode || node instanceof SetWidgetVariableNode ||
       node instanceof CallWidgetFunctionNode || node instanceof CallWidgetEventNode) return 'UI';
+  // DataTable nodes
+  if (node instanceof GetDataTableRowNode || node instanceof GetDataTableRowPureNode ||
+      node instanceof GetAllDataTableRowsNode || node instanceof GetDataTableRowNamesNode ||
+      node instanceof DoesDataTableRowExistNode || node instanceof GetDataTableRowCountNode ||
+      node instanceof ForEachDataTableRowNode || node instanceof MakeDataTableRowHandleNode ||
+      node instanceof ResolveDataTableRowHandleNode || node instanceof IsDataTableRowHandleValidNode ||
+      node instanceof AddDataTableRowRuntimeNode || node instanceof RemoveDataTableRowRuntimeNode ||
+      node instanceof UpdateDataTableRowRuntimeNode || node instanceof GetDataTableFieldNode) return 'DataTable';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -616,8 +651,6 @@ function getNodeCategory(node: ClassicPreset.Node): string {
   return 'Utility';
 }
 
-// ============================================================
-//  Comment Box helpers
 // ============================================================
 type CommentBox = import('./BlueprintData').BlueprintComment;
 let _commentUid = 1;
@@ -777,6 +810,71 @@ function resolveValue(
     const structVal = s ? resolveValue(s.nid, s.ok, nodeMap, inputSrc, bp) : '{}';
     return `(${structVal}).${outputKey}`;
   }
+
+  // ── DataTable node outputs ────────────────────────────────────────
+
+  // GetDataTableRowNode (impure) — vars are set during exec (genAction)
+  if (node instanceof GetDataTableRowNode) {
+    const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'rowFound') return `(typeof __dt_found_${uid} !== 'undefined' ? __dt_found_${uid} : false)`;
+    if (outputKey === 'outRow')   return `(typeof __dt_row_${uid} !== 'undefined' ? __dt_row_${uid} : null)`;
+    // Per-field access (when wired directly, e.g. via struct-split pins)
+    return `(typeof __dt_row_${uid} !== 'undefined' && __dt_row_${uid} ? __dt_row_${uid}[${JSON.stringify(outputKey)}] : null)`;
+  }
+
+  // GetDataTableRowPureNode (pure) — inline lookup, no exec
+  if (node instanceof GetDataTableRowPureNode) {
+    const dtId = (node as GetDataTableRowPureNode).dataTableId;
+    const safeDtId = dtId.replace(/[^a-zA-Z0-9]/g, '_');
+    const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+    const rowNameExpr = rowNameSrc
+      ? resolveValue(rowNameSrc.nid, rowNameSrc.ok, nodeMap, inputSrc, bp)
+      : '""';
+    const tbl = `(typeof __dt_${safeDtId} !== 'undefined' ? __dt_${safeDtId}.rows[String(${rowNameExpr})] : null)`;
+    if (outputKey === 'rowFound') return `(${tbl} != null)`;
+    if (outputKey === 'outRow')   return tbl;
+    // Per-field
+    return `(${tbl} ? (${tbl})[${JSON.stringify(outputKey)}] : null)`;
+  }
+
+  // Pure DataTable utility outputs
+  if (node instanceof GetDataTableRowCountNode) {
+    const dtId = (node as any).dataTableId;
+    const safeDtId = dtId.replace(/[^a-zA-Z0-9]/g, '_');
+    return `(typeof __dt_${safeDtId} !== 'undefined' ? Object.keys(__dt_${safeDtId}.rows).length : 0)`;
+  }
+  if (node instanceof GetDataTableRowNamesNode) {
+    const dtId = (node as any).dataTableId;
+    const safeDtId = dtId.replace(/[^a-zA-Z0-9]/g, '_');
+    return `(typeof __dt_${safeDtId} !== 'undefined' ? Object.keys(__dt_${safeDtId}.rows) : [])`;
+  }
+  if (node instanceof GetAllDataTableRowsNode) {
+    const dtId = (node as any).dataTableId;
+    const safeDtId = dtId.replace(/[^a-zA-Z0-9]/g, '_');
+    return `(typeof __dt_${safeDtId} !== 'undefined' ? Object.values(__dt_${safeDtId}.rows) : [])`;
+  }
+  if (node instanceof DoesDataTableRowExistNode) {
+    const dtId = (node as any).dataTableId;
+    const safeDtId = dtId.replace(/[^a-zA-Z0-9]/g, '_');
+    const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+    const rowNameExpr = rowNameSrc
+      ? resolveValue(rowNameSrc.nid, rowNameSrc.ok, nodeMap, inputSrc, bp)
+      : '""';
+    return `(typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}.rows[String(${rowNameExpr})] != null)`;
+  }
+
+  // GetDataTableFieldNode — inline lookup of a single named field
+  if (node instanceof GetDataTableFieldNode) {
+    const n = node as GetDataTableFieldNode;
+    const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+    const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+    const rowNameExpr = rowNameSrc
+      ? resolveValue(rowNameSrc.nid, rowNameSrc.ok, nodeMap, inputSrc, bp)
+      : '""';
+    const fieldKey = n.fieldName ? JSON.stringify(n.fieldName) : '""';
+    return `(typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}.rows[String(${rowNameExpr})] != null ? __dt_${safeDtId}.rows[String(${rowNameExpr})][${fieldKey}] : null)`;
+  }
+
   if (node instanceof FunctionCallNode) {
     return `__fn_result_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}.${sanitizeName(outputKey)}`;
   }
@@ -5941,6 +6039,67 @@ if (node instanceof NavMeshAddAgentNode) {
       lines.push(...we(nodeId, 'exec'));
       break;
     }
+
+    // ── DataTable nodes (impure exec) ────────────────────────────────
+
+    case 'Get Data Table Row': {
+      const n = node as GetDataTableRowNode;
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+      const rowNameExpr = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
+      lines.push(`var __dt_row_${uid} = null; var __dt_found_${uid} = false;`);
+      lines.push(`if (typeof __dt_${safeDtId} !== 'undefined') {`);
+      lines.push(`  var __rn_${uid} = String(${rowNameExpr});`);
+      lines.push(`  var __r_${uid} = __dt_${safeDtId} ? __dt_${safeDtId}.rows[__rn_${uid}] : null;`);
+      lines.push(`  if (__r_${uid} != null) { __dt_row_${uid} = __r_${uid}; __dt_found_${uid} = true; }`);
+      lines.push(`}`);
+      const thenLines    = we(nodeId, 'then');
+      const notFoundLines = we(nodeId, 'notFound');
+      if (thenLines.length || notFoundLines.length) {
+        lines.push(`if (__dt_found_${uid}) {`);
+        lines.push(...thenLines.map(l => '  ' + l));
+        lines.push(`} else {`);
+        lines.push(...notFoundLines.map(l => '  ' + l));
+        lines.push(`}`);
+      }
+      break;
+    }
+
+    case 'Add Data Table Row (Runtime)': {
+      const n = node as any;
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+      const rowDataSrc = inputSrc.get(`${nodeId}.rowData`);
+      const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
+      const rowData = rowDataSrc ? rv(rowDataSrc.nid, rowDataSrc.ok) : '{}';
+      lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { var __rnn = String(${rowName}); if (!__dt_${safeDtId}.rows[__rnn]) { __dt_${safeDtId}.rows[__rnn] = ${rowData}; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    case 'Remove Data Table Row (Runtime)': {
+      const n = node as any;
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+      const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
+      lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { delete __dt_${safeDtId}.rows[String(${rowName})]; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    case 'Update Data Table Row (Runtime)': {
+      const n = node as any;
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+      const rowDataSrc = inputSrc.get(`${nodeId}.rowData`);
+      const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
+      const rowData = rowDataSrc ? rv(rowDataSrc.nid, rowDataSrc.ok) : '{}';
+      lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { var __rnn = String(${rowName}); if (__dt_${safeDtId}.rows[__rnn]) { Object.assign(__dt_${safeDtId}.rows[__rnn], ${rowData}); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
   }
   return lines;
 }
@@ -5968,6 +6127,18 @@ function generateFullCode(
   }
   if (varDecls.length > 0) parts.push(varDecls.join('\n'));
   parts.push(`function __getVars() { return { ${varNames.join(', ')} }; }`);
+
+  // ── DataTable runtime constants ──────────────────────────────────
+  // Embed all DataTable row data as plain JS objects so Get Data Table
+  // Row nodes can look up rows at runtime without reaching back into editor state.
+  if (_dataTableMgr) {
+    for (const dt of _dataTableMgr.tables) {
+      const safeDtId = dt.id.replace(/[^a-zA-Z0-9]/g, '_');
+      const rowsObj: Record<string, any> = {};
+      for (const row of dt.rows) { rowsObj[row.rowName] = row.data; }
+      parts.push(`var __dt_${safeDtId} = ${JSON.stringify({ rows: rowsObj })};`);
+    }
+  }
 
   // Function bodies
   for (const fn of bp.functions) {
@@ -7290,6 +7461,32 @@ function showContextMenu(
       }
     }
 
+    // DataTable — dynamic entries per DataTable asset
+    if (_dataTableMgr && _dataTableMgr.tables.length > 0) {
+      const dtItems: { label: string; action: () => void }[] = [];
+      for (const dt of _dataTableMgr.tables) {
+        if (!lf || `get ${dt.name} row`.toLowerCase().includes(lf) || 'datatable'.includes(lf))
+          dtItems.push({ label: `Get ${dt.name} Row`, action: () => {
+            onSelect({ label: `Get ${dt.name} Row`, category: 'DataTable', factory: () => new GetDataTableRowNode(dt.id, dt.name, dt.structId, dt.structName) });
+            menu.remove();
+          }});
+        if (!lf || `get all ${dt.name} rows`.toLowerCase().includes(lf) || 'datatable'.includes(lf))
+          dtItems.push({ label: `Get All ${dt.name} Rows`, action: () => {
+            onSelect({ label: `Get All ${dt.name} Rows`, category: 'DataTable', factory: () => new GetAllDataTableRowsNode(dt.id, dt.name, dt.structId, dt.structName) });
+            menu.remove();
+          }});
+        if (!lf || `get ${dt.name} field`.toLowerCase().includes(lf) || 'datatable'.includes(lf))
+          dtItems.push({ label: `Get ${dt.name} Field`, action: () => {
+            onSelect({ label: `Get ${dt.name} Field`, category: 'DataTable', factory: () => new GetDataTableFieldNode(dt.id, dt.name, dt.structId, dt.structName) });
+            menu.remove();
+          }});
+      }
+      if (dtItems.length) {
+        const existing = categories.get('DataTable') || [];
+        categories.set('DataTable', [...existing, ...dtItems]);
+      }
+    }
+
     for (const [cat, entries] of categories) {
       const catEl = document.createElement('div');
       catEl.className = 'bp-context-category';
@@ -8290,6 +8487,22 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof SetBlackboardValueAsVectorNode) return 'SetBlackboardValueAsVectorNode';
   if (node instanceof RotateToFaceNode) return 'RotateToFaceNode';
 
+  // DataTable nodes
+  if (node instanceof GetDataTableRowNode) return 'GetDataTableRowNode';
+  if (node instanceof GetDataTableRowPureNode) return 'GetDataTableRowPureNode';
+  if (node instanceof GetAllDataTableRowsNode) return 'GetAllDataTableRowsNode';
+  if (node instanceof GetDataTableRowNamesNode) return 'GetDataTableRowNamesNode';
+  if (node instanceof DoesDataTableRowExistNode) return 'DoesDataTableRowExistNode';
+  if (node instanceof GetDataTableRowCountNode) return 'GetDataTableRowCountNode';
+  if (node instanceof ForEachDataTableRowNode) return 'ForEachDataTableRowNode';
+  if (node instanceof MakeDataTableRowHandleNode) return 'MakeDataTableRowHandleNode';
+  if (node instanceof ResolveDataTableRowHandleNode) return 'ResolveDataTableRowHandleNode';
+  if (node instanceof IsDataTableRowHandleValidNode) return 'IsDataTableRowHandleValidNode';
+  if (node instanceof AddDataTableRowRuntimeNode) return 'AddDataTableRowRuntimeNode';
+  if (node instanceof RemoveDataTableRowRuntimeNode) return 'RemoveDataTableRowRuntimeNode';
+  if (node instanceof UpdateDataTableRowRuntimeNode) return 'UpdateDataTableRowRuntimeNode';
+  if (node instanceof GetDataTableFieldNode) return 'GetDataTableFieldNode';
+
   // Fallback: use the node label for any NODE_PALETTE-registered node
   const paletteEntry = NODE_PALETTE.find(e => e.label === (node as any).label);
   if (paletteEntry) return (node as any).label;
@@ -8313,6 +8526,13 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
       controls[key] = { id: (ctrl as WidgetBPSelectControl).value, name: (ctrl as WidgetBPSelectControl).displayName };
     } else if (ctrl instanceof SaveGameSelectControl) {
       controls[key] = { id: (ctrl as SaveGameSelectControl).value, name: (ctrl as SaveGameSelectControl).displayName };
+    } else if (ctrl instanceof DataTableSelectControl) {
+      controls[key] = {
+        dtId: (ctrl as DataTableSelectControl).dataTableId,
+        dtName: (ctrl as DataTableSelectControl).dataTableName,
+        structId: (ctrl as DataTableSelectControl).structId,
+        structName: (ctrl as DataTableSelectControl).structName,
+      };
     } else if (ctrl instanceof WidgetSelectorControl) {
       const value = (ctrl as WidgetSelectorControl).value;
       controls[key] = value;
@@ -8516,6 +8736,30 @@ function getNodeSerialData(node: ClassicPreset.Node): any {
   if (node instanceof CreateSaveGameObjectNode) {
     data.saveGameId = (node as CreateSaveGameObjectNode).saveGameId;
     data.saveGameName = (node as CreateSaveGameObjectNode).saveGameName;
+  }
+  // DataTable nodes
+  if (
+    node instanceof GetDataTableRowNode || node instanceof GetDataTableRowPureNode ||
+    node instanceof GetAllDataTableRowsNode || node instanceof GetDataTableRowNamesNode ||
+    node instanceof DoesDataTableRowExistNode || node instanceof GetDataTableRowCountNode ||
+    node instanceof ForEachDataTableRowNode || node instanceof MakeDataTableRowHandleNode ||
+    node instanceof ResolveDataTableRowHandleNode || node instanceof IsDataTableRowHandleValidNode ||
+    node instanceof AddDataTableRowRuntimeNode || node instanceof RemoveDataTableRowRuntimeNode ||
+    node instanceof UpdateDataTableRowRuntimeNode
+  ) {
+    data.dtId   = (node as any).dataTableId ?? '';
+    data.dtName = (node as any).dataTableName ?? '';
+    data.dtStructId   = (node as any).structId ?? '';
+    data.dtStructName = (node as any).structName ?? '';
+  }
+  // GetDataTableField — also save chosen field
+  if (node instanceof GetDataTableFieldNode) {
+    data.dtId         = node.dataTableId;
+    data.dtName       = node.dataTableName;
+    data.dtStructId   = node.structId;
+    data.dtStructName = node.structName;
+    data.dtFieldName  = node.fieldName;
+    data.dtFieldType  = node.fieldType;
   }
   // Spawning nodes
   if (node instanceof SpawnActorFromClassNode) {
@@ -9459,6 +9703,43 @@ function createNodeFromData(
     case 'RotateToFaceNode':
     case 'Rotate To Face':                  return new RotateToFaceNode();
 
+    // DataTable nodes
+    case 'GetDataTableRowNode': {
+      const n = new GetDataTableRowNode(d.dtId||'', d.dtName||'(none)', d.dtStructId||'', d.dtStructName||'');
+      if (d.dtStructId && _structMgr) {
+        const sa = _structMgr.getStructure(d.dtStructId);
+        if (sa) n.updateFields(sa.fields.map((f: any) => ({ name: f.name, type: f.type })), d.dtStructId, d.dtStructName||'');
+      }
+      return n;
+    }
+    case 'GetDataTableRowPureNode': {
+      const n = new GetDataTableRowPureNode(d.dtId||'', d.dtName||'(none)', d.dtStructId||'', d.dtStructName||'');
+      if (d.dtStructId && _structMgr) {
+        const sa = _structMgr.getStructure(d.dtStructId);
+        if (sa) n.updateFields(sa.fields.map((f: any) => ({ name: f.name, type: f.type })), d.dtStructId, d.dtStructName||'');
+      }
+      return n;
+    }
+    case 'GetAllDataTableRowsNode':         return new GetAllDataTableRowsNode(d.dtId||'', d.dtName||'(none)', d.dtStructId||'', d.dtStructName||'');
+    case 'GetDataTableRowNamesNode':        return new GetDataTableRowNamesNode(d.dtId||'', d.dtName||'(none)');
+    case 'DoesDataTableRowExistNode':       return new DoesDataTableRowExistNode(d.dtId||'', d.dtName||'(none)');
+    case 'GetDataTableRowCountNode':        return new GetDataTableRowCountNode(d.dtId||'', d.dtName||'(none)');
+    case 'ForEachDataTableRowNode':         return new ForEachDataTableRowNode(d.dtId||'', d.dtName||'(none)', d.dtStructId||'', d.dtStructName||'');
+    case 'MakeDataTableRowHandleNode':      return new MakeDataTableRowHandleNode(d.dtId||'', d.dtName||'(none)');
+    case 'ResolveDataTableRowHandleNode':   return new ResolveDataTableRowHandleNode(d.dtStructId||'', d.dtStructName||'');
+    case 'IsDataTableRowHandleValidNode':   return new IsDataTableRowHandleValidNode();
+    case 'AddDataTableRowRuntimeNode':      return new AddDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
+    case 'RemoveDataTableRowRuntimeNode':   return new RemoveDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
+    case 'UpdateDataTableRowRuntimeNode':   return new UpdateDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
+    case 'GetDataTableFieldNode': {
+      const n = new GetDataTableFieldNode(
+        d.dtId||'', d.dtName||'(none)',
+        d.dtStructId||'', d.dtStructName||'',
+        d.dtFieldName||'', d.dtFieldType||'',
+      );
+      return n;
+    }
+
     default: {
       // Fallback: try NODE_PALETTE factory for registered nodes (trace nodes, physics 2D, etc.)
       const paletteEntry = NODE_PALETTE.find(e => e.label === nd.type || e.label === d.label);
@@ -10131,6 +10412,209 @@ async function createGraphEditor(
                 saveGames.length === 0 &&
                   React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No save game classes yet'),
               ),
+            );
+          };
+        }
+
+        if (data.payload instanceof DataTableSelectControl) {
+          const ctrl = data.payload as DataTableSelectControl;
+          return (_props: any) => {
+            const [search, setSearch] = React.useState('');
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.dataTableName || '(none)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            const tables: { id: string; name: string; structId: string; structName: string }[] = _dataTableMgr
+              ? _dataTableMgr.tables.map(t => ({ id: t.id, name: t.name, structId: t.structId, structName: t.structName }))
+              : [];
+            const filtered = search
+              ? tables.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
+              : tables;
+
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false); setSearch('');
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%', padding: '4px 6px', background: '#1e1e2e',
+                  color: selected === '(none)' ? '#888' : '#14b8a6',
+                  border: open ? '1px solid #14b8a6' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  boxSizing: 'border-box' as const, display: 'flex',
+                  alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' as const,
+                },
+              },
+                React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 } }, selected),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888' }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
+              ),
+              open && React.createElement('div', {
+                style: { position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 160, overflowY: 'auto' as const, background: '#1a1a2e', border: '1px solid #14b8a6', borderRadius: '0 0 4px 4px', zIndex: 9999 },
+              },
+                React.createElement('input', {
+                  type: 'text', placeholder: 'Search data tables...', value: search, autoFocus: true,
+                  onChange: (e: any) => setSearch(e.target.value),
+                  onPointerDown: (e: any) => e.stopPropagation(),
+                  onKeyDown: (e: any) => e.stopPropagation(),
+                  style: { width: '100%', padding: '5px 8px', background: '#141422', color: '#e0e0e0', border: 'none', borderBottom: '1px solid #333', fontSize: 11, outline: 'none', boxSizing: 'border-box' as const },
+                }),
+                React.createElement('div', {
+                  onClick: () => { ctrl.setValue('', '(none)', '', ''); setSelected('(none)'); setOpen(false); setSearch(''); const pn = (ctrl as any)._parentNode; if (pn) { pn.dataTableId = ''; pn.dataTableName = '(none)'; pn.structId = ''; pn.structName = ''; if (typeof pn.updateFields === 'function') { pn.updateFields([], '', ''); } area.update('node', pn.id); } },
+                  style: { padding: '5px 8px', fontSize: 11, color: '#888', fontStyle: 'italic' as const, cursor: 'pointer', borderBottom: '1px solid #222' },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                ...filtered.map(t =>
+                  React.createElement('div', {
+                    key: t.id,
+                    onClick: () => {
+                      ctrl.setValue(t.id, t.name, t.structId, t.structName);
+                      setSelected(t.name); setOpen(false); setSearch('');
+                      const pn = (ctrl as any)._parentNode;
+                      if (pn) {
+                        pn.dataTableId = t.id; pn.dataTableName = t.name; pn.structId = t.structId; pn.structName = t.structName;
+                        // Dynamically expose per-field output pins when struct is known
+                        if (t.structId && typeof pn.updateFields === 'function') {
+                          const structAsset = _structMgr ? _structMgr.getStructure(t.structId) : null;
+                          const fields = structAsset
+                            ? structAsset.fields.map((f: any) => ({ name: f.name, type: f.type }))
+                            : [];
+                          pn.updateFields(fields, t.structId, t.structName);
+                        }
+                        area.update('node', pn.id);
+                      }
+                    },
+                    style: { padding: '5px 8px', fontSize: 11, color: t.id === ctrl.dataTableId ? '#14b8a6' : '#e0e0e0', fontWeight: t.id === ctrl.dataTableId ? 700 : 400, cursor: 'pointer' },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', { style: { marginRight: 4, fontSize: 9, color: '#14b8a6' }, dangerouslySetInnerHTML: { __html: iconHTML(Icons.Table2, 'xs', '#14b8a6') } }),
+                    t.name,
+                    React.createElement('span', { style: { marginLeft: 6, fontSize: 9, color: '#666' } }, t.structName ? `[${t.structName}]` : ''),
+                  ),
+                ),
+                filtered.length === 0 && tables.length > 0 && React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No matching tables'),
+                tables.length === 0 && React.createElement('div', { style: { padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, 'No data tables yet'),
+              ),
+            );
+          };
+        }
+
+        // ── DataTableFieldSelectControl renderer ─────────────────────
+        // Shown on GetDataTableFieldNode — picks which struct field to output.
+        // The parent node's DataTableSelectControl (dtCtrl) manages the table;
+        // this picker reads its structId to pull the available fields.
+        if (data.payload instanceof DataTableFieldSelectControl) {
+          const ctrl = data.payload as DataTableFieldSelectControl;
+          return (_props: any) => {
+            const [open, setOpen] = React.useState(false);
+            const [selected, setSelected] = React.useState(ctrl.fieldName || '(pick field)');
+            const containerRef = React.useRef<HTMLDivElement>(null);
+
+            // Read fields from parent node's structId (which is kept up-to-date by dtCtrl)
+            const pn = (ctrl as any)._parentNode as GetDataTableFieldNode | undefined;
+            const structId = pn?.structId ?? '';
+            const structAsset = structId && _structMgr ? _structMgr.getStructure(structId) : null;
+            const fields: { name: string; type: string }[] = structAsset
+              ? structAsset.fields.map((f: any) => ({ name: f.name, type: f.type }))
+              : [];
+
+            // Close on outside click
+            React.useEffect(() => {
+              if (!open) return;
+              const handler = (e: MouseEvent) => {
+                if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                  setOpen(false);
+                }
+              };
+              document.addEventListener('mousedown', handler, true);
+              return () => document.removeEventListener('mousedown', handler, true);
+            }, [open]);
+
+            const typeColor = (t: string) => {
+              if (t === 'Float') return '#34d399';
+              if (t === 'Boolean') return '#f87171';
+              if (t === 'String') return '#fbbf24';
+              if (t === 'Vector3') return '#60a5fa';
+              if (t === 'Color') return '#a78bfa';
+              if (t.startsWith('Enum:')) return '#fb923c';
+              if (t.startsWith('Struct:')) return '#e879f9';
+              return '#94a3b8';
+            };
+
+            return React.createElement('div', {
+              ref: containerRef,
+              style: { position: 'relative', width: '100%', minWidth: 140 },
+              onPointerDown: (e: any) => e.stopPropagation(),
+            },
+              // Label row
+              React.createElement('div', { style: { fontSize: 9, color: '#64748b', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, marginBottom: 2, paddingLeft: 1 } }, 'Field'),
+              // Picker button
+              React.createElement('div', {
+                onClick: () => setOpen(!open),
+                style: {
+                  width: '100%', padding: '4px 6px', background: '#1e1e2e',
+                  color: selected === '(pick field)' ? '#888' : '#a78bfa',
+                  border: open ? '1px solid #a78bfa' : '1px solid #3a3a5c',
+                  borderRadius: open ? '4px 4px 0 0' : 4,
+                  fontSize: 12, fontWeight: 600, cursor: fields.length ? 'pointer' : 'not-allowed',
+                  boxSizing: 'border-box' as const, display: 'flex',
+                  alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' as const,
+                  opacity: fields.length ? 1 : 0.5,
+                },
+              },
+                React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, flex: 1 } }, selected),
+                ctrl.fieldType && React.createElement('span', { style: { marginLeft: 4, fontSize: 9, color: typeColor(ctrl.fieldType), fontWeight: 700, flexShrink: 0 } }, ctrl.fieldType.startsWith('Enum:') ? 'Enum' : ctrl.fieldType.startsWith('Struct:') ? 'Struct' : ctrl.fieldType),
+                React.createElement('span', { style: { marginLeft: 4, fontSize: 10, color: '#888', flexShrink: 0 }, dangerouslySetInnerHTML: { __html: open ? iconHTML(Icons.ChevronUp, 'xs') : iconHTML(Icons.ChevronDown, 'xs') } }),
+              ),
+              // Dropdown
+              open && fields.length > 0 && React.createElement('div', {
+                style: { position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 200, overflowY: 'auto' as const, background: '#1a1a2e', border: '1px solid #a78bfa', borderRadius: '0 0 4px 4px', zIndex: 9999 },
+              },
+                React.createElement('div', {
+                  onClick: () => {
+                    ctrl.setValue('', '');
+                    setSelected('(pick field)');
+                    setOpen(false);
+                    if (pn) { pn.setField('', ''); area.update('node', pn.id); }
+                  },
+                  style: { padding: '5px 8px', fontSize: 11, color: '#888', fontStyle: 'italic' as const, cursor: 'pointer', borderBottom: '1px solid #222' },
+                  onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                  onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                }, '(none)'),
+                ...fields.map(f =>
+                  React.createElement('div', {
+                    key: f.name,
+                    onClick: () => {
+                      ctrl.setValue(f.name, f.type as any);
+                      setSelected(f.name);
+                      setOpen(false);
+                      if (pn) { pn.setField(f.name, f.type as any); area.update('node', pn.id); }
+                    },
+                    style: { padding: '5px 8px', fontSize: 11, color: f.name === ctrl.fieldName ? '#a78bfa' : '#e0e0e0', fontWeight: f.name === ctrl.fieldName ? 700 : 400, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+                    onMouseEnter: (e: any) => { e.currentTarget.style.background = '#2a2a4a'; },
+                    onMouseLeave: (e: any) => { e.currentTarget.style.background = 'transparent'; },
+                  },
+                    React.createElement('span', {}, f.name),
+                    React.createElement('span', { style: { fontSize: 9, color: typeColor(f.type), fontWeight: 700 } }, f.type.startsWith('Enum:') ? 'Enum' : f.type.startsWith('Struct:') ? 'Struct' : f.type),
+                  ),
+                ),
+              ),
+              open && fields.length === 0 && React.createElement('div', { style: { position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a2e', border: '1px solid #a78bfa', borderRadius: '0 0 4px 4px', zIndex: 9999, padding: '8px', fontSize: 11, color: '#666', textAlign: 'center' as const } }, structId ? 'No fields in struct' : 'Select a table first'),
             );
           };
         }

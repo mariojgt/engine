@@ -14,12 +14,13 @@ import { AnimBlueprintManager } from './editor/AnimBlueprintData';
 import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
+import { DataTableAssetManager } from './editor/DataTableAsset';
 import { EventAssetManager } from './editor/EventAsset';
 import { AIAssetManager } from './editor/ai/AIAssetManager';
 import { TextureLibrary } from './editor/TextureLibrary';
 import { SoundLibrary } from './editor/SoundLibrary';
 import { FontLibrary } from './editor/FontLibrary';
-import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager, setProjectManager, setSaveGameManager } from './editor/NodeEditorPanel';
+import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, setGameInstanceBPManager, setProjectManager, setSaveGameManager, setDataTableAssetManager } from './editor/NodeEditorPanel';
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
@@ -195,6 +196,12 @@ async function main() {
 
   // Wire game instance BP manager into node editor for GI dropdowns
   setGameInstanceBPManager(gameInstanceManager);
+
+  // Create data table asset manager (row-based data tables bound to structs)
+  const dataTableManager = new DataTableAssetManager();
+  projectManager.setDataTableManager(dataTableManager);
+  editor.setDataTableManager(dataTableManager);
+  setDataTableAssetManager(dataTableManager);
 
   // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
   engine.projectManager = projectManager;

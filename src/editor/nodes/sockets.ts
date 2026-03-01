@@ -117,6 +117,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Tilemap':       '#8D6E63',
   'Selection':     '#00ACC1',
   'AI':            '#1565C0',
+  'DataTable':     '#0d9488',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -156,6 +157,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Tilemap':       return iconHTML(Icons.Grid, 10, ICON_COLORS.secondary);
     case 'Selection':     return iconHTML(Icons.Box, 10, '#00ACC1');
     case 'AI':             return iconHTML(Icons.Bot, 10, '#1565C0');
+    case 'DataTable':     return iconHTML(Icons.Table2, 10, '#0d9488');
     // Phase 1 categories
     case 'Audio':          return iconHTML(Icons.Circle, 10, '#E91E63');
     case 'Gamepad':        return iconHTML(Icons.Gamepad2, 10, '#00BFA5');
@@ -163,6 +165,15 @@ export function getCategoryIcon(cat: string): string {
     default:              return iconHTML(Icons.Circle, 10, ICON_COLORS.muted);
   }
 }
+
+// ── DataTable sockets ────────────────────────────────────────
+export const dataTableSocket = new ClassicPreset.Socket('DataTable');
+export const rowHandleSocket  = new ClassicPreset.Socket('DataTableRowHandle');
+
+// ── Socket colors (supplement SOCKET_COLORS) ─────────────────
+SOCKET_COLORS['DataTable']         = '#0d9488'; // teal
+SOCKET_COLORS['DataTableRowHandle'] = '#0891b2'; // cyan-blue
+SOCKET_COLORS['StringArray']        = '#7c3aed'; // purple-ish
 
 // ============================================================
 //  Struct Socket Cache (one socket per struct type)

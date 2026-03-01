@@ -28,6 +28,8 @@ import { StructureEditorPanel } from './StructureEditorPanel';
 import { InputMappingEditorPanel } from './InputMappingEditorPanel';
 import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
 import { SaveGameEditorPanel } from './SaveGameEditorPanel';
+import { DataTableAssetManager, type DataTableAsset } from './DataTableAsset';
+import { DataTableEditorPanel } from './DataTableEditorPanel';
 import { EventAssetManager, type EventAsset } from './EventAsset';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
@@ -118,6 +120,7 @@ export class EditorLayout {
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _dataTableManager: DataTableAssetManager | null = null;
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
@@ -823,6 +826,14 @@ export class EditorLayout {
     }
   }
 
+  /** Wire up the DataTableAssetManager for the content browser and editors */
+  setDataTableManager(mgr: DataTableAssetManager): void {
+    this._dataTableManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setDataTableManager(mgr, (asset: DataTableAsset) => this._openDataTableEditor(asset));
+    }
+  }
+
   /** Wire up the InputMappingAssetManager for the content browser and editors */
   setInputMappingManager(mgr: import('./InputMappingAsset').InputMappingAssetManager): void {
     this._inputMappingManager = mgr;
@@ -1136,6 +1147,43 @@ export class EditorLayout {
       if (panel) {
         try { panel.setTitle(`SaveGame: ${sg.name}`); } catch (_e) {}
         this._injectTabIcon(panelId, Icons.Save, '#FF7043');
+      }
+    });
+  }
+
+  /** Open a data table editor panel */
+  private _openDataTableEditor(dt: DataTableAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeTypeEditor();
+
+    const panelId = 'datatable-editor-' + dt.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `DataTable: ${dt.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Table2, '#14b8a6');
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer || !this._dataTableManager || !this._structManager) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    el.appendChild(wrapper);
+
+    new DataTableEditorPanel(wrapper, dt, this._dataTableManager, this._structManager, () => {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        try { panel.setTitle(`DataTable: ${dt.name}`); } catch (_e) {}
+        this._injectTabIcon(panelId, Icons.Table2, '#14b8a6');
       }
     });
   }

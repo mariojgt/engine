@@ -133,6 +133,8 @@ import {
   Repeat,
   Clock,
   Sigma,
+  Table2,
+  Database,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -465,4 +467,6 @@ export const Icons = {
   Repeat,
   Clock,
   Sigma,
+  Table2,
+  Database,
 };

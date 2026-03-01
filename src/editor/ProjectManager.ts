@@ -17,6 +17,7 @@ import type { AnimBlueprintManager, AnimBlueprintJSON } from './AnimBlueprintDat
 import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBlueprintData';
 import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
 import type { SaveGameAssetManager, SaveGameAssetJSON } from './SaveGameAsset';
+import type { DataTableAssetManager, DataTableAssetJSON } from './DataTableAsset';
 import type { EventAssetManager, EventAssetJSON } from './EventAsset';
 import type { ContentFolderManager } from './ContentFolderManager';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
@@ -112,6 +113,7 @@ const ANIM_BLUEPRINTS_DIR = 'AnimBlueprints';
 const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
+const DATA_TABLES_DIR = 'DataTables';
 const EVENTS_DIR = 'Events';
 const INPUT_MAPPINGS_DIR = 'InputMappings';
 const AI_ASSETS_DIR = 'AIAssets';
@@ -137,6 +139,7 @@ export class ProjectManager {
   private _widgetBPManager: WidgetBlueprintManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
+  private _dataTableManager: DataTableAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _aiManager: import('./ai/AIAssetManager').AIAssetManager | null = null;
@@ -212,6 +215,12 @@ export class ProjectManager {
   /** Wire up the SaveGameAssetManager for saving/loading save game class definitions */
   setSaveGameManager(mgr: SaveGameAssetManager): void {
     this._saveGameManager = mgr;
+  }
+
+  /** Wire up the DataTableAssetManager for saving/loading data tables */
+  setDataTableManager(mgr: DataTableAssetManager): void {
+    this._dataTableManager = mgr;
+    mgr.onChanged(() => { this._dirty = true; });
   }
 
   /** Wire up the EventAssetManager for saving/loading event definitions */
@@ -446,6 +455,9 @@ export class ProjectManager {
       // Load save game class definitions
       await this._loadSaveGameClasses();
 
+      // Load data tables
+      await this._loadDataTables();
+
       // Load event definitions
       await this._loadEvents();
 
@@ -551,6 +563,10 @@ export class ProjectManager {
       // Save save game class definitions
       await this._saveSaveGameClasses();
       console.log('[ProjectManager]   ✓ save game classes');
+
+      // Save data tables
+      await this._saveDataTables();
+      console.log('[ProjectManager]   ✓ data tables');
 
       // Save event definitions
       await this._saveEvents();
@@ -1426,6 +1442,67 @@ export class ProjectManager {
 
     if (allSG.length > 0) {
       this._saveGameManager.importAll(allSG);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Data Tables
+  // ============================================================
+
+  private async _saveDataTables(): Promise<void> {
+    if (!this._projectPath || !this._dataTableManager) return;
+    const dtDir = `${this._projectPath}/${DATA_TABLES_DIR}`;
+    const allDT = this._dataTableManager.exportAll();
+    for (const json of allDT) {
+      const safeName = json.dataTableName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${dtDir}/${safeName}_${json.dataTableId}.json`,
+        JSON.stringify(json, null, 2),
+      );
+    }
+    const index = allDT.map(dt => ({
+      id: dt.dataTableId,
+      name: dt.dataTableName,
+      file: `${dt.dataTableName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dt.dataTableId}.json`,
+    }));
+    await fsWrite(`${dtDir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadDataTables(): Promise<void> {
+    if (!this._projectPath || !this._dataTableManager) return;
+    const dtDir = `${this._projectPath}/${DATA_TABLES_DIR}`;
+    if (!(await fsExists(dtDir))) return;
+
+    const allDT: DataTableAssetJSON[] = [];
+    const indexPath = `${dtDir}/_index.json`;
+    const hasIndex = await fsExists(indexPath);
+
+    if (hasIndex) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${dtDir}/${entry.file}`);
+          allDT.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load data table ${entry.name}:`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(dtDir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${dtDir}/${name}`);
+          allDT.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load data table file ${name}:`, e);
+        }
+      }
+    }
+
+    if (allDT.length > 0) {
+      this._dataTableManager.importAll(allDT);
     }
   }
 

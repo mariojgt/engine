@@ -29,6 +29,7 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { createParentSelector } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS, createIcon } from './icons';
 import { AIAssetManager, type AIAssetType, type BehaviorTreeAsset, type BlackboardAsset, type BTTaskAsset, type BTDecoratorAsset, type BTServiceAsset, type AIControllerAsset, type PerceptionConfigAsset, type EQSAsset, AI_ASSET_META } from './ai/AIAssetManager';
+import { DataTableAssetManager, type DataTableAsset } from './DataTableAsset';
 
 // ── Type exports (preserved) ──
 
@@ -62,6 +63,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   aiController: { color: '#1565C0', icon: Icons.Bot,          label: 'AI Controller' },
   perceptionConfig: { color: '#F57F17', icon: Icons.Eye,      label: 'Perception Config' },
   eqs:          { color: '#4527A0', icon: Icons.Target,       label: 'EQS Query' },
+  dataTable:    { color: '#14b8a6', icon: Icons.Table2,      label: 'Data Table' },
 };
 
 function escapeCtxHtml(s: string): string {
@@ -127,6 +129,10 @@ export class ActorAssetBrowser {
   private _onOpenBTDecorator: ((asset: BTDecoratorAsset) => void) | null = null;
   private _onOpenBTService: ((asset: BTServiceAsset) => void) | null = null;
   private _onOpenAIController: ((asset: AIControllerAsset) => void) | null = null;
+
+  // ── DataTable Manager + Callback ──
+  private _dataTableManager: DataTableAssetManager | null = null;
+  private _onOpenDataTable: ((asset: DataTableAsset) => void) | null = null;
 
   // ── Drag system (preserved — no HTML5 DnD) ──
   private _dragAsset: ActorAsset | null = null;
@@ -311,6 +317,13 @@ export class ActorAssetBrowser {
     this._onOpenBTDecorator = callbacks.onOpenBTDecorator;
     this._onOpenBTService = callbacks.onOpenBTService;
     this._onOpenAIController = callbacks.onOpenAIController;
+    mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setDataTableManager(mgr: DataTableAssetManager, onOpenDataTable: (asset: DataTableAsset) => void): void {
+    this._dataTableManager = mgr;
+    this._onOpenDataTable = onOpenDataTable;
     mgr.onChanged(() => this._refreshGrid());
     this._refreshGrid();
   }
@@ -1530,6 +1543,21 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'dataTable': {
+        if (!this._dataTableManager) return null;
+        const dt = this._dataTableManager.getTable(assetId);
+        if (!dt) return null;
+        const rc = dt.rows.length;
+        return {
+          id: dt.id, name: dt.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Data Table',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: `${rc} row${rc !== 1 ? 's' : ''} · ${dt.structName || 'No struct'}`,
+          onOpen: () => this._onOpenDataTable?.(dt),
+          onContextMenu: (e) => this._showDataTableContextMenu(e, dt),
+          dragKind: null, dragPayload: null,
+        };
+      }
       default:
         return null;
     }
@@ -2084,6 +2112,22 @@ export class ActorAssetBrowser {
             this._refreshGrid();
             if (this._onOpenEvent) this._onOpenEvent(ev);
           }
+        }
+      });
+    }
+    if (this._dataTableManager && this._structManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.Table2, 12, '#14b8a6'), label: 'Data Table', keywords: 'datatable data table rows database spreadsheet',
+        action: async () => {
+          const struct = await this._showStructPickerDialog();
+          if (!struct) return;
+          const name = await this._showNameDialog('New Data Table', `DT_${struct.name}`);
+          if (!name) return;
+          const dt = this._dataTableManager!.createTable(name, struct.id, struct.name);
+          this._folderManager.setAssetLocation(dt.id, 'dataTable', this._currentFolderId);
+          this._selectedIds.clear(); this._selectedIds.add(dt.id);
+          this._refreshGrid();
+          if (this._onOpenDataTable) this._onOpenDataTable(dt);
         }
       });
     }
@@ -2957,6 +3001,139 @@ export class ActorAssetBrowser {
 
     document.body.appendChild(menu);
     this._contextMenu = menu;
+  }
+
+  // ── Data Table context menu ──
+  private _showDataTableContextMenu(e: MouseEvent, dt: DataTableAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Table2, 12, '#14b8a6') + ' Open Editor', () => this._onOpenDataTable?.(dt));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Data Table', dt.name);
+      if (newName && newName !== dt.name) {
+        this._dataTableManager!.renameTable(dt.id, newName);
+      }
+    });
+    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate', async () => {
+      const newName = await this._showNameDialog('Duplicate Data Table', `${dt.name}_Copy`);
+      if (newName) {
+        const dup = this._dataTableManager!.duplicateTable(dt.id, newName);
+        if (dup) {
+          this._folderManager.setAssetLocation(dup.id, 'dataTable', this._currentFolderId);
+          this._selectedIds.clear(); this._selectedIds.add(dup.id);
+          this._refreshGrid();
+        }
+      }
+    });
+    this._addMenuItem(menu, iconHTML(Icons.Download, 12, ICON_COLORS.muted) + ' Export CSV', () => {
+      const csv = dt.exportCSV();
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${dt.name}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    });
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:var(--border);margin:4px 0;';
+    menu.appendChild(sep);
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete data table "${dt.name}"?`)) {
+        this._dataTableManager!.removeTable(dt.id);
+        this._folderManager.removeAssetLocation(dt.id, 'dataTable');
+        this._selectedIds.delete(dt.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Struct Picker Dialog (for DataTable creation) ──
+  private _showStructPickerDialog(): Promise<import('./StructureAsset').StructureAsset | null> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = 'background:var(--bg-panel,#1e1e2e);border:1px solid var(--border,#3f3f5a);border-radius:8px;padding:20px;width:420px;max-width:90vw;color:var(--text,#e0e0f0);font-family:inherit;';
+
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:12px;display:flex;gap:8px;align-items:center;';
+      title.innerHTML = iconHTML(Icons.Table2, 16, '#14b8a6') + ' Pick Row Struct';
+      dialog.appendChild(title);
+
+      const searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Search structures...';
+      searchInput.style.cssText = 'width:100%;box-sizing:border-box;background:var(--bg-input,#2a2a3e);border:1px solid var(--border,#3f3f5a);border-radius:4px;padding:6px 10px;color:inherit;font-size:12px;margin-bottom:10px;outline:none;';
+      dialog.appendChild(searchInput);
+
+      const list = document.createElement('div');
+      list.style.cssText = 'max-height:260px;overflow-y:auto;border:1px solid var(--border,#3f3f5a);border-radius:4px;background:var(--bg-input,#2a2a3e);margin-bottom:14px;';
+      dialog.appendChild(list);
+
+      const structs = this._structManager ? this._structManager.structures : [];
+      let selectedStruct: import('./StructureAsset').StructureAsset | null = null;
+      let selectedEl: HTMLElement | null = null;
+
+      const renderList = (query: string) => {
+        list.innerHTML = '';
+        const filtered = structs.filter(s => s.name.toLowerCase().includes(query.toLowerCase()));
+        if (filtered.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'padding:16px;text-align:center;color:var(--text-muted,#888);font-size:12px;';
+          empty.textContent = 'No structures found';
+          list.appendChild(empty);
+          return;
+        }
+        for (const s of filtered) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border,#3f3f5a);';
+          row.innerHTML = iconHTML(Icons.FileText, 13, '#a78bfa') + `<span style="flex:1">${escapeCtxHtml(s.name)}</span><span style="color:var(--text-muted,#888);font-size:11px;">${s.fields.length} fields</span>`;
+          row.addEventListener('mouseenter', () => { if (row !== selectedEl) row.style.background = 'var(--bg-hover,rgba(255,255,255,0.05))'; });
+          row.addEventListener('mouseleave', () => { if (row !== selectedEl) row.style.background = ''; });
+          row.addEventListener('click', () => {
+            if (selectedEl) selectedEl.style.background = '';
+            selectedStruct = s;
+            selectedEl = row;
+            row.style.background = 'rgba(20,184,166,0.18)';
+          });
+          row.addEventListener('dblclick', () => { selectedStruct = s; overlay.remove(); resolve(s); });
+          list.appendChild(row);
+        }
+      };
+      renderList('');
+      searchInput.addEventListener('input', () => { selectedStruct = null; selectedEl = null; renderList(searchInput.value); });
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText = 'padding:6px 14px;border-radius:4px;border:1px solid var(--border,#3f3f5a);background:transparent;color:inherit;cursor:pointer;font-size:12px;';
+      cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
+
+      const selectBtn = document.createElement('button');
+      selectBtn.textContent = 'Select';
+      selectBtn.style.cssText = 'padding:6px 14px;border-radius:4px;border:none;background:#14b8a6;color:#fff;cursor:pointer;font-size:12px;font-weight:600;';
+      selectBtn.addEventListener('click', () => {
+        if (!selectedStruct) return;
+        overlay.remove();
+        resolve(selectedStruct);
+      });
+
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(selectBtn);
+      dialog.appendChild(btnRow);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', (ev) => { if (ev.target === overlay) { overlay.remove(); resolve(null); } });
+      setTimeout(() => searchInput.focus(), 50);
+    });
   }
 
   // ── Input Mapping context menu ──
