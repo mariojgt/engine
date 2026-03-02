@@ -480,11 +480,16 @@ export class Engine {
     if (!this.navMeshSystem.isReady && this.scene.threeScene) {
       console.log('[Engine] NavMesh not yet built – auto-generating from scene geometry...');
       try {
-        const built = await this.navMeshSystem.generateFromScene(this.scene.threeScene);
+        // Race against a 10 s timeout so WASM init can't hang the game forever
+        const navTimeout = new Promise<boolean>(r => setTimeout(() => r(false), 10000));
+        const built = await Promise.race([
+          this.navMeshSystem.generateFromScene(this.scene.threeScene),
+          navTimeout,
+        ]);
         if (built) {
           console.log('[Engine] NavMesh auto-built successfully.');
         } else {
-          console.warn('[Engine] NavMesh auto-build returned false (scene may have no walkable geometry).');
+          console.warn('[Engine] NavMesh auto-build returned false or timed out.');
         }
       } catch (e) {
         console.error('[Engine] NavMesh auto-build failed:', e);

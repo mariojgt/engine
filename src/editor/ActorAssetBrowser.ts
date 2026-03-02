@@ -64,6 +64,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   perceptionConfig: { color: '#F57F17', icon: Icons.Eye,      label: 'Perception Config' },
   eqs:          { color: '#4527A0', icon: Icons.Target,       label: 'EQS Query' },
   dataTable:    { color: '#14b8a6', icon: Icons.Table2,      label: 'Data Table' },
+  buildConfig:  { color: '#f97316', icon: Icons.Hammer,      label: 'Build Config' },
 };
 
 function escapeCtxHtml(s: string): string {
@@ -3030,7 +3031,9 @@ export class ActorAssetBrowser {
       }
     });
     this._addMenuItem(menu, iconHTML(Icons.Download, 12, ICON_COLORS.muted) + ' Export CSV', () => {
-      const csv = dt.exportCSV();
+      const fieldsStr = prompt('Enter field names separated by comma:');
+      const fields: any[] = fieldsStr ? fieldsStr.split(',').map(name => ({ name, type: 'string' as const })) : [];
+      const csv = dt.exportCSV(fields);
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `${dt.name}.csv`; a.click();

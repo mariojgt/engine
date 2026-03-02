@@ -42,6 +42,7 @@ import { ClassInheritanceSystem } from './ClassInheritanceSystem';
 import { ClassHierarchyPanel } from './ClassHierarchyPanel';
 import { InheritanceDialogsUI } from './InheritanceDialogsUI';
 import { SoundLibrary, type SoundCueData } from './SoundLibrary';
+import { TextureLibrary } from './TextureLibrary';
 import { ParticleEditorPanel } from './ParticleEditorPanel';
 import { ParticleSystemManager } from '../engine/ParticleSystem';
 import { SoundCueEditorPanel } from './SoundCueEditorPanel';
@@ -62,6 +63,10 @@ import { BlackboardEditorPanel } from './ai/BlackboardEditorPanel';
 import { BehaviorTreeEditorPanel } from './ai/BehaviorTreeEditorPanel';
 import { AIBlueprintEditorPanel } from './ai/AIBlueprintEditorPanel';
 import { NavMeshPanel } from './NavMeshPanel';
+import { BuildDashboardPanel } from './build/BuildDashboardPanel';
+import { BuildConfigurationEditorPanel } from './build/BuildConfigurationEditorPanel';
+import type { BuildConfigurationManager } from './build/BuildConfigurationAsset';
+import type { DependencyAnalyzerContext } from './build/DependencyAnalyzer';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -107,6 +112,9 @@ export class EditorLayout {
   private _physicsSettings: PhysicsSettingsPanel | null = null;
   private _navMeshPanel: NavMeshPanel | null = null;
   private _projectSettings: ProjectSettingsPanel | null = null;
+  private _buildDashboard: BuildDashboardPanel | null = null;
+  private _buildConfigManager: BuildConfigurationManager | null = null;
+  private _storedProjectManager: any = null;
   private _nodeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
   private _animBPEditor: AnimBlueprintEditorPanel | null = null;
@@ -1622,12 +1630,26 @@ export class EditorLayout {
 
   /** Wire up project manager with folder manager and project settings */
   setProjectManager(mgr: any): void {
+    this._storedProjectManager = mgr;
     if (this._assetBrowser) {
       mgr.setFolderManager(this._assetBrowser.getFolderManager());
     }
     // Wire into Project Settings panel so it can read/write project-level settings
     if (this._projectSettings) {
       this._projectSettings.setProjectManager(mgr);
+    }
+    // Wire Build Dashboard
+    if (this._buildDashboard && this._buildConfigManager) {
+      this._buildDashboard.setManagers(this._buildConfigManager, mgr);
+      this._buildDashboard.setAnalyzerContextProvider(() => this._buildAnalyzerContext());
+    }
+  }
+
+  /** Wire up the BuildConfigurationManager so the build dashboard can use it */
+  setBuildConfigurationManager(mgr: BuildConfigurationManager): void {
+    this._buildConfigManager = mgr;
+    if (this._buildDashboard) {
+      // projectManager not available yet — deferred until setProjectManager
     }
   }
 
@@ -1980,5 +2002,101 @@ export class EditorLayout {
   /** Get the profiler panel (for external access) */
   getProfilerPanel(): ProfilerPanel | null {
     return this._profilerPanel;
+  }
+
+  // ── Build Dashboard ───────────────────────────────────────────
+
+  /** Build the DependencyAnalyzerContext from all currently-available managers */
+  private _buildAnalyzerContext(): DependencyAnalyzerContext {
+    return {
+      projectPath: this._storedProjectManager?.projectPath ?? '',
+      actorManager: this.assetManager,
+      meshManager: this._meshManager ?? null,
+      animBPManager: this._animBPManager ?? null,
+      widgetBPManager: this._widgetBPManager ?? null,
+      gameInstanceManager: this._gameInstanceManager ?? null,
+      saveGameManager: this._saveGameManager ?? null,
+      dataTableManager: this._dataTableManager ?? null,
+      eventManager: this._eventManager ?? null,
+      structManager: this._structManager ?? null,
+      aiManager: this._aiManager ?? null,
+      textureLibrary: TextureLibrary.instance ?? null,
+      soundLibrary: SoundLibrary.instance ?? null,
+    };
+  }
+
+  /** Open the Build Dashboard panel (singleton) */
+  openBuildDashboard(): void {
+    const panelId = 'build-dashboard';
+    const existing = this._api.getPanel(panelId);
+    if (existing) { existing.api.setActive(); return; }
+
+    this._api.addPanel({
+      id: panelId,
+      title: 'Build Dashboard',
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Hammer, '#f97316');
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    renderer.element.appendChild(wrapper);
+
+    this._buildDashboard = new BuildDashboardPanel(wrapper);
+    this._buildDashboard.setOpenEditorCallback((configId) => this._openBuildConfigEditor(configId));
+    if (this._buildConfigManager && this._storedProjectManager) {
+      this._buildDashboard.setManagers(this._buildConfigManager, this._storedProjectManager);
+    }
+    this._buildDashboard.setAnalyzerContextProvider(() => this._buildAnalyzerContext());
+  }
+
+  /** Open a BuildConfiguration editor tab */
+  private _openBuildConfigEditor(configId: string): void {
+    if (!this._buildConfigManager) return;
+    const cfg = this._buildConfigManager.get(configId);
+    if (!cfg) return;
+
+    const panelId = `build-config-${configId}`;
+    const existing = this._api.getPanel(panelId);
+    if (existing) { existing.api.setActive(); return; }
+
+    this._api.addPanel({
+      id: panelId,
+      title: `Build: ${cfg.name}`,
+      component: 'default',
+      position: { direction: 'right', referencePanel: 'build-dashboard' },
+    });
+    this._injectTabIcon(panelId, Icons.Hammer, '#f97316');
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    renderer.element.appendChild(wrapper);
+
+    const panel = new BuildConfigurationEditorPanel(wrapper, cfg, this._buildConfigManager, this._storedProjectManager);
+    panel.onSave(updated => {
+      // Refresh the dashboard row
+      this._buildDashboard?.refreshList();
+      // Update the tab title if name changed
+      try {
+        const p = this._api.getPanel(panelId) as any;
+        if (p?.api) p.api.setTitle(`Build: ${updated.name}`);
+      } catch (_e) {}
+    });
+    panel.onBuild(() => {
+      // Ensure dashboard is open and trigger build there
+      this.openBuildDashboard();
+      this._buildDashboard?.['_buildConfig']?.(configId);
+    });
   }
 }

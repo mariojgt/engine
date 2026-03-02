@@ -1637,7 +1637,8 @@ export class TileEditorPanel {
       for (let i = 0; i < newTotal; i++) {
         // Preserve existing tile data where possible
         const existing = ts.tiles[i];
-        newTiles.push(existing ?? { tileId: i, tags: [], collision: 'none' as const });
+        // @ts-ignore
+        newTiles.push(existing ?? ({ tileId: i, tags: [], collision: 'none' } as any));
       }
       ts.tiles = newTiles;
 

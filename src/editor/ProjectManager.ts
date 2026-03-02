@@ -122,6 +122,7 @@ const FONTS_DIR = 'Fonts';
 const SOUNDS_DIR = 'Sounds';
 const SOUND_CUES_DIR = 'SoundCues';
 const CONFIG_DIR = 'Config';
+const BUILD_CONFIGS_DIR = 'BuildConfigs';
 const EDITOR_STATE_FILE = 'Config/editor.json';
 const FOLDER_STRUCTURE_FILE = 'Config/folders.json';
 const NAVMESH_BIN_FILE = 'Config/navmesh.bin';
@@ -144,6 +145,7 @@ export class ProjectManager {
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _aiManager: import('./ai/AIAssetManager').AIAssetManager | null = null;
   private _folderManager: ContentFolderManager | null = null;
+  private _buildConfigManager: import('./build/BuildConfigurationAsset').BuildConfigurationManager | null = null;
   private _compositionManager: SceneCompositionManager | null = null;
   private _dirty = false;
   private _autoSaveTimer: number | null = null;
@@ -226,6 +228,16 @@ export class ProjectManager {
   /** Wire up the EventAssetManager for saving/loading event definitions */
   setEventManager(mgr: EventAssetManager): void {
     this._eventManager = mgr;
+  }
+
+  /** Wire up the BuildConfigurationManager for saving/loading build configs */
+  setBuildConfigurationManager(mgr: import('./build/BuildConfigurationAsset').BuildConfigurationManager): void {
+    this._buildConfigManager = mgr;
+  }
+
+  /** Return the current project root path (null if no project is open) */
+  getProjectRoot(): string | null {
+    return this._projectPath;
   }
 
   /** Wire up the InputMappingAssetManager for saving/loading input mappings */
@@ -477,6 +489,9 @@ export class ProjectManager {
       // Load sound library (imported audio + sound cues)
       await this._loadSounds();
 
+      // Load build configurations
+      await this._loadBuildConfigs();
+
       // Load actors first (scenes reference them)
       await this._loadActors();
 
@@ -595,6 +610,10 @@ export class ProjectManager {
       // Save folder structure
       await this._saveFolderStructure();
       console.log('[ProjectManager]   ✓ folder structure');
+
+      // Save build configurations
+      await this._saveBuildConfigs();
+      console.log('[ProjectManager]   ✓ build configs');
 
       // Save NavMesh binary + config
       await this._saveNavMesh();
@@ -871,6 +890,40 @@ export class ProjectManager {
       console.log('[ProjectManager] Composition deserialized successfully');
     } catch (err) {
       console.warn('[ProjectManager] Failed to load composition:', err);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Build Configurations
+  // ============================================================
+
+  private async _saveBuildConfigs(): Promise<void> {
+    if (!this._projectPath || !this._buildConfigManager) return;
+    const dir = `${this._projectPath}/${BUILD_CONFIGS_DIR}`;
+    const configs = this._buildConfigManager.getAll();
+    for (const cfg of configs) {
+      const safeName = cfg.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(
+        `${dir}/${safeName}_${cfg.id}.buildconfig.json`,
+        JSON.stringify(cfg, null, 2),
+      );
+    }
+  }
+
+  private async _loadBuildConfigs(): Promise<void> {
+    if (!this._projectPath || !this._buildConfigManager) return;
+    const dir = `${this._projectPath}/${BUILD_CONFIGS_DIR}`;
+    const dirFound = await fsExists(dir);
+    if (!dirFound) return;
+    const fileNames = await fsListDir(dir, '.buildconfig.json');
+    for (const file of fileNames) {
+      try {
+        const raw = await fsRead(`${dir}/${file}`);
+        const json = JSON.parse(raw);
+        this._buildConfigManager.fromJSON(json);
+      } catch (err) {
+        console.warn(`[ProjectManager] Failed to load build config ${file}:`, err);
+      }
     }
   }
 

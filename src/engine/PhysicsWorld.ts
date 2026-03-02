@@ -47,7 +47,29 @@ export class PhysicsWorld {
     // Create ground plane collider
     const groundDesc = RAPIER.ColliderDesc.cuboid(10.0, 0.1, 10.0)
       .setTranslation(0, -0.1, 0);
-    this.world.createCollider(groundDesc);
+    this._groundCollider = this.world.createCollider(groundDesc);
+  }
+
+  /** Handle to the default ground plane collider so it can be resized */
+  private _groundCollider: RAPIER.Collider | null = null;
+  /** Stored half-extent for ground plane recreation on stop/restart */
+  private _groundHalfExtent: number = 10.0;
+
+  /**
+   * Replace the default ground plane collider with one sized to match the
+   * composition's DevGroundPlane.  Call after init() and before play().
+   */
+  setGroundPlaneSize(halfExtent: number): void {
+    if (!this.world) return;
+    this._groundHalfExtent = halfExtent;
+    // Remove old ground collider
+    if (this._groundCollider) {
+      this.world.removeCollider(this._groundCollider, false);
+      this._groundCollider = null;
+    }
+    const groundDesc = RAPIER.ColliderDesc.cuboid(halfExtent, 0.1, halfExtent)
+      .setTranslation(0, -0.1, 0);
+    this._groundCollider = this.world.createCollider(groundDesc);
   }
 
   addPhysicsBody(go: GameObject): void {
@@ -462,10 +484,11 @@ export class PhysicsWorld {
       const g = this.settings.gravity;
       this.world = new RAPIER.World({ x: g.x, y: g.y, z: g.z });
 
-      // Recreate ground plane
-      const groundDesc = RAPIER.ColliderDesc.cuboid(10.0, 0.1, 10.0)
+      // Recreate ground plane (use stored half-extent if it was resized)
+      const halfExt = this._groundHalfExtent ?? 10.0;
+      const groundDesc = RAPIER.ColliderDesc.cuboid(halfExt, 0.1, halfExt)
         .setTranslation(0, -0.1, 0);
-      this.world.createCollider(groundDesc);
+      this._groundCollider = this.world.createCollider(groundDesc);
     }
   }
 

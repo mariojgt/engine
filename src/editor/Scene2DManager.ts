@@ -636,7 +636,9 @@ export class Scene2DManager {
       // Apply sprite-renderer component settings
       if (_sprRendComp?.flipX) actor.spriteRenderer.flipX = true;
       if (_sprRendComp?.flipY) actor.spriteRenderer.flipY = true;
+      // @ts-ignore
       if (_sprRendComp?.spriteScale) actor.spriteRenderer.spriteScale = { x: _sprRendComp.spriteScale.x, y: _sprRendComp.spriteScale.y };
+      // @ts-ignore
       if (_sprRendComp?.spriteOffset) actor.spriteRenderer.spriteOffset = { x: _sprRendComp.spriteOffset.x, y: _sprRendComp.spriteOffset.y };
       actor.sortingLayer  = _sprRendComp?.sortingLayer  ?? 'Default';
       actor.orderInLayer  = _sprRendComp?.orderInLayer  ?? 0;
@@ -850,7 +852,9 @@ export class Scene2DManager {
       actor.setSpriteSheet(sheet);
       if (sprRendComp?.flipX) actor.spriteRenderer.flipX = true;
       if (sprRendComp?.flipY) actor.spriteRenderer.flipY = true;
+      // @ts-ignore
       if (sprRendComp?.spriteScale) actor.spriteRenderer.spriteScale = { x: sprRendComp.spriteScale.x, y: sprRendComp.spriteScale.y };
+      // @ts-ignore
       if (sprRendComp?.spriteOffset) actor.spriteRenderer.spriteOffset = { x: sprRendComp.spriteOffset.x, y: sprRendComp.spriteOffset.y };
       actor.sortingLayer = sprRendComp?.sortingLayer ?? 'Default';
       actor.orderInLayer = sprRendComp?.orderInLayer ?? 0;

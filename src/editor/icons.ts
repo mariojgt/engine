@@ -135,6 +135,8 @@ import {
   Sigma,
   Table2,
   Database,
+  Hammer,
+  Wrench,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -469,4 +471,6 @@ export const Icons = {
   Sigma,
   Table2,
   Database,
+  Hammer,
+  Wrench,
 };

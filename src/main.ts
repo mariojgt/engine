@@ -24,6 +24,7 @@ import { setStructureAssetManager, setActorAssetManager, setWidgetBPManager, set
 import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSerializer';
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
+import { BuildConfigurationManager } from './editor/build/BuildConfigurationAsset';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -69,6 +70,12 @@ async function main() {
         <div class="toolbar-dropdown-divider"></div>
         <div class="toolbar-dropdown-item disabled" id="menu-detached-header" style="opacity:0.5;pointer-events:none;font-style:italic;">Detached Panels</div>
         <div id="detached-panels-list"></div>
+      </div>
+    </div>
+    <div class="toolbar-dropdown" id="build-menu">
+      <button class="toolbar-btn" id="btn-build">${iconHTML(Icons.Hammer, 'xs', '#f97316')} Build ${iconHTML(Icons.ChevronDown, 'xs')}</button>
+      <div class="toolbar-dropdown-content" id="build-dropdown">
+        <div class="toolbar-dropdown-item" id="menu-build-dashboard">${iconHTML(Icons.Hammer, 'xs')} Build Dashboard…</div>
       </div>
     </div>
     <div class="toolbar-separator"></div>
@@ -171,6 +178,11 @@ async function main() {
   projectManager.setAIManager(aiManager);
   editor.setAIManager(aiManager);
   engine.aiAssetManager = aiManager;
+
+  // Create build configuration manager
+  const buildConfigManager = new BuildConfigurationManager();
+  projectManager.setBuildConfigurationManager(buildConfigManager);
+  editor.setBuildConfigurationManager(buildConfigManager);
 
   // Create BehaviorTreeManager so generated RunBehaviorTree code can instantiate BTs at runtime
   const { BehaviorTreeManager } = await import('./engine/BehaviorTreeManager');
@@ -329,6 +341,7 @@ async function main() {
   document.addEventListener('click', () => {
     fileDropdown.classList.remove('show');
     windowDropdown.classList.remove('show');
+    document.getElementById('build-dropdown')?.classList.remove('show');
   });
 
   document.getElementById('menu-new-project')!.addEventListener('click', async () => {
@@ -454,6 +467,27 @@ async function main() {
     windowDropdown.classList.remove('show');
     editor.openProfiler();
   });
+
+  // --- Build menu dropdown ---
+  const buildBtn = document.getElementById('btn-build')!;
+  const buildDropdown = document.getElementById('build-dropdown')!;
+
+  buildBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    buildDropdown.classList.toggle('show');
+    fileDropdown.classList.remove('show');
+    windowDropdown.classList.remove('show');
+  });
+
+  fileBtn.addEventListener('click', () => { buildDropdown.classList.remove('show'); });
+  windowBtn.addEventListener('click', () => { buildDropdown.classList.remove('show'); });
+
+  document.getElementById('menu-build-dashboard')!.addEventListener('click', () => {
+    buildDropdown.classList.remove('show');
+    editor.openBuildDashboard();
+  });
+
+  // Close build dropdown on outside click (handled by existing global document listener)
 
   function _refreshDetachedList() {
     detachedListEl.innerHTML = '';
