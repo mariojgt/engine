@@ -2159,11 +2159,10 @@ export default defineConfig({
         dest: `${gameProjDir}/public/project-data`,
       });
 
-      // 9. Run Npm Install and Vite build
-      this._log('Installing dependencies (this may take a minute)...');
-      const installResult = await this._runCommand(gameProjDir, this._getNpmCmd(), ['install']);
-      if (!installResult.success) {
-        return { success: false, message: 'npm install failed:\\n' + installResult.message };
+      // 9. Install deps only when package.json changed (cached by stamp)
+      const depResult = await this._ensureDependencies(gameProjDir);
+      if (!depResult.success) {
+        return { success: false, message: 'Dependency install failed:\n' + depResult.message };
       }
 
       this._log('Running Vite build...');
@@ -2234,6 +2233,51 @@ Minimum browser requirements:
     } catch (e: any) {
       return { success: false, message: String(e) };
     }
+  }
+
+  private async _ensureDependencies(gameProjDir: string): Promise<{ success: boolean; message: string }> {
+    const pkgPath = `${gameProjDir}/package.json`;
+    const nodeModulesPath = `${gameProjDir}/node_modules`;
+    const stampPath = `${gameProjDir}/.feather-deps.stamp`;
+
+    try {
+      const pkgRaw = await invoke<string>('read_file', { path: pkgPath });
+      const pkgHash = this._hashString(pkgRaw);
+
+      const [hasNodeModules, oldStamp] = await Promise.all([
+        invoke<boolean>('file_exists', { path: nodeModulesPath }).catch(() => false),
+        invoke<string>('read_file', { path: stampPath }).catch(() => ''),
+      ]);
+
+      if (hasNodeModules && oldStamp.trim() === pkgHash) {
+        this._log('Reusing cached node_modules (package.json unchanged)');
+        return { success: true, message: 'cached' };
+      }
+
+      this._log('Installing dependencies (package changed or cache missing)...');
+      const installResult = await this._runCommand(
+        gameProjDir,
+        this._getNpmCmd(),
+        ['install', '--prefer-offline', '--no-audit', '--no-fund'],
+      );
+      if (!installResult.success) {
+        return { success: false, message: installResult.message };
+      }
+
+      await invoke('write_file', { path: stampPath, contents: pkgHash });
+      return { success: true, message: 'installed' };
+    } catch (e: any) {
+      return { success: false, message: e?.message ?? String(e) };
+    }
+  }
+
+  private _hashString(input: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
   }
 
   private async _readCurrentDeps(engineRoot: string): Promise<any> {

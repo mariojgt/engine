@@ -398,6 +398,8 @@ export class Scene2DManager {
   // ---- Update (called each frame) ----
 
   update(deltaTime: number): void {
+    if (!Number.isFinite(deltaTime) || deltaTime < 0) deltaTime = 0;
+    if (deltaTime > 0.1) deltaTime = 0.1;
     if (!this.is2D) return;
     this.camera2D?.update(deltaTime);
     this.physics2D?.step(deltaTime);
@@ -405,28 +407,57 @@ export class Scene2DManager {
     if (this.isPlaying) {
       // ── Update 2D AI controllers first (so movement inputs are applied before physics) ──
       for (const ctrl of this._aiControllers2D) {
-        ctrl.update(deltaTime);
+        try {
+          ctrl.update(deltaTime);
+        } catch (err) {
+          console.error('[Scene2DManager] AI controller update failed', err);
+        }
       }
       for (const actor of this.spriteActors) {
         if (this._pendingDestroy.has(actor)) continue; // skip actors queued for destruction
-        actor.update(deltaTime);
+        try {
+          actor.update(deltaTime);
+        } catch (err) {
+          console.error(`[Scene2DManager] Actor update failed on "${actor.name}"`, err);
+          continue;
+        }
         // Run the actor's own blueprint event graph FIRST so that _scriptVars,
         // _scriptFunctions and _scriptEvents are populated before the AnimBP
         // tries to read them via remote-access nodes (Get/Set Variable Remote,
         // Call Actor Function, Call Actor Event, etc.).
-        this._runActorBlueprintScript(actor, deltaTime);
+        try {
+          this._runActorBlueprintScript(actor, deltaTime);
+        } catch (err) {
+          console.error(`[Scene2DManager] Blueprint script failed on "${actor.name}"`, err);
+        }
         // Sync physics-derived variables and run the AnimBP 2D event graph
         // (BeginPlay + Tick nodes, Set/Get Anim Var, etc.)
-        this._syncAnimBPVars(actor, deltaTime);
+        try {
+          this._syncAnimBPVars(actor, deltaTime);
+        } catch (err) {
+          console.error(`[Scene2DManager] AnimBP sync failed on "${actor.name}"`, err);
+        }
         // Evaluate AnimBP state machine transitions using synced variables
-        this._evalAnimBPTransitions(actor);
+        try {
+          this._evalAnimBPTransitions(actor);
+        } catch (err) {
+          console.error(`[Scene2DManager] AnimBP transition eval failed on "${actor.name}"`, err);
+        }
       }
       // ── Process 2D collision / trigger events AFTER all actor scripts ──
       // This guarantees that BeginPlay has registered listeners before any
       // Rapier collision events are drained, preventing first-frame misses.
-      this.physics2D?.processEvents();
+      try {
+        this.physics2D?.processEvents();
+      } catch (err) {
+        console.error('[Scene2DManager] Physics event processing failed', err);
+      }
       // Flush any actors that were queued for destruction during this frame
-      this._flushPendingDestroys();
+      try {
+        this._flushPendingDestroys();
+      } catch (err) {
+        console.error('[Scene2DManager] Deferred destroy flush failed', err);
+      }
     }
     this.debugDraw.update(deltaTime);
   }

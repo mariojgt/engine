@@ -623,7 +623,7 @@ export class Engine {
 
   update(): void {
     let dt = this._clock.getDelta();
-    // Clamp delta-time to prevent physics explosions on lag spikes or tab-away
+    if (!Number.isFinite(dt) || dt < 0) dt = 0;
     if (dt > 0.1) dt = 0.1;
 
     // Update Particles
@@ -641,37 +641,69 @@ export class Engine {
         if (go.isDestroyed || !go.__tickEnabled) continue;
         for (const script of go.scripts) {
           const ctx = this._getCtx(go, dt, this._elapsedTime);
-          script.tick(ctx);
+          try {
+            script.tick(ctx);
+          } catch (err) {
+            console.error(`[Engine] Script tick failed on "${go.name}"`, err);
+          }
         }
       }
       // Tick controller blueprint scripts
       for (const { go, script } of this._controllerScripts) {
         if (go.isDestroyed) continue;
         const ctx = this._getCtx(go, dt, this._elapsedTime);
-        script.tick(ctx);
+        try {
+          script.tick(ctx);
+        } catch (err) {
+          console.error(`[Engine] Controller script tick failed on "${go.name}"`, err);
+        }
       }
 
       // Tick Game Instance (persistent across scene loads)
       if (this.gameInstance) {
         const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
         const giCtx = this._getCtx(dummyGO, dt, this._elapsedTime);
-        this.gameInstance.tick(giCtx);
+        try {
+          this.gameInstance.tick(giCtx);
+        } catch (err) {
+          console.error('[Engine] GameInstance tick failed', err);
+        }
       }
 
       // Tick UI Manager (Widget Blueprints)
       const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
       const uiCtx = this._getCtx(dummyGO, dt, this._elapsedTime);
-      this.uiManager.tick(uiCtx);
+      try {
+        this.uiManager.tick(uiCtx);
+      } catch (err) {
+        console.error('[Engine] UIManager tick failed', err);
+      }
 
       // Update character controllers
-      this.characterControllers.update(dt, this.physics);
+      try {
+        this.characterControllers.update(dt, this.physics);
+      } catch (err) {
+        console.error('[Engine] Character controller update failed', err);
+      }
       // Update spectator controllers
-      this.spectatorControllers.update(dt);
+      try {
+        this.spectatorControllers.update(dt);
+      } catch (err) {
+        console.error('[Engine] Spectator controller update failed', err);
+      }
       // Update AI controllers
-      this.aiControllers.update(dt);
+      try {
+        this.aiControllers.update(dt);
+      } catch (err) {
+        console.error('[Engine] AI controller update failed', err);
+      }
 
       // Update NavMesh crowd simulation
-      this.navMeshSystem.update(dt);
+      try {
+        this.navMeshSystem.update(dt);
+      } catch (err) {
+        console.error('[Engine] NavMesh update failed', err);
+      }
 
       // Update animation blueprint instances AND skeletal mesh mixers
       // (combined into a single pass over gameObjects for efficiency)
@@ -686,13 +718,21 @@ export class Engine {
             if (!inst.engineRef) inst.engineRef = this;
             if (!inst.gameInstanceRef) inst.gameInstanceRef = this.gameInstance;
             inst.printFn = this.onPrint;
-            inst.update(dt);
+            try {
+              inst.update(dt);
+            } catch (err) {
+              console.error(`[Engine] Animation instance update failed on "${go.name}"`, err);
+            }
           }
         }
         const mixers = (go as any)._skeletalMeshMixers as THREE.AnimationMixer[] | undefined;
         if (mixers) {
           for (const mixer of mixers) {
-            mixer.update(dt);
+            try {
+              mixer.update(dt);
+            } catch (err) {
+              console.error(`[Engine] Skeletal mixer update failed on "${go.name}"`, err);
+            }
           }
         }
       }
@@ -705,7 +745,13 @@ export class Engine {
     this._tickDebugDraw(dt);
 
     // Notify update listeners
-    for (const cb of this._onUpdate) cb(dt);
+    for (const cb of this._onUpdate) {
+      try {
+        cb(dt);
+      } catch (err) {
+        console.error('[Engine] onUpdate callback failed', err);
+      }
+    }
   }
 
   onUpdate(cb: (dt: number) => void): void {

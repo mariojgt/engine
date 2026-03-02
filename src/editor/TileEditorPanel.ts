@@ -48,6 +48,11 @@ export class TileEditorPanel {
   private _animPaletteTimer: ReturnType<typeof setInterval> | null = null;
   private _animPaletteFrame = 0;
 
+  /** Stable DOM handlers so we can unregister them in dispose(). */
+  private _onPaletteMouseDownBound = (e: MouseEvent) => this._onPaletteMouseDown(e);
+  private _onPaletteMouseMoveBound = (e: MouseEvent) => this._onPaletteMouseMove(e);
+  private _onPaletteMouseUpBound = (e: MouseEvent) => this._onPaletteMouseUp(e);
+
   /** Whether the tile editor panel is currently visible (active tab in dockview) */
   get isVisible(): boolean {
     // Dockview hides inactive tabs via display:none on the .dv-view ancestor.
@@ -58,6 +63,7 @@ export class TileEditorPanel {
   // Collision builder
   private _collisionBuilder = new TilemapCollisionBuilder();
   private _collisionRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private _pendingCollisionRebuilds = new Map<string, { layer: TilemapLayer; tileset: TilesetAsset }>();
 
   // Undo stack
   private _undoStack: { layerId: string; tiles: Record<string, number> }[] = [];
@@ -206,9 +212,9 @@ export class TileEditorPanel {
     paletteSection.appendChild(paletteLabel);
 
     this._paletteCanvas.style.cssText = 'border:1px solid #45475a;cursor:pointer;image-rendering:pixelated;';
-    this._paletteCanvas.addEventListener('mousedown', (e) => this._onPaletteMouseDown(e));
-    this._paletteCanvas.addEventListener('mousemove', (e) => this._onPaletteMouseMove(e));
-    window.addEventListener('mouseup', (e) => this._onPaletteMouseUp(e));
+    this._paletteCanvas.addEventListener('mousedown', this._onPaletteMouseDownBound);
+    this._paletteCanvas.addEventListener('mousemove', this._onPaletteMouseMoveBound);
+    window.addEventListener('mouseup', this._onPaletteMouseUpBound);
     paletteSection.appendChild(this._paletteCanvas);
 
     this._tileInfoEl = document.createElement('div');
@@ -743,7 +749,7 @@ export class TileEditorPanel {
         e.stopPropagation();
         layer.hasCollision = !layer.hasCollision;
         this._renderLayerList();
-        this._scheduleCollisionRebuild(layer);
+        this._scheduleCollisionRebuild(layer, this._activeTileset ?? undefined);
       };
       row.appendChild(colBtn);
 
@@ -846,7 +852,7 @@ export class TileEditorPanel {
         // Rebuild collision for active layers that have collision enabled
         if (this._activeTilemap) {
           for (const layer of this._activeTilemap.layers) {
-            if (layer.hasCollision) this._scheduleCollisionRebuild(layer);
+            if (layer.hasCollision) this._scheduleCollisionRebuild(layer, this._activeTileset ?? undefined);
           }
         }
         this._emitChanged();
@@ -978,7 +984,7 @@ export class TileEditorPanel {
       );
     }
 
-    this._scheduleCollisionRebuild(this._activeLayer);
+    this._scheduleCollisionRebuild(this._activeLayer, this._activeTileset);
     this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
@@ -986,7 +992,6 @@ export class TileEditorPanel {
     if (!this._activeTilemap || !this._activeLayer || !this._activeTileset) return;
     if (this._activeLayer.locked) return;
 
-    this._pushUndo();
     const ppu = this._activeTileset.pixelsPerUnit;
     const cellX = Math.floor(worldX / (this._activeTileset.tileWidth / ppu));
     const cellY = Math.floor(worldY / (this._activeTileset.tileHeight / ppu));
@@ -994,7 +999,7 @@ export class TileEditorPanel {
     const targetId = this._activeLayer.tiles[startKey] ?? null;
     const fillId = this.getEffectivePaintTileId();
     if (targetId === fillId) return;
-
+    this._pushUndo();
     const layer = this._activeLayer;
     const queue = [{ x: cellX, y: cellY }];
     const visited = new Set<string>();
@@ -1015,7 +1020,7 @@ export class TileEditorPanel {
       queue.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
     }
 
-    this._scheduleCollisionRebuild(this._activeLayer);
+    this._scheduleCollisionRebuild(this._activeLayer, this._activeTileset);
     // Only rebuild the affected layer, not the entire tilemap (same fix as paintAt)
     this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
@@ -1065,7 +1070,7 @@ export class TileEditorPanel {
       );
     }
 
-    this._scheduleCollisionRebuild(this._activeLayer);
+    this._scheduleCollisionRebuild(this._activeLayer, this._activeTileset);
     this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
@@ -1126,7 +1131,7 @@ export class TileEditorPanel {
       }
     }
 
-    this._scheduleCollisionRebuild(this._activeLayer);
+    this._scheduleCollisionRebuild(this._activeLayer, this._activeTileset);
     this._onLayerPainted?.(this._activeTilemap!.assetId, this._activeLayer.layerId);
   }
 
@@ -1141,12 +1146,27 @@ export class TileEditorPanel {
     const tileId = this._activeLayer.tiles[key];
 
     if (tileId !== undefined) {
-      this._selectedTileId = tileId;
-      const col = tileId % this._activeTileset.columns;
-      const row = Math.floor(tileId / this._activeTileset.columns);
-      this._selectionRect = { col, row, w: 1, h: 1 };
+      if (isAnimatedTileId(tileId)) {
+        const animIdx = decodeAnimatedTileIndex(tileId);
+        const anims = this._activeTileset.animatedTiles ?? [];
+        if (animIdx >= 0 && animIdx < anims.length) {
+          this._activeAnimTileIndex = animIdx;
+          const firstFrame = anims[animIdx].frames[0] ?? 0;
+          this._selectedTileId = firstFrame;
+          const col = firstFrame % this._activeTileset.columns;
+          const row = Math.floor(firstFrame / this._activeTileset.columns);
+          this._selectionRect = { col, row, w: 1, h: 1 };
+        }
+      } else {
+        this._activeAnimTileIndex = -1;
+        this._selectedTileId = tileId;
+        const col = tileId % this._activeTileset.columns;
+        const row = Math.floor(tileId / this._activeTileset.columns);
+        this._selectionRect = { col, row, w: 1, h: 1 };
+      }
       this._activeTool = 'paint'; // Switch back to paint tool after picking
       this._renderPalette();
+      this._renderAnimatedTilesList();
       this._renderTileInfo();
       this._renderToolbar();
       console.log(`[TileEditor.pickAt] Picked tile ${tileId} at cell (${cellX}, ${cellY})`);
@@ -1200,7 +1220,7 @@ export class TileEditorPanel {
       }
 
       if (changed) {
-        this._scheduleCollisionRebuild(layer);
+        this._scheduleCollisionRebuild(layer, tileset);
         this._onLayerPainted?.(tilemap.assetId, layer.layerId);
       }
     }
@@ -1222,7 +1242,8 @@ export class TileEditorPanel {
     if (!layer) return;
     this._redoStack.push({ layerId: layer.layerId, tiles: { ...layer.tiles } });
     layer.tiles = snapshot.tiles;
-    this._scheduleCollisionRebuild(layer);
+    const tileset = this._tilesets.find(t => t.assetId === this._activeTilemap!.tilesetId);
+    this._scheduleCollisionRebuild(layer, tileset);
     this._emitChanged();
   }
 
@@ -1233,18 +1254,25 @@ export class TileEditorPanel {
     if (!layer) return;
     this._undoStack.push({ layerId: layer.layerId, tiles: { ...layer.tiles } });
     layer.tiles = snapshot.tiles;
-    this._scheduleCollisionRebuild(layer);
+    const tileset = this._tilesets.find(t => t.assetId === this._activeTilemap!.tilesetId);
+    this._scheduleCollisionRebuild(layer, tileset);
     this._emitChanged();
   }
 
   // ---- Collision rebuild (debounced 200ms) ----
 
-  private _scheduleCollisionRebuild(layer: TilemapLayer): void {
+  private _scheduleCollisionRebuild(layer: TilemapLayer, tileset?: TilesetAsset): void {
+    if (!tileset) return;
+    this._pendingCollisionRebuilds.set(layer.layerId, { layer, tileset });
     if (this._collisionRebuildTimer) clearTimeout(this._collisionRebuildTimer);
     this._collisionRebuildTimer = setTimeout(() => {
-      if (this._activeTileset && this._physics2DWorld) {
-        this._collisionBuilder.rebuild(layer, this._physics2DWorld, this._activeTileset);
+      if (this._physics2DWorld) {
+        for (const { layer: queuedLayer, tileset: queuedTileset } of this._pendingCollisionRebuilds.values()) {
+          this._collisionBuilder.rebuild(queuedLayer, this._physics2DWorld, queuedTileset);
+        }
       }
+      this._pendingCollisionRebuilds.clear();
+      this._collisionRebuildTimer = null;
     }, 200);
   }
 
@@ -2275,7 +2303,13 @@ export class TileEditorPanel {
 
   dispose(): void {
     if (this._collisionRebuildTimer) clearTimeout(this._collisionRebuildTimer);
+    this._collisionRebuildTimer = null;
+    this._pendingCollisionRebuilds.clear();
     if (this._animPaletteTimer) clearInterval(this._animPaletteTimer);
+    this._animPaletteTimer = null;
+    this._paletteCanvas.removeEventListener('mousedown', this._onPaletteMouseDownBound);
+    this._paletteCanvas.removeEventListener('mousemove', this._onPaletteMouseMoveBound);
+    window.removeEventListener('mouseup', this._onPaletteMouseUpBound);
     this._container.innerHTML = '';
   }
 }

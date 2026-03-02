@@ -25,6 +25,7 @@ let renderer: THREE.WebGLRenderer | null = null;
 let renderPipeline: RenderPipeline | null = null;
 let engine: Engine | null = null;
 let animationId: number | null = null;
+let sessionToken = 0;
 
 // FPS tracking
 let lastTime = performance.now();
@@ -116,13 +117,17 @@ function gameLoop(time: number): void {
 // ---- Start gameplay ----
 
 async function startGameplay(sceneData: any): Promise<void> {
+  stopGameplay();
+  const token = ++sessionToken;
+  loadingOverlay.classList.remove('hidden');
   console.log('[Gameplay] Starting gameplay with scene data:', sceneData);
 
   // Initialize engine
-  engine = new Engine();
-  engine.onPrint = (msg: any) => {
+  const runtimeEngine = new Engine();
+  runtimeEngine.onPrint = (msg: any) => {
     console.log('[Game]', msg);
   };
+  engine = runtimeEngine;
 
   // Hydrate Sound Library from editor data and wire the Sound Cue resolver
   if (!SoundLibrary.instance) new SoundLibrary();
@@ -130,7 +135,7 @@ async function startGameplay(sceneData: any): Promise<void> {
     if (sceneData.soundData.sounds) SoundLibrary.instance!.importAllSounds(sceneData.soundData.sounds);
     if (sceneData.soundData.cues) SoundLibrary.instance!.importAllCues(sceneData.soundData.cues);
   }
-  engine.audio.setSoundCueResolver((cueId: string) => {
+  runtimeEngine.audio.setSoundCueResolver((cueId: string) => {
     return SoundLibrary.instance?.resolveCueToSoundURL(cueId) ?? null;
   });
 
@@ -142,7 +147,7 @@ async function startGameplay(sceneData: any): Promise<void> {
       try {
         console.log('[Gameplay] Creating game object:', goData.name);
 
-        const go = engine.scene.addGameObjectFromAsset(
+        const go = runtimeEngine.scene.addGameObjectFromAsset(
           goData.actorAssetId || goData.id,
           goData.name,
           goData.meshType,
@@ -172,20 +177,21 @@ async function startGameplay(sceneData: any): Promise<void> {
       }
     }
 
-    console.log('[Gameplay] Scene loaded:', engine.scene.gameObjects.length, 'game objects');
+    console.log('[Gameplay] Scene loaded:', runtimeEngine.scene.gameObjects.length, 'game objects');
   }
 
   // Wait for async mesh loads then start physics
-  await engine.scene.waitForMeshLoads();
-  engine.physics.play(engine.scene);
+  await runtimeEngine.scene.waitForMeshLoads();
+  if (token !== sessionToken || engine !== runtimeEngine) return;
+  runtimeEngine.physics.play(runtimeEngine.scene);
 
   // Initialize Render Pipeline
-  if (renderer && engine) {
-    const cam = engine.characterControllers.getActiveCamera()
-      ?? engine.spectatorControllers.getActiveCamera()
-      ?? engine.playerControllers.getActiveCamera()
+  if (renderer) {
+    const cam = runtimeEngine.characterControllers.getActiveCamera()
+      ?? runtimeEngine.spectatorControllers.getActiveCamera()
+      ?? runtimeEngine.playerControllers.getActiveCamera()
       ?? new THREE.PerspectiveCamera();
-    renderPipeline = new RenderPipeline(renderer, engine.scene.threeScene, cam);
+    renderPipeline = new RenderPipeline(renderer, runtimeEngine.scene.threeScene, cam);
     
     // Try to find PostProcessVolumeActor settings in sceneData
     if (sceneData.composition && sceneData.composition.actors) {
@@ -198,8 +204,9 @@ async function startGameplay(sceneData: any): Promise<void> {
 
   // Start game runtime
   if (canvas) {
-    await engine.onPlayStarted(canvas);
+    await runtimeEngine.onPlayStarted(canvas);
   }
+  if (token !== sessionToken || engine !== runtimeEngine) return;
 
   // Hide loading overlay
   loadingOverlay.classList.add('hidden');
@@ -215,6 +222,7 @@ async function startGameplay(sceneData: any): Promise<void> {
 
 function stopGameplay(): void {
   console.log('[Gameplay] Stopping gameplay');
+  sessionToken++;
 
   // Cancel animation frame
   if (animationId !== null) {
@@ -227,6 +235,15 @@ function stopGameplay(): void {
     engine.onPlayStopped();
     engine = null;
   }
+
+  if (renderPipeline) {
+    renderPipeline.dispose();
+    renderPipeline = null;
+  }
+
+  frames = 0;
+  fpsUpdateTime = 0;
+  lastTime = performance.now();
 
   console.log('[Gameplay] Gameplay stopped');
 }

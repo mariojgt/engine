@@ -102,7 +102,7 @@ function generateTauriConfig(
     identifier: ps.bundleId ?? `com.feathergame.${gameName.toLowerCase().replace(/\s+/g, '')}`,
     build: {
       beforeDevCommand: 'npm run dev',
-      beforeBuildCommand: 'npm install && npm run build',
+      beforeBuildCommand: 'npm run build',
       frontendDist: '../dist',
       devUrl: 'http://localhost:5173',
     },
@@ -2703,6 +2703,16 @@ main().catch(err => {
     const cookedExists = await invoke<boolean>('file_exists', { path: `${gameProjDir}/public/project-data` });
     this._log(`    ${cookedExists ? '✓' : '✗'} public/project-data/`);
 
+    // Ensure JS dependencies are installed before cargo tauri invokes beforeBuildCommand.
+    // Cached by package.json hash to avoid reinstalling every build.
+    const depsReady = await this._ensureDependencies(gameProjDir);
+    if (!depsReady.success) {
+      return {
+        success: false,
+        message: `Dependency install failed: ${depsReady.message}`,
+      };
+    }
+
     this._log(`  Running build command...`);
     const buildStart = Date.now();
 
@@ -2752,6 +2762,56 @@ main().catch(err => {
         message: `Could not run build command: ${e?.message ?? e}.\nMake sure Rust and the Tauri CLI are installed.`,
       };
     }
+  }
+
+  private async _ensureDependencies(gameProjDir: string): Promise<{ success: boolean; message: string }> {
+    const pkgPath = `${gameProjDir}/package.json`;
+    const nodeModulesPath = `${gameProjDir}/node_modules`;
+    const stampPath = `${gameProjDir}/.feather-deps.stamp`;
+
+    try {
+      const pkgRaw = await invoke<string>('read_file', { path: pkgPath });
+      const pkgHash = this._hashString(pkgRaw);
+
+      const [hasNodeModules, oldStamp] = await Promise.all([
+        invoke<boolean>('file_exists', { path: nodeModulesPath }).catch(() => false),
+        invoke<string>('read_file', { path: stampPath }).catch(() => ''),
+      ]);
+
+      if (hasNodeModules && oldStamp.trim() === pkgHash) {
+        this._log('  ✓ Reusing cached node_modules (package.json unchanged)');
+        return { success: true, message: 'cached' };
+      }
+
+      this._log('  Installing dependencies (package changed or cache missing)...');
+      const result = await invoke<{ exitCode: number; stdout: string; stderr: string }>('run_build_command', {
+        cwd: gameProjDir,
+        command: this._getNpmCmd(),
+        args: ['install', '--prefer-offline', '--no-audit', '--no-fund'],
+      });
+
+      if (result.exitCode !== 0) {
+        return { success: false, message: result.stderr || result.stdout || 'npm install failed' };
+      }
+
+      await invoke('write_file', { path: stampPath, contents: pkgHash });
+      return { success: true, message: 'installed' };
+    } catch (e: any) {
+      return { success: false, message: e?.message ?? String(e) };
+    }
+  }
+
+  private _getNpmCmd(): string {
+    return navigator.userAgent.toLowerCase().includes('windows') ? 'npm.cmd' : 'npm';
+  }
+
+  private _hashString(input: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
   }
 
   private async _copyArtifactsToOutput(gameProjDir: string, outputDir: string, platform: string): Promise<void> {

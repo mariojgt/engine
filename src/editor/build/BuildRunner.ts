@@ -312,16 +312,18 @@ export class BuildRunner {
       }
     }
 
-    for (const scene of includedScenes) {
-      try {
-        const json = await invoke<string>('read_file', {
-          path: `${this._projectPath}/Scenes/${scene.sceneName}.json`,
-        });
-        map.set(scene.sceneName, JSON.parse(json));
-      } catch {
-        // Scene missing — will be caught by validation
-      }
-    }
+    await Promise.all(
+      includedScenes.map(async (scene) => {
+        try {
+          const json = await invoke<string>('read_file', {
+            path: `${this._projectPath}/Scenes/${scene.sceneName}.json`,
+          });
+          map.set(scene.sceneName, JSON.parse(json));
+        } catch {
+          // Scene missing — will be caught by validation
+        }
+      }),
+    );
 
     return map;
   }
