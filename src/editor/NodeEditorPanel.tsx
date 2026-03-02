@@ -3432,7 +3432,7 @@ function genAction(
   if (node.label === 'Open Level') {
     const nS = inputSrc.get(`${nodeId}.levelName`);
     const n = nS ? rv(nS.nid, nS.ok) : '""';
-    lines.push(`{ if(__engine && __engine.sceneManager) { __engine.sceneManager.loadScene(${n}); } }`);
+    lines.push(`{ if(__projectManager && ${n}) { if(__projectManager.loadSceneRuntime) __projectManager.loadSceneRuntime(${n}); else __projectManager.openScene(${n}); } else if(__engine && __engine.sceneManager) { __engine.sceneManager.loadScene(${n}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }

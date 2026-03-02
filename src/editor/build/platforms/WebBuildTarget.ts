@@ -211,6 +211,150 @@ let saved3DExposure = 0.75;
  * Set up default scene environment (lights, sky, ground) so the game
  * isn't a black void.  Loads composition.json if available, else uses defaults.
  */
+
+function _applyExposeOnSpawnOverrides(code: string, overrides: Record<string, any>): string {
+  let newCode = code;
+  for (const [key, val] of Object.entries(overrides)) {
+    const rawVal = JSON.stringify(val);
+    const regex = new RegExp('var\\\\s+' + key + '\\\\s*=\\\\s*__gameInstance(\\\\..+?)?;', 'g');
+    if (regex.test(newCode)) {
+      newCode = newCode.replace(regex, 'var ' + key + ' = ' + rawVal + ';');
+    } else {
+      newCode = newCode.replace(new RegExp('var\\\\s+' + key + '\\\\s*=[^;]+;', 'g'), 'var ' + key + ' = ' + rawVal + ';');
+    }
+  }
+  return newCode;
+}
+function spawnRuntimeActor(classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) {
+  const go = engine.scene.spawnActorFromClass(classId, className, pos, rot, sc, owner, overrides);
+  if (go && is2DScene && typeof root2D !== 'undefined' && root2D) {
+    const goData = (engine as any).assetManager?.getAsset(classId);
+    if (!goData) return go;
+    try {
+      const components = goData.components ?? [];
+      const sprComp = components.find((c: any) => c.type === 'spriteRenderer');
+      const rb2dComp = components.find((c: any) => c.type === 'rigidbody2d');
+      const allCollider2dComps: any[] = components.filter((c: any) => c.type === 'collider2d');
+      const solidColliders = allCollider2dComps.filter((c: any) => !c.isTrigger);
+      const primaryCollider = solidColliders[0] ?? allCollider2dComps[0] ?? null;
+      const cm2dComp = components.find((c: any) => c.type === 'characterMovement2d');
+      
+      const colliderShape = (primaryCollider?.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule';
+      const colW = primaryCollider?.collider2dSize?.width ?? 0.8;
+      const colH = primaryCollider?.collider2dSize?.height ?? 1.0;
+      
+      const additionalColliders = allCollider2dComps
+        .filter((c: any) => c !== primaryCollider)
+        .map((c: any) => ({
+          shape: (c.collider2dShape ?? 'box') as 'box' | 'circle' | 'capsule',
+          size: c.collider2dSize ? { width: c.collider2dSize.width, height: c.collider2dSize.height } : undefined,
+          radius: c.collider2dRadius,
+          isTrigger: !!c.isTrigger,
+          name: c.name ?? '',
+        }));
+
+      let bodyType: 'dynamic' | 'static' | 'kinematic' | null = null;
+      if (rb2dComp) {
+        bodyType = (rb2dComp.bodyType ?? 'dynamic') as 'dynamic' | 'static' | 'kinematic';
+      } else if (goData.actorType === 'characterPawn2D') {
+        bodyType = 'dynamic';
+      } else if (allCollider2dComps.length > 0) {
+        bodyType = goData.physicsConfig?.simulatePhysics ? 'dynamic' : 'static';
+      }
+
+      const spawnPos = { x: pos?.x ?? goData.position?.x ?? 0, y: pos?.y ?? goData.position?.y ?? 0 };
+      const movCfg = goData.characterMovement2DConfig ?? {};
+      const rootPhys = goData.physicsConfig;
+
+      const actorConfig: any = {
+        name: goData.name,
+        actorType: goData.actorType,
+        position: spawnPos,
+        physicsBodyType: bodyType,
+        colliderShape,
+        colliderSize: { width: colW, height: colH },
+        colliderRadius: primaryCollider?.collider2dRadius,
+        componentName: primaryCollider?.name || 'Collider2D',
+        isTrigger: primaryCollider?.isTrigger ?? false,
+        additionalColliders,
+        sortingLayer: sprComp?.sortingLayer ?? 'Default',
+        orderInLayer: sprComp?.orderInLayer ?? 0,
+        freezeRotation: movCfg.freezeRotation ?? rb2dComp?.freezeRotation ?? rootPhys?.lockRotationZ ?? true,
+        ccdEnabled: rb2dComp?.ccdEnabled ?? rootPhys?.ccdEnabled ?? true,
+        gravityScale: movCfg.gravityScale ?? rb2dComp?.gravityScale ?? rootPhys?.gravityScale ?? 1.0,
+        linearDamping: movCfg.linearDrag ?? rb2dComp?.linearDamping ?? rootPhys?.linearDamping ?? 0.0,
+        angularDamping: rb2dComp?.angularDamping ?? rootPhys?.angularDamping ?? 0.05,
+        mass: rb2dComp?.mass ?? rootPhys?.mass ?? 1.0,
+        friction: rb2dComp?.friction ?? rootPhys?.friction ?? 0.5,
+        restitution: rb2dComp?.restitution ?? rootPhys?.restitution ?? 0.1,
+        characterMovement2D: !!cm2dComp || goData.actorType === 'characterPawn2D',
+        blueprintId: goData.actorAssetId ?? undefined,
+      };
+
+      const actor = new SpriteActor(actorConfig);
+      actor.id = go.id; 
+      actor.controllerClass = goData.controllerClass ?? 'None';
+      actor.controllerBlueprintId = goData.controllerBlueprintId ?? '';
+
+      actor.spriteRenderer.material.color.setHex(0xffffff);
+      actor.spriteRenderer.material.transparent = true;
+
+      if (sprComp?.flipX) actor.spriteRenderer.flipX = true;
+      if (sprComp?.flipY) actor.spriteRenderer.flipY = true;
+      if (sprComp?.spriteScale) actor.spriteRenderer.spriteScale = { x: sprComp.spriteScale.x, y: sprComp.spriteScale.y };
+      if (sprComp?.spriteOffset) actor.spriteRenderer.spriteOffset = { x: sprComp.spriteOffset.x, y: sprComp.spriteOffset.y };
+
+      actor.animBlueprintId = sprComp?.animBlueprint2dId ?? null;
+
+      root2D.add(actor.group);
+      if (sortingLayerMgr) actor.applySorting(sortingLayerMgr);
+
+      if (physics2D && bodyType) {
+        actor.attachPhysicsBody(physics2D, actorConfig);
+        const rbComp = actor.getComponent('RigidBody2D');
+        if (rbComp?.rigidBody) {
+          const gs = movCfg.gravityScale ?? rb2dComp?.gravityScale ?? rootPhys?.gravityScale ?? 1.0;
+          rbComp.rigidBody.setGravityScale(gs, true);
+        }
+      }
+
+      if (cm2dComp || goData.actorType === 'characterPawn2D') {
+        const moveProps = {
+          defaultWalkSpeed: 300, jumpZVelocity: 600, gravityScale: 1, airControl: 0.2, coyoteTime: 0.1, jumpBufferTime: 0.1, maxFallSpeed: 1000,
+          ...movCfg,
+        };
+        const cm2d = new CharacterMovement2D(moveProps);
+        cm2d.attach(actor);
+        actor.characterMovement2D = cm2d;
+        actor.setComponent('CharacterMovement2D', cm2d);
+      }
+
+      if (go.mesh) go.mesh.visible = false;
+      
+      if (goData.compiledCode) {
+        (actor as any).__actorBlueprintCode = goData.compiledCode;
+        if (overrides && Object.keys(overrides).length > 0) {
+          (actor as any).__actorBlueprintCode = _applyExposeOnSpawnOverrides((actor as any).__actorBlueprintCode, overrides);
+        }
+      }
+
+      spriteActors2D.push(actor);
+
+      // Reload AnimBP data so newly spawned actors get their sprite sheets set correctly
+      if (typeof loadAnimBP2DData === 'function') {
+        loadAnimBP2DData().catch(e => console.warn('AnimBP delay:', e));
+      }
+
+      console.log('[Runtime 2D] Spawning actor', classId, 'at', pos);
+      return actor; 
+    } catch (e) {
+      console.warn('[Runtime 2D] Failed to spawn 2D actor at runtime:', e);
+    }
+  }
+  return go;
+}
+
+
 async function setupSceneEnvironment(threeScene: THREE.Scene): Promise<void> {
   // Skip 3D environment for 2D scenes
   if (is2DScene) {
@@ -873,10 +1017,10 @@ function runActorBlueprintScript(actor: SpriteActor, deltaTime: number): void {
     get _playCanvas() { return canvas; },
     input: engine.input,
     uiManager: (engine as any).uiManager ?? null,
-    spawnActor: (_classId: string, _className: string, _pos: any, _rot: any, _sc: any, _owner: any, _overrides: any) => {
-      console.warn('[Runtime 2D] spawnActor not yet supported in build runtime');
-      return null;
-    },
+    spawnActor: spawnRuntimeActor,
+    quit: () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } },
+    quit: () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } },
+    quit: () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } },
   };
 
   const ctx = {
@@ -889,6 +1033,8 @@ function runActorBlueprintScript(actor: SpriteActor, deltaTime: number): void {
     animInstance:  null,
     engine:       engineShim,
     gameInstance:  (engine as any).gameInstance ?? null,
+    projectManager: (engine as any).projectManager ?? null,
+    projectManager: (engine as any).projectManager ?? null,
   };
 
   if (!ev.started) {
@@ -918,8 +1064,10 @@ function flushPendingDestroys(): void {
             physics: null,
             scene: { get gameObjects() { return spriteActors2D as any[]; }, findById: () => null, destroyActor: () => {} },
             animInstance: null,
-            engine: { scene2DManager: null, navMeshSystem: null, _DragSelectionComponent: null, eventBus: EventBus.getInstance(), get _playCanvas() { return canvas; }, input: engine.input, uiManager: null, spawnActor: () => null },
-            gameInstance: (engine as any).gameInstance ?? null,
+            engine: { scene2DManager: null, navMeshSystem: null, _DragSelectionComponent: null, eventBus: EventBus.getInstance(), get _playCanvas() { return canvas; }, input: engine.input, uiManager: null, spawnActor: spawnRuntimeActor },
+            gameInstance:  (engine as any).gameInstance ?? null,
+    projectManager: (engine as any).projectManager ?? null,
+    projectManager: (engine as any).projectManager ?? null,
           };
           ev.script.onDestroy(destroyCtx);
         } catch (err) {
@@ -1025,8 +1173,10 @@ function syncAnimBPVars(actor: SpriteActor, _deltaTime: number): void {
     physics: { collision: { registerCallbacks: () => ({ onBeginOverlap: [], onEndOverlap: [], onHit: [] }) }, world: null },
     scene: { get gameObjects() { return spriteActors2D as any[]; }, findById: (id: number) => spriteActors2D.find(a => (a as any).id === id) ?? null, destroyActor: () => {} },
     animInstance: { variables: varShim, asset: abp },
-    engine: { scene2DManager: null, navMeshSystem: null, _DragSelectionComponent: null, eventBus: EventBus.getInstance(), get _playCanvas() { return canvas; }, input: engine.input, uiManager: (engine as any).uiManager ?? null, spawnActor: () => null },
-    gameInstance: (engine as any).gameInstance ?? null,
+    engine: { scene2DManager: null, navMeshSystem: null, _DragSelectionComponent: null, eventBus: EventBus.getInstance(), get _playCanvas() { return canvas; }, input: engine.input, uiManager: (engine as any).uiManager ?? null, spawnActor: spawnRuntimeActor },
+    gameInstance:  (engine as any).gameInstance ?? null,
+    projectManager: (engine as any).projectManager ?? null,
+    projectManager: (engine as any).projectManager ?? null,
   };
 
   if (!ev.started) {
@@ -1890,6 +2040,9 @@ async function main() {
 
   // Wire up the projectManager shim so blueprint scripts can switch scenes
   engine.projectManager = runtimeProjectManager;
+  (engine as any).quit = () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } };
+  (engine as any).quit = () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } };
+  (engine as any).quit = () => { console.log('[Runtime] Quit requested'); if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) { (window as any).__TAURI_INTERNALS__.invoke('plugin:process|exit', { code: 0 }).catch(()=>window.close()); } else if (typeof window !== 'undefined') { window.close(); } };
 
   // Load mesh assets (mesh bundles with materials/textures) into MeshAssetManager
   setProgress(13, 'Loading mesh assets...');
