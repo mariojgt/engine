@@ -2,8 +2,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
-import type { PhysicsConfig } from '../editor/ActorAsset';
-import { defaultPhysicsConfig } from '../editor/ActorAsset';
+import type { PhysicsConfig } from '../runtime/RuntimeTypes';
+import { defaultPhysicsConfig } from '../runtime/RuntimeTypes';
 import { CollisionSystem } from './CollisionSystem';
 import { PhysicsDebugDrawer } from './PhysicsDebugDrawer';
 

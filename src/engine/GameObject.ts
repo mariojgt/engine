@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Component } from './Component';
 import type { ScriptComponent } from './ScriptComponent';
-import { BlueprintData } from '../editor/BlueprintData';
-import type { PhysicsConfig, ActorType } from '../editor/ActorAsset';
+import { BlueprintData } from '../runtime/BlueprintData';
+import type { PhysicsConfig, ActorType } from '../runtime/RuntimeTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
 import type { SpectatorPawnConfig } from './SpectatorController';
 import type { Transform, Vector3Like } from './Transform';

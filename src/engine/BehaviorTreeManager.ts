@@ -16,7 +16,7 @@ import {
   BTCustomTask,
 } from './ai/BehaviorTree';
 
-import type { BehaviorTreeAsset, BTNodeData } from '../editor/ai/AIAssetManager';
+import type { BehaviorTreeAsset, BTNodeData } from '../runtime/RuntimeTypes';
 
 export class BehaviorTreeManager {
   /** Reference back to the AIAssetManager so we can look up assets by ID */

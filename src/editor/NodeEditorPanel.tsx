@@ -1034,7 +1034,7 @@ function resolveValue(
     return `(gameObject.name)`;
   }
   if (node.label === 'Get Anim State 2D') {
-    return `(__engine.anim2d.getCurrentState(this))`;
+    return `(__engine.anim2d.getCurrentState(gameObject))`;
   }
 
   // ============================================================
@@ -1042,7 +1042,7 @@ function resolveValue(
   // ============================================================
   if (node.label === 'Get Anim Variable 2D') {
     const varName = resolveValue(nodeId, 'varName', nodeMap, inputSrc, bp);
-    return `(__engine.anim2d.getVariable(this, ${varName}))`;
+    return `(__engine.anim2d.getVariable(gameObject, ${varName}))`;
   }
 
   // ============================================================
@@ -3497,7 +3497,7 @@ function genAction(
     const condition = resolveValue(nodeId, 'condition', nodeMap, inputSrc, bp);
     const fromState = resolveValue(nodeId, 'fromState', nodeMap, inputSrc, bp);
     const toState = resolveValue(nodeId, 'toState', nodeMap, inputSrc, bp);
-    lines.push(`if (${condition}) { __engine.anim2d.transitionState(this, ${fromState}, ${toState}); }`);
+    lines.push(`if (${condition}) { __engine.anim2d.transitionState(gameObject, ${fromState}, ${toState}); }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }

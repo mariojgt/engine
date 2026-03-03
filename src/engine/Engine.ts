@@ -11,14 +11,17 @@ import { NavMeshSystem } from './ai/NavMeshSystem';
 import type { Controller } from './Controller';
 import type { AnimationInstance } from './AnimationInstance';
 import { UIManager } from './UIManager';
-import { MeshAssetManager, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
-import { loadMeshFromAsset } from '../editor/MeshImporter';
+import { tryGetEngineDeps } from '../runtime/EngineDeps';
 import { GameInstance } from './GameInstance';
 import { DragSelectionComponent } from './DragSelectionComponent';
 import { AudioEngine } from './AudioSystem';
 import { EventBus } from './EventBus';
 import { ParticleSystemManager } from './ParticleSystem';
+import { SaveLoadSystem } from './SaveLoadSystem';
 import { InputManager } from './InputManager';
+
+// Expose THREE on globalThis so blueprint `new Function()` closures can access it
+(globalThis as any).THREE = THREE;
 
 export class Engine {
   public scene: Scene;
@@ -61,14 +64,14 @@ export class Engine {
    * Optional reference to the asset manager.
    * Set by the editor so the engine can resolve controller blueprint assets.
    */
-  public assetManager: import('../editor/ActorAsset').ActorAssetManager | null = null;
+  public assetManager: any = null;
 
   /**
    * Optional reference to the AI asset manager.
    * Set by the editor so the engine can resolve AI controller blueprints
    * created in the AI section of the content browser.
    */
-  public aiAssetManager: import('../editor/ai/AIAssetManager').AIAssetManager | null = null;
+  public aiAssetManager: any = null;
 
   /**
    * BehaviorTreeManager — bridges BT assets to runtime BehaviorTree instances.
@@ -82,6 +85,13 @@ export class Engine {
   /** ProjectManager reference so blueprint nodes can switch scenes at runtime */
   public projectManager: any = null;
 
+  /**
+   * ActorAssetManager adapter — provides class hierarchy queries for blueprint nodes.
+   * Methods: getAsset(id), getParentClass(id), getChildClasses(id), isChildOf(id, parentId), getAncestryChain(id)
+   * Set by the editor (main.ts) at init time.
+   */
+  public actorAssetManager: any = null;
+
   /** Persistent Game Instance — survives scene loads, destroyed only on play stop */
   public gameInstance: GameInstance | null = null;
 
@@ -93,6 +103,63 @@ export class Engine {
 
   /** 2D Scene Manager reference for 2D camera and sprite nodes */
   public scene2DManager: any = null;
+
+  /**
+   * 2D AnimBP subsystem — provides getCurrentState, getVariable, transitionState
+   * so blueprint nodes like "Get Current Anim State", "Get Anim Variable",
+   * and "Transition Anim State" work in editor Play mode.
+   * Wired by main.ts from Scene2DManager's internal state.
+   */
+  public anim2d: any = null;
+
+  /** Save/Load system — blueprint nodes use __engine.saveLoad */
+  public saveLoad: SaveLoadSystem = new SaveLoadSystem();
+
+  /** Timer manager — blueprint nodes use __engine.timerManager */
+  public timerManager = {
+    _timers: new Map<number, { fn: () => void; interval: number; looping: boolean; paused: boolean; remaining: number; elapsed: number }>(),
+    _next: 1,
+    setTimer(fn: () => void, interval: number, looping: boolean): number {
+      const h = this._next++;
+      this._timers.set(h, { fn, interval, looping, paused: false, remaining: interval, elapsed: 0 });
+      return h;
+    },
+    clearTimer(handle: number) { this._timers.delete(handle); },
+    pauseTimer(handle: number) { const t = this._timers.get(handle); if (t) t.paused = true; },
+    unpauseTimer(handle: number) { const t = this._timers.get(handle); if (t) t.paused = false; },
+    isTimerActive(handle: number) { return this._timers.has(handle); },
+    isTimerPaused(handle: number) { return this._timers.get(handle)?.paused ?? false; },
+    getTimerRemainingTime(handle: number) { return this._timers.get(handle)?.remaining ?? 0; },
+    getTimerElapsedTime(handle: number) { return this._timers.get(handle)?.elapsed ?? 0; },
+    tick(dt: number) {
+      for (const [h, t] of this._timers) {
+        if (t.paused) continue;
+        t.remaining -= dt;
+        t.elapsed += dt;
+        if (t.remaining <= 0) {
+          try { t.fn(); } catch (e) { console.error('[Timer] Error in timer callback:', e); }
+          if (t.looping) { t.remaining = t.interval; t.elapsed = 0; }
+          else { this._timers.delete(h); }
+        }
+      }
+    },
+    clearAllTimers() { this._timers.clear(); },
+  };
+
+  /** Legacy alias for timerManager */
+  public get timers() { return this.timerManager; }
+
+  /** Particle system manager — blueprint nodes use __engine.particleManager */
+  public particleManager: ParticleSystemManager = ParticleSystemManager.getInstance();
+
+  /** Game pause state — blueprint nodes read/write __engine.isPaused */
+  public isPaused = false;
+
+  /** Game mode reference — blueprint nodes read __engine.gameMode */
+  public gameMode: any = null;
+
+  /** Game state reference — blueprint nodes read __engine.gameState */
+  public gameState: any = null;
 
   /** Cached ScriptContext to avoid per-frame allocations */
   private _cachedCtx: ScriptContext = {
@@ -107,6 +174,7 @@ export class Engine {
     loadMeshFromAsset: null,
     buildThreeMaterialFromAsset: null,
     projectManager: null,
+    actorAssetManager: null,
     gameInstance: null,
     engine: null,
   };
@@ -119,9 +187,11 @@ export class Engine {
     this._cachedCtx.physics = this.physics;
     this._cachedCtx.scene = this.scene;
     this._cachedCtx.uiManager = this.uiManager;
-    this._cachedCtx.meshAssetManager = MeshAssetManager.getInstance();
-    this._cachedCtx.loadMeshFromAsset = loadMeshFromAsset;
-    this._cachedCtx.buildThreeMaterialFromAsset = buildThreeMaterialFromAsset;
+    // Wire mesh asset providers from EngineDeps (or null if not yet initialized)
+    const deps = tryGetEngineDeps();
+    this._cachedCtx.meshAssetManager = deps?.meshAssets ?? null;
+    this._cachedCtx.loadMeshFromAsset = deps?.loadMeshFromAsset ?? null;
+    this._cachedCtx.buildThreeMaterialFromAsset = deps?.buildMaterialFromAsset ?? null;
     this._cachedCtx.engine = this;
   }
 
@@ -264,6 +334,7 @@ export class Engine {
     this._cachedCtx.elapsedTime = elapsed;
     this._cachedCtx.projectManager = this.projectManager;
     this._cachedCtx.gameInstance = this.gameInstance;
+    this._cachedCtx.actorAssetManager = this.actorAssetManager;
     return this._cachedCtx;
   }
 
@@ -283,6 +354,10 @@ export class Engine {
       this.input.bindEvents(canvas);
       this._playCanvas = canvas;
     }
+
+    // ── 0. Initialize save/load system with project path ──
+    const projPath = this.projectManager?.projectPath ?? '';
+    this.saveLoad.initialize(projPath);
 
     // ── 0a. Wire runtime references into Scene so spawnActorFromClass / destroyActor work ──
     this.scene._runtimePhysics = this.physics;
@@ -451,7 +526,7 @@ export class Engine {
     // Uses the class ID configured in Project Settings (like UE's Game Instance Class).
     // Falls back to the first available Game Instance blueprint if none is configured.
     if (!this.gameInstance && this.gameInstanceManager) {
-      const assets = this.gameInstanceManager.assets as import('../editor/GameInstanceData').GameInstanceBlueprintAsset[];
+      const assets = this.gameInstanceManager.assets as any[];
       let targetAsset = null;
       if (this.gameInstanceClassId) {
         targetAsset = assets.find((a: any) => a.id === this.gameInstanceClassId) || null;
@@ -616,6 +691,15 @@ export class Engine {
     // Clear global event bus
     this.eventBus.clear();
 
+    // Shut down save system & clear timers
+    this.saveLoad.shutdown();
+    this.timerManager.clearAllTimers();
+
+    // Reset play-session state
+    this.isPaused = false;
+    this.gameMode = null;
+    this.gameState = null;
+
     console.log(`[Engine] onPlayStopped: ${scriptCount} scripts received onDestroy`);
     this._playStarted = false;
     this._elapsedTime = 0;
@@ -636,6 +720,9 @@ export class Engine {
     // Run scripts on all game objects (tick)
     if (this.physics.isPlaying) {
       this._elapsedTime += dt;
+
+      // Tick timer manager (blueprint Set Timer nodes)
+      this.timerManager.tick(dt);
       for (const go of this.scene.gameObjects) {
         // Skip destroyed actors and actors with tick disabled
         if (go.isDestroyed || !go.__tickEnabled) continue;

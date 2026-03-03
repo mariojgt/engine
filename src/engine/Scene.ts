@@ -1,15 +1,13 @@
 import * as THREE from 'three';
 import { GameObject } from './GameObject';
 import { ScriptComponent } from './ScriptComponent';
-import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType, SkeletalMeshConfig } from '../editor/ActorAsset';
-import { defaultLightConfig, ActorAssetManager } from '../editor/ActorAsset';
+import type { PhysicsConfig, ActorComponentData, LightConfig, ActorType, SkeletalMeshConfig } from '../runtime/RuntimeTypes';
+import { defaultLightConfig } from '../runtime/RuntimeTypes';
 import type { CollisionConfig, BoxShapeDimensions, SphereShapeDimensions, CapsuleShapeDimensions } from './CollisionTypes';
 import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
-import { MeshAssetManager, type MeshAsset, buildThreeMaterialFromAsset } from '../editor/MeshAsset';
-import { loadMeshFromAsset } from '../editor/MeshImporter';
+import { tryGetEngineDeps } from '../runtime/EngineDeps';
 import { AnimationInstance } from './AnimationInstance';
-import { AnimBlueprintManager } from '../editor/AnimBlueprintData';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
@@ -47,7 +45,7 @@ export class Scene {
    * Optional reference to the ActorAssetManager.
    * Set by the editor/engine so runtime spawning can look up actor classes.
    */
-  public assetManager: ActorAssetManager | null = null;
+  public assetManager: any = null;
 
   /**
    * Runtime references — set by Engine at play start, cleared at play stop.
@@ -143,7 +141,10 @@ export class Scene {
 
     // Load the actual mesh asynchronously
     try {
-      const { scene: loadedScene, animations } = await loadMeshFromAsset(meshAsset);
+      const deps = tryGetEngineDeps();
+      const loadFn = deps?.loadMeshFromAsset;
+      if (!loadFn) throw new Error('loadMeshFromAsset not available via EngineDeps');
+      const { scene: loadedScene, animations } = await loadFn(meshAsset);
 
       // Replace the placeholder geometry with the loaded mesh
       // Remove placeholder from scene
@@ -203,7 +204,7 @@ export class Scene {
     assetId: string,
     assetName: string,
     meshType: RootMeshType,
-    blueprintData: import('../editor/BlueprintData').BlueprintData,
+    blueprintData: import('../runtime/BlueprintData').BlueprintData,
     position?: { x: number; y: number; z: number },
     components?: ActorComponentData[],
     compiledCode?: string,
@@ -287,8 +288,18 @@ export class Scene {
       return null;
     }
 
-    // Clone blueprint data from the asset
-    const bpData = asset.blueprintData;
+    // Clone blueprint data from the asset.
+    // Cooked actor JSONs store blueprint fields (variables, functions, etc.) at the
+    // top level rather than inside a nested `blueprintData` object — synthesise one
+    // if necessary so the downstream code always has a valid object to read from.
+    const bpData = asset.blueprintData ?? {
+      variables: asset.variables ?? [],
+      functions: asset.functions ?? [],
+      macros: asset.macros ?? [],
+      customEvents: asset.customEvents ?? [],
+      structs: asset.structs ?? [],
+      eventGraph: asset.eventGraphData ?? { nodes: [], connections: [] },
+    };
     let origVars: typeof bpData.variables | null = null;
 
     // Apply Expose on Spawn overrides — temporarily swap variable defaults
@@ -361,6 +372,7 @@ export class Scene {
     // Fire BeginPlay on the spawned actor's scripts immediately
     const printFn = this._runtimePrint ?? ((v: any) => console.log('[Print]', v));
     for (const script of go.scripts) {
+      const _deps = tryGetEngineDeps();
       const ctx: import('./ScriptComponent').ScriptContext = {
         gameObject: go,
         deltaTime: 0,
@@ -369,9 +381,9 @@ export class Scene {
         physics: this._runtimePhysics,
         scene: this,
         uiManager: this._runtimeUiManager,
-        meshAssetManager: MeshAssetManager.getInstance(),
-        loadMeshFromAsset,
-        buildThreeMaterialFromAsset,
+        meshAssetManager: _deps?.meshAssets ?? null,
+        loadMeshFromAsset: _deps?.loadMeshFromAsset ?? null,
+        buildThreeMaterialFromAsset: _deps?.buildMaterialFromAsset ?? null,
         engine: this._runtimeEngine,
       };
       script.beginPlay(ctx);
@@ -389,7 +401,7 @@ export class Scene {
     assetId: string,
     assetName: string,
     meshType: RootMeshType,
-    blueprintData: import('../editor/BlueprintData').BlueprintData,
+    blueprintData: import('../runtime/BlueprintData').BlueprintData,
     compiledCode?: string,
     components?: ActorComponentData[],
     physicsConfig?: PhysicsConfig,
@@ -540,6 +552,7 @@ export class Scene {
     const printFn = this._runtimePrint ?? ((v: any) => console.log('[Print]', v));
     for (const script of go.scripts) {
       try {
+        const _deps2 = tryGetEngineDeps();
         const ctx: import('./ScriptComponent').ScriptContext = {
           gameObject: go,
           deltaTime: 0,
@@ -548,9 +561,9 @@ export class Scene {
           physics: this._runtimePhysics,
           scene: this,
           uiManager: this._runtimeUiManager,
-          meshAssetManager: MeshAssetManager.getInstance(),
-          loadMeshFromAsset,
-          buildThreeMaterialFromAsset,
+          meshAssetManager: _deps2?.meshAssets ?? null,
+          loadMeshFromAsset: _deps2?.loadMeshFromAsset ?? null,
+          buildThreeMaterialFromAsset: _deps2?.buildMaterialFromAsset ?? null,
           engine: this._runtimeEngine,
         };
         script.onDestroy(ctx);
@@ -829,7 +842,8 @@ export class Scene {
         lightComps.push({ light: threeLight, config: cfg, name: comp.name, index: lightIdx++ });
       } else if (comp.type === 'skeletalMesh' && comp.skeletalMesh?.meshAssetId) {
         // Skeletal Mesh component — reuse existing wrapper if possible, otherwise load async
-        const meshAsset = MeshAssetManager.getAsset(comp.skeletalMesh.meshAssetId);
+        const _skDeps = tryGetEngineDeps();
+        const meshAsset = _skDeps?.meshAssets?.getAsset(comp.skeletalMesh.meshAssetId) ?? null;
         if (meshAsset) {
           const cfg = comp.skeletalMesh;
 
@@ -858,7 +872,8 @@ export class Scene {
             if (animations && animations.length > 0 && mixer) {
               // Check if an Animation Blueprint is assigned
               const abpId = cfg.animationBlueprintId;
-              const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
+              const _abpDeps = tryGetEngineDeps();
+              const abpAsset = abpId ? _abpDeps?.animBlueprints?.getAsset(abpId) : undefined;
 
               if (abpAsset) {
                 const strictMatch = !!cfg.strictSkeletonMatching;
@@ -981,7 +996,8 @@ export class Scene {
 
                 // Check if an Animation Blueprint is assigned
                 const abpId = cfg.animationBlueprintId;
-                const abpAsset = abpId ? AnimBlueprintManager.getAsset(abpId) : undefined;
+                const _abpDeps2 = tryGetEngineDeps();
+                const abpAsset = abpId ? _abpDeps2?.animBlueprints?.getAsset(abpId) : undefined;
 
                 if (abpAsset) {
                   const strictMatch = !!cfg.strictSkeletonMatching;

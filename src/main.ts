@@ -25,6 +25,9 @@ import { SceneJSON, serializeScene, deserializeScene } from './editor/SceneSeria
 import { setSceneListProvider } from './editor/nodes/utility/OpenSceneNode';
 import { iconHTML, Icons, ICON_COLORS } from './editor/icons';
 import { BuildConfigurationManager } from './editor/build/BuildConfigurationAsset';
+import { setEngineDeps } from './runtime/EngineDeps';
+import { loadMeshFromAsset } from './editor/MeshImporter';
+import { buildThreeMaterialFromAsset } from './editor/MeshAsset';
 
 async function main() {
   const app = document.getElementById('app')!;
@@ -103,6 +106,20 @@ async function main() {
   engine.assetManager = editor.assetManager;
   // Also wire into the scene so runtime spawnActorFromClass can look up actor assets
   engine.scene.assetManager = editor.assetManager;
+
+  // Build __actorAssetManager adapter for blueprint class hierarchy nodes
+  {
+    const { ClassInheritanceSystem } = await import('./editor/ClassInheritanceSystem');
+    const inh = ClassInheritanceSystem.instance;
+    const aam = editor.assetManager;
+    engine.actorAssetManager = {
+      getAsset: (id: string) => aam.getAsset(id) ?? null,
+      getParentClass: (id: string) => inh.getActorParent(id)?.id ?? '',
+      getChildClasses: (id: string) => inh.getActorChildren(id).map((e: any) => e.id),
+      isChildOf: (id: string, parentId: string) => inh.isChildOf(id, parentId),
+      getAncestryChain: (id: string) => inh.getAncestryChain(id),
+    };
+  }
 
   // Create texture and font libraries (singletons used by widget editor)
   new TextureLibrary();
@@ -218,6 +235,22 @@ async function main() {
   // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
   engine.projectManager = projectManager;
 
+  // ── Initialize EngineDeps ──
+  // This wires all editor singletons into the unified dependency injection
+  // interface so engine modules can access them without direct editor imports.
+  setEngineDeps({
+    meshAssets: meshManager,
+    actorAssets: editor.assetManager,
+    animBlueprints: animBPManager,
+    aiAssets: aiManager,
+    textures: TextureLibrary.instance as any,
+    fonts: FontLibrary.instance as any,
+    loadMeshFromAsset: loadMeshFromAsset,
+    buildMaterialFromAsset: buildThreeMaterialFromAsset,
+    gameInstanceManager: gameInstanceManager,
+    projectManager: projectManager as any,
+  });
+
   // Wire scene list provider so Open Scene node dropdown can list available scenes
   setSceneListProvider(() => projectManager.listScenes());
 
@@ -248,6 +281,53 @@ async function main() {
   // (which use __engine.scene2DManager.camera2D) resolve at runtime
   // from both actor-blueprint and AnimBP2D script contexts.
   engine.scene2DManager = editor.scene2DManager;
+
+  // Wire engine.anim2d — delegates to Scene2DManager's AnimBP state machine
+  // so blueprint nodes (Get Current Anim State, Get Anim Variable, Transition Anim State)
+  // work during editor Play mode.
+  {
+    const s2d = editor.scene2DManager;
+    engine.anim2d = {
+      getCurrentState(actor: any): string {
+        const entry = s2d.actorAnimBPStates.get(actor);
+        return entry?.currentStateId ?? '';
+      },
+      getVariable(actor: any, varName: string): any {
+        return (actor as any).__animVars?.[varName] ?? null;
+      },
+      transitionState(actor: any, fromState: string, toState: string): void {
+        const entry = s2d.actorAnimBPStates.get(actor);
+        if (!entry) return;
+        if (fromState && fromState !== '*' && entry.currentStateId !== fromState) return;
+        const sm = entry.abp?.stateMachine;
+        const targetState = sm?.states?.find((st: any) => st.id === toState);
+        entry.currentStateId = toState;
+        const animator = (actor as any).animator;
+        if (animator && targetState) {
+          if (targetState.blendSpace1D) {
+            // Use blend-space logic — pick animation based on driving variable
+            const bs = targetState.blendSpace1D;
+            const drivingVar = targetState.blendSpriteAxisVar || bs.drivingVariable;
+            const vars: Record<string, any> = (actor as any).__animVars ?? {};
+            const axisValue: number = typeof vars[drivingVar] === 'number' ? vars[drivingVar] : 0;
+            const sorted = [...(bs.samples ?? [])].sort((a: any, b: any) => a.rangeMin - b.rangeMin);
+            let best = sorted.find((s: any) => axisValue >= s.rangeMin && axisValue <= s.rangeMax);
+            if (!best && sorted.length) {
+              best = sorted.reduce((prev: any, cur: any) => {
+                const pm = (prev.rangeMin + prev.rangeMax) / 2;
+                const cm2 = (cur.rangeMin + cur.rangeMax) / 2;
+                return Math.abs(axisValue - cm2) < Math.abs(axisValue - pm) ? cur : prev;
+              });
+            }
+            if (best?.animationName) animator.play(best.animationName);
+            else if (targetState.spriteAnimationName) animator.play(targetState.spriteAnimationName);
+          } else if (targetState.spriteAnimationName) {
+            animator.play(targetState.spriteAnimationName);
+          }
+        }
+      },
+    };
+  }
 
   // Wire composition manager so environment actors (lights, sky, fog, etc.) are saved/loaded
   projectManager.setCompositionManager(editor.composition);

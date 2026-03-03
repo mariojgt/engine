@@ -7,7 +7,14 @@
 // ============================================================
 
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
-import type { GameInstanceBlueprintAsset } from '../editor/GameInstanceData';
+/** Minimal inlined type — avoids hard dependency on editor module. */
+export interface GameInstanceBlueprintAsset {
+  id: string;
+  name: string;
+  compiledCode: string;
+  blueprintData?: any;
+  eventGraph?: any;
+}
 
 export class GameInstance {
   /** The blueprint asset this instance was created from */

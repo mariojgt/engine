@@ -24,7 +24,7 @@ import * as THREE from 'three';
 import type { Scene } from './Scene';
 import type { GameObject } from './GameObject';
 import type { PhysicsWorld } from './PhysicsWorld';
-import type { PhysicsConfig } from '../editor/ActorAsset';
+import type { PhysicsConfig } from '../runtime/RuntimeTypes';
 import {
   triggerSensorGroups,
   type CollisionConfig,

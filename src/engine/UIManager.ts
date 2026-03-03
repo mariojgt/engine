@@ -27,8 +27,7 @@
 
 /** Minimal widget data needed at runtime (mirrors WidgetBlueprintData types) */
 
-import { TextureLibrary } from '../editor/TextureLibrary';
-import { FontLibrary } from '../editor/FontLibrary';
+import { tryGetEngineDeps } from '../runtime/EngineDeps';
 export interface RuntimeWidgetNode {
   id: string;
   type: string;
@@ -126,9 +125,10 @@ export class UIManager {
       return value;
     }
     // Try to resolve as texture asset ID
-    const texLib = TextureLibrary.instance;
+    const _texDeps = tryGetEngineDeps();
+    const texLib = _texDeps?.textures;
     if (texLib) {
-      const asset = texLib.getAsset(value);
+      const asset = texLib.getAsset?.(value);
       if (asset?.storedData) return asset.storedData;
     }
     return null;
@@ -137,9 +137,10 @@ export class UIManager {
   /** Resolve a font asset ID to a CSS font-family string */
   private _resolveFontFamily(value: string | undefined, fallback: string): string {
     if (!value) return fallback;
-    const fontLib = FontLibrary.instance;
+    const _fontDeps = tryGetEngineDeps();
+    const fontLib = _fontDeps?.fonts as any;
     if (fontLib) {
-      return fontLib.resolveFontFamily(value) || fallback;
+      return fontLib.resolveFontFamily?.(value) || fallback;
     }
     return fallback;
   }

@@ -107,6 +107,8 @@ export class Scene2DManager {
   // Runtime AnimBP state machine: maps each SpriteActor to its current state
   // and the AnimBP asset so transitions can be evaluated each frame.
   private _actorAnimBPStates = new Map<SpriteActor, { currentStateId: string; abp: any }>();
+  /** Public read-only access to AnimBP states for engine.anim2d adapter */
+  get actorAnimBPStates(): Map<SpriteActor, { currentStateId: string; abp: any }> { return this._actorAnimBPStates; }
   /** Per-actor compiled event graph script + run state for 2D AnimBP event graph execution */
   private _actorEventScripts = new Map<SpriteActor, { script: ScriptComponent | null; started: boolean; elapsed: number }>();
   /** Separate ScriptComponent for each spriteActor's own blueprint (not AnimBP) */

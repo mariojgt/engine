@@ -10,19 +10,20 @@
 
 import * as THREE from 'three';
 import type {
-  AnimBlueprintAsset,
+  AnimBlueprintAssetData as AnimBlueprintAsset,
   AnimStateMachineData,
   AnimStateData,
   AnimTransitionData,
   BlendSpace1D,
-} from '../editor/AnimBlueprintData';
-import type { AnimTransitionRuleGroup, AnimTransitionRule, TransitionBlendProfile } from '../editor/AnimBlueprintData';
-import type { VarType } from '../editor/BlueprintData';
+  AnimTransitionRuleGroup,
+  AnimTransitionRule,
+  TransitionBlendProfile,
+  VarType,
+} from '../runtime/RuntimeTypes';
 import type { CharacterController } from './CharacterController';
 import { ScriptComponent, type ScriptContext } from './ScriptComponent';
 import type { GameObject } from './GameObject';
-import { MeshAssetManager } from '../editor/MeshAsset';
-import { loadMeshFromAsset } from '../editor/MeshImporter';
+import { tryGetEngineDeps } from '../runtime/EngineDeps';
 
 /** Runtime state for a single AnimationInstance */
 export class AnimationInstance {
@@ -773,13 +774,16 @@ export class AnimationInstance {
   }
 
   private async _preloadOverrideClips(meshId: string, stateId: string, animName: string): Promise<void> {
-    const asset = MeshAssetManager.getAsset(meshId);
+    const deps = tryGetEngineDeps();
+    const asset = deps?.meshAssets?.getAsset(meshId);
     if (!asset) {
       this._overrideClipLoading.delete(meshId);
       return;
     }
     try {
-      const { scene, animations } = await loadMeshFromAsset(asset);
+      const loadFn = deps?.loadMeshFromAsset;
+      if (!loadFn) throw new Error('loadMeshFromAsset not available');
+      const { scene, animations } = await loadFn(asset);
       this._overrideClipCache.set(meshId, animations || []);
 
       // Dispose loaded scene to avoid GPU leaks
