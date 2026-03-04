@@ -98,6 +98,8 @@ interface WidgetInstance {
   tickFn: ((ctx: any) => void) | null;
   onDestroyFn: ((ctx: any) => void) | null;
   hasStarted: boolean;
+  /** Reference to the actor/object that created this widget */
+  owner: any;
 }
 
 let _handleCounter = 0;
@@ -244,7 +246,7 @@ export class UIManager {
    * Create a widget instance from a blueprint ID.
    * Returns a handle string used by all other API calls.
    */
-  createWidget(blueprintId: string, overrides?: Record<string, any> | null): string {
+  createWidget(blueprintId: string, overrides?: Record<string, any> | null, owner?: any): string {
     const bp = this._blueprintResolver?.(blueprintId);
     if (!bp) {
       console.warn(`[UIManager] Widget blueprint "${blueprintId}" not found`);
@@ -294,6 +296,7 @@ export class UIManager {
       tickFn: null,
       onDestroyFn: null,
       hasStarted: false,
+      owner: owner || null,
     };
     this._instances.set(handle, inst);
 
@@ -320,7 +323,7 @@ export class UIManager {
 
         // Run the setup function immediately to register events and capture state
         if (compiled.setup) {
-          compiled.setup(handle, this, print, state);
+          compiled.setup(handle, this, print, state, inst.owner);
         }
 
         console.log(`[UIManager] Widget event handlers registered for "${bp.name || bp.id}"`);
@@ -1069,13 +1072,13 @@ export class UIManager {
     onDestroy: string,
     fullCode: string
   ): {
-    setup: ((handle: string, uiManager: any, print: any, state: any) => void) | null;
+    setup: ((handle: string, uiManager: any, print: any, state: any, owner: any) => void) | null;
     beginPlay: ((ctx: any) => void) | null;
     tick: ((ctx: any) => void) | null;
     onDestroy: ((ctx: any) => void) | null;
   } {
     const factoryBody = `
-  var __widgetHandle, __uiManager, print, __widgetState, __engine, __gameInstance, __ctx, deltaTime, elapsedTime, __pTrack;
+  var __widgetHandle, __uiManager, print, __widgetState, __engine, __gameInstance, __ctx, deltaTime, elapsedTime, __pTrack, __widgetOwner, gameObject, __scene, __physics, __animInstance, __meshAssetManager, __loadMeshFromAsset, __buildThreeMaterialFromAsset, __projectManager, __actorAssetManager;
 ${preamble}
 
 var __setup = null;
@@ -1083,11 +1086,13 @@ var __bp = null;
 var __tk = null;
 var __od = null;
 
-__setup = function(handle, uiManager, printFn, state) {
+__setup = function(handle, uiManager, printFn, state, owner) {
   __widgetHandle = handle;
   __uiManager = uiManager;
   print = printFn;
   __widgetState = state;
+  __widgetOwner = owner || null;
+  gameObject = __widgetOwner;
   
   __widgetState.__variables = {};
   __widgetState.__functions = {};
@@ -1100,25 +1105,41 @@ __setup = function(handle, uiManager, printFn, state) {
   if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
 };
 
-${beginPlay.trim() ? `__bp = function(ctx) {
+// Always create beginPlay to ensure __engine/__scene etc. get populated
+// even if the widget has no explicit beginPlay code (widget event handlers
+// like Button OnClicked need __engine to be set for Spawn Actor etc.)
+__bp = function(ctx) {
   __ctx = ctx;
   deltaTime = ctx.deltaTime;
   elapsedTime = ctx.elapsedTime;
   __engine = ctx.engine || null;
+  __scene = ctx.scene || null;
+  __physics = ctx.physics || null;
+  __uiManager = ctx.uiManager || __uiManager;
   __gameInstance = ctx.gameInstance || null;
+  __projectManager = ctx.projectManager || null;
+  __actorAssetManager = ctx.actorAssetManager || null;
   __pTrack = ctx.__pTrack || null;
+  if (__widgetOwner) gameObject = __widgetOwner;
   ${beginPlay}
-};` : ''}
+};
 
-${tick.trim() ? `__tk = function(ctx) {
+// Always create tick to keep __engine/__scene etc. up-to-date
+__tk = function(ctx) {
   __ctx = ctx;
   deltaTime = ctx.deltaTime;
   elapsedTime = ctx.elapsedTime;
   __engine = ctx.engine || null;
+  __scene = ctx.scene || null;
+  __physics = ctx.physics || null;
+  __uiManager = ctx.uiManager || __uiManager;
   __gameInstance = ctx.gameInstance || null;
+  __projectManager = ctx.projectManager || null;
+  __actorAssetManager = ctx.actorAssetManager || null;
   __pTrack = ctx.__pTrack || null;
+  if (__widgetOwner) gameObject = __widgetOwner;
   ${tick}
-};` : ''}
+};
 
 ${onDestroy.trim() ? `__od = function(ctx) {
   __ctx = ctx;
@@ -1127,6 +1148,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   __engine = ctx.engine || null;
   __gameInstance = ctx.gameInstance || null;
   __pTrack = ctx.__pTrack || null;
+  if (__widgetOwner) gameObject = __widgetOwner;
   ${onDestroy}
 };` : ''}
 

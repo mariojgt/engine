@@ -1470,7 +1470,7 @@ function resolveValue(
     return `(__gameInstance ? __gameInstance.getVariable(${varName}) : undefined)`;
   }
   if (node instanceof GetOwnerNode) {
-    return '(typeof gameObject !== "undefined" ? (gameObject.owner || gameObject) : null)';
+    return '(typeof __widgetOwner !== "undefined" && __widgetOwner ? __widgetOwner : (typeof gameObject !== "undefined" ? (gameObject.owner || gameObject) : null))';
   }
   if (node instanceof GetAnimInstanceNode) {
     const oS = inputSrc.get(`${nodeId}.object`);
@@ -1537,8 +1537,8 @@ function resolveValue(
     const oS = inputSrc.get(`${nodeId}.object`);
     const objVal = oS ? rv(oS.nid, oS.ok) : 'null';
     const cn = node as PureCastNode;
-    if (outputKey === 'castedObject') return `(${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)} ? ${objVal} : null)`;
-    if (outputKey === 'success') return `(!!(${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)}))`;
+    if (outputKey === 'castedObject') return `(${objVal} && (${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)} || ${objVal}.blueprintId === ${JSON.stringify(cn.targetClassId)}) ? ${objVal} : null)`;
+    if (outputKey === 'success') return `(!!(${objVal} && (${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)} || ${objVal}.blueprintId === ${JSON.stringify(cn.targetClassId)})))`;
     return 'null';
   }
   if (node instanceof CastToNode) {
@@ -4450,7 +4450,7 @@ if (node instanceof NavMeshAddAgentNode) {
     const cn = node as CastToNode;
     const castVar = `__cast_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
     lines.push(`var ${castVar} = null;`);
-    lines.push(`if (${objVal} && ${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)}) {`);
+    lines.push(`if (${objVal} && (${objVal}.actorAssetId === ${JSON.stringify(cn.targetClassId)} || ${objVal}.blueprintId === ${JSON.stringify(cn.targetClassId)})) {`);
     lines.push(`  ${castVar} = ${objVal};`);
     lines.push(...we(nodeId, 'success').map(l => '  ' + l));
     const failBody = we(nodeId, 'fail');
@@ -5132,7 +5132,9 @@ if (node instanceof NavMeshAddAgentNode) {
     case 'Create Widget': {
       const wn = node as CreateWidgetNode;
       const bpId = JSON.stringify(wn.widgetBPId || '');
-      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}) : '';`);
+      const ownerSrc = inputSrc.get(`${nodeId}.owner`);
+      const ownerVal = ownerSrc ? rv(ownerSrc.nid, ownerSrc.ok) : '(typeof gameObject !== "undefined" ? gameObject : null)';
+      lines.push(`var __wh_${nodeId.replace(/[^a-zA-Z0-9]/g,'_')} = __uiManager ? __uiManager.createWidget(${bpId}, null, ${ownerVal}) : '';`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }

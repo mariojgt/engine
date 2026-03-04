@@ -13,6 +13,7 @@ import {
   boolSocket,
   colorSocket,
   widgetSocket,
+  objectSocket,
   registerNode,
 } from '../sockets';
 import { socketForType } from '../variables/VariableNodes';
@@ -105,6 +106,7 @@ export class CreateWidgetNode extends ClassicPreset.Node {
     (refreshCtrl as any).__parentNode = this;
     this.addControl('refreshNodes', refreshCtrl);
 
+    this.addInput('owner', new ClassicPreset.Input(objectSocket, 'Owner'));
     this.addOutput('exec', new ClassicPreset.Output(execSocket, '▶'));
     this.addOutput('widget', new ClassicPreset.Output(widgetSocket, 'Widget'));
   }

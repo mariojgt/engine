@@ -1449,6 +1449,7 @@ export class Scene2DManager {
       print:        this.printFn ?? ((v: any) => console.log('[AnimBP2D]', v)),
       physics:      physicsShim,
       scene:        sceneShim,
+      uiManager:    this.engine?.uiManager ?? null,
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
@@ -1630,6 +1631,11 @@ export class Scene2DManager {
     const code: string | undefined = actorAny.__actorBlueprintCode;
     if (!code) return;
 
+    // ── Ensure actorAssetId is set from blueprintId for cast compatibility ──
+    if (actorAny.actorAssetId == null && actorAny.blueprintId) {
+      actorAny.actorAssetId = actorAny.blueprintId;
+    }
+
     let ev = this._actorBlueprintScripts.get(actor);
     if (!ev) {
       const sc = new ScriptComponent();
@@ -1720,6 +1726,7 @@ export class Scene2DManager {
       print:        this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
       physics:      physicsShim,
       scene:        sceneShim,
+      uiManager:    this.engine?.uiManager ?? null,
       animInstance: null,
       engine:       { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {} return r; } },
       gameInstance: this.engine?.gameInstance ?? null,
@@ -1787,6 +1794,7 @@ export class Scene2DManager {
             print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            uiManager: this.engine?.uiManager ?? null,
             animInstance: null,
             engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
@@ -1807,6 +1815,7 @@ export class Scene2DManager {
             print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
             physics: null,
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            uiManager: this.engine?.uiManager ?? null,
             animInstance: null,
             engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
             gameInstance: this.engine?.gameInstance ?? null,
