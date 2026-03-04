@@ -47,6 +47,9 @@ export interface UnifiedScriptContext {
   // ── Project ──
   projectManager: any;         // For scene transitions (openScene)
 
+  // ── Actor Assets ──
+  actorAssetManager?: any;     // For class hierarchy queries (Get Parent Class, Is Child Of, Cast To)
+
   // ── Internal tracking ──
   __pTrack?: any;              // Performance tracking (optional)
 }
@@ -72,6 +75,7 @@ export interface ScriptContextDeps {
   spawnActorFn: (classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) => any;
   destroyActorFn: (actor: any) => void;
   quitFn: () => void;
+  actorAssetManager?: any;
 }
 
 /**
@@ -116,5 +120,6 @@ export function createScriptContext(
     loadMeshFromAsset: deps.loadMeshFromAsset,
     buildThreeMaterialFromAsset: deps.buildThreeMaterialFromAsset,
     projectManager: deps.projectManager,
+    actorAssetManager: deps.actorAssetManager ?? null,
   };
 }

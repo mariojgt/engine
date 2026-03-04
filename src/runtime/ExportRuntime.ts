@@ -1940,6 +1940,9 @@ async function setup2DScene(sceneData: any): Promise<void> {
   await loadAnimBP2DData();
 
   physics2D.play();
+  // Also flag the 3D physics as playing so Engine.update() ticks UIManager,
+  // timer manager, game instance, etc. The 3D world has no bodies so the step is a no-op.
+  engine.physics.isPlaying = true;
   console.log('[Runtime 2D]   Physics2D started —', spriteActors2D.length, 'sprite actors');
 
   console.log('[Runtime 2D]   Starting onPlayStarted...');

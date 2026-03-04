@@ -558,6 +558,7 @@ export class FeatherRuntime {
       loadMeshFromAsset: (this._engine as any).loadMeshFromAsset ?? (() => null),
       buildThreeMaterialFromAsset: (this._engine as any).buildThreeMaterialFromAsset ?? (() => null),
       projectManager: (this._engine as any).projectManager,
+      actorAssetManager: (this._engine as any).actorAssetManager ?? null,
       printFn: (...args: any[]) => this._platform?.log('info', args.map(String).join(' ')),
       spawnActorFn: (classId, className, pos, rot, sc, owner, overrides) => {
         return this._engine?.scene?.spawnActorFromClass?.(classId, className, pos, rot, sc, owner, overrides);
@@ -665,6 +666,13 @@ export class FeatherRuntime {
 
   private _fireBeginPlay(): void {
     if (!this._engine) return;
+
+    // Ensure Engine.update() ticks UIManager, timer manager, game instance, etc.
+    // physics.play() creates 3D rigid bodies which is unnecessary for 2D-only scenes,
+    // but the isPlaying flag gates ALL script/widget ticking in Engine.update().
+    if (!this._engine.physics.isPlaying) {
+      this._engine.physics.isPlaying = true;
+    }
 
     // Use the engine's existing BeginPlay mechanism
     try {
