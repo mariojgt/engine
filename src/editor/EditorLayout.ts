@@ -67,6 +67,7 @@ import { BuildDashboardPanel } from './build/BuildDashboardPanel';
 import { BuildConfigurationEditorPanel } from './build/BuildConfigurationEditorPanel';
 import type { BuildConfigurationManager } from './build/BuildConfigurationAsset';
 import type { DependencyAnalyzerContext } from './build/DependencyAnalyzer';
+import { SpriteMakerPanel } from './SpriteMakerPanel';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -140,6 +141,9 @@ export class EditorLayout {
   private _bbEditor: BlackboardEditorPanel | null = null;
   private _btEditor: BehaviorTreeEditorPanel | null = null;
   private _aiBPEditor: AIBlueprintEditorPanel | null = null;
+
+  /** AI Sprite Maker panel */
+  private _spriteMaker: SpriteMakerPanel | null = null;
 
   /** Profiler panel and viewport overlay */
   private _profilerPanel: ProfilerPanel | null = null;
@@ -1643,6 +1647,10 @@ export class EditorLayout {
       this._buildDashboard.setManagers(this._buildConfigManager, mgr);
       this._buildDashboard.setAnalyzerContextProvider(() => this._buildAnalyzerContext());
     }
+    // Wire Sprite Maker
+    if (this._spriteMaker) {
+      this._spriteMaker.setProjectManager(mgr);
+    }
   }
 
   /** Wire up the BuildConfigurationManager so the build dashboard can use it */
@@ -2056,6 +2064,42 @@ export class EditorLayout {
       this._buildDashboard.setManagers(this._buildConfigManager, this._storedProjectManager);
     }
     this._buildDashboard.setAnalyzerContextProvider(() => this._buildAnalyzerContext());
+  }
+
+  /** Open the AI Sprite Maker panel */
+  openSpriteMaker(): void {
+    const panelId = 'sprite-maker';
+    const existing = this._api.getPanel(panelId);
+    if (existing) { existing.api.setActive(); return; }
+
+    this._api.addPanel({
+      id: panelId,
+      title: 'AI Sprite Maker',
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Sparkles, '#a78bfa');
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    renderer.element.appendChild(wrapper);
+
+    this._spriteMaker = new SpriteMakerPanel(wrapper);
+    if (this._storedProjectManager) {
+      this._spriteMaker.setProjectManager(this._storedProjectManager);
+    }
+    // Wire texture library if available
+    const texLib = TextureLibrary.instance;
+    if (texLib) {
+      this._spriteMaker.setTextureLibrary(texLib);
+    }
   }
 
   /** Open a BuildConfiguration editor tab */

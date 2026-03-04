@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::collections::HashMap;
 
 // ============================================================
 //  Project File I/O Commands
@@ -239,6 +240,51 @@ fn get_engine_root() -> Result<String, String> {
     Ok(clean)
 }
 
+// ============================================================
+//  HTTP Proxy Command — allows frontend to make API calls
+//  through the Rust backend (avoids CORS/CSP issues in webview)
+// ============================================================
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+#[tauri::command]
+async fn http_post_json(
+    url: String,
+    headers: HashMap<String, String>,
+    body: String,
+) -> Result<HttpResponse, String> {
+    let client = reqwest::Client::new();
+    let mut req = client.post(&url);
+
+    for (key, value) in &headers {
+        req = req.header(key.as_str(), value.as_str());
+    }
+
+    req = req.header("Content-Type", "application/json");
+    req = req.body(body);
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    let status = response.status().as_u16();
+    let response_body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    Ok(HttpResponse {
+        status,
+        body: response_body,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -258,6 +304,7 @@ pub fn run() {
         check_command_available,
         show_in_folder,
         get_engine_root,
+        http_post_json,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

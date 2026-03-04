@@ -137,6 +137,8 @@ import {
   Database,
   Hammer,
   Wrench,
+  Sparkles,
+  Wand2,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -473,4 +475,6 @@ export const Icons = {
   Database,
   Hammer,
   Wrench,
+  Sparkles,
+  Wand2,
 };

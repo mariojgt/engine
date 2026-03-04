@@ -82,6 +82,11 @@ export class ProjectSettingsPanel {
       this._readonlyRow('Project Name', this._projectManager.projectName),
       this._readonlyRow('Engine Version', '0.1.0'),
     ]));
+
+    // ── AI / Sprite Maker ───────────────────────────────────────
+    body.appendChild(this._group('AI — Sprite Maker', [
+      this._openaiApiKeyRow(),
+    ]));
   }
 
   // ─── Game Instance Class Dropdown ──────────────────────────────
@@ -144,6 +149,59 @@ export class ProjectSettingsPanel {
 
     row.appendChild(lbl);
     row.appendChild(select);
+    return row;
+  }
+
+  // ─── OpenAI API Key Input ────────────────────────────────────
+
+  private _openaiApiKeyRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.justifyContent = 'space-between';
+    row.style.padding = '3px 0';
+    row.style.fontSize = '11px';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = 'OpenAI API Key';
+    lbl.title = 'Your OpenAI API key for AI-powered features like Sprite Maker.\nStored in project.json — keep it private.';
+    lbl.style.color = '#aaa';
+    lbl.style.flex = '0 0 140px';
+
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.placeholder = 'sk-...';
+    input.value = this._projectManager?.openaiApiKey ?? '';
+    input.style.flex = '1';
+    input.style.background = '#2a2a2a';
+    input.style.border = '1px solid #555';
+    input.style.borderRadius = '3px';
+    input.style.color = '#ddd';
+    input.style.padding = '3px 6px';
+    input.style.fontSize = '11px';
+    input.style.fontFamily = 'monospace';
+
+    input.addEventListener('change', () => {
+      const val = input.value.trim() || undefined;
+      if (this._projectManager) {
+        this._projectManager.setOpenaiApiKey(val);
+        console.log('[ProjectSettings] OpenAI API Key updated');
+      }
+    });
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = '👁';
+    toggleBtn.title = 'Show/Hide key';
+    toggleBtn.style.cssText = 'margin-left:4px;background:none;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;padding:2px 6px;font-size:11px;';
+    toggleBtn.addEventListener('click', () => {
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    row.appendChild(lbl);
+    row.appendChild(input);
+    row.appendChild(toggleBtn);
     return row;
   }
 

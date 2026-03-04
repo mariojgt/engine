@@ -81,6 +81,12 @@ async function main() {
         <div class="toolbar-dropdown-item" id="menu-build-dashboard">${iconHTML(Icons.Hammer, 'xs')} Build Dashboard…</div>
       </div>
     </div>
+    <div class="toolbar-dropdown" id="ai-menu">
+      <button class="toolbar-btn" id="btn-ai">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} AI ${iconHTML(Icons.ChevronDown, 'xs')}</button>
+      <div class="toolbar-dropdown-content" id="ai-dropdown">
+        <div class="toolbar-dropdown-item" id="menu-sprite-maker">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} Sprite Maker…</div>
+      </div>
+    </div>
     <div class="toolbar-separator"></div>
     <button class="toolbar-btn play" id="btn-play">${iconHTML(Icons.Play, 'xs')} Play</button>
     <button class="toolbar-btn stop" id="btn-stop" style="display:none">${iconHTML(Icons.Square, 'xs')} Stop</button>
@@ -422,6 +428,7 @@ async function main() {
     fileDropdown.classList.remove('show');
     windowDropdown.classList.remove('show');
     document.getElementById('build-dropdown')?.classList.remove('show');
+    document.getElementById('ai-dropdown')?.classList.remove('show');
   });
 
   document.getElementById('menu-new-project')!.addEventListener('click', async () => {
@@ -566,6 +573,29 @@ async function main() {
     buildDropdown.classList.remove('show');
     editor.openBuildDashboard();
   });
+
+  // --- AI menu dropdown ---
+  const aiBtn = document.getElementById('btn-ai')!;
+  const aiDropdown = document.getElementById('ai-dropdown')!;
+
+  aiBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    aiDropdown.classList.toggle('show');
+    fileDropdown.classList.remove('show');
+    windowDropdown.classList.remove('show');
+    buildDropdown.classList.remove('show');
+  });
+
+  fileBtn.addEventListener('click', () => { aiDropdown.classList.remove('show'); });
+  windowBtn.addEventListener('click', () => { aiDropdown.classList.remove('show'); });
+  buildBtn.addEventListener('click', () => { aiDropdown.classList.remove('show'); });
+
+  document.getElementById('menu-sprite-maker')!.addEventListener('click', () => {
+    aiDropdown.classList.remove('show');
+    editor.openSpriteMaker();
+  });
+
+  // Close AI dropdown on outside click (handled by existing global document listener)
 
   // Close build dropdown on outside click (handled by existing global document listener)
 

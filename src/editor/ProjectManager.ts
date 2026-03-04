@@ -90,6 +90,8 @@ export interface ProjectMeta {
   actionMappings?: { name: string; keys: string[] }[];
   /** Input Axis Mappings */
   axisMappings?: { name: string; key: string; scale: number }[];
+  /** OpenAI API Key for AI-powered features (Sprite Maker, etc.) */
+  openaiApiKey?: string;
 }
 
 // ---- Project folder structure ----
@@ -276,6 +278,18 @@ export class ProjectManager {
     if (!this._meta) return;
     this._meta.gameInstanceClassId = id;
     this._engine.gameInstanceClassId = id ?? null;
+    this._dirty = true;
+  }
+
+  /** Get the OpenAI API key stored in project settings */
+  get openaiApiKey(): string | undefined {
+    return this._meta?.openaiApiKey;
+  }
+
+  /** Set the OpenAI API key in project settings */
+  setOpenaiApiKey(key: string | undefined): void {
+    if (!this._meta) return;
+    this._meta.openaiApiKey = key;
     this._dirty = true;
   }
 
