@@ -1762,6 +1762,14 @@ async function setup2DScene(sceneData: any): Promise<void> {
   if (sceneData.gameObjects) {
     for (const goData of sceneData.gameObjects) {
       try {
+        // 2D actors (characterPawn2D, spriteActor) run their blueprint code
+        // exclusively via runActorBlueprintScript() on the SpriteActor.
+        // Do NOT attach compiledCode to the 3D GameObject — otherwise
+        // engine.onPlayStarted() would also fire beginPlay on those scripts,
+        // causing double execution (duplicate widgets, movement on the
+        // invisible 3D mesh, etc.).  Non-2D actors still get their code on
+        // the GO because they have no SpriteActor counterpart.
+        const is2DActor = goData.actorType === 'characterPawn2D' || goData.actorType === 'spriteActor';
         const go = engine.scene.addGameObjectFromAsset(
           goData.actorAssetId || goData.name,
           goData.name,
@@ -1769,7 +1777,7 @@ async function setup2DScene(sceneData: any): Promise<void> {
           goData.blueprintData ?? { variables: [], functions: [], macros: [], customEvents: [], structs: [], eventGraph: { nodes: [], connections: [] } },
           goData.position,
           goData.components,
-          goData.compiledCode,
+          is2DActor ? undefined : goData.compiledCode,
           goData.physicsConfig,
           goData.actorType,
           goData.characterPawnConfig || null,
@@ -1982,9 +1990,34 @@ async function loadSceneByName(sceneName: string): Promise<void> {
     console.log('[Runtime] Loading scene:', sceneName);
     const scene = engine.scene;
 
-    // 1. Clear current scene
+    // 1. Fire onDestroy on all 3D actor scripts before removing them
+    //    (removeGameObject does NOT call onDestroy — only destroyActor does)
+    for (const go of [...scene.gameObjects]) {
+      for (const script of go.scripts) {
+        try {
+          const ctx = {
+            gameObject: go, deltaTime: 0, elapsedTime: 0,
+            print: (v: any) => console.log('[Print]', v),
+            physics: engine.physics, scene: scene,
+            uiManager: engine.uiManager, engine: engine,
+            gameInstance: (engine as any).gameInstance ?? null,
+            projectManager: (engine as any).projectManager ?? null,
+            actorAssetManager: (engine as any).actorAssetManager ?? null,
+          } as any;
+          script.onDestroy(ctx);
+          script.reset();
+        } catch { /* continue cleanup */ }
+      }
+    }
     while (scene.gameObjects.length > 0) scene.removeGameObject(scene.gameObjects[0]);
     console.log('[Runtime]   Scene cleared');
+
+    // 1b. Destroy UI widgets & overlay so the new scene starts clean
+    try {
+      const dummyGO = engine.scene.gameObjects[0] ?? (engine as any)._dummyGO;
+      const uiCtx = { gameObject: dummyGO, deltaTime: 0, elapsedTime: 0 } as any;
+      engine.uiManager.destroy(uiCtx);
+    } catch { /* ignore */ }
 
     // 2. Stop old physics
     if (engine.physics && (engine.physics as any).stop) {

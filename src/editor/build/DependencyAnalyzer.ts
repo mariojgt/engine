@@ -223,6 +223,9 @@ export class DependencyAnalyzer {
     // Include all data tables referenced by blueprints
     this._walkAllDataTables();
 
+    // Include all widget blueprints (needed for Create Widget nodes)
+    this._walkAllWidgetBlueprints();
+
     return {
       scenes: sceneEntries,
       assets: this._assets,
@@ -442,6 +445,13 @@ export class DependencyAnalyzer {
     this._addOnce(`widget:${widgetBPId}`, 'widgetBlueprint',
       `Widgets/${fileName}`,
       `${this._ctx.projectPath}/Widgets/${fileName}`);
+
+    // Scan widget compiled code for transitive dependencies (actors via
+    // spawnActor, nested widgets via createWidget, textures, sounds, etc.)
+    const compiledCode: string = (asset as any).compiledCode ?? '';
+    if (compiledCode) {
+      this._scanCodeForAssetRefs(compiledCode, sceneName);
+    }
   }
 
   private _addTextureById(textureId: string, sceneName: string): void {
@@ -488,7 +498,9 @@ export class DependencyAnalyzer {
 
   private _walkAllStructures(): void {
     try {
-      const structs = (this._ctx.structManager as any).getAllStructures?.() ?? [];
+      const mgr = this._ctx.structManager as any;
+      if (!mgr) return;
+      const structs = mgr.getAllStructures?.() ?? mgr.structures ?? [];
       for (const s of structs) {
         const id = s.id ?? s.structureId;
         const name = s.name ?? s.structureName ?? id;
@@ -496,7 +508,7 @@ export class DependencyAnalyzer {
           `Structures/${this._namedJsonFile(name, id)}`,
           `${this._ctx.projectPath}/Structures/${this._namedJsonFile(name, id)}`);
       }
-      const enums = (this._ctx.structManager as any).getAllEnums?.() ?? [];
+      const enums = mgr.getAllEnums?.() ?? mgr.enums ?? [];
       for (const e of enums) {
         const id = e.id ?? e.enumId;
         const name = e.name ?? e.enumName ?? id;
@@ -511,7 +523,9 @@ export class DependencyAnalyzer {
 
   private _walkAllGameInstances(): void {
     try {
-      const assets = (this._ctx.gameInstanceManager as any).getAll?.() ?? [];
+      const mgr = this._ctx.gameInstanceManager as any;
+      if (!mgr) return;
+      const assets = mgr.getAll?.() ?? mgr.assets ?? [];
       for (const gi of assets) {
         const id = gi.id ?? gi.gameInstanceId;
         const name = gi.name ?? gi.gameInstanceName ?? id;
@@ -524,7 +538,9 @@ export class DependencyAnalyzer {
 
   private _walkAllSaveGameClasses(): void {
     try {
-      const assets = (this._ctx.saveGameManager as any).getAll?.() ?? [];
+      const mgr = this._ctx.saveGameManager as any;
+      if (!mgr) return;
+      const assets = mgr.getAll?.() ?? mgr.assets ?? [];
       for (const sg of assets) {
         const id = sg.id ?? sg.saveGameId;
         const name = sg.name ?? sg.saveGameName ?? id;
@@ -537,7 +553,9 @@ export class DependencyAnalyzer {
 
   private _walkAllEvents(): void {
     try {
-      const assets = (this._ctx.eventManager as any).getAll?.() ?? [];
+      const mgr = this._ctx.eventManager as any;
+      if (!mgr) return;
+      const assets = mgr.getAll?.() ?? mgr.assets ?? [];
       for (const ev of assets) {
         const id = ev.id;
         const name = ev.name ?? id;
@@ -550,13 +568,32 @@ export class DependencyAnalyzer {
 
   private _walkAllDataTables(): void {
     try {
-      const assets = (this._ctx.dataTableManager as any).getAll?.() ?? [];
+      const mgr = this._ctx.dataTableManager as any;
+      if (!mgr) return;
+      const assets = mgr.getAll?.() ?? mgr.tables ?? mgr.assets ?? [];
       for (const dt of assets) {
         const id = dt.id ?? dt.dataTableId;
         const name = dt.name ?? dt.dataTableName ?? id;
         this._addOnce(`dt:${id}`, 'dataTable',
           `DataTables/${this._namedJsonFile(name, id)}`,
           `${this._ctx.projectPath}/DataTables/${this._namedJsonFile(name, id)}`);
+      }
+    } catch { /* noop */ }
+  }
+
+  private _walkAllWidgetBlueprints(): void {
+    try {
+      const mgr = this._ctx.widgetBPManager as any;
+      if (!mgr) return;
+      // Try getAll(), then .assets getter, then exportAll()
+      const assets: any[] = mgr.getAll?.() ?? mgr.assets ?? [];
+      for (const wb of assets) {
+        const id = wb.id ?? wb.widgetBlueprintId;
+        const name = wb.name ?? wb.widgetBlueprintName ?? id;
+        if (!id) continue;
+        // Use _walkWidgetBlueprint so compiled code is scanned for
+        // transitive dependencies (spawnActor, createWidget, etc.)
+        this._walkWidgetBlueprint(id, '__all__');
       }
     } catch { /* noop */ }
   }
@@ -588,6 +625,18 @@ export class DependencyAnalyzer {
         }
       }
     }
+
+    // Also scan for createWidget("id") and spawnActor/spawnActorFromClass/spawnActorFromClassId("id") calls in compiled code
+    const createWidgetRx = /\.createWidget\(["']([^"']+)["']/g;
+    let cwm: RegExpExecArray | null;
+    while ((cwm = createWidgetRx.exec(code)) !== null) {
+      this._walkWidgetBlueprint(cwm[1], sceneName);
+    }
+    const spawnActorRx = /\.(?:spawnActor|spawnActorFromClass|spawnActorFromClassId)\(["']([^"']+)["']/g;
+    let sam: RegExpExecArray | null;
+    while ((sam = spawnActorRx.exec(code)) !== null) {
+      this._walkActorAsset(sam[1], sceneName);
+    }
   }
 
   private _scanNodeDataForAssetRefs(nodes: any, sceneName: string): void {
@@ -602,7 +651,7 @@ export class DependencyAnalyzer {
           if (key === 'meshAssetId') this._walkMeshAsset(val, sceneName);
           if (key === 'textureId') this._addTextureById(val, sceneName);
           if (key === 'soundId') this._walkSoundAsset(val, sceneName);
-          if (key === 'widgetBlueprintId') this._walkWidgetBlueprint(val, sceneName);
+          if (key === 'widgetBlueprintId' || key === 'widgetBPId') this._walkWidgetBlueprint(val, sceneName);
         }
       }
     }
