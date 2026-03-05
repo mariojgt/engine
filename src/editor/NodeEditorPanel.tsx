@@ -390,6 +390,7 @@ import {
   UpdateDataTableRowRuntimeNode,
   GetDataTableFieldNode,
   DataTableFieldSelectControl,
+  FindRowsByPredicateNode,
   // Flow Control (extended)
   ForEachLoopNode,
   ForEachLoopWithBreakNode,
@@ -643,7 +644,8 @@ function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof ForEachDataTableRowNode || node instanceof MakeDataTableRowHandleNode ||
       node instanceof ResolveDataTableRowHandleNode || node instanceof IsDataTableRowHandleValidNode ||
       node instanceof AddDataTableRowRuntimeNode || node instanceof RemoveDataTableRowRuntimeNode ||
-      node instanceof UpdateDataTableRowRuntimeNode || node instanceof GetDataTableFieldNode) return 'DataTable';
+      node instanceof UpdateDataTableRowRuntimeNode || node instanceof GetDataTableFieldNode ||
+      node instanceof FindRowsByPredicateNode) return 'DataTable';
   // Fallback: check NODE_PALETTE
   for (const entry of NODE_PALETTE) {
     if (entry.label === node.label) return entry.category;
@@ -689,7 +691,15 @@ class UndoManager {
 //  Helpers
 // ============================================================
 function sanitizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_]/g, '_');
+  const s = name.replace(/[^a-zA-Z0-9_]/g, '_');
+  // If sanitization changed any characters, append a short hash of the original
+  // to prevent collisions (e.g. "My Var" and "My-Var" both → "My_Var" without this).
+  if (s !== name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+    return s + '_' + (h >>> 0).toString(36);
+  }
+  return s;
 }
 
 function varDefaultStr(v: BlueprintVariable, bp: import('./BlueprintData').BlueprintData): string {
@@ -775,12 +785,25 @@ function fieldDefault(type: VarType): string {
   }
 }
 
+// ── Cycle-detection stacks (module-level, cleaned via try/finally) ───────
+const _resolveCycleStack = new Set<string>();
+const _execCycleStack = new Set<string>();
+
 function resolveValue(
   nodeId: string, outputKey: string,
   nodeMap: NodeMap, inputSrc: SrcMap, bp: import('./BlueprintData').BlueprintData,
 ): string {
   const node = nodeMap.get(nodeId);
   if (!node) return '0';
+
+  // Cycle detection — prevent infinite recursion on circular data wires
+  const _rvKey = `${nodeId}.${outputKey}`;
+  if (_resolveCycleStack.has(_rvKey)) {
+    console.warn(`[CodeGen] Data cycle detected at ${nodeId}.${outputKey}, returning 0`);
+    return '0';
+  }
+  _resolveCycleStack.add(_rvKey);
+  try {
 
   if (node instanceof GetVariableNode) {
     const vn = sanitizeName(node.varName);
@@ -873,6 +896,65 @@ function resolveValue(
       : '""';
     const fieldKey = n.fieldName ? JSON.stringify(n.fieldName) : '""';
     return `(typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}.rows[String(${rowNameExpr})] != null ? __dt_${safeDtId}.rows[String(${rowNameExpr})][${fieldKey}] : null)`;
+  }
+
+  // ForEachDataTableRow — loop iteration outputs
+  if (node instanceof ForEachDataTableRowNode) {
+    const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'row')      return `__fe_row_${uid}`;
+    if (outputKey === 'rowName')  return `__fe_rowName_${uid}`;
+    if (outputKey === 'rowIndex') return `__fe_ri_${uid}`;
+    return '0';
+  }
+
+  // FindRowsByPredicateNode — matched rows and count
+  if (node instanceof FindRowsByPredicateNode) {
+    const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'matchingRows') return `__frp_rows_${uid}`;
+    if (outputKey === 'matchCount')   return `__frp_count_${uid}`;
+    return '[]';
+  }
+
+  // ── Texture pure-node resolveValue ────────────────────────────────
+
+  // GetTextureIDNode — selected texture baked into the node control
+  if (node instanceof GetTextureIDNode) {
+    const texId = (node as GetTextureIDNode).getTextureId?.() ?? '';
+    if (outputKey === 'textureId') return JSON.stringify(texId);
+    if (outputKey === 'name')      return `(__textureMeta[${JSON.stringify(texId)}] ? __textureMeta[${JSON.stringify(texId)}].name : '')`;
+    if (outputKey === 'width')     return `(__textureMeta[${JSON.stringify(texId)}] ? __textureMeta[${JSON.stringify(texId)}].width : 0)`;
+    if (outputKey === 'height')    return `(__textureMeta[${JSON.stringify(texId)}] ? __textureMeta[${JSON.stringify(texId)}].height : 0)`;
+    return '0';
+  }
+
+  // FindTextureByNameNode — runtime name→id lookup via embedded map
+  if (node instanceof FindTextureByNameNode) {
+    const nameSrc = inputSrc.get(`${nodeId}.name`);
+    const nameExpr = nameSrc ? resolveValue(nameSrc.nid, nameSrc.ok, nodeMap, inputSrc, bp) : '""';
+    if (outputKey === 'textureId') return `(__textureNameMap[String(${nameExpr}).toLowerCase()] || '')`;
+    if (outputKey === 'found')     return `(!!__textureNameMap[String(${nameExpr}).toLowerCase()])`;
+    return '""';
+  }
+
+  // GetTextureInfoNode — runtime metadata lookup by texture ID
+  if (node instanceof GetTextureInfoNode) {
+    const idSrc = inputSrc.get(`${nodeId}.textureId`);
+    const idExpr = idSrc ? resolveValue(idSrc.nid, idSrc.ok, nodeMap, inputSrc, bp) : '""';
+    const meta = `__textureMeta[${idExpr}]`;
+    if (outputKey === 'name')     return `(${meta} ? ${meta}.name : '')`;
+    if (outputKey === 'width')    return `(${meta} ? ${meta}.width : 0)`;
+    if (outputKey === 'height')   return `(${meta} ? ${meta}.height : 0)`;
+    if (outputKey === 'hasAlpha') return `(${meta} ? ${meta}.hasAlpha : false)`;
+    if (outputKey === 'format')   return `(${meta} ? ${meta}.format : '')`;
+    return '""';
+  }
+
+  // LoadTextureNode — data outputs resolved via temp vars set in genAction
+  if (node instanceof LoadTextureNode) {
+    const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'textureId') return `(typeof __loadTex_id_${uid} !== 'undefined' ? __loadTex_id_${uid} : '')`;
+    if (outputKey === 'success')   return `(typeof __loadTex_ok_${uid} !== 'undefined' ? __loadTex_ok_${uid} : false)`;
+    return '""';
   }
 
   if (node instanceof FunctionCallNode) {
@@ -1749,10 +1831,36 @@ function resolveValue(
       const s = inputSrc.get(`${nodeId}.value`);
       return `Math.tan(${s ? rv(s.nid, s.ok) : '0'})`;
     }
-    case 'Normalize (Vector)': {
-      const vS = inputSrc.get(`${nodeId}.vector`);
-      const v = vS ? rv(vS.nid, vS.ok) : 'new THREE.Vector3()';
-      return `(function(){ const _v = ${v}.clone(); return _v.normalize(); })()`;
+    case 'Normalize (Vector)':
+    case 'Normalize': {
+      // NormalizeVec3Node has 3 scalar inputs: x, y, z
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      // Return the component requested or a normalized vector
+      if (outputKey === 'nx' || outputKey === 'ny' || outputKey === 'nz') {
+        return `(function(){ var _len = Math.sqrt((${x})*(${x})+(${y})*(${y})+(${z})*(${z})) || 1; return ${outputKey === 'nx' ? `(${x})/_len` : outputKey === 'ny' ? `(${y})/_len` : `(${z})/_len`}; })()`;
+      }
+      return `(function(){ var _len = Math.sqrt((${x})*(${x})+(${y})*(${y})+(${z})*(${z})) || 1; return (${x})/_len; })()`;
+    }
+    case 'Distance': {
+      // DistanceNode has 6 scalar inputs: ax, ay, az, bx, by, bz
+      const axS = inputSrc.get(`${nodeId}.ax`);
+      const ayS = inputSrc.get(`${nodeId}.ay`);
+      const azS = inputSrc.get(`${nodeId}.az`);
+      const bxS = inputSrc.get(`${nodeId}.bx`);
+      const byS = inputSrc.get(`${nodeId}.by`);
+      const bzS = inputSrc.get(`${nodeId}.bz`);
+      const ax = axS ? rv(axS.nid, axS.ok) : '0';
+      const ay = ayS ? rv(ayS.nid, ayS.ok) : '0';
+      const az = azS ? rv(azS.nid, azS.ok) : '0';
+      const bx = bxS ? rv(bxS.nid, bxS.ok) : '0';
+      const by = byS ? rv(byS.nid, byS.ok) : '0';
+      const bz = bzS ? rv(bzS.nid, bzS.ok) : '0';
+      return `Math.sqrt((${bx}-(${ax}))*(${bx}-(${ax}))+(${by}-(${ay}))*(${by}-(${ay}))+(${bz}-(${az}))*(${bz}-(${az})))`;
     }
     case 'Dot Product': {
       const aS = inputSrc.get(`${nodeId}.a`);
@@ -2673,6 +2781,8 @@ function resolveValue(
 
     default: return '0';
   }
+
+  } finally { _resolveCycleStack.delete(_rvKey); }
 }
 
 function walkExec(
@@ -2698,6 +2808,15 @@ function genAction(
   if ((node as any).__disabled) {
     return walkExec(nodeId, 'exec', nodeMap, inputSrc, outputDst, bp);
   }
+
+  // Cycle detection — prevent infinite recursion on circular exec wires
+  if (_execCycleStack.has(nodeId)) {
+    console.warn(`[CodeGen] Exec cycle detected at node ${nodeId} ("${node.label}"), skipping`);
+    return [`/* exec cycle: ${nodeId} */`];
+  }
+  _execCycleStack.add(nodeId);
+  try {
+
   const lines: string[] = [];
 
   // â”€â”€ Profiler: emit a tracking call for every action node so the profiler
@@ -3690,6 +3809,11 @@ function genAction(
     const sS = inputSrc.get(`${nodeId}.slotIndex`);
     const mS = inputSrc.get(`${nodeId}.materialId`);
     const slotExpr = sS ? rv(sS.nid, sS.ok) : '0';
+    const matIdExpr = mS ? rv(mS.nid, mS.ok) : '""';
+    lines.push(`{ const _ref = ${ref}; if (_ref) { const _mgr = __meshAssetManager; const _matA = _mgr && _mgr.getMaterial(${matIdExpr}); if (_matA) { const _meshes = []; _ref.traverse(c => { if (c.isMesh) _meshes.push(c); }); const _si = ${slotExpr}; if (_si >= 0 && _si < _meshes.length) { const _old = _meshes[_si].material; if (Array.isArray(_old)) _old.forEach(x => x.dispose()); else _old.dispose(); _meshes[_si].material = __buildThreeMaterialFromAsset(_matA, _mgr); } } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
 
   if (node.label === 'Set Timer by Function Name') {
     const objS = inputSrc.get(`${nodeId}.object`);
@@ -3738,11 +3862,6 @@ function genAction(
     const durS = inputSrc.get(`${nodeId}.duration`);
     const dur = durS ? rv(durS.nid, durS.ok) : '0.2';
     lines.push(`{ var __rdDur=${dur}; if(!gameObject.__retriggerableDelays) gameObject.__retriggerableDelays = {}; if(gameObject.__retriggerableDelays["${nodeId}"]) clearTimeout(gameObject.__retriggerableDelays["${nodeId}"]); gameObject.__retriggerableDelays["${nodeId}"] = setTimeout(function(){ ${we(nodeId, 'completed').join(' ')} }, __rdDur * 1000); }`);
-    lines.push(...we(nodeId, 'exec'));
-    return lines;
-  }
-    const matIdExpr = mS ? rv(mS.nid, mS.ok) : '""';
-    lines.push(`{ const _ref = ${ref}; if (_ref) { const _mgr = __meshAssetManager; const _matA = _mgr && _mgr.getMaterial(${matIdExpr}); if (_matA) { const _meshes = []; _ref.traverse(c => { if (c.isMesh) _meshes.push(c); }); const _si = ${slotExpr}; if (_si >= 0 && _si < _meshes.length) { const _old = _meshes[_si].material; if (Array.isArray(_old)) _old.forEach(x => x.dispose()); else _old.dispose(); _meshes[_si].material = __buildThreeMaterialFromAsset(_matA, _mgr); } } } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -4558,19 +4677,19 @@ if (node instanceof NavMeshAddAgentNode) {
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Add Tag To Actor': {
+    case 'Add Tag to Actor': {
       const tS = inputSrc.get(`${nodeId}.tag`);
       lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && !(gameObject.userData.tags || []).includes(t)) { gameObject.userData.tags = gameObject.userData.tags || []; gameObject.userData.tags.push(t); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Remove Tag From Actor': {
+    case 'Remove Tag from Actor': {
       const tS = inputSrc.get(`${nodeId}.tag`);
       lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && gameObject.userData.tags) { gameObject.userData.tags = gameObject.userData.tags.filter(x => x !== t); } }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Set Actor Hidden In Game': {
+    case 'Set Actor Hidden in Game': {
       const hS = inputSrc.get(`${nodeId}.hidden`);
       lines.push(`gameObject.visible = !(${hS ? rv(hS.nid, hS.ok) : 'false'});`);
       lines.push(...we(nodeId, 'exec'));
@@ -4890,7 +5009,7 @@ if (node instanceof NavMeshAddAgentNode) {
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Set Constraint': {
+    case 'Set Physics Constraints': {
       const lx = inputSrc.get(`${nodeId}.lockPosX`); const ly = inputSrc.get(`${nodeId}.lockPosY`); const lz = inputSrc.get(`${nodeId}.lockPosZ`);
       const rx = inputSrc.get(`${nodeId}.lockRotX`); const ry = inputSrc.get(`${nodeId}.lockRotY`); const rz = inputSrc.get(`${nodeId}.lockRotZ`);
       lines.push(`if (gameObject.rigidBody) { gameObject.rigidBody.setEnabledTranslations(!${lx ? rv(lx.nid, lx.ok) : 'false'}, !${ly ? rv(ly.nid, ly.ok) : 'false'}, !${lz ? rv(lz.nid, lz.ok) : 'false'}, true); gameObject.rigidBody.setEnabledRotations(!${rx ? rv(rx.nid, rx.ok) : 'false'}, !${ry ? rv(ry.nid, ry.ok) : 'false'}, !${rz ? rv(rz.nid, rz.ok) : 'false'}, true); }`);
@@ -4909,8 +5028,11 @@ if (node instanceof NavMeshAddAgentNode) {
       break;
     }
     case 'Sequence': {
-      lines.push(...we(nodeId, 'then0'));
-      lines.push(...we(nodeId, 'then1'));
+      // Dynamically handle all 'then<N>' outputs instead of hardcoding 2
+      const outputKeys = Object.keys(node.outputs).filter(k => k.startsWith('then')).sort();
+      for (const ok of outputKeys) {
+        lines.push(...we(nodeId, ok));
+      }
       break;
     }
     case 'For Loop': {
@@ -4963,9 +5085,11 @@ if (node instanceof NavMeshAddAgentNode) {
       const dS = inputSrc.get(`${nodeId}.duration`);
       const duration = dS ? rv(dS.nid, dS.ok) : '1';
       const completedLines = we(nodeId, 'completed');
-      lines.push(`setTimeout(function() {`);
+      lines.push(`{ if(!gameObject.__pendingDelays) gameObject.__pendingDelays = [];`);
+      lines.push(`var __delayId = setTimeout(function() {`);
       lines.push(...completedLines.map(l => '  ' + l));
       lines.push(`}, (${duration}) * 1000);`);
+      lines.push(`gameObject.__pendingDelays.push(__delayId); }`);
       break;
     }
 
@@ -5236,6 +5360,47 @@ if (node instanceof NavMeshAddAgentNode) {
       const sS = inputSrc.get(`${nodeId}.show`);
       const show = sS ? rv(sS.nid, sS.ok) : 'true';
       lines.push(`if (__uiManager) __uiManager.showMouseCursor(${show});`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Texture mutation nodes ──────────────────────────────────────
+    case 'Set Image Texture': {
+      const n = node as SetImageTextureNode;
+      const wName = JSON.stringify(n.getWidgetName?.() || '');
+      const texId = JSON.stringify(n.getTextureId?.() || '');
+      const btS = inputSrc.get(`${nodeId}.blendTime`);
+      const blendTime = btS ? rv(btS.nid, btS.ok) : '0';
+      lines.push(`if (__uiManager && __uiManager.setImageTexture) __uiManager.setImageTexture(__widgetHandle, ${wName}, ${texId}, ${blendTime});`);
+      lines.push(`else if (__uiManager) { var __texData = __textureMeta[${texId}]; if (__texData && __texData.storedData) { var __el = __uiManager._findByName ? __uiManager._findByName(__widgetHandle, ${wName}) : null; if (__el) { var __img = __el.querySelector('img') || __el; if (__img.src !== undefined) __img.src = __texData.storedData; } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Button Texture': {
+      const n = node as SetButtonTextureNode;
+      const wName = JSON.stringify(n.getWidgetName?.() || '');
+      const texId = JSON.stringify(n.getTextureId?.() || '');
+      const stS = inputSrc.get(`${nodeId}.state`);
+      const state = stS ? rv(stS.nid, stS.ok) : '"normal"';
+      lines.push(`if (__uiManager && __uiManager.setButtonTexture) __uiManager.setButtonTexture(__widgetHandle, ${wName}, ${texId}, ${state});`);
+      lines.push(`else if (__uiManager) { var __texData = __textureMeta[${texId}]; if (__texData && __texData.storedData) { var __el = __uiManager._findByName ? __uiManager._findByName(__widgetHandle, ${wName}) : null; if (__el) __el.style.backgroundImage = 'url(' + __texData.storedData + ')'; } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Load Texture': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const urlS = inputSrc.get(`${nodeId}.url`);
+      const nameS = inputSrc.get(`${nodeId}.name`);
+      const url = urlS ? rv(urlS.nid, urlS.ok) : '""';
+      const assetName = nameS ? rv(nameS.nid, nameS.ok) : '""';
+      // Generate a unique texture ID at runtime, store it in __textureMeta
+      lines.push(`var __loadTex_id_${uid} = 'tex_rt_' + Math.random().toString(36).slice(2, 8);`);
+      lines.push(`var __loadTex_ok_${uid} = false;`);
+      lines.push(`try { var __ltUrl = ${url}; var __ltName = ${assetName} || __ltUrl;`);
+      lines.push(`  __textureMeta[__loadTex_id_${uid}] = { name: __ltName, width: 0, height: 0, hasAlpha: false, format: '', storedData: __ltUrl };`);
+      lines.push(`  __textureNameMap[__ltName.toLowerCase()] = __loadTex_id_${uid};`);
+      lines.push(`  __loadTex_ok_${uid} = true;`);
+      lines.push(`} catch(e) { console.warn('[LoadTexture] Failed:', e); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -6068,6 +6233,21 @@ if (node instanceof NavMeshAddAgentNode) {
       break;
     }
 
+    case 'For Each Data Table Row': {
+      const n = node as ForEachDataTableRowNode;
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      lines.push(`{ var __dt_entries_${uid} = (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) ? Object.entries(__dt_${safeDtId}.rows) : [];`);
+      lines.push(`  for (var __fe_ri_${uid} = 0; __fe_ri_${uid} < __dt_entries_${uid}.length; __fe_ri_${uid}++) {`);
+      lines.push(`    var __fe_rowName_${uid} = __dt_entries_${uid}[__fe_ri_${uid}][0];`);
+      lines.push(`    var __fe_row_${uid} = __dt_entries_${uid}[__fe_ri_${uid}][1];`);
+      lines.push(...we(nodeId, 'loopBody').map(l => '    ' + l));
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'completed'));
+      break;
+    }
+
     case 'Add Data Table Row (Runtime)': {
       const n = node as any;
       const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
@@ -6102,8 +6282,31 @@ if (node instanceof NavMeshAddAgentNode) {
       break;
     }
 
+    case 'Find Rows By Predicate': {
+      const n = node as FindRowsByPredicateNode;
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+      const predSrc = inputSrc.get(`${nodeId}.predicate`);
+      const predExpr = predSrc ? rv(predSrc.nid, predSrc.ok) : '""';
+      lines.push(`var __frp_rows_${uid} = []; var __frp_count_${uid} = 0;`);
+      lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) {`);
+      lines.push(`  var __predFn = typeof ${predExpr} === 'function' ? ${predExpr} : (typeof window[${predExpr}] === 'function' ? window[${predExpr}] : null);`);
+      lines.push(`  if (__predFn) {`);
+      lines.push(`    var __entries = Object.entries(__dt_${safeDtId}.rows);`);
+      lines.push(`    for (var __fri = 0; __fri < __entries.length; __fri++) {`);
+      lines.push(`      if (__predFn(__entries[__fri][1], __entries[__fri][0])) { __frp_rows_${uid}.push(__entries[__fri][1]); }`);
+      lines.push(`    }`);
+      lines.push(`    __frp_count_${uid} = __frp_rows_${uid}.length;`);
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'then'));
+      break;
+    }
+
   }
   return lines;
+
+  } finally { _execCycleStack.delete(nodeId); }
 }
 
 // ============================================================
@@ -6139,6 +6342,33 @@ function generateFullCode(
       const rowsObj: Record<string, any> = {};
       for (const row of dt.rows) { rowsObj[row.rowName] = row.data; }
       parts.push(`var __dt_${safeDtId} = ${JSON.stringify({ rows: rowsObj })};`);
+    }
+  }
+
+  // ── Texture metadata constants ───────────────────────────────────
+  // Embed texture metadata so Get Texture ID, Find Texture by Name, and
+  // Get Texture Info nodes can look up texture data at runtime.
+  {
+    const texLib = TextureLibrary.instance;
+    if (texLib) {
+      const metaMap: Record<string, any> = {};
+      const nameMap: Record<string, string> = {};
+      for (const tex of texLib.allTextures) {
+        metaMap[tex.assetId] = {
+          name: tex.assetName,
+          width: tex.metadata?.width ?? 0,
+          height: tex.metadata?.height ?? 0,
+          hasAlpha: tex.metadata?.hasAlpha ?? false,
+          format: tex.metadata?.format ?? '',
+          storedData: tex.storedData ?? '',
+        };
+        nameMap[tex.assetName.toLowerCase()] = tex.assetId;
+      }
+      parts.push(`var __textureMeta = ${JSON.stringify(metaMap)};`);
+      parts.push(`var __textureNameMap = ${JSON.stringify(nameMap)};`);
+    } else {
+      parts.push(`var __textureMeta = {};`);
+      parts.push(`var __textureNameMap = {};`);
     }
   }
 
@@ -6620,6 +6850,10 @@ function generateFullCode(
         beginPlayCode.push(`gameObject._scriptEvents[${JSON.stringify(evt.name)}] = __custom_evt_${sanitizeName(evt.name)};`);
       }
     }
+
+    // â"€â"€ Cleanup pending Delay timeouts and Retriggerable Delays on destroy â"€â"€
+    onDestroyCode.push('if (gameObject.__pendingDelays) { gameObject.__pendingDelays.forEach(clearTimeout); gameObject.__pendingDelays = []; }');
+    onDestroyCode.push('if (gameObject.__retriggerableDelays) { Object.values(gameObject.__retriggerableDelays).forEach(function(id) { clearTimeout(id); }); gameObject.__retriggerableDelays = {}; }');
 
     const sections: string[] = [];
     if (beginPlayCode.length) sections.push(`// __beginPlay__\n${beginPlayCode.join('\n')}`);
@@ -8504,6 +8738,7 @@ function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof RemoveDataTableRowRuntimeNode) return 'RemoveDataTableRowRuntimeNode';
   if (node instanceof UpdateDataTableRowRuntimeNode) return 'UpdateDataTableRowRuntimeNode';
   if (node instanceof GetDataTableFieldNode) return 'GetDataTableFieldNode';
+  if (node instanceof FindRowsByPredicateNode) return 'FindRowsByPredicateNode';
 
   // Fallback: use the node label for any NODE_PALETTE-registered node
   const paletteEntry = NODE_PALETTE.find(e => e.label === (node as any).label);
@@ -9733,6 +9968,7 @@ function createNodeFromData(
     case 'AddDataTableRowRuntimeNode':      return new AddDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
     case 'RemoveDataTableRowRuntimeNode':   return new RemoveDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
     case 'UpdateDataTableRowRuntimeNode':   return new UpdateDataTableRowRuntimeNode(d.dtId||'', d.dtName||'(none)');
+    case 'FindRowsByPredicateNode':         return new FindRowsByPredicateNode(d.dtId||'', d.dtName||'(none)', d.dtStructId||'', d.dtStructName||'');
     case 'GetDataTableFieldNode': {
       const n = new GetDataTableFieldNode(
         d.dtId||'', d.dtName||'(none)',

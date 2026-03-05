@@ -414,6 +414,33 @@ export class UIManager {
     el.style.opacity = String(Math.max(0, Math.min(1, opacity)));
   }
 
+  /** Set the texture of an Image widget by texture asset ID */
+  setImageTexture(handle: string, widgetName: string, textureId: string, _blendTime: number = 0): void {
+    const el = this._findByName(handle, widgetName);
+    if (!el) return;
+    const src = this._resolveTextureSrc(textureId);
+    if (!src) return;
+    const img = el.querySelector('img') as HTMLImageElement | null;
+    if (img) {
+      img.src = src;
+    } else {
+      el.style.backgroundImage = `url(${src})`;
+      el.style.backgroundSize = 'contain';
+      el.style.backgroundRepeat = 'no-repeat';
+    }
+  }
+
+  /** Set the texture of a Button widget by texture asset ID */
+  setButtonTexture(handle: string, widgetName: string, textureId: string, _state: string = 'normal'): void {
+    const el = this._findByName(handle, widgetName);
+    if (!el) return;
+    const src = this._resolveTextureSrc(textureId);
+    if (!src) return;
+    el.style.backgroundImage = `url(${src})`;
+    el.style.backgroundSize = 'contain';
+    el.style.backgroundRepeat = 'no-repeat';
+  }
+
   setProgressBarPercent(handle: string, widgetName: string, percent: number): void {
     const el = this._findByName(handle, widgetName);
     if (!el) return;

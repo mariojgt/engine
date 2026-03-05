@@ -208,7 +208,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars
     if (!body.trim()) return null;
     return new Function(
       'ctx',
-      `const __ctx = ctx;\nconst { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\nconst __meshAssetManager = ctx.meshAssetManager || null;\nconst __loadMeshFromAsset = ctx.loadMeshFromAsset || null;\nconst __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;\nconst __engine = ctx.engine || null;\nconst __projectManager = ctx.projectManager || null;\nconst __actorAssetManager = ctx.actorAssetManager || null;\nconst __pTrack = ctx.__pTrack || null;\n${body}`
+      `const __ctx = ctx;\nconst { gameObject, deltaTime, elapsedTime, print } = ctx;\nconst __physics = ctx.physics || null;\nconst __scene = ctx.scene || null;\nconst __uiManager = ctx.uiManager || null;\nconst __animInstance = ctx.animInstance || null;\nconst __meshAssetManager = ctx.meshAssetManager || null;\nconst __loadMeshFromAsset = ctx.loadMeshFromAsset || null;\nconst __buildThreeMaterialFromAsset = ctx.buildThreeMaterialFromAsset || null;\nconst __engine = ctx.engine || null;\nconst __gameInstance = ctx.gameInstance || null;\nconst __projectManager = ctx.projectManager || null;\nconst __actorAssetManager = ctx.actorAssetManager || null;\nconst __pTrack = ctx.__pTrack || null;\n${body}`
     ) as (ctx: ScriptContext) => void;
   }
 

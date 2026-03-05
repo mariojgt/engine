@@ -327,7 +327,9 @@ export class Engine {
   /** Dummy GameObject for GameInstance context */
   private _dummyGO: any = { mesh: new THREE.Mesh(), scripts: [], id: -1, name: 'GameInstance' };
 
-  /** Update and return the cached ScriptContext */
+  /** Update and return a ScriptContext for the given gameObject.
+   * Returns a shallow copy so closures (e.g. Delay, timers) that capture ctx
+   * don't see a mutated shared reference when the next actor is ticked. */
   private _getCtx(go: import('./GameObject').GameObject, dt: number, elapsed: number): ScriptContext {
     this._cachedCtx.gameObject = go;
     this._cachedCtx.deltaTime = dt;
@@ -335,7 +337,7 @@ export class Engine {
     this._cachedCtx.projectManager = this.projectManager;
     this._cachedCtx.gameInstance = this.gameInstance;
     this._cachedCtx.actorAssetManager = this.actorAssetManager;
-    return this._cachedCtx;
+    return { ...this._cachedCtx };
   }
 
   async init(): Promise<void> {
@@ -544,8 +546,7 @@ export class Engine {
     }
     // Fire BeginPlay on Game Instance first (so its variables are ready for other scripts)
     if (this.gameInstance) {
-      const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
-      const giCtx = this._getCtx(dummyGO, 0, 0);
+      const giCtx = this._getCtx(this._dummyGO, 0, 0);
       this.gameInstance.beginPlay(giCtx);
     }
 
@@ -748,8 +749,7 @@ export class Engine {
 
       // Tick Game Instance (persistent across scene loads)
       if (this.gameInstance) {
-        const dummyGO = this.scene.gameObjects[0] ?? this._dummyGO;
-        const giCtx = this._getCtx(dummyGO, dt, this._elapsedTime);
+        const giCtx = this._getCtx(this._dummyGO, dt, this._elapsedTime);
         try {
           this.gameInstance.tick(giCtx);
         } catch (err) {

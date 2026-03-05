@@ -1453,7 +1453,7 @@ export class Scene2DManager {
       animInstance: { variables: varShim, asset: abp },
       // Expose a minimal engine shim so that Camera 2D blueprint nodes
       // (which use __engine.scene2DManager.camera2D) work at runtime.
-      engine:       { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, className: string, pos: any, rot: any, sc: any, owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, className, position: pos, rotation: rot, scale: sc, owner, overrides, result: r }); } catch {} return r; } },
+      engine:       this._buildEngineShim(),
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
@@ -1728,7 +1728,7 @@ export class Scene2DManager {
       scene:        sceneShim,
       uiManager:    this.engine?.uiManager ?? null,
       animInstance: null,
-      engine:       { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => { const r = self.spawnActorFromClassId(classId, pos, overrides); try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {} return r; } },
+      engine:       this._buildEngineShim(),
       gameInstance: this.engine?.gameInstance ?? null,
     };
 
@@ -1742,6 +1742,45 @@ export class Scene2DManager {
   }
 
   /** Destroy a single SpriteActor at runtime (called by Destroy Actor blueprint node).
+  /** Build a standardised engine shim object for 2D blueprint script contexts.
+   * Centralises the shim so all callsites (beginPlay, tick, onDestroy, ABP) stay in sync. */
+  private _buildEngineShim(): any {
+    const self = this;
+    return {
+      scene2DManager: this,
+      navMeshSystem: this.engine?.navMeshSystem ?? null,
+      _DragSelectionComponent: DragSelectionComponent,
+      eventBus: EventBus.getInstance(),
+      get _playCanvas() { return self._domElement; },
+      input: this.engine?.input,
+      uiManager: this.engine?.uiManager,
+      spawnActor: (classId: string, _className: string, pos: any, _rot: any, _sc: any, _owner: any, overrides: any) => {
+        const r = self.spawnActorFromClassId(classId, pos, overrides);
+        try { EventBus.getInstance().emit('spawnActor', { classId, position: pos, overrides, result: r }); } catch {}
+        return r;
+      },
+      // ── Subsystems that generated code may reference on __engine ──
+      timerManager: (this.engine as any)?.timerManager ?? null,
+      timers: (this.engine as any)?.timers ?? null,
+      audio: (this.engine as any)?.audio ?? null,
+      saveLoad: (this.engine as any)?.saveLoad ?? null,
+      gameInstance: (this.engine as any)?.gameInstance ?? null,
+      projectManager: (this.engine as any)?.projectManager ?? null,
+      physics: null,      // 3D physics not available in 2D mode
+      physics2D: this.physics2D ?? null,
+      scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: (id: number) => self.spriteActors.find(a => (a as any).id === id) ?? null, destroyActor: (actor: any) => self.despawnSpriteActor2D(actor) },
+      particleManager: null,
+      sceneManager: null,
+      behaviorTreeManager: null,
+      aiAssetManager: null,
+      drawDebugLine: () => {},
+      drawDebugPoint: () => {},
+      quit: () => { console.warn('[2D] quit() called – not implemented in 2D preview'); },
+      isPaused: false,
+    };
+  }
+
+   /** Destroy a single SpriteActor at runtime (called by Destroy Actor blueprint node).
    * Destruction is deferred to the end of the current frame so it is safe to call
    * from inside physics event callbacks or blueprint tick code. */
   despawnSpriteActor2D(actor: any): void {
@@ -1754,7 +1793,50 @@ export class Scene2DManager {
   /** Execute all queued destructions — called once per frame after iteration completes. */
   private _flushPendingDestroys(): void {
     if (this._pendingDestroy.size === 0) return;
+    const self = this;
     for (const actor of this._pendingDestroy) {
+      // ── Run onDestroy for blueprint / event scripts so __inputCleanup, intervals, etc. are cleaned up ──
+      const bpEv = this._actorBlueprintScripts.get(actor);
+      if (bpEv?.script && bpEv.started) {
+        try {
+          const destroyCtx = {
+            gameObject: actor as any,
+            deltaTime: 0,
+            elapsedTime: bpEv.elapsed,
+            print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
+            physics: null,
+            scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            uiManager: this.engine?.uiManager ?? null,
+            animInstance: null,
+            engine: this._buildEngineShim(),
+            gameInstance: this.engine?.gameInstance ?? null,
+          };
+          bpEv.script.onDestroy(destroyCtx);
+        } catch (err) {
+          console.error(`[Scene2DManager] Error running onDestroy for "${actor.name}" during flush:`, err);
+        }
+      }
+      const evEv = this._actorEventScripts.get(actor);
+      if (evEv?.script && evEv.started) {
+        try {
+          const destroyCtx = {
+            gameObject: actor as any,
+            deltaTime: 0,
+            elapsedTime: evEv.elapsed,
+            print: this.printFn ?? ((v: any) => console.log('[Actor2D]', v)),
+            physics: null,
+            scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
+            uiManager: this.engine?.uiManager ?? null,
+            animInstance: null,
+            engine: this._buildEngineShim(),
+            gameInstance: this.engine?.gameInstance ?? null,
+          };
+          evEv.script.onDestroy(destroyCtx);
+        } catch (err) {
+          console.error(`[Scene2DManager] Error running onDestroy event script for "${actor.name}" during flush:`, err);
+        }
+      }
+
       const idx = this.spriteActors.indexOf(actor);
       if (idx !== -1) this.spriteActors.splice(idx, 1);
       this.root2D.remove(actor.group);
@@ -1796,7 +1878,7 @@ export class Scene2DManager {
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             uiManager: this.engine?.uiManager ?? null,
             animInstance: null,
-            engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
+            engine: this._buildEngineShim(),
             gameInstance: this.engine?.gameInstance ?? null,
           };
           bpEv.script.onDestroy(destroyCtx);
@@ -1817,7 +1899,7 @@ export class Scene2DManager {
             scene: { get gameObjects() { return self.spriteActors as any[]; }, findById: () => null, destroyActor: () => {} },
             uiManager: this.engine?.uiManager ?? null,
             animInstance: null,
-            engine: { scene2DManager: this, navMeshSystem: this.engine?.navMeshSystem ?? null, _DragSelectionComponent: DragSelectionComponent, eventBus: EventBus.getInstance(), get _playCanvas() { return self._domElement; }, input: this.engine?.input, uiManager: this.engine?.uiManager, spawnActor: (classId: string, _cn: string, pos: any, _r: any, _s: any, _o: any, ov: any) => self.spawnActorFromClassId(classId, pos, ov) },
+            engine: this._buildEngineShim(),
             gameInstance: this.engine?.gameInstance ?? null,
           };
           evEv.script.onDestroy(destroyCtx);

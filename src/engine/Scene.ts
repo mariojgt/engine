@@ -385,6 +385,9 @@ export class Scene {
         loadMeshFromAsset: _deps?.loadMeshFromAsset ?? null,
         buildThreeMaterialFromAsset: _deps?.buildMaterialFromAsset ?? null,
         engine: this._runtimeEngine,
+        gameInstance: (this._runtimeEngine as any)?.gameInstance ?? null,
+        projectManager: (this._runtimeEngine as any)?.projectManager ?? null,
+        actorAssetManager: (this._runtimeEngine as any)?.actorAssetManager ?? null,
       };
       script.beginPlay(ctx);
     }
@@ -565,6 +568,9 @@ export class Scene {
           loadMeshFromAsset: _deps2?.loadMeshFromAsset ?? null,
           buildThreeMaterialFromAsset: _deps2?.buildMaterialFromAsset ?? null,
           engine: this._runtimeEngine,
+          gameInstance: (this._runtimeEngine as any)?.gameInstance ?? null,
+          projectManager: (this._runtimeEngine as any)?.projectManager ?? null,
+          actorAssetManager: (this._runtimeEngine as any)?.actorAssetManager ?? null,
         };
         script.onDestroy(ctx);
         script.reset();
