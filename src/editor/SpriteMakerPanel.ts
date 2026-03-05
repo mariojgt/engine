@@ -204,6 +204,7 @@ export class SpriteMakerPanel {
   private _customPrompt = '';
   private _colorHints = '';
   private _framesPerPose = 1;
+  private _spriteSheetMode = false;
   private _referenceImageId: string | null = null;
   private _saveSubfolder = 'Textures';
   private _isGenerating = false;
@@ -257,6 +258,7 @@ export class SpriteMakerPanel {
     leftCol.appendChild(this._buildReferenceImageSection());
     leftCol.appendChild(this._buildPosesSection());
     leftCol.appendChild(this._buildFrameCountSection());
+    leftCol.appendChild(this._buildSpriteSheetSection());
     leftCol.appendChild(this._buildSaveLocationSection());
     leftCol.appendChild(this._buildGenerateSection());
 
@@ -440,8 +442,12 @@ export class SpriteMakerPanel {
     const costHint = document.createElement('div');
     costHint.style.cssText = 'font-size:9px;color:#6c7086;margin-top:6px;';
     const poseCount = this._selectedPoses.size;
-    const totalCalls = poseCount * this._framesPerPose;
-    costHint.textContent = `${poseCount} pose${poseCount !== 1 ? 's' : ''} selected — ${totalCalls} API call${totalCalls !== 1 ? 's' : ''} (×${this._framesPerPose} frame${this._framesPerPose !== 1 ? 's' : ''} each)`;
+    if (this._spriteSheetMode) {
+      costHint.textContent = `${poseCount} pose${poseCount !== 1 ? 's' : ''} selected — ${poseCount} API call${poseCount !== 1 ? 's' : ''} (1 sprite sheet per pose, ${this._framesPerPose} frames each)`;
+    } else {
+      const totalCalls = poseCount * this._framesPerPose;
+      costHint.textContent = `${poseCount} pose${poseCount !== 1 ? 's' : ''} selected — ${totalCalls} API call${totalCalls !== 1 ? 's' : ''} (×${this._framesPerPose} frame${this._framesPerPose !== 1 ? 's' : ''} each)`;
+    }
     section.appendChild(costHint);
 
     return section;
@@ -576,11 +582,78 @@ export class SpriteMakerPanel {
     section.appendChild(row);
 
     // Total calls hint
-    const totalCalls = this._selectedPoses.size * this._framesPerPose;
     const costHint = document.createElement('div');
     costHint.style.cssText = 'font-size:9px;color:#6c7086;margin-top:6px;';
-    costHint.textContent = `${this._selectedPoses.size} pose${this._selectedPoses.size !== 1 ? 's' : ''} × ${this._framesPerPose} frame${this._framesPerPose !== 1 ? 's' : ''} = ${totalCalls} total API call${totalCalls !== 1 ? 's' : ''}`;
+    if (this._spriteSheetMode) {
+      costHint.textContent = `${this._selectedPoses.size} pose${this._selectedPoses.size !== 1 ? 's' : ''} × ${this._framesPerPose} frames on 1 sheet each = ${this._selectedPoses.size} total API call${this._selectedPoses.size !== 1 ? 's' : ''}`;
+    } else {
+      const totalCalls = this._selectedPoses.size * this._framesPerPose;
+      costHint.textContent = `${this._selectedPoses.size} pose${this._selectedPoses.size !== 1 ? 's' : ''} × ${this._framesPerPose} frame${this._framesPerPose !== 1 ? 's' : ''} = ${totalCalls} total API call${totalCalls !== 1 ? 's' : ''}`;
+    }
     section.appendChild(costHint);
+
+    return section;
+  }
+
+  // ---- Sprite Sheet Mode Section ----
+
+  private _buildSpriteSheetSection(): HTMLElement {
+    const section = this._section('SPRITE SHEET MODE', Icons.Grid);
+
+    const desc = document.createElement('div');
+    desc.style.cssText = 'font-size:10px;color:#6c7086;margin-bottom:8px;';
+    desc.textContent = 'When enabled, all frames for each pose are generated as a single horizontal sprite sheet image instead of separate images. This uses fewer API calls and keeps frames consistent.';
+    section.appendChild(desc);
+
+    // Toggle row
+    const toggleRow = document.createElement('div');
+    toggleRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+    // Toggle switch
+    const toggleLabel = document.createElement('label');
+    toggleLabel.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;';
+
+    const toggleTrack = document.createElement('div');
+    toggleTrack.style.cssText = `width:36px;height:20px;border-radius:10px;background:${this._spriteSheetMode ? '#a78bfa' : '#45475a'};position:relative;transition:background 0.2s;cursor:pointer;flex-shrink:0;`;
+
+    const toggleThumb = document.createElement('div');
+    toggleThumb.style.cssText = `width:16px;height:16px;border-radius:50%;background:#cdd6f4;position:absolute;top:2px;transition:left 0.2s;left:${this._spriteSheetMode ? '18px' : '2px'};box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+    toggleTrack.appendChild(toggleThumb);
+
+    const toggleText = document.createElement('span');
+    toggleText.style.cssText = `font-size:12px;font-weight:600;color:${this._spriteSheetMode ? '#a78bfa' : '#6c7086'};`;
+    toggleText.textContent = this._spriteSheetMode ? 'Sprite Sheet ON' : 'Sprite Sheet OFF';
+
+    toggleLabel.appendChild(toggleTrack);
+    toggleLabel.appendChild(toggleText);
+    toggleLabel.addEventListener('click', () => {
+      this._spriteSheetMode = !this._spriteSheetMode;
+      this._rebuild();
+    });
+
+    toggleRow.appendChild(toggleLabel);
+    section.appendChild(toggleRow);
+
+    // Extra info when enabled
+    if (this._spriteSheetMode) {
+      const infoBox = document.createElement('div');
+      infoBox.style.cssText = 'margin-top:8px;padding:8px 10px;background:#2a2040;border:1px solid #a78bfa40;border-radius:4px;font-size:10px;color:#cba6f7;line-height:1.5;';
+
+      const frameCount = this._framesPerPose;
+      infoBox.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-weight:600;">
+          ${iconHTML(Icons.Image, 'xs', '#a78bfa')} Sprite Sheet Preview
+        </div>
+        <div>Each pose will generate <b>1 image</b> containing <b>${frameCount} frame${frameCount !== 1 ? 's' : ''}</b> arranged in a horizontal strip.</div>
+        <div style="margin-top:4px;color:#6c7086;">Output: 1024×1024 image with ${frameCount} equal columns (${Math.floor(1024 / frameCount)}px per frame)</div>
+        <div style="margin-top:6px;display:flex;gap:2px;height:24px;">
+          ${Array.from({ length: Math.min(frameCount, 16) }, (_, i) =>
+            `<div style="flex:1;background:${i % 2 === 0 ? '#313244' : '#3b3b52'};border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#6c7086;">${i + 1}</div>`
+          ).join('')}
+        </div>
+      `;
+      section.appendChild(infoBox);
+    }
 
     return section;
   }
@@ -708,32 +781,29 @@ export class SpriteMakerPanel {
     this._renderResults();
 
     const poses = this._selectedTemplate.poses.filter(p => this._selectedPoses.has(p.id));
-    const totalFrames = poses.length * this._framesPerPose;
-    this._progress = { current: 0, total: totalFrames, currentPose: '' };
-    this._showProgress(true);
 
-    let frameIndex = 0;
-    for (let i = 0; i < poses.length; i++) {
-      const pose = poses[i];
+    if (this._spriteSheetMode) {
+      // ── Sprite Sheet Mode: 1 API call per pose, all frames in one image ──
+      const totalCalls = poses.length;
+      this._progress = { current: 0, total: totalCalls, currentPose: '' };
+      this._showProgress(true);
 
-      for (let f = 0; f < this._framesPerPose; f++) {
-        const frameLabel = this._framesPerPose > 1
-          ? `${pose.name} (frame ${f + 1}/${this._framesPerPose})`
-          : pose.name;
+      for (let i = 0; i < poses.length; i++) {
+        const pose = poses[i];
+        const sheetLabel = `${pose.name} (${this._framesPerPose}-frame sheet)`;
 
-        this._progress = { current: frameIndex, total: totalFrames, currentPose: frameLabel };
+        this._progress = { current: i, total: totalCalls, currentPose: sheetLabel };
         this._updateProgress();
 
         try {
-          const fullPrompt = this._buildFullPrompt(pose, f, this._framesPerPose);
-          console.log(`[SpriteMaker] Generating "${frameLabel}":\n${fullPrompt}`);
+          const fullPrompt = this._buildSpriteSheetPrompt(pose, this._framesPerPose);
+          console.log(`[SpriteMaker] Generating sprite sheet "${sheetLabel}":\n${fullPrompt}`);
 
           const dataUrl = await this._callOpenAI(apiKey, fullPrompt);
 
-          const poseId = this._framesPerPose > 1 ? `${pose.id}_f${f + 1}` : pose.id;
           const result: GenerationResult = {
-            poseId,
-            poseName: frameLabel,
+            poseId: `${pose.id}_sheet`,
+            poseName: sheetLabel,
             dataUrl,
             saved: false,
           };
@@ -741,23 +811,72 @@ export class SpriteMakerPanel {
           this._results.push(result);
           this._renderResults();
         } catch (err: any) {
-          console.error(`[SpriteMaker] Failed to generate "${frameLabel}":`, err);
-          const poseId = this._framesPerPose > 1 ? `${pose.id}_f${f + 1}` : pose.id;
+          console.error(`[SpriteMaker] Failed to generate sheet "${sheetLabel}":`, err);
           this._results.push({
-            poseId,
-            poseName: frameLabel,
+            poseId: `${pose.id}_sheet`,
+            poseName: sheetLabel,
             dataUrl: '',
             saved: false,
           });
           this._renderResults();
         }
-
-        frameIndex++;
       }
-    }
 
-    this._progress = { current: totalFrames, total: totalFrames, currentPose: 'Done!' };
-    this._updateProgress();
+      this._progress = { current: totalCalls, total: totalCalls, currentPose: 'Done!' };
+      this._updateProgress();
+    } else {
+      // ── Individual Frames Mode: 1 API call per frame ──
+      const totalFrames = poses.length * this._framesPerPose;
+      this._progress = { current: 0, total: totalFrames, currentPose: '' };
+      this._showProgress(true);
+
+      let frameIndex = 0;
+      for (let i = 0; i < poses.length; i++) {
+        const pose = poses[i];
+
+        for (let f = 0; f < this._framesPerPose; f++) {
+          const frameLabel = this._framesPerPose > 1
+            ? `${pose.name} (frame ${f + 1}/${this._framesPerPose})`
+            : pose.name;
+
+          this._progress = { current: frameIndex, total: totalFrames, currentPose: frameLabel };
+          this._updateProgress();
+
+          try {
+            const fullPrompt = this._buildFullPrompt(pose, f, this._framesPerPose);
+            console.log(`[SpriteMaker] Generating "${frameLabel}":\n${fullPrompt}`);
+
+            const dataUrl = await this._callOpenAI(apiKey, fullPrompt);
+
+            const poseId = this._framesPerPose > 1 ? `${pose.id}_f${f + 1}` : pose.id;
+            const result: GenerationResult = {
+              poseId,
+              poseName: frameLabel,
+              dataUrl,
+              saved: false,
+            };
+
+            this._results.push(result);
+            this._renderResults();
+          } catch (err: any) {
+            console.error(`[SpriteMaker] Failed to generate "${frameLabel}":`, err);
+            const poseId = this._framesPerPose > 1 ? `${pose.id}_f${f + 1}` : pose.id;
+            this._results.push({
+              poseId,
+              poseName: frameLabel,
+              dataUrl: '',
+              saved: false,
+            });
+            this._renderResults();
+          }
+
+          frameIndex++;
+        }
+      }
+
+      this._progress = { current: totalFrames, total: totalFrames, currentPose: 'Done!' };
+      this._updateProgress();
+    }
 
     setTimeout(() => this._showProgress(false), 1500);
 
@@ -765,7 +884,7 @@ export class SpriteMakerPanel {
     this._updateGenerateButton();
     const successCount = this._results.filter(r => r.dataUrl).length;
     const totalGenerated = this._results.length;
-    this._updateStatus(`Generated ${successCount}/${totalGenerated} sprites`);
+    this._updateStatus(`Generated ${successCount}/${totalGenerated} sprite${this._spriteSheetMode ? ' sheet' : ''}${totalGenerated !== 1 ? 's' : ''}`);
   }
 
   private _buildFullPrompt(pose: SpritePose, frameIndex: number = 0, totalFrames: number = 1): string {
@@ -811,6 +930,56 @@ export class SpriteMakerPanel {
 
     // General quality hints for pixel art
     parts.push('Single sprite only, centered, transparent or solid color background, no text, no watermarks, no borders, game-ready asset');
+
+    return parts.join('. ') + '.';
+  }
+
+  /** Build a prompt that asks the AI to generate a single sprite sheet image with N frames in a horizontal strip */
+  private _buildSpriteSheetPrompt(pose: SpritePose, frameCount: number): string {
+    const parts: string[] = [];
+
+    // Core sprite sheet instruction
+    parts.push(`Generate a single sprite sheet image containing exactly ${frameCount} animation frames arranged in a single horizontal row`);
+    parts.push(`The image must be divided into ${frameCount} equal-width columns, each column containing one animation frame`);
+    parts.push(`All ${frameCount} frames must be in ONE image, side by side from left to right, forming a horizontal strip`);
+
+    // Style preset
+    parts.push(this._selectedStyle.prompt);
+
+    // Template base prompt
+    parts.push(this._selectedTemplate.basePrompt);
+
+    // User description
+    parts.push(this._customPrompt.trim());
+
+    // Pose-specific
+    parts.push(`Animation: ${pose.promptSuffix}`);
+
+    // Frame progression instructions
+    parts.push(`Frame 1 (leftmost) is the starting pose, frame ${frameCount} (rightmost) is the ending pose`);
+    if (frameCount > 2) {
+      parts.push(`Frames 2 through ${frameCount - 1} are smooth in-between animation steps showing gradual progression`);
+    }
+    parts.push('Each frame should show the same character/object in a slightly different position to create smooth animation when played in sequence');
+    parts.push('Every frame must have the exact same character design, colors, proportions, and art style — only the pose changes between frames');
+
+    // Reference image
+    if (this._referenceImageId && this._textureLibrary) {
+      const refTex = this._textureLibrary.allTextures.find(t => t.assetId === this._referenceImageId);
+      if (refTex) {
+        parts.push(`Match the visual style, color palette, and proportions of the reference image named "${refTex.assetName}"`);
+      }
+    }
+
+    // Color hints
+    if (this._colorHints.trim()) {
+      parts.push(`Color palette: ${this._colorHints.trim()}`);
+    }
+
+    // Quality / layout hints
+    parts.push('Transparent or solid color background, no text, no labels, no numbers, no watermarks, no borders between frames');
+    parts.push('The frames should tile perfectly — same vertical alignment, same ground line, same scale in every column');
+    parts.push('Game-ready sprite sheet asset, suitable for slicing into individual animation frames');
 
     return parts.join('. ') + '.';
   }
@@ -1032,8 +1201,13 @@ export class SpriteMakerPanel {
       this._generateBtn.style.background = 'linear-gradient(135deg, #a78bfa 0%, #89b4fa 100%)';
       this._generateBtn.style.color = '#1e1e2e';
       this._generateBtn.style.cursor = 'pointer';
-      const total = this._selectedPoses.size * this._framesPerPose;
-      this._generateBtn.innerHTML = `${iconHTML(Icons.Sparkles, 'sm', '#1e1e2e')} Generate ${total} Sprite${total !== 1 ? 's' : ''}`;
+      if (this._spriteSheetMode) {
+        const sheetCount = this._selectedPoses.size;
+        this._generateBtn.innerHTML = `${iconHTML(Icons.Sparkles, 'sm', '#1e1e2e')} Generate ${sheetCount} Sprite Sheet${sheetCount !== 1 ? 's' : ''} (${this._framesPerPose} frames each)`;
+      } else {
+        const total = this._selectedPoses.size * this._framesPerPose;
+        this._generateBtn.innerHTML = `${iconHTML(Icons.Sparkles, 'sm', '#1e1e2e')} Generate ${total} Sprite${total !== 1 ? 's' : ''}`;
+      }
     }
   }
 
