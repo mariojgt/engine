@@ -507,11 +507,11 @@ export class Scene {
   clear(): void {
     // Restore any runtime destroyed actors so they can be properly disposed
     this.restoreRuntimeDestroyedActors();
-    
+
     while (this.gameObjects.length > 0) {
       this.removeGameObject(this.gameObjects[0]);
     }
-    
+
     this._runtimeDestroyedGOs = [];
     this.selectedObject = null;
     this._emitChanged();
@@ -523,7 +523,7 @@ export class Scene {
     if (this.selectedObject === go) {
       this.selectObject(null);
     }
-    
+
     // Properly dispose of Three.js resources to prevent memory leaks
     go.mesh.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {

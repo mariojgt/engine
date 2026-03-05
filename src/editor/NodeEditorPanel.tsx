@@ -1029,7 +1029,7 @@ function resolveValue(
     const negCode = keyEventCode(negKey);
     const posType = inputType(posKey);
     const negType = inputType(negKey);
-    
+
     const getVal = (code: string, type: string) => {
       if (type === 'mouse') return `(__inputKeys["__mouse${code}"] ? 1 : 0)`;
       if (type === 'wheel') return '0';
@@ -1037,7 +1037,7 @@ function resolveValue(
       if (type === 'gamepad') return `(__engine && __engine.input && __engine.input.isKeyDown(${JSON.stringify(code)}) ? 1 : 0)`;
       return `(__inputKeys[${JSON.stringify(code)}] ? 1 : 0)`;
     };
-    
+
     return `(${getVal(posCode, posType)} - ${getVal(negCode, negType)})`;
   }
 
@@ -1371,7 +1371,7 @@ function resolveValue(
     const key = kS ? resolveValue(kS.nid, kS.ok, nodeMap, inputSrc, bp) : JSON.stringify(String(keyCtrl));
     return `(gameObject.aiController ? (gameObject.aiController.getBlackboardValue(${key}) || {x:0, y:0, z:0}) : {x:0, y:0, z:0})`;
   }
-  
+
   if (node instanceof MakeVectorNode) {
     const xs = inputSrc.get(`${nodeId}.x`);
     const ys = inputSrc.get(`${nodeId}.y`);

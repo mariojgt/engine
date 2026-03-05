@@ -308,7 +308,7 @@ export class UIManager {
       try {
         console.log(`[UIManager] Executing widget blueprint code for "${bp.name || bp.id}"`);
         const print = this._printFn || ((msg: any) => console.log('[Widget BP]', msg));
-        
+
         const code = (bp as any).compiledCode;
         const beginPlayCode = this._extractBlock(code, '__beginPlay__') || '';
         const tickCode = this._extractBlock(code, '__tick__') || '';
@@ -316,7 +316,7 @@ export class UIManager {
         const preamble = this._extractPreamble(code);
 
         const compiled = this._compileShared(preamble, beginPlayCode, tickCode, destroyCode, code);
-        
+
         inst.beginPlayFn = compiled.beginPlay;
         inst.tickFn = compiled.tick;
         inst.onDestroyFn = compiled.onDestroy;
@@ -1120,15 +1120,15 @@ __setup = function(handle, uiManager, printFn, state, owner) {
   __widgetState = state;
   __widgetOwner = owner || null;
   gameObject = __widgetOwner;
-  
+
   __widgetState.__variables = {};
   __widgetState.__functions = {};
   __widgetState.__events = {};
-  
+
   ${this._generateVariableCaptureCode(fullCode)}
   ${this._generateFunctionCaptureCode(fullCode)}
   ${this._generateEventCaptureCode(fullCode)}
-  
+
   if (typeof __setupWidgetEvents === "function") __setupWidgetEvents(__widgetHandle, __uiManager);
 };
 

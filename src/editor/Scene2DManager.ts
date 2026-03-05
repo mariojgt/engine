@@ -700,7 +700,7 @@ export class Scene2DManager {
         const defaultAnim: string | undefined =
           entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
         actor.initAnimator(sheet.animations);
-        
+
         if (entryState?.spriteSheetId && entryState.spriteSheetId !== sheet.assetId) {
           const newSheet = this.spriteSheets.get(entryState.spriteSheetId);
           if (newSheet) {
@@ -913,7 +913,7 @@ export class Scene2DManager {
         const defaultAnim: string | undefined =
           entryState?.spriteAnimationName ?? sheet.animations[0]?.animName;
         actor.initAnimator(sheet.animations);
-        
+
         if (entryState?.spriteSheetId && entryState.spriteSheetId !== sheet.assetId) {
           const newSheet = this.spriteSheets.get(entryState.spriteSheetId);
           if (newSheet) {

@@ -182,7 +182,7 @@ export class Engine {
   constructor() {
     this.scene = new Scene();
     this.physics = new PhysicsWorld();
-    
+
     // Initialize static parts of the cached context
     this._cachedCtx.physics = this.physics;
     this._cachedCtx.scene = this.scene;
@@ -271,7 +271,7 @@ export class Engine {
     const line = new THREE.Line(geom, mat);
     line.renderOrder = 99999;
     line.frustumCulled = false;
-    
+
     // Ensure we add to the active scene
     if (this.scene && this.scene.threeScene) {
         this.scene.threeScene.add(line);
@@ -712,7 +712,7 @@ export class Engine {
     if (dt > 0.1) dt = 0.1;
 
     // Update Particles
-    // This runs even in edit mode if animations are generally running (using requestAnimationFrame), 
+    // This runs even in edit mode if animations are generally running (using requestAnimationFrame),
     // but typically we only want physics/logic in play mode.
     // However, for "Editor Preview", we might want it running.
     // For now, let's run it always so the editor panel shows live updates.
