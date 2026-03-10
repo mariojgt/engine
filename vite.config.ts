@@ -18,6 +18,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         gameplay: resolve(__dirname, 'gameplay.html'),
+        popout: resolve(__dirname, 'popout.html'),
       },
     },
   },

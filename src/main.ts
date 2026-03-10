@@ -616,11 +616,18 @@ async function main() {
       const item = document.createElement('div');
       item.className = 'toolbar-dropdown-item';
       const modeIcon = info.mode === 'floating' ? '⊞' : '⧉';
-      item.innerHTML = `<span>${modeIcon} ${info.title}</span><span class="shortcut" style="font-size:10px;opacity:0.6;">Dock</span>`;
+      const modeLabel = info.mode === 'popout' ? 'Focus' : 'Dock';
+      item.innerHTML = `<span>${modeIcon} ${info.title}</span><span class="shortcut" style="font-size:10px;opacity:0.6;">${modeLabel}</span>`;
       item.addEventListener('click', () => {
         windowDropdown.classList.remove('show');
-        const panel = editor.getDockviewApi().getPanel(info.panelId);
-        if (panel) dockingMgr.dockPanel(panel);
+        if (info.mode === 'popout') {
+          // For popout panels, focus the native window; shift-click to re-dock
+          const pwm = dockingMgr.getPanelWindowManager();
+          pwm.focus(info.panelId);
+        } else {
+          const panel = editor.getDockviewApi().getPanel(info.panelId);
+          if (panel) dockingMgr.dockPanel(panel);
+        }
       });
       detachedListEl.appendChild(item);
     }

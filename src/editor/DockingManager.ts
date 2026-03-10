@@ -4,9 +4,8 @@
  * Provides docking modes per panel group:
  *  1. **Docked**   – standard grid layout (default dockview behaviour)
  *  2. **Floating** – draggable overlay within the editor viewport
- *  3. **Popout**   – large floating overlay that also expands the Tauri
- *                    window to span all monitors so the panel can be
- *                    dragged freely across screens.
+ *  3. **Popout**   – real native OS window (Tauri WebviewWindow) that
+ *                    can be freely dragged across monitors.
  *
  * Also adds Unreal-Engine-style dock-zone overlays: when the user drags a
  * floating panel near the edges of the editor area, translucent zone
@@ -21,6 +20,8 @@ import type {
   IDockviewGroupPanel,
   IDockviewPanel,
 } from 'dockview-core';
+import { PanelWindowManager } from './PanelWindowManager';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 /* ────────────────────────────────────────────────────────────────────
  *  Types
@@ -174,9 +175,13 @@ export class GroupHeaderActions implements IHeaderActionsRenderer {
   private _syncVis(): void {
     const loc = (this._group as DockviewGroupPanel)?.model?.location;
     const grid = !loc || loc.type === 'grid';
+    const floating = loc?.type === 'floating';
     const detached = loc?.type === 'floating' || loc?.type === 'popout';
+    // Float button: show when docked in grid
     this._floatBtn.style.display = grid ? '' : 'none';
-    this._popoutBtn.style.display = grid ? '' : 'none';
+    // Pop-out button: show when docked OR floating (allows float → popout upgrade)
+    this._popoutBtn.style.display = (grid || floating) ? '' : 'none';
+    // Dock-back menu: show when detached
     this._dockWrap.style.display = detached ? '' : 'none';
     if (!detached) this._hideDockMenu();
   }
@@ -247,17 +252,20 @@ export class DockingManager {
   private _listeners: Array<() => void> = [];
   private _zones: DockZoneOverlay;
 
-  /** Saved main-window bounds before we expand for multi-monitor */
-  private _savedBounds: { x: number; y: number; w: number; h: number } | null = null;
-  /** Whether the window is currently expanded across all monitors */
-  private _isExpanded = false;
+  /** PanelWindowManager handles native OS popout windows */
+  private _pwm: PanelWindowManager;
+
+  /** Tauri event unsubscribers */
+  private _eventUnsubs: UnlistenFn[] = [];
 
   constructor(api: DockviewApi, container: HTMLElement) {
     this._api = api;
     this._container = container;
     this._zones = new DockZoneOverlay(container);
+    this._pwm = new PanelWindowManager();
     DockingManager.instance = this;
     this._watchFloatingDrags();
+    this._listenForPopoutEvents();
   }
 
   /* ══════════════════════════════════════════════════════════════════
@@ -282,29 +290,49 @@ export class DockingManager {
   }
 
   /**
-   * Pop out a panel as a large floating overlay.
-   * In Tauri the main window is also expanded to span all monitors so
-   * the floating panel can be freely dragged to any screen — while
-   * still sharing the same DOM / JS runtime, so all edits stay live.
+   * Pop out a panel into its own native OS window (Tauri WebviewWindow).
+   * The window is freely draggable across the entire desktop including
+   * secondary monitors — it's a real top-level OS window with native
+   * chrome (title bar, resize handles, minimize / close buttons).
+   *
+   * The panel's rendered content is mirrored to the popout window via
+   * Tauri events and kept in sync by PanelWindowManager.
    */
   popoutPanel(panel: IDockviewPanel): void {
-    try {
-      const r = this._container.getBoundingClientRect();
-      const w = Math.min(1200, r.width * 0.85);
-      const h = Math.min(900, r.height * 0.88);
-      this._api.addFloatingGroup(panel, {
-        x: (r.width - w) / 2,
-        y: Math.max(4, (r.height - h) / 2),
-        width: w,
-        height: h,
-      });
-      this._track(panel, 'popout');
-      this._nudgeResize(panel);
+    const panelId = panel.id;
+    const title = (panel as any).title ?? panel.id;
 
-      // Expand Tauri window to cover all monitors so the floating panel
-      // can be dragged to other screens
-      this._expandToAllMonitors();
-    } catch (e) { console.warn('[Docking] popout failed', e); }
+    // If already popped out, just focus the existing window
+    if (this._pwm.has(panelId)) {
+      this._pwm.focus(panelId);
+      return;
+    }
+
+    // Get the panel's content element for mirroring.
+    // IMPORTANT: We do NOT hide the panel content or force-move the
+    // panel.  The panel stays fully visible and functional in the
+    // main editor — its Three.js canvases, WebGL contexts, event
+    // listeners and interactive state all remain intact.  The popout
+    // window receives a mirrored HTML snapshot for non-canvas panels
+    // and a helpful indicator for canvas/viewport panels.
+    const contentEl = this._getPanelContentElement(panel);
+
+    // Mark the panel as having a companion popout (used by UI to
+    // show a small badge, but does NOT alter visibility/layout).
+    if (contentEl) {
+      contentEl.dataset.hasPopout = 'true';
+    }
+
+    // Create the native popout window
+    this._pwm.popout(panelId, title, contentEl).then((win) => {
+      if (win) {
+        this._track(panel, 'popout');
+        console.log(`[Docking] Panel "${panelId}" popped out to native window`);
+      } else {
+        if (contentEl) delete contentEl.dataset.hasPopout;
+        console.warn(`[Docking] Failed to pop out panel "${panelId}", keeping in main window`);
+      }
+    });
   }
 
   /**
@@ -314,6 +342,20 @@ export class DockingManager {
    */
   dockPanel(panel: IDockviewPanel, zone?: DockZone): void {
     try {
+      const panelId = panel.id;
+      const info = this._detached.get(panelId);
+
+      // If this panel was popped out to a native window, destroy that window first
+      if (info?.mode === 'popout' && this._pwm.has(panelId)) {
+        this._pwm.destroy(panelId);
+
+        // Remove the popout marker from the panel content
+        const contentEl = this._getPanelContentElement(panel);
+        if (contentEl) {
+          delete contentEl.dataset.hasPopout;
+        }
+      }
+
       const pos = zone ?? 'center';
 
       if (pos === 'center') {
@@ -347,13 +389,9 @@ export class DockingManager {
           }
         }
       }
-      this._detached.delete(panel.id);
+      this._detached.delete(panelId);
       this._notify();
-
-      // If no more floating/popout panels remain, restore window size
-      if (this._detached.size === 0) {
-        this._restoreWindowSize();
-      }
+      this._nudgeResize(panel);
     } catch (e) { console.warn('[Docking] dock failed', e); }
   }
 
@@ -362,12 +400,13 @@ export class DockingManager {
     for (const id of [...this._detached.keys()]) {
       try { const p = this._api.getPanel(id); if (p) this.dockPanel(p); } catch (_) {}
     }
-    // Always restore window after docking all
-    this._restoreWindowSize();
   }
 
   getDetachedPanels(): DetachedPanelInfo[] { return [...this._detached.values()]; }
   onChange(cb: () => void): void { this._listeners.push(cb); }
+
+  /** Expose PanelWindowManager for external access */
+  getPanelWindowManager(): PanelWindowManager { return this._pwm; }
 
   /* ══════════════════════════════════════════════════════════════════
    *  INTERNALS
@@ -378,6 +417,11 @@ export class DockingManager {
     this._notify();
   }
   private _notify(): void { for (const cb of this._listeners) try { cb(); } catch (_) {} }
+
+  /** Get the panel's content DOM element (the renderer element) */
+  private _getPanelContentElement(panel: IDockviewPanel): HTMLElement | null {
+    return (panel as any).view?.content?.element as HTMLElement | null;
+  }
 
   /**
    * After a panel is floated, its DOM element is reparented which can
@@ -403,82 +447,33 @@ export class DockingManager {
     setTimeout(kick, 200);
   }
 
-  /* ── Multi-monitor window expansion ────────────────────────────
+  /* ── Listen for popout window events ───────────────────────────
    *
-   * When a panel is popped out we expand the Tauri window to span
-   * ALL monitors.  Since the floating panel lives in the same DOM
-   * it can then be dragged to any screen.  The main editor content
-   * remains in its original position — only the OS window gets bigger.
-   * When all panels are docked back we restore the original size.
+   * When a popout window's close button is clicked (or the user
+   * clicks "Re-dock" inside the popout), the popout emits a
+   * `panel-close-requested` event.  We intercept it here and
+   * re-dock the panel back into the main editor.
    * ─────────────────────────────────────────────────────────────── */
 
-  private _expandToAllMonitors(): void {
-    if (this._isExpanded) return;
+  private _listenForPopoutEvents(): void {
     const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
     if (!isTauri) return;
 
-    import('@tauri-apps/api/window').then(async ({ getCurrentWindow, availableMonitors, PhysicalPosition, PhysicalSize }) => {
+    listen('panel-close-requested', (event: any) => {
+      const { panelId } = event.payload ?? {};
+      if (!panelId) return;
       try {
-        const win = getCurrentWindow();
-
-        // Save current bounds so we can restore later
-        const pos = await win.outerPosition();
-        const size = await win.outerSize();
-        this._savedBounds = { x: pos.x, y: pos.y, w: size.width, h: size.height };
-
-        // Compute bounding box of all monitors
-        const monitors = await availableMonitors();
-        if (monitors.length <= 1) {
-          // Single monitor — just maximise, no expansion needed
-          this._isExpanded = true;
-          return;
+        const panel = this._api.getPanel(panelId);
+        if (panel) {
+          this.dockPanel(panel);
+          console.log(`[Docking] Panel "${panelId}" re-docked from popout window`);
         }
-
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const m of monitors) {
-          const mx = m.position.x;
-          const my = m.position.y;
-          minX = Math.min(minX, mx);
-          minY = Math.min(minY, my);
-          maxX = Math.max(maxX, mx + m.size.width);
-          maxY = Math.max(maxY, my + m.size.height);
-        }
-
-        // Expand window to cover all monitors
-        await win.setPosition(new PhysicalPosition(minX, minY));
-        await win.setSize(new PhysicalSize(maxX - minX, maxY - minY));
-        this._isExpanded = true;
-
-        // Nudge resize so dockview and Three.js recalculate
-        setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-
-        console.log(`[Docking] Window expanded to span ${monitors.length} monitors: (${minX},${minY})→(${maxX},${maxY})`);
-      } catch (err) {
-        console.warn('[Docking] Failed to expand window', err);
+      } catch (e) {
+        console.warn('[Docking] Failed to re-dock panel from popout', e);
       }
-    }).catch(() => { /* Tauri not available */ });
-  }
-
-  private _restoreWindowSize(): void {
-    if (!this._isExpanded || !this._savedBounds) return;
-    const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
-    if (!isTauri) return;
-
-    const { x, y, w, h } = this._savedBounds;
-    this._savedBounds = null;
-    this._isExpanded = false;
-
-    import('@tauri-apps/api/window').then(async ({ getCurrentWindow, PhysicalPosition, PhysicalSize }) => {
-      try {
-        const win = getCurrentWindow();
-        await win.setPosition(new PhysicalPosition(x, y));
-        await win.setSize(new PhysicalSize(w, h));
-        setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-        console.log('[Docking] Window restored to original size');
-      } catch (err) {
-        console.warn('[Docking] Failed to restore window', err);
-      }
-    }).catch(() => { /* Tauri not available */ });
+    }).then((unsub) => {
+      this._eventUnsubs.push(unsub);
+    }).catch(() => {});
   }
 
   private _gridGroup(panelId: string): DockviewGroupPanel | null {
