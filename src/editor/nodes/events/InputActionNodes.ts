@@ -150,13 +150,13 @@ export class ClearAxisMappingNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Events', 'Input Action Event', () => new InputActionMappingEventNode());
-registerNode('Events', 'Input Axis Event', () => new InputAxisMappingEventNode());
-registerNode('Input', 'Get Input Action', () => new GetInputActionNode());
-registerNode('Input', 'Get Input Axis', () => new GetInputAxisNode());
-registerNode('Input', 'Add Action Mapping Key', () => new AddActionMappingKeyNode());
-registerNode('Input', 'Remove Action Mapping Key', () => new RemoveActionMappingKeyNode());
-registerNode('Input', 'Clear Action Mapping', () => new ClearActionMappingNode());
-registerNode('Input', 'Add Axis Mapping Key', () => new AddAxisMappingKeyNode());
-registerNode('Input', 'Remove Axis Mapping Key', () => new RemoveAxisMappingKeyNode());
-registerNode('Input', 'Clear Axis Mapping', () => new ClearAxisMappingNode());
+registerNode('Input Action Event', 'Events', () => new InputActionMappingEventNode());
+registerNode('Input Axis Event', 'Events', () => new InputAxisMappingEventNode());
+registerNode('Get Input Action', 'Input', () => new GetInputActionNode());
+registerNode('Get Input Axis', 'Input', () => new GetInputAxisNode());
+registerNode('Add Action Mapping Key', 'Input', () => new AddActionMappingKeyNode());
+registerNode('Remove Action Mapping Key', 'Input', () => new RemoveActionMappingKeyNode());
+registerNode('Clear Action Mapping', 'Input', () => new ClearActionMappingNode());
+registerNode('Add Axis Mapping Key', 'Input', () => new AddAxisMappingKeyNode());
+registerNode('Remove Axis Mapping Key', 'Input', () => new RemoveAxisMappingKeyNode());
+registerNode('Clear Axis Mapping', 'Input', () => new ClearAxisMappingNode());

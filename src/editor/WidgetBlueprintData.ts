@@ -754,10 +754,6 @@ export function defaultWidgetProps(type: WidgetType): Partial<WidgetNodeJSON> {
       return {
         slot: { ...defaultSlot(), sizeX: 40, sizeY: 40 },
       };
-    case 'NamedSlot':
-      return {
-        slot: { ...defaultSlot(), sizeX: 200, sizeY: 100 },
-      };
     case 'VerticalBox':
       return { slot: { ...defaultSlot(), sizeX: 300, sizeY: 200 } };
     case 'HorizontalBox':

@@ -244,6 +244,34 @@ function resolveValue(
     return '[]';
   }
 
+  // MakeDataTableRowHandleNode — produces a { dataTableId, rowName } handle object
+  if (node instanceof N.MakeDataTableRowHandleNode) {
+    const n = node as N.MakeDataTableRowHandleNode;
+    const safeDtId = n.dataTableId.replace(/[^a-zA-Z0-9]/g, '_');
+    const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
+    const rowNameExpr = rowNameSrc
+      ? resolveValue(rowNameSrc.nid, rowNameSrc.ok, nodeMap, inputSrc, bp)
+      : '""';
+    return `({ dataTableId: "${safeDtId}", rowName: String(${rowNameExpr}) })`;
+  }
+
+  // IsDataTableRowHandleValidNode — checks if a handle references an existing row
+  if (node instanceof N.IsDataTableRowHandleValidNode) {
+    const handleSrc = inputSrc.get(`${nodeId}.handle`);
+    const handleExpr = handleSrc
+      ? resolveValue(handleSrc.nid, handleSrc.ok, nodeMap, inputSrc, bp)
+      : '({})';
+    return `(function() { var __h = ${handleExpr}; if (!__h || !__h.dataTableId || !__h.rowName) return false; var __dt = eval('typeof __dt_' + __h.dataTableId + ' !== "undefined" ? __dt_' + __h.dataTableId + ' : null'); return __dt && __dt.rows[__h.rowName] != null; })()`;
+  }
+
+  // ResolveDataTableRowHandleNode — outputs resolved during genAction
+  if (node instanceof N.ResolveDataTableRowHandleNode) {
+    const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'outRow')   return `__rh_row_${uid}`;
+    if (outputKey === 'rowFound') return `__rh_found_${uid}`;
+    return 'null';
+  }
+
   // ── Texture pure-node resolveValue ────────────────────────────────
 
   // GetTextureIDNode — selected texture baked into the node control
@@ -426,6 +454,14 @@ function resolveValue(
     if (outputKey === 'impulse') return '__impulse';
     return '0';
   }
+  if (node instanceof N.OnComponentHitNode) {
+    if (outputKey === 'normalX') return '__normalX';
+    if (outputKey === 'normalY') return '__normalY';
+    if (outputKey === 'normalZ') return '__normalZ';
+    if (outputKey === 'impulse') return '__impulse';
+    return '0';
+  }
+
 
   // â”€â”€ N.OnEventNode â€” dynamic payload field outputs â”€â”€
   if (node instanceof N.OnEventNode) {
@@ -1301,22 +1337,34 @@ function resolveValue(
     case 'Format Text': {
       const formatS = inputSrc.get(`${nodeId}.format`);
       const format = formatS ? rv(formatS.nid, formatS.ok) : '""';
-      // Format Text needs to replace {0}, {1}, etc. with inputs
-      // For simplicity, we'll just return the format string if no args are provided
-      return `(${format})`;
+      const a0S = inputSrc.get(`${nodeId}.arg0`);
+      const a1S = inputSrc.get(`${nodeId}.arg1`);
+      const a2S = inputSrc.get(`${nodeId}.arg2`);
+      const a0 = a0S ? rv(a0S.nid, a0S.ok) : '""';
+      const a1 = a1S ? rv(a1S.nid, a1S.ok) : '""';
+      const a2 = a2S ? rv(a2S.nid, a2S.ok) : '""';
+      return `(String(${format}).replace(/\\{0\\}/g, String(${a0})).replace(/\\{1\\}/g, String(${a1})).replace(/\\{2\\}/g, String(${a2})))`;
     }
     case 'Int to String': {
       const s = inputSrc.get(`${nodeId}.value`);
       return `String(${s ? rv(s.nid, s.ok) : '0'})`;
+    }
+    case 'Bool to String': {
+      const s = inputSrc.get(`${nodeId}.value`);
+      return `(${s ? rv(s.nid, s.ok) : 'false'} ? "true" : "false")`;
     }
     case 'Float to String': {
       const s = inputSrc.get(`${nodeId}.value`);
       return `String(${s ? rv(s.nid, s.ok) : '0'})`;
     }
     case 'Vec3 to String': {
-      const s = inputSrc.get(`${nodeId}.value`);
-      const v = s ? rv(s.nid, s.ok) : 'new THREE.Vector3()';
-      return `("X=" + ${v}.x.toFixed(2) + " Y=" + ${v}.y.toFixed(2) + " Z=" + ${v}.z.toFixed(2))`;
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const xV = xS ? rv(xS.nid, xS.ok) : '0';
+      const yV = yS ? rv(yS.nid, yS.ok) : '0';
+      const zV = zS ? rv(zS.nid, zS.ok) : '0';
+      return `("X=" + Number(${xV}).toFixed(2) + " Y=" + Number(${yV}).toFixed(2) + " Z=" + Number(${zV}).toFixed(2))`;
     }
     case 'String Length': {
       const s = inputSrc.get(`${nodeId}.string`);
@@ -1874,8 +1922,8 @@ function resolveValue(
     case 'Get Canvas Slot Size': {
       const wS = inputSrc.get(`${nodeId}.widget`);
       const w = wS ? rv(wS.nid, wS.ok) : 'null';
-      if (outputKey === 'x') return `(${w} && ${w}.slot ? ${w}.slot.sizeX : 0)`;
-      if (outputKey === 'y') return `(${w} && ${w}.slot ? ${w}.slot.sizeY : 0)`;
+      if (outputKey === 'width') return `(${w} && ${w}.slot ? ${w}.slot.sizeX : 0)`;
+      if (outputKey === 'height') return `(${w} && ${w}.slot ? ${w}.slot.sizeY : 0)`;
       return '0';
     }
     case 'Get Canvas Slot Anchors': {
@@ -1937,8 +1985,8 @@ function resolveValue(
     case 'Get Widget Size': {
       const wS = inputSrc.get(`${nodeId}.widget`);
       const w = wS ? rv(wS.nid, wS.ok) : 'null';
-      if (outputKey === 'x') return `(${w} ? ${w}.sizeX : 0)`;
-      if (outputKey === 'y') return `(${w} ? ${w}.sizeY : 0)`;
+      if (outputKey === 'width') return `(${w} ? ${w}.sizeX : 0)`;
+      if (outputKey === 'height') return `(${w} ? ${w}.sizeY : 0)`;
       return '0';
     }
 
@@ -2236,12 +2284,12 @@ function genAction(
   }
   if (node.label === 'Set Canvas Slot Size') {
     const wS = inputSrc.get(`${nodeId}.widget`);
-    const xS = inputSrc.get(`${nodeId}.x`);
-    const yS = inputSrc.get(`${nodeId}.y`);
+    const wdS = inputSrc.get(`${nodeId}.width`);
+    const htS = inputSrc.get(`${nodeId}.height`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
-    const x = xS ? rv(xS.nid, xS.ok) : '0';
-    const y = yS ? rv(yS.nid, yS.ok) : '0';
-    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.sizeX = ${x}; ${w}.slot.sizeY = ${y}; } }`);
+    const wd = wdS ? rv(wdS.nid, wdS.ok) : '0';
+    const ht = htS ? rv(htS.nid, htS.ok) : '0';
+    lines.push(`{ if(${w} && ${w}.slot) { ${w}.slot.sizeX = ${wd}; ${w}.slot.sizeY = ${ht}; } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2324,12 +2372,12 @@ function genAction(
   }
   if (node.label === 'Set Render Scale') {
     const wS = inputSrc.get(`${nodeId}.widget`);
-    const xS = inputSrc.get(`${nodeId}.x`);
-    const yS = inputSrc.get(`${nodeId}.y`);
+    const sxS = inputSrc.get(`${nodeId}.scaleX`);
+    const syS = inputSrc.get(`${nodeId}.scaleY`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
-    const x = xS ? rv(xS.nid, xS.ok) : '1';
-    const y = yS ? rv(yS.nid, yS.ok) : '1';
-    lines.push(`{ if(${w}) { ${w}.renderScale = {x:${x}, y:${y}}; } }`);
+    const sx = sxS ? rv(sxS.nid, sxS.ok) : '1';
+    const sy = syS ? rv(syS.nid, syS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.renderScale = {x:${sx}, y:${sy}}; } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2344,7 +2392,7 @@ function genAction(
   }
   if (node.label === 'Set Widget Tooltip') {
     const wS = inputSrc.get(`${nodeId}.widget`);
-    const tS = inputSrc.get(`${nodeId}.tooltip`);
+    const tS = inputSrc.get(`${nodeId}.text`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
     const t = tS ? rv(tS.nid, tS.ok) : '""';
     lines.push(`{ if(${w}) { ${w}.tooltip = ${t}; } }`);
@@ -2569,23 +2617,23 @@ function genAction(
   }
   if (node.label === 'Set Widget Size') {
     const wS = inputSrc.get(`${nodeId}.widget`);
-    const xS = inputSrc.get(`${nodeId}.x`);
-    const yS = inputSrc.get(`${nodeId}.y`);
+    const wdS = inputSrc.get(`${nodeId}.width`);
+    const htS = inputSrc.get(`${nodeId}.height`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
-    const x = xS ? rv(xS.nid, xS.ok) : '0';
-    const y = yS ? rv(yS.nid, yS.ok) : '0';
-    lines.push(`{ if(${w}) { ${w}.sizeX = ${x}; ${w}.sizeY = ${y}; } }`);
+    const wd = wdS ? rv(wdS.nid, wdS.ok) : '0';
+    const ht = htS ? rv(htS.nid, htS.ok) : '0';
+    lines.push(`{ if(${w}) { ${w}.sizeX = ${wd}; ${w}.sizeY = ${ht}; } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node.label === 'Set Widget Scale') {
     const wS = inputSrc.get(`${nodeId}.widget`);
-    const xS = inputSrc.get(`${nodeId}.x`);
-    const yS = inputSrc.get(`${nodeId}.y`);
+    const sxS = inputSrc.get(`${nodeId}.scaleX`);
+    const syS = inputSrc.get(`${nodeId}.scaleY`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
-    const x = xS ? rv(xS.nid, xS.ok) : '1';
-    const y = yS ? rv(yS.nid, yS.ok) : '1';
-    lines.push(`{ if(${w}) { ${w}.scaleX = ${x}; ${w}.scaleY = ${y}; } }`);
+    const sx = sxS ? rv(sxS.nid, sxS.ok) : '1';
+    const sy = syS ? rv(syS.nid, syS.ok) : '1';
+    lines.push(`{ if(${w}) { ${w}.scaleX = ${sx}; ${w}.scaleY = ${sy}; } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2601,26 +2649,34 @@ function genAction(
   if (node.label === 'Animate Widget Float') {
     const wS = inputSrc.get(`${nodeId}.widget`);
     const pS = inputSrc.get(`${nodeId}.property`);
-    const tS = inputSrc.get(`${nodeId}.target`);
+    const fS = inputSrc.get(`${nodeId}.from`);
+    const tS = inputSrc.get(`${nodeId}.to`);
     const dS = inputSrc.get(`${nodeId}.duration`);
+    const eS = inputSrc.get(`${nodeId}.easing`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
     const p = pS ? rv(pS.nid, pS.ok) : '""';
+    const f = fS ? rv(fS.nid, fS.ok) : '0';
     const t = tS ? rv(tS.nid, tS.ok) : '0';
     const d = dS ? rv(dS.nid, dS.ok) : '1';
-    lines.push(`{ if(${w} && ${w}.animateFloat) { ${w}.animateFloat(${p}, ${t}, ${d}); } }`);
+    const e = eS ? rv(eS.nid, eS.ok) : '"easeOut"';
+    lines.push(`{ if(${w} && ${w}.animateFloat) { ${w}.animateFloat(${p}, ${f}, ${t}, ${d}, ${e}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node.label === 'Animate Widget Color') {
     const wS = inputSrc.get(`${nodeId}.widget`);
     const pS = inputSrc.get(`${nodeId}.property`);
-    const tS = inputSrc.get(`${nodeId}.target`);
+    const fcS = inputSrc.get(`${nodeId}.fromColor`);
+    const tcS = inputSrc.get(`${nodeId}.toColor`);
     const dS = inputSrc.get(`${nodeId}.duration`);
+    const eS = inputSrc.get(`${nodeId}.easing`);
     const w = wS ? rv(wS.nid, wS.ok) : 'null';
     const p = pS ? rv(pS.nid, pS.ok) : '""';
-    const t = tS ? rv(tS.nid, tS.ok) : '""';
+    const fc = fcS ? rv(fcS.nid, fcS.ok) : '""';
+    const tc = tcS ? rv(tcS.nid, tcS.ok) : '""';
     const d = dS ? rv(dS.nid, dS.ok) : '1';
-    lines.push(`{ if(${w} && ${w}.animateColor) { ${w}.animateColor(${p}, ${t}, ${d}); } }`);
+    const e = eS ? rv(eS.nid, eS.ok) : '"easeOut"';
+    lines.push(`{ if(${w} && ${w}.animateColor) { ${w}.animateColor(${p}, ${fc}, ${tc}, ${d}, ${e}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3211,7 +3267,7 @@ function genAction(
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
-  if (node instanceof N.SetCollisionEnabledNode) {
+  if (node instanceof N.SetCollisionEnabledNode || node instanceof N.SetCollisionEnabledPhysicsNode) {
     const eS = inputSrc.get(`${nodeId}.enabled`);
     lines.push(`{ const _tcs = gameObject._triggerComponents || []; for (const _tc of _tcs) _tc.config.enabled = ${eS ? rv(eS.nid, eS.ok) : 'true'}; }`);
     lines.push(...we(nodeId, 'exec'));
@@ -5585,7 +5641,7 @@ if (node instanceof N.NavMeshAddAgentNode) {
       const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
       const rowData = rowDataSrc ? rv(rowDataSrc.nid, rowDataSrc.ok) : '{}';
       lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { var __rnn = String(${rowName}); if (!__dt_${safeDtId}.rows[__rnn]) { __dt_${safeDtId}.rows[__rnn] = ${rowData}; } }`);
-      lines.push(...we(nodeId, 'exec'));
+      lines.push(...we(nodeId, 'then'));
       break;
     }
 
@@ -5595,7 +5651,7 @@ if (node instanceof N.NavMeshAddAgentNode) {
       const rowNameSrc = inputSrc.get(`${nodeId}.rowName`);
       const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
       lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { delete __dt_${safeDtId}.rows[String(${rowName})]; }`);
-      lines.push(...we(nodeId, 'exec'));
+      lines.push(...we(nodeId, 'then'));
       break;
     }
 
@@ -5607,7 +5663,7 @@ if (node instanceof N.NavMeshAddAgentNode) {
       const rowName = rowNameSrc ? rv(rowNameSrc.nid, rowNameSrc.ok) : '""';
       const rowData = rowDataSrc ? rv(rowDataSrc.nid, rowDataSrc.ok) : '{}';
       lines.push(`if (typeof __dt_${safeDtId} !== 'undefined' && __dt_${safeDtId}) { var __rnn = String(${rowName}); if (__dt_${safeDtId}.rows[__rnn]) { Object.assign(__dt_${safeDtId}.rows[__rnn], ${rowData}); } }`);
-      lines.push(...we(nodeId, 'exec'));
+      lines.push(...we(nodeId, 'then'));
       break;
     }
 
@@ -5629,6 +5685,23 @@ if (node instanceof N.NavMeshAddAgentNode) {
       lines.push(`  }`);
       lines.push(`}`);
       lines.push(...we(nodeId, 'then'));
+      break;
+    }
+
+    case 'Resolve Data Table Row Handle': {
+      const n = node as N.ResolveDataTableRowHandleNode;
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const handleSrc = inputSrc.get(`${nodeId}.handle`);
+      const handleExpr = handleSrc ? rv(handleSrc.nid, handleSrc.ok) : '({})';
+      lines.push(`var __rh_row_${uid} = null; var __rh_found_${uid} = false;`);
+      lines.push(`{ var __h = ${handleExpr}; if (__h && __h.dataTableId && __h.rowName) { var __dt = eval('typeof __dt_' + __h.dataTableId + ' !== "undefined" ? __dt_' + __h.dataTableId + ' : null'); if (__dt && __dt.rows[__h.rowName] != null) { __rh_row_${uid} = __dt.rows[__h.rowName]; __rh_found_${uid} = true; } } }`);
+      if (outputDst.has(`${nodeId}.then`) || outputDst.has(`${nodeId}.notFound`)) {
+        lines.push(`if (__rh_found_${uid}) {`);
+        lines.push(...we(nodeId, 'then'));
+        lines.push(`} else {`);
+        lines.push(...we(nodeId, 'notFound'));
+        lines.push(`}`);
+      }
       break;
     }
 
@@ -5994,9 +6067,16 @@ export function generateFullCode(
   // UE-style per-component bound overlap events
   const boundBeginNodes = nodes.filter(n => n instanceof N.OnTriggerComponentBeginOverlapNode) as N.OnTriggerComponentBeginOverlapNode[];
   const boundEndNodes   = nodes.filter(n => n instanceof N.OnTriggerComponentEndOverlapNode)   as N.OnTriggerComponentEndOverlapNode[];
+  // Physics component event nodes
+  const compHitNodes          = nodes.filter(n => n instanceof N.OnComponentHitNode);
+  const compBeginOverlapNodes = nodes.filter(n => n instanceof N.OnComponentBeginOverlapNode);
+  const compEndOverlapNodes   = nodes.filter(n => n instanceof N.OnComponentEndOverlapNode);
+  const compWakeNodes         = nodes.filter(n => n instanceof N.OnComponentWakeNode);
+  const compSleepNodes        = nodes.filter(n => n instanceof N.OnComponentSleepNode);
   const hasCollisionEvents = triggerBeginNodes.length > 0 || triggerEndNodes.length > 0 ||
     actorBeginNodes.length > 0 || actorEndNodes.length > 0 || collisionHitNodes.length > 0 ||
-    boundBeginNodes.length > 0 || boundEndNodes.length > 0;
+    boundBeginNodes.length > 0 || boundEndNodes.length > 0 ||
+    compHitNodes.length > 0 || compBeginOverlapNodes.length > 0 || compEndOverlapNodes.length > 0;
 
   if (hasCollisionEvents) {
     beginPlayCode.push('var __collCb = __physics.collision.registerCallbacks(gameObject.id);');
@@ -6047,7 +6127,45 @@ export function generateFullCode(
         beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __otherActorName = __hitEvt.otherActorName; var __otherActorId = __hitEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; var __selfComponent = __hitEvt.selfComponentName; var __impactX = __hitEvt.impactPoint ? __hitEvt.impactPoint.x : 0; var __impactY = __hitEvt.impactPoint ? __hitEvt.impactPoint.y : 0; var __impactZ = __hitEvt.impactPoint ? __hitEvt.impactPoint.z : 0; var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __velX = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.x : 0; var __velY = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.y : 0; var __velZ = __hitEvt.hitVelocity ? __hitEvt.hitVelocity.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
       }
     }
+    // Physics component event nodes (OnComponentHit, Begin/End Overlap)
+    for (const n of compHitNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onHit.push(function(__hitEvt) { var __normalX = __hitEvt.impactNormal ? __hitEvt.impactNormal.x : 0; var __normalY = __hitEvt.impactNormal ? __hitEvt.impactNormal.y : 0; var __normalZ = __hitEvt.impactNormal ? __hitEvt.impactNormal.z : 0; var __impulse = __hitEvt.impulse || 0; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of compBeginOverlapNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onBeginOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
+      }
+    }
+    for (const n of compEndOverlapNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        beginPlayCode.push(`__collCb.onEndOverlap.push(function(__ovEvt) { var __otherActorName = __ovEvt.otherActorName; var __otherActorId = __ovEvt.otherActorId; var __otherActor = __scene ? __scene.findById(__otherActorId) : null; ${body.join(' ')} });`);
+      }
+    }
   }
+
+  // -- Physics Component Wake/Sleep event nodes (poll each tick) ---
+  if (compWakeNodes.length > 0 || compSleepNodes.length > 0) {
+    beginPlayCode.push('var __wasSleeping = false;');
+    for (const n of compWakeNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        tickCode.push(`{ var __rb = gameObject.rigidBody; if (__rb) { var __isSleeping = __rb.isSleeping(); if (__wasSleeping && !__isSleeping) { ${body.join(' ')} } } }`);
+      }
+    }
+    for (const n of compSleepNodes) {
+      const body = walkExec(n.id, 'exec', nodeMap, inputSrc, outputDst, bp);
+      if (body.length > 0) {
+        tickCode.push(`{ var __rb = gameObject.rigidBody; if (__rb) { var __isSleeping = __rb.isSleeping(); if (!__wasSleeping && __isSleeping) { ${body.join(' ')} } } }`);
+      }
+    }
+    tickCode.push('{ var __rb = gameObject.rigidBody; if (__rb) __wasSleeping = __rb.isSleeping(); }');
+  }
+
 
   // â”€â”€ Widget Event Nodes (ButtonOnClicked, etc.) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const buttonClickedNodes = nodes.filter(n => n instanceof N.ButtonOnClickedNode) as N.ButtonOnClickedNode[];
