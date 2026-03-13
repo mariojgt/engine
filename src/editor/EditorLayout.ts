@@ -49,6 +49,7 @@ import { SoundCueEditorPanel } from './SoundCueEditorPanel';
 import { ShaderGraphEditorPanel } from './ShaderGraphEditorPanel';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
 import type { MCPBridge } from './MCPBridge';
+import { NODE_PALETTE } from './nodes/sockets';
 import { Scene2DManager, type SceneMode } from './Scene2DManager';
 import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
@@ -1692,6 +1693,27 @@ export class EditorLayout {
       const dataUrl = this._viewport.captureScreenshot();
       if (!dataUrl) return { error: 'Failed to capture screenshot' };
       return { imageDataUrl: dataUrl };
+    });
+
+    // Register node-list handler so MCP server can dynamically query available nodes
+    bridge.onBridgeRequest('list_node_types', async (req) => {
+      const byCategory: Record<string, string[]> = {};
+      for (const entry of NODE_PALETTE) {
+        const cat = entry.category || 'uncategorized';
+        if (!byCategory[cat]) byCategory[cat] = [];
+        try {
+          const instance = entry.factory();
+          const className = instance.constructor.name;
+          if (!byCategory[cat].includes(className)) {
+            byCategory[cat].push(className);
+          }
+        } catch {
+          // Factory failed — use label as fallback class name
+          const fallback = entry.label.replace(/\s+/g, '') + 'Node';
+          if (!byCategory[fallback]) byCategory[cat].push(fallback);
+        }
+      }
+      return { nodeTypes: byCategory };
     });
   }
 

@@ -1,6 +1,6 @@
-// ============================================================
-//  Feather Engine MCP Server — Full Engine Control
-//  ────────────────────────────────────────────────
+﻿// ============================================================
+//  Feather Engine MCP Server â€” Full Engine Control
+//  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  Exposes every engine capability via Model Context Protocol:
 //  - Project & scene management
 //  - Actor/blueprint creation & modification
@@ -25,11 +25,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
-// ── WebSocket Bridge (engine ↔ MCP) ──────────────────────────
+// â”€â”€ WebSocket Bridge (engine â†” MCP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const WS_PORT = parseInt(process.env.MCP_BRIDGE_PORT || '9960', 10);
 let wss: WebSocketServer | null = null;
 
-// ── Pending bridge requests (MCP → Engine → response) ──────────
+// â”€â”€ Pending bridge requests (MCP â†’ Engine â†’ response) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _pendingRequests = new Map<string, { resolve: (data: any) => void; timer: ReturnType<typeof setTimeout> }>();
 let _requestCounter = 0;
 
@@ -94,7 +94,7 @@ function broadcastChange(event: Record<string, unknown>): void {
   }
 }
 
-// ── ID generation (matches engine patterns) ──────────────────
+// â”€â”€ ID generation (matches engine patterns) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let _assetNextId = Date.now();
 let _uid = 0;
 function assetUid(): string { return 'actor_' + (++_assetNextId) + '_' + Date.now().toString(36); }
@@ -111,7 +111,7 @@ function eventUid(): string { return 'evt_' + Date.now().toString(36) + '_' + (+
 function varUid(name: string): string { return `var_${name}_${Date.now().toString(36)}`; }
 function nodeUid(): string { return 'node_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
 
-// ── File I/O helpers ─────────────────────────────────────────
+// â”€â”€ File I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function readJsonFile(filePath: string): any {
   const content = fs.readFileSync(filePath, 'utf-8');
   return JSON.parse(content);
@@ -138,385 +138,6 @@ function writeJsonFile(filePath: string, data: any): void {
       path: filePath,
     });
   }
-}
-
-// ============================================================
-//  compileGraphToCode — Generate runtime JS from a JSON graph
-//  Handles the most common node types for actors.
-// ============================================================
-function compileGraphToCode(graph: any, actorData?: any): string {
-  if (!graph || !graph.nodes || graph.nodes.length === 0) return '';
-  const nodes: any[] = graph.nodes;
-  const conns: any[] = graph.connections || [];
-
-  // Build connection maps
-  const outgoing = new Map<string, any[]>(); // sourceId.output -> [{target,targetInput}]
-  const incoming = new Map<string, any>();   // targetId.input -> {source,sourceOutput}
-  for (const c of conns) {
-    const ok = c.source + '.' + c.sourceOutput;
-    if (!outgoing.has(ok)) outgoing.set(ok, []);
-    outgoing.get(ok)!.push({ target: c.target, targetInput: c.targetInput });
-    incoming.set(c.target + '.' + c.targetInput, { source: c.source, sourceOutput: c.sourceOutput });
-  }
-
-  const nodeMap = new Map<string, any>();
-  for (const n of nodes) nodeMap.set(n.id, n);
-
-  // Find execution chains from an event node
-  function execChain(startId: string, startOutput: string): string[] {
-    const ids: string[] = [];
-    let key = startId + '.' + startOutput;
-    while (true) {
-      const targets = outgoing.get(key);
-      if (!targets || targets.length === 0) break;
-      const t = targets[0];
-      ids.push(t.target);
-      key = t.target + '.exec'; // follow exec output
-    }
-    return ids;
-  }
-
-  // Resolve a data input value for a node
-  function resolveInput(nodeId: string, inputName: string, fallback: string): string {
-    const conn = incoming.get(nodeId + '.' + inputName);
-    if (!conn) return fallback;
-    const srcNode = nodeMap.get(conn.source);
-    if (!srcNode) return fallback;
-    return resolveNodeOutput(srcNode, conn.sourceOutput);
-  }
-
-  // Get a node's output expression
-  function resolveNodeOutput(node: any, output: string): string {
-    const t = node.type;
-    const c = node.data?.controls || {};
-    const d = node.data || {};
-
-    // Math nodes
-    if (t === 'AddNode') return '(' + resolveInput(node.id, 'a', '0') + ' + ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'SubtractNode') return '(' + resolveInput(node.id, 'a', '0') + ' - ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'MultiplyNode') return '(' + resolveInput(node.id, 'a', '0') + ' * ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'DivideNode') return '(' + resolveInput(node.id, 'a', '0') + ' / ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'SineNode') return 'Math.sin(' + resolveInput(node.id, 'value', '0') + ')';
-    if (t === 'CosineNode') return 'Math.cos(' + resolveInput(node.id, 'value', '0') + ')';
-    if (t === 'AbsoluteNode') return 'Math.abs(' + resolveInput(node.id, 'value', '0') + ')';
-    if (t === 'ClampNode') return 'Math.min(Math.max(' + resolveInput(node.id, 'value', '0') + ', ' + resolveInput(node.id, 'min', '0') + '), ' + resolveInput(node.id, 'max', '1') + ')';
-    if (t === 'LerpNode') { const a = resolveInput(node.id,'a','0'), b = resolveInput(node.id,'b','1'), al = resolveInput(node.id,'alpha','0'); return '(' + a + ' + (' + b + ' - ' + a + ') * ' + al + ')'; }
-    if (t === 'ModuloNode') return '(' + resolveInput(node.id, 'a', '0') + ' % ' + resolveInput(node.id, 'b', '1') + ')';
-    if (t === 'MinNode') return 'Math.min(' + resolveInput(node.id, 'a', '0') + ', ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'MaxNode') return 'Math.max(' + resolveInput(node.id, 'a', '0') + ', ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'SqrtNode') return 'Math.sqrt(' + resolveInput(node.id, 'value', '0') + ')';
-    if (t === 'RandomFloatNode') return 'Math.random()';
-    if (t === 'RandomFloatInRangeNode') { const mn = resolveInput(node.id,'min','0'), mx = resolveInput(node.id,'max','1'); return '(' + mn + ' + Math.random() * (' + mx + ' - ' + mn + '))'; }
-
-    // Comparison nodes
-    if (t === 'GreaterThanNode') return '(' + resolveInput(node.id, 'a', '0') + ' > ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'LessThanNode') return '(' + resolveInput(node.id, 'a', '0') + ' < ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'EqualNode') return '(' + resolveInput(node.id, 'a', '0') + ' == ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'NotEqualNode') return '(' + resolveInput(node.id, 'a', '0') + ' != ' + resolveInput(node.id, 'b', '0') + ')';
-    if (t === 'BoolAndNode') return '(' + resolveInput(node.id, 'a', 'false') + ' && ' + resolveInput(node.id, 'b', 'false') + ')';
-    if (t === 'BoolOrNode') return '(' + resolveInput(node.id, 'a', 'false') + ' || ' + resolveInput(node.id, 'b', 'false') + ')';
-    if (t === 'BoolNotNode') return '(!' + resolveInput(node.id, 'value', 'false') + ')';
-
-    // Value nodes
-    if (t === 'FloatNode') return String(c.value ?? d.value ?? 0);
-    if (t === 'BooleanNode') return String(c.value ?? d.value ?? false);
-    if (t === 'StringLiteralNode') return JSON.stringify(c.value ?? d.value ?? '');
-    if (t === 'TimeNode') return 'elapsedTime';
-    if (t === 'DeltaTimeNode') return 'deltaTime';
-
-    // Input nodes
-    if (t === 'InputAxisNode') {
-      const pos = (c.posKey || d.positiveKey || 'D').toLowerCase();
-      const neg = (c.negKey || d.negativeKey || 'A').toLowerCase();
-      return '((__inputKeys[' + JSON.stringify(pos) + '] ? 1 : 0) - (__inputKeys[' + JSON.stringify(neg) + '] ? 1 : 0))';
-    }
-
-    // Transform nodes
-    if (t === 'GetPositionNode' || t === 'GetActorPositionNode') {
-      if (output === 'x') return 'gameObject.position.x';
-      if (output === 'y') return 'gameObject.position.y';
-      if (output === 'z') return 'gameObject.position.z';
-      return 'gameObject.position';
-    }
-    if (t === 'GetActorRotationNode') {
-      if (output === 'x') return 'gameObject.rotation.x';
-      if (output === 'y') return 'gameObject.rotation.y';
-      if (output === 'z') return 'gameObject.rotation.z';
-      return 'gameObject.rotation';
-    }
-    if (t === 'GetActorScaleNode') {
-      if (output === 'x') return 'gameObject.scale.x';
-      if (output === 'y') return 'gameObject.scale.y';
-      if (output === 'z') return 'gameObject.scale.z';
-      return 'gameObject.scale';
-    }
-    if (t === 'GetActorVelocityNode') {
-      return '(function(){ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D"); return _rb && _rb.rigidBody ? _rb.rigidBody.linvel() : {x:0,y:0}; })().' + (output || 'x');
-    }
-
-    // Character nodes
-    if (t === 'GetMovementSpeedNode' || t === 'GetCharacterVelocityNode') {
-      return '(function(){ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); return _cm ? _cm.currentSpeed : 0; })()';
-    }
-    if (t === 'IsGroundedNode') return '(function(){ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); return _cm ? _cm.isGrounded : false; })()';
-    if (t === 'IsMovingNode') return '(function(){ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); return _cm ? _cm.currentSpeed > 0.01 : false; })()';
-
-    // Variable nodes
-    if (t === 'GetVariableNode') {
-      const varName = c.variableName || d.variableName || d.selectedVariable || '';
-      return '__vars[' + JSON.stringify(varName) + ']';
-    }
-
-    // Self reference
-    if (t === 'GetSelfReferenceNode') return 'gameObject';
-    if (t === 'GetPlayerPawnNode') return 'gameObject'; // simplified
-
-    return '0 /* unknown: ' + t + '.' + output + ' */';
-  }
-
-  // Generate code for a single exec node
-  function genNodeCode(nodeId: string): string {
-    const node = nodeMap.get(nodeId);
-    if (!node) return '';
-    const t = node.type;
-    const c = node.data?.controls || {};
-    const d = node.data || {};
-    let code = '';
-
-    // Print String
-    if (t === 'PrintStringNode') {
-      const text = resolveInput(nodeId, 'value', JSON.stringify(c.text ?? 'Hello'));
-      code += 'print(' + text + ');\n';
-    }
-
-    // Set position
-    else if (t === 'SetPositionNode' || t === 'SetActorPositionNode') {
-      const x = resolveInput(nodeId, 'x', 'gameObject.position.x');
-      const y = resolveInput(nodeId, 'y', 'gameObject.position.y');
-      const z = resolveInput(nodeId, 'z', 'gameObject.position.z');
-      code += 'gameObject.position.set(' + x + ', ' + y + ', ' + z + ');\n';
-    }
-    else if (t === 'SetActorRotationNode') {
-      const x = resolveInput(nodeId, 'x', 'gameObject.rotation.x');
-      const y = resolveInput(nodeId, 'y', 'gameObject.rotation.y');
-      const z = resolveInput(nodeId, 'z', 'gameObject.rotation.z');
-      code += 'gameObject.rotation.set(' + x + ', ' + y + ', ' + z + ');\n';
-    }
-
-    // Add Movement Input 2D
-    else if (t === 'AddMovementInput2DNode') {
-      const x = resolveInput(nodeId, 'x', '0');
-      const y = resolveInput(nodeId, 'y', '0');
-      const scale = resolveInput(nodeId, 'scale', '1');
-      code += '{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D");';
-      code += ' if (_cm) {';
-      code += ' var _sx = (' + x + ') * (' + scale + ');';
-      code += ' var _sy = (' + y + ') * (' + scale + ');';
-      code += ' if (Math.abs(_sx) > 0.001) _cm.moveHorizontal(_sx, deltaTime); else _cm.decelerate(deltaTime);';
-      code += ' if (Math.abs(_sy) > 0.001) _cm.moveVertical(_sy, deltaTime); else if (_cm.decelerateVertical) _cm.decelerateVertical(deltaTime);';
-      code += ' } }\n';
-    }
-
-    // Jump
-    else if (t === 'JumpNode') {
-      code += '{ var _cm = gameObject.getComponent && gameObject.getComponent("CharacterMovement2D"); if (_cm && _cm.jump) _cm.jump(); }\n';
-    }
-
-    // Set Variable
-    else if (t === 'SetVariableNode') {
-      const varName = c.variableName || d.variableName || d.selectedVariable || '';
-      const val = resolveInput(nodeId, 'value', '0');
-      code += '__vars[' + JSON.stringify(varName) + '] = ' + val + ';\n';
-    }
-
-    // Branch
-    else if (t === 'BranchNode') {
-      const cond = resolveInput(nodeId, 'condition', 'false');
-      const trueChain = execChain(nodeId, 'true');
-      const falseChain = execChain(nodeId, 'false');
-      code += 'if (' + cond + ') {\n';
-      for (const id of trueChain) code += '  ' + genNodeCode(id);
-      code += '} else {\n';
-      for (const id of falseChain) code += '  ' + genNodeCode(id);
-      code += '}\n';
-    }
-
-    // Spawn Actor
-    else if (t === 'SpawnActorNode') {
-      const cls = c.className || d.className || '';
-      code += '/* SpawnActor: ' + cls + ' — requires runtime scene API */\n';
-    }
-
-    // Destroy Actor
-    else if (t === 'DestroyActorNode') {
-      code += 'if (typeof destroyActor === "function") destroyActor(gameObject);\n';
-    }
-
-    // Play Sound
-    else if (t === 'PlaySoundNode') {
-      const snd = resolveInput(nodeId, 'sound', JSON.stringify(c.sound || ''));
-      code += 'if (typeof playSound === "function") playSound(' + snd + ');\n';
-    }
-
-    // Add Force / Impulse
-    else if (t === 'AddForceNode' || t === 'AddImpulseNode') {
-      const x = resolveInput(nodeId, 'x', '0');
-      const y = resolveInput(nodeId, 'y', '0');
-      const method = t === 'AddImpulseNode' ? 'applyImpulse' : 'applyForce';
-      code += '{ var _rb = gameObject.getComponent && gameObject.getComponent("RigidBody2D");';
-      code += ' if (_rb && _rb.rigidBody) _rb.rigidBody.' + method + '({x:' + x + ', y:' + y + '}, true); }\n';
-    }
-
-    // Sequence node — follow all outputs
-    else if (t === 'SequenceNode') {
-      for (let i = 0; i < 5; i++) {
-        const chain = execChain(nodeId, 'then_' + i);
-        if (chain.length === 0) {
-          const chain2 = execChain(nodeId, String(i));
-          for (const id of chain2) code += genNodeCode(id);
-        } else {
-          for (const id of chain) code += genNodeCode(id);
-        }
-      }
-    }
-
-    // ForLoop
-    else if (t === 'ForLoopNode') {
-      const start = resolveInput(nodeId, 'start', '0');
-      const end = resolveInput(nodeId, 'end', '10');
-      const body = execChain(nodeId, 'loopBody');
-      code += 'for (var __i = ' + start + '; __i < ' + end + '; __i++) {\n';
-      for (const id of body) code += '  ' + genNodeCode(id);
-      code += '}\n';
-    }
-
-    // Default — just note it
-    else {
-      code += '/* ' + t + ' [' + nodeId + '] — not compiled */\n';
-    }
-
-    return code;
-  }
-
-  // ── Build the code sections ──
-  const beginPlayNodes = nodes.filter(n => n.type === 'EventBeginPlayNode');
-  const tickNodes = nodes.filter(n => n.type === 'EventTickNode');
-  const destroyNodes = nodes.filter(n => n.type === 'EventOnDestroyNode');
-  const inputKeyNodes = nodes.filter(n => n.type === 'InputKeyEventNode');
-
-  // Collect variables
-  const vars = actorData?.variables || [];
-  let varDecls = '';
-  const varDefaults: Record<string, string> = {};
-  for (const v of vars) {
-    const name = v.name || v.variableName;
-    const def = v.defaultValue ?? (v.type === 'Float' ? 0 : v.type === 'Boolean' ? false : v.type === 'String' ? '' : null);
-    varDefaults[name] = JSON.stringify(def);
-  }
-
-  // Start building code
-  let out = '';
-
-  // Variable getter
-  out += 'function __getVars() { return { ';
-  for (const [k, v] of Object.entries(varDefaults)) out += JSON.stringify(k) + ': __vars[' + JSON.stringify(k) + '], ';
-  out += ' }; }\n';
-
-  // Variable store
-  if (Object.keys(varDefaults).length > 0) {
-    out += 'var __vars = { ';
-    for (const [k, v] of Object.entries(varDefaults)) out += JSON.stringify(k) + ': ' + v + ', ';
-    out += '};\n';
-  } else {
-    out += 'var __vars = {};\n';
-  }
-
-  // Check if any input axis or key nodes are used
-  const hasInputNodes = nodes.some(n =>
-    n.type === 'InputAxisNode' || n.type === 'InputKeyEventNode' ||
-    n.type === 'GetMousePositionNode' || n.type === 'GetMouseDeltaNode'
-  );
-
-  if (hasInputNodes) {
-    out += 'var __inputKeys = {};\nvar __inputCleanup = [];\n';
-  }
-
-  // ── beginPlay ──
-  let beginPlayCode = '';
-  if (hasInputNodes) {
-    beginPlayCode += 'var __kd_global = function(e) { __inputKeys[e.key] = true; };\n';
-    beginPlayCode += 'var __ku_global = function(e) { __inputKeys[e.key] = false; };\n';
-    beginPlayCode += 'document.addEventListener("keydown", __kd_global);\n';
-    beginPlayCode += 'document.addEventListener("keyup", __ku_global);\n';
-    beginPlayCode += 'var __md_global = function(e) { __inputKeys["__mouse" + e.button] = true; };\n';
-    beginPlayCode += 'var __mu_global = function(e) { __inputKeys["__mouse" + e.button] = false; };\n';
-    beginPlayCode += 'document.addEventListener("mousedown", __md_global);\n';
-    beginPlayCode += 'document.addEventListener("mouseup", __mu_global);\n';
-    beginPlayCode += '__inputCleanup.push(function() { document.removeEventListener("keydown", __kd_global); document.removeEventListener("keyup", __ku_global); document.removeEventListener("mousedown", __md_global); document.removeEventListener("mouseup", __mu_global); });\n';
-  }
-
-  // InputKeyEvent nodes → keydown listeners in beginPlay
-  for (const ikn of inputKeyNodes) {
-    const key = ikn.data?.selectedKey || ikn.data?.controls?.key || 'Space';
-    // Map key names to event.key values
-    let eventKey = key;
-    if (key === 'Space') eventKey = ' ';
-    else if (key === 'Enter') eventKey = 'Enter';
-    else if (key === 'Escape') eventKey = 'Escape';
-    else if (key === 'ArrowUp') eventKey = 'ArrowUp';
-    else if (key === 'ArrowDown') eventKey = 'ArrowDown';
-    else if (key === 'ArrowLeft') eventKey = 'ArrowLeft';
-    else if (key === 'ArrowRight') eventKey = 'ArrowRight';
-    else if (key === 'LeftShift' || key === 'RightShift') eventKey = 'Shift';
-    else if (key === 'LeftControl' || key === 'RightControl') eventKey = 'Control';
-    else if (key.length === 1) eventKey = key.toLowerCase();
-
-    // Get exec chains from pressed/released outputs
-    const pressedChain = execChain(ikn.id, 'pressed');
-    const releasedChain = execChain(ikn.id, 'released');
-
-    if (pressedChain.length > 0) {
-      beginPlayCode += '(function() { var _kd = function(e) { if (e.key === ' + JSON.stringify(eventKey) + ') { ';
-      for (const id of pressedChain) beginPlayCode += genNodeCode(id);
-      beginPlayCode += '} }; document.addEventListener("keydown", _kd); __inputCleanup.push(function() { document.removeEventListener("keydown", _kd); }); })();\n';
-    }
-    if (releasedChain.length > 0) {
-      beginPlayCode += '(function() { var _ku = function(e) { if (e.key === ' + JSON.stringify(eventKey) + ') { ';
-      for (const id of releasedChain) beginPlayCode += genNodeCode(id);
-      beginPlayCode += '} }; document.addEventListener("keyup", _ku); __inputCleanup.push(function() { document.removeEventListener("keyup", _ku); }); })();\n';
-    }
-  }
-
-  // Follow exec chains from BeginPlay events
-  for (const bp of beginPlayNodes) {
-    const chain = execChain(bp.id, 'exec');
-    for (const id of chain) beginPlayCode += genNodeCode(id);
-  }
-
-  if (beginPlayCode) out += '// __beginPlay__\n' + beginPlayCode;
-
-  // ── tick ──
-  let tickCode = '';
-  for (const tn of tickNodes) {
-    const chain = execChain(tn.id, 'exec');
-    for (const id of chain) tickCode += genNodeCode(id);
-  }
-  if (tickCode) out += '// __tick__\n' + tickCode;
-
-  // ── onDestroy ──
-  let destroyCode = '';
-  for (const dn of destroyNodes) {
-    const chain = execChain(dn.id, 'exec');
-    for (const id of chain) destroyCode += genNodeCode(id);
-  }
-  if (hasInputNodes) {
-    destroyCode += '__inputCleanup.forEach(function(fn) { fn(); }); __inputCleanup = []; __inputKeys = {};\n';
-  }
-  destroyCode += 'if (gameObject.__pendingDelays) { gameObject.__pendingDelays.forEach(clearTimeout); gameObject.__pendingDelays = []; }\n';
-  destroyCode += 'if (gameObject.__retriggerableDelays) { Object.values(gameObject.__retriggerableDelays).forEach(function(id) { clearTimeout(id); }); gameObject.__retriggerableDelays = {}; }\n';
-  out += '// __onDestroy__\n' + destroyCode;
-
-  return out;
 }
 
 function safeName(name: string): string {
@@ -550,7 +171,7 @@ function listDirRecursive(dirPath: string, baseDir: string, results: string[] = 
   return results;
 }
 
-// ── Asset file finders ───────────────────────────────────────
+// â”€â”€ Asset file finders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function findActorFile(actorsDir: string, actorId: string): { filePath: string | null; data: any } {
   if (!fs.existsSync(actorsDir)) return { filePath: null, data: null };
   const files = fs.readdirSync(actorsDir).filter(f => f.endsWith('.json') && f !== '_index.json');
@@ -597,7 +218,7 @@ function updateIndex(dir: string, idField: string, nameField: string): void {
   writeJsonFile(path.join(dir, '_index.json'), index);
 }
 
-// ── Default configs ──────────────────────────────────────────
+// â”€â”€ Default configs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function defaultPhysicsConfig(): any {
   return {
     enabled: false, simulatePhysics: false, bodyType: 'Dynamic',
@@ -653,7 +274,7 @@ function defaultEventGraph(): any {
   };
 }
 
-// ── Widget Node defaults (mirrors engine WidgetBlueprintData.ts) ──
+// â”€â”€ Widget Node defaults (mirrors engine WidgetBlueprintData.ts) â”€â”€
 
 function makeDefaultSlot(): any {
   return {
@@ -776,7 +397,7 @@ function makeDefaultWidgetNode(id: string, type: string, name: string): any {
   return node;
 }
 
-// ── 3D Character Pawn defaults (mirrors editor ActorAsset.ts) ──
+// â”€â”€ 3D Character Pawn defaults (mirrors editor ActorAsset.ts) â”€â”€
 
 function defaultCapsuleConfig(): any {
   return {
@@ -862,7 +483,7 @@ function defaultCharacterPawnConfig(): any {
   };
 }
 
-// ── 3D Character Pawn event graph template (WASD + Jump) ──
+// â”€â”€ 3D Character Pawn event graph template (WASD + Jump) â”€â”€
 
 function characterPawn3DEventGraph(): any {
   return {
@@ -888,7 +509,7 @@ function characterPawn3DEventGraph(): any {
   };
 }
 
-// ── 2D Platformer event graph template (A/D + Space jump + sprite flip) ──
+// â”€â”€ 2D Platformer event graph template (A/D + Space jump + sprite flip) â”€â”€
 
 function platformer2DEventGraph(): any {
   return {
@@ -914,7 +535,7 @@ function platformer2DEventGraph(): any {
   };
 }
 
-// ── 2D Top-Down event graph template (WASD 4-directional, no jump) ──
+// â”€â”€ 2D Top-Down event graph template (WASD 4-directional, no jump) â”€â”€
 
 function topDown2DEventGraph(): any {
   return {
@@ -935,7 +556,7 @@ function topDown2DEventGraph(): any {
   };
 }
 
-// ── 2D event graph picker by preset ──
+// â”€â”€ 2D event graph picker by preset â”€â”€
 
 function eventGraph2DForPreset(preset: string): any {
   if (preset === 'platformer') return platformer2DEventGraph();
@@ -1081,7 +702,7 @@ server.tool(
     for (const f of files) {
       const scene = readJsonFile(path.join(scenesDir, f));
       const objCount = (scene.gameObjects || []).length;
-      result += `  ${scene.name || f} — ${scene.sceneMode || '3D'} mode, ${objCount} objects\n`;
+      result += `  ${scene.name || f} â€” ${scene.sceneMode || '3D'} mode, ${objCount} objects\n`;
     }
     const projJsonPath = path.join(projRoot, 'project.json');
     if (fs.existsSync(projJsonPath)) {
@@ -1459,7 +1080,7 @@ server.tool(
       });
       actorJson.sceneMode = '2D';
     }
-    // ── 3D Character Pawn: full setup matching the editor ──
+    // â”€â”€ 3D Character Pawn: full setup matching the editor â”€â”€
     if (actorType === 'characterPawn') {
       const capsuleId = 'comp_cap_' + ts;
       const springArmId = 'comp_sa_' + ts;
@@ -1524,7 +1145,7 @@ server.tool(
     ];
     const actorJson: any = {
       actorId, actorName: name, actorType: 'characterPawn2D',
-      description: `2D Character Pawn — ${preset} preset`,
+      description: `2D Character Pawn â€” ${preset} preset`,
       rootMeshType: 'none', rootPhysics: defaultPhysicsConfig(),
       components, variables: [], functions: [], macros: [], customEvents: [], structs: [],
       eventGraphData: eventGraph2DForPreset(preset), functionGraphData: {},
@@ -1582,7 +1203,7 @@ server.tool(
     actor.modifiedAt = Date.now();
     writeJsonFile(filePath, actor);
     updateIndex(actorsDir, 'actorId', 'actorName');
-    return { content: [{ type: 'text', text: `Renamed actor "${oldName}" → "${newName}"` }] };
+    return { content: [{ type: 'text', text: `Renamed actor "${oldName}" â†’ "${newName}"` }] };
   }
 );
 
@@ -1990,7 +1611,7 @@ server.tool(
     for (const t of transitions) {
       const fromName = t.fromStateId === '*' ? '*' : states.find((s: any) => s.id === t.fromStateId)?.name || t.fromStateId;
       const toName = states.find((s: any) => s.id === t.toStateId)?.name || t.toStateId;
-      result += `  - ${fromName} → ${toName}`;
+      result += `  - ${fromName} â†’ ${toName}`;
       if (t.rules?.length) {
         const descs = t.rules.flatMap((rg: any) => (rg.rules || []).map((r: any) => r.kind === 'compare' ? `${r.varName} ${r.op} ${r.value}` : r.expr));
         result += ` [${descs.join(' AND ')}]`;
@@ -2156,7 +1777,7 @@ server.tool(
     });
     writeJsonFile(filePath!, abp);
     const desc = rules.map(r => `${r.variable} ${r.operator} ${r.value}`).join(' AND ');
-    return { content: [{ type: 'text', text: `Transition: ${fromStateName} → ${toStateName} [${desc}]\nBlend: ${blendTime ?? 0.1}s, ID: ${transId}` }] };
+    return { content: [{ type: 'text', text: `Transition: ${fromStateName} â†’ ${toStateName} [${desc}]\nBlend: ${blendTime ?? 0.1}s, ID: ${transId}` }] };
   }
 );
 
@@ -2233,7 +1854,7 @@ server.tool(
       const wName = w.widgetBlueprintName || w.name || f;
       const widgetCount = w.widgets ? Object.keys(w.widgets).length : 0;
       const animCount = (w.animations || []).length;
-      result += `  ${wName} (ID: ${wId}) — ${widgetCount} widgets, ${animCount} animations\n`;
+      result += `  ${wName} (ID: ${wId}) â€” ${widgetCount} widgets, ${animCount} animations\n`;
     }
     return { content: [{ type: 'text', text: result }] };
   }
@@ -2383,7 +2004,7 @@ server.tool(
     const target = widgets[childId];
     if (!target) return { content: [{ type: 'text', text: `Widget element not found: ${childId}` }] };
 
-    // Merge updates — handle nested objects carefully
+    // Merge updates â€” handle nested objects carefully
     for (const [key, val] of Object.entries(updates)) {
       if (val && typeof val === 'object' && !Array.isArray(val) && target[key] && typeof target[key] === 'object') {
         target[key] = { ...target[key], ...val };
@@ -2394,7 +2015,7 @@ server.tool(
     widgets[childId] = target;
     r.data.widgets = widgets;
     writeJsonFile(r.filePath, r.data);
-    return { content: [{ type: 'text', text: `Modified widget "${target.name}" (${childId}) — updated: ${Object.keys(updates).join(', ')}` }] };
+    return { content: [{ type: 'text', text: `Modified widget "${target.name}" (${childId}) â€” updated: ${Object.keys(updates).join(', ')}` }] };
   }
 );
 
@@ -2488,7 +2109,7 @@ server.tool(
     }
     r.data.widgets = widgets;
     writeJsonFile(r.filePath, r.data);
-    return { content: [{ type: 'text', text: `Duplicated "${source.name}" → "${widgets[newRootId].name}" (${newRootId}) with ${idMap.size} widgets total` }] };
+    return { content: [{ type: 'text', text: `Duplicated "${source.name}" â†’ "${widgets[newRootId].name}" (${newRootId}) with ${idMap.size} widgets total` }] };
   }
 );
 
@@ -2674,7 +2295,7 @@ server.tool(
         writeJsonFile(projJsonPath, proj);
       }
     }
-    return { content: [{ type: 'text', text: `Created Game Instance "${name}" (ID: ${id})${setAsProjectDefault ? ' — Set as project default' : ''}` }] };
+    return { content: [{ type: 'text', text: `Created Game Instance "${name}" (ID: ${id})${setAsProjectDefault ? ' â€” Set as project default' : ''}` }] };
   }
 );
 
@@ -2962,7 +2583,7 @@ server.tool(
     const ts = Date.now().toString(36);
     const actorJson: any = {
       actorId, actorName: characterName, actorType: 'characterPawn2D',
-      description: `2D Character — ${preset} preset (auto-created)`,
+      description: `2D Character â€” ${preset} preset (auto-created)`,
       rootMeshType: 'none', rootPhysics: defaultPhysicsConfig(),
       components: [
         { id: `comp_sprite_${ts}`, type: 'spriteRenderer', meshType: 'cube', name: 'SpriteRenderer',
@@ -2990,7 +2611,7 @@ server.tool(
     const actorFileName = `${safeName(characterName)}_${actorId}.json`;
     writeJsonFile(path.join(actorsDir, actorFileName), actorJson);
     updateIndex(actorsDir, 'actorId', 'actorName');
-    log.push(`Created character pawn (ID: ${actorId}) with sprite→anim wired, ${preset} event graph`);
+    log.push(`Created character pawn (ID: ${actorId}) with spriteâ†’anim wired, ${preset} event graph`);
 
     // 4. Place in scene
     if (sceneName) {
@@ -3010,8 +2631,8 @@ server.tool(
     }
 
     return { content: [{ type: 'text', text:
-      `✅ Complete 2D Character Setup: "${characterName}"\n` +
-      `─────────────────────────────────────\n` +
+      `âœ… Complete 2D Character Setup: "${characterName}"\n` +
+      `â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n` +
       log.map((l, i) => `${i + 1}. ${l}`).join('\n') + '\n\n' +
       `Asset IDs:\n` +
       `  Sprite Sheet: ${ssId}\n` +
@@ -3080,7 +2701,7 @@ server.tool(
   },
   async ({ maxWidth }) => {
     const response = await bridgeRequest('capture_viewport', { maxWidth: maxWidth || 1280 });
-    if (!response) return { content: [{ type: 'text', text: 'Could not capture viewport — is the engine editor running with the MCP bridge connected?' }] };
+    if (!response) return { content: [{ type: 'text', text: 'Could not capture viewport â€” is the engine editor running with the MCP bridge connected?' }] };
     if (!response.success) return { content: [{ type: 'text', text: 'Screenshot failed: ' + (response.error || 'unknown error') }] };
     const dataUrl: string = response.imageDataUrl || '';
     if (!dataUrl) return { content: [{ type: 'text', text: 'Screenshot returned empty image' }] };
@@ -3196,7 +2817,7 @@ server.tool(
     for (const f of files) {
       const asset = readJsonFile(path.join(meshDir, f));
       result += '  [' + (asset.assetType || 'staticMesh') + '] ' + (asset.assetName || f) + ' (ID: ' + asset.assetId + ')';
-      if (asset.sourceFile) result += ' — ' + asset.sourceFile;
+      if (asset.sourceFile) result += ' â€” ' + asset.sourceFile;
       result += '\n';
     }
     return { content: [{ type: 'text', text: result }] };
@@ -3830,71 +3451,71 @@ server.tool(
   {},
   async () => {
     const docs = `
-# Feather Engine MCP — Tool Guide
+# Feather Engine MCP â€” Tool Guide
 
 ## Common Workflows
 
 ### Create a Complete 2D World (One-Shot)
-Use \`setup_2d_world\` — one call creates tileset, tilemap, paints ground/walls/platforms, optionally creates a character pawn and places it in the scene.
+Use \`setup_2d_world\` â€” one call creates tileset, tilemap, paints ground/walls/platforms, optionally creates a character pawn and places it in the scene.
 
 ### Create a 2D Platformer Character (Quick)
-Use \`setup_2d_character_complete\` — one call creates sprite sheet, animations, anim blueprint, character pawn, and wires everything.
+Use \`setup_2d_character_complete\` â€” one call creates sprite sheet, animations, anim blueprint, character pawn, and wires everything.
 
 ### Analyze & Slice Sprite Sheets
-1. \`analyze_texture\` — Detect image dimensions, see suggested grid cell sizes
-2. \`auto_slice_sprite_sheet\` — One-shot: create sprite sheet with grid slicing + define animations by row
+1. \`analyze_texture\` â€” Detect image dimensions, see suggested grid cell sizes
+2. \`auto_slice_sprite_sheet\` â€” One-shot: create sprite sheet with grid slicing + define animations by row
 
 ### Create a 2D Character (Step by Step)
-1. \`import_texture\` — Import the sprite sheet image
-2. \`create_sprite_sheet\` — Define grid cells from the texture  
-3. \`add_sprite_animation\` (xN) — Define idle, walk, attack, etc.
-4. \`create_anim_blueprint_2d\` — Create the animation state machine
-5. \`add_anim_state\` (xN) — Add states for each animation
-6. \`add_anim_transition\` (xN) — Wire transitions with conditions
-7. \`create_character_pawn_2d\` — Create the character with components
-8. \`wire_anim_blueprint_to_actor\` — Connect anim BP to sprite renderer
-9. \`add_actor_to_scene\` — Place in a scene
+1. \`import_texture\` â€” Import the sprite sheet image
+2. \`create_sprite_sheet\` â€” Define grid cells from the texture  
+3. \`add_sprite_animation\` (xN) â€” Define idle, walk, attack, etc.
+4. \`create_anim_blueprint_2d\` â€” Create the animation state machine
+5. \`add_anim_state\` (xN) â€” Add states for each animation
+6. \`add_anim_transition\` (xN) â€” Wire transitions with conditions
+7. \`create_character_pawn_2d\` â€” Create the character with components
+8. \`wire_anim_blueprint_to_actor\` â€” Connect anim BP to sprite renderer
+9. \`add_actor_to_scene\` â€” Place in a scene
 
 ### Build a Tilemap World (Step by Step)
-1. \`import_texture\` — Import tileset image
-2. \`analyze_texture\` — Detect tile dimensions
-3. \`create_tileset\` — Create tileset from texture grid
-4. \`set_tile_collision\` — Mark solid tiles
-5. \`create_tilemap\` — Create tilemap with 4 layers
-6. \`paint_tiles\` (xN) — Paint tiles on each layer (individual, fillRect, fillBorder)
+1. \`import_texture\` â€” Import tileset image
+2. \`analyze_texture\` â€” Detect tile dimensions
+3. \`create_tileset\` â€” Create tileset from texture grid
+4. \`set_tile_collision\` â€” Mark solid tiles
+5. \`create_tilemap\` â€” Create tilemap with 4 layers
+6. \`paint_tiles\` (xN) â€” Paint tiles on each layer (individual, fillRect, fillBorder)
 
 ### Create a 3D Actor
-1. \`create_actor\` — Create with mesh type (cube, sphere, etc.)
-2. \`add_blueprint_variable\` — Add variables (health, speed, etc.)
-3. \`set_actor_physics\` — Enable physics simulation
-4. \`add_actor_to_scene\` — Place in scene
+1. \`create_actor\` â€” Create with mesh type (cube, sphere, etc.)
+2. \`add_blueprint_variable\` â€” Add variables (health, speed, etc.)
+3. \`set_actor_physics\` â€” Enable physics simulation
+4. \`add_actor_to_scene\` â€” Place in scene
 
 ### Create a 3D Character from a Mesh
-1. \`import_mesh\` — Import GLB/GLTF/FBX/OBJ into project (creates mesh asset)
-2. \`create_anim_blueprint_3d\` — Create 3D animation state machine linked to mesh
-3. \`add_anim_state\` (xN) — Add Idle, Walk, Run, Jump states (uses animationName from mesh clips)
-4. \`add_anim_transition\` (xN) — Wire transitions with conditions (speed > 0, isInAir, etc.)
-5. \`create_actor\` with type "characterPawn" — Create playable character
-6. \`add_component_to_actor\` with type "skeletalMesh" — Attach mesh + anim blueprint
-7. \`add_actor_to_scene\` — Place in scene
+1. \`import_mesh\` â€” Import GLB/GLTF/FBX/OBJ into project (creates mesh asset)
+2. \`create_anim_blueprint_3d\` â€” Create 3D animation state machine linked to mesh
+3. \`add_anim_state\` (xN) â€” Add Idle, Walk, Run, Jump states (uses animationName from mesh clips)
+4. \`add_anim_transition\` (xN) â€” Wire transitions with conditions (speed > 0, isInAir, etc.)
+5. \`create_actor\` with type "characterPawn" â€” Create playable character
+6. \`add_component_to_actor\` with type "skeletalMesh" â€” Attach mesh + anim blueprint
+7. \`add_actor_to_scene\` â€” Place in scene
 
 ### Viewport Screenshot (AI Vision)
-- \`capture_viewport\` — Capture the current 3D/2D viewport as an image for AI review
+- \`capture_viewport\` â€” Capture the current 3D/2D viewport as an image for AI review
 
 ### Mesh Management
-- \`import_mesh\` — Import 3D mesh files (GLB, GLTF, FBX, OBJ)
-- \`list_meshes\` — List all imported mesh assets
+- \`import_mesh\` â€” Import 3D mesh files (GLB, GLTF, FBX, OBJ)
+- \`list_meshes\` â€” List all imported mesh assets
 
 ### Visual Scripting (Blueprint Nodes)
-1. \`get_blueprint_graph\` — Read existing graph
-2. \`list_node_types\` — See all available node types
-3. \`add_blueprint_node\` — Add nodes to the graph
-4. \`add_blueprint_connection\` — Wire nodes together
-5. \`compile_blueprint\` — Compile to runtime code (auto-runs on graph mutations for actors)
+1. \`get_blueprint_graph\` â€” Read existing graph
+2. \`list_node_types\` â€” See all available node types
+3. \`add_blueprint_node\` â€” Add nodes to the graph
+4. \`add_blueprint_connection\` â€” Wire nodes together
+5. \`compile_blueprint\` â€” Compile to runtime code
 
 ### Create UI
-1. \`create_widget_blueprint\` — Create with root canvas
-2. \`add_widget_child\` (xN) — Add Text, Button, Image, ProgressBar, etc.
+1. \`create_widget_blueprint\` â€” Create with root canvas
+2. \`add_widget_child\` (xN) â€” Add Text, Button, Image, ProgressBar, etc.
 
 ### Scene Management
 - \`list_scenes\` / \`create_scene\` / \`get_scene_details\`
@@ -3907,22 +3528,22 @@ Use \`setup_2d_character_complete\` — one call creates sprite sheet, animation
 - Save Games: \`create_save_game_class\` for persistence
 
 ## Tilemap Tools
-- \`analyze_texture\` — Read image dimensions, suggest grid cell sizes
-- \`create_tileset\` — Divide texture into tile grid with collision
-- \`create_tilemap\` — 4-layer tilemap (Background, Ground, Decoration, Foreground)
-- \`paint_tiles\` — Paint tiles, fill rectangles, paint borders
-- \`set_tile_collision\` — Set per-tile collision (none/full/platform/slope)
-- \`setup_2d_world\` — One-shot world builder
+- \`analyze_texture\` â€” Read image dimensions, suggest grid cell sizes
+- \`create_tileset\` â€” Divide texture into tile grid with collision
+- \`create_tilemap\` â€” 4-layer tilemap (Background, Ground, Decoration, Foreground)
+- \`paint_tiles\` â€” Paint tiles, fill rectangles, paint borders
+- \`set_tile_collision\` â€” Set per-tile collision (none/full/platform/slope)
+- \`setup_2d_world\` â€” One-shot world builder
 
 ## Actor Types
-- \`actor\` — Basic 3D actor with mesh
-- \`spriteActor\` — 2D sprite actor
-- \`characterPawn\` — 3D playable character (WASD + Jump + Camera)
-- \`characterPawn2D\` — 2D playable character (use create_character_pawn_2d)
-- \`tilemapActor\` — 2D tilemap
-- \`parallaxLayer\` — 2D parallax background
-- \`playerController\` — Input controller
-- \`aiController\` — AI-driven controller
+- \`actor\` â€” Basic 3D actor with mesh
+- \`spriteActor\` â€” 2D sprite actor
+- \`characterPawn\` â€” 3D playable character (WASD + Jump + Camera)
+- \`characterPawn2D\` â€” 2D playable character (use create_character_pawn_2d)
+- \`tilemapActor\` â€” 2D tilemap
+- \`parallaxLayer\` â€” 2D parallax background
+- \`playerController\` â€” Input controller
+- \`aiController\` â€” AI-driven controller
 
 ## Component Types
 \`spriteRenderer\`, \`rigidbody2d\`, \`collider2d\`, \`characterMovement2d\`,
@@ -3930,8 +3551,8 @@ Use \`setup_2d_character_complete\` — one call creates sprite sheet, animation
 \`springArm\`, \`tilemap\`, \`navMeshBounds\`
 
 ### skeletalMesh Properties
-- \`meshAssetId\` — ID of the imported mesh asset (from import_mesh)
-- \`animationBlueprintId\` — ID of the 3D animation blueprint (from create_anim_blueprint_3d)
+- \`meshAssetId\` â€” ID of the imported mesh asset (from import_mesh)
+- \`animationBlueprintId\` â€” ID of the 3D animation blueprint (from create_anim_blueprint_3d)
 
 ## Variable Types
 \`Float\`, \`Integer\`, \`Boolean\`, \`String\`, \`Vector3\`, \`Color\`,
@@ -3998,356 +3619,22 @@ function readAnimBP(projRoot: string, animId: string): { filePath: string; data:
   return null;
 }
 
-// -- Tool: blueprint_graph (consolidated compound tool) --
-// Replaces 12 individual tools: get_blueprint_graph, add_blueprint_node,
-// remove_blueprint_node, add_blueprint_connection, remove_blueprint_connection,
-// update_blueprint_node, add_blueprint_function, add_blueprint_custom_event,
-// add_blueprint_macro, set_blueprint_graph, compile_blueprint, list_node_types
+// -- Tool: get_blueprint_graph --
 server.tool(
-  'blueprint_graph',
-  `Unified visual-script graph tool. Use the 'command' param to select an operation.
-
-Commands:
-  get            — Read graph nodes & connections
-  add_node       — Add a node (returns new node ID). Common types: EventBeginPlayNode, EventTickNode, BranchNode, PrintStringNode, InputKeyEventNode, InputAxisNode, SetVariableNode, GetVariableNode, FloatNode, AddNode, SubtractNode, etc.
-  remove_node    — Remove a node and its connections
-  update_node    — Modify position, controls, or data of an existing node
-  add_connection — Wire two nodes together (exec pins: "exec"/"pressed"/"released"; data pins: "value"/"x"/"y"/"result"/etc.)
-  remove_connection — Remove a connection by ID or by source/target pins
-  set_graph      — Replace an entire graph (nodes + connections)
-  compile        — Compile graph to runtime JavaScript code (auto-runs on graph mutations for actors)
-  list_node_types — List available node types (optionally filter by category: events, flow, math, transform, physics, character, input, variables, ui, audio, ai, debug, cast, string, array, animation, etc.)
-  add_function   — Add a custom function with entry/return nodes
-  add_custom_event — Add a custom event definition + node
-  add_macro      — Add a reusable macro`,
+  'get_blueprint_graph',
+  'Read the visual script graph (nodes + connections) from an actor, widget blueprint, or anim blueprint. Returns all nodes with their types, positions, data, and all connections.',
   {
-    command: z.enum(['get', 'add_node', 'remove_node', 'update_node', 'add_connection', 'remove_connection', 'set_graph', 'compile', 'list_node_types', 'add_function', 'add_custom_event', 'add_macro']).describe('Which operation to perform'),
-    projectPath: z.string().optional().describe('Absolute path to the project root (required for all commands except list_node_types)'),
-    assetType: z.enum(['actor', 'widget', 'animBlueprint']).optional().describe('Type of asset'),
-    assetId: z.string().optional().describe('The asset ID'),
-    graphName: z.string().optional().describe('For actors: "eventGraph" (default) or a function/macro ID'),
-    // add_node / update_node
-    nodeType: z.string().optional().describe('[add_node] Node class name, e.g. "PrintStringNode", "InputKeyEventNode"'),
-    nodeId: z.string().optional().describe('[remove_node/update_node] The node ID'),
-    positionX: z.number().optional().describe('[add_node/update_node] X position'),
-    positionY: z.number().optional().describe('[add_node/update_node] Y position'),
-    label: z.string().optional().describe('[add_node/update_node] Display label'),
-    controls: z.record(z.any()).optional().describe('[add_node/update_node] Control values, e.g. {"key":"Space"}, {"text":"hello"}'),
-    data: z.record(z.any()).optional().describe('[add_node/update_node] Additional data fields'),
-    // connections
-    sourceNodeId: z.string().optional().describe('[add_connection/remove_connection] Source node ID'),
-    sourceOutput: z.string().optional().describe('[add_connection/remove_connection] Source output pin, e.g. "exec","value","pressed"'),
-    targetNodeId: z.string().optional().describe('[add_connection/remove_connection] Target node ID'),
-    targetInput: z.string().optional().describe('[add_connection/remove_connection] Target input pin, e.g. "exec","a","b","condition"'),
-    connectionId: z.string().optional().describe('[remove_connection] Connection ID (alternative to source/target)'),
-    // set_graph
-    nodes: z.array(z.object({
-      id: z.string().optional(), type: z.string(), positionX: z.number(), positionY: z.number(),
-      label: z.string().optional(), controls: z.record(z.any()).optional(), data: z.record(z.any()).optional()
-    })).optional().describe('[set_graph] Array of nodes'),
-    connections_array: z.array(z.object({
-      sourceNodeId: z.string(), sourceOutput: z.string(), targetNodeId: z.string(), targetInput: z.string()
-    })).optional().describe('[set_graph] Array of connections'),
-    // list_node_types
-    category: z.string().optional().describe('[list_node_types] Filter by category'),
-    // functions/macros/events
-    functionName: z.string().optional().describe('[add_function] Function name'),
-    macroName: z.string().optional().describe('[add_macro] Macro name'),
-    eventName: z.string().optional().describe('[add_custom_event] Event name'),
-    inputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_function/add_macro] Input params'),
-    outputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_function/add_macro] Output params'),
-    params: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_custom_event] Event params'),
+    projectPath: z.string().describe('Absolute path to the project root'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID (actorId, widgetBlueprintId, or animBlueprintId)'),
+    graphName: z.string().optional().describe('For actors: "eventGraph" (default), or a function/macro ID. For widgets/anim: "eventGraph"'),
   },
-  async (args: any) => {
-    const { command, projectPath, assetType, assetId, graphName } = args;
 
-    // ── list_node_types: no project needed ──
-    if (command === 'list_node_types') {
-      // Ask the engine for the live node registry via bridge WebSocket
-      let allNodes: Record<string, string[]> | null = null;
-      const resp = await bridgeRequest('list_node_types', {}, 5000);
-      if (resp && resp.nodeTypes && typeof resp.nodeTypes === 'object') {
-        allNodes = resp.nodeTypes as Record<string, string[]>;
-      }
-      if (!allNodes || Object.keys(allNodes).length === 0) {
-        return { content: [{ type: 'text', text: 'Engine is not connected — cannot query available node types.\nMake sure the Feather Engine UI is open and the bridge WebSocket is connected (port 9960).' }] };
-      }
-      const cat = args.category;
-      let result = '';
-      let totalNodes = 0;
-      const cats = cat ? [cat] : Object.keys(allNodes);
-      for (const c of cats) {
-        const nodes = allNodes[c];
-        if (!nodes) { result += 'Unknown category: ' + c + '\n'; continue; }
-        totalNodes += nodes.length;
-        result += c.toUpperCase() + ' (' + nodes.length + '):\n';
-        for (const n of nodes) result += '  ' + n + '\n';
-        result += '\n';
-      }
-      result = 'Total: ' + totalNodes + ' node types in ' + cats.length + ' categories (live from engine)\n\n' + result;
-      return { content: [{ type: 'text', text: result }] };
-    }
-
-    // All other commands need project + asset
-    const projRoot = findProjectRoot(projectPath!) || projectPath!;
-
-    // Helper: resolve graph from asset
-    function resolveAsset(): { graph: any; data: any; filePath: string; assetName: string } | null {
-      if (assetType === 'actor') {
-        const r = readActorGraph(projRoot, assetId!);
-        if (!r) return null;
-        let g = r.graph;
-        if (graphName && graphName !== 'eventGraph') {
-          if (!r.data.functionGraphData) r.data.functionGraphData = {};
-          g = r.data.functionGraphData[graphName] || { nodes: [], connections: [] };
-        }
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: r.data.actorName || assetId! };
-      } else if (assetType === 'widget') {
-        const r = readWidgetBP(projRoot, assetId!);
-        if (!r) return null;
-        if (!r.data.eventGraph) r.data.eventGraph = { nodes: [], connections: [] };
-        const g = r.data.eventGraph;
-        if (!g.nodes) g.nodes = [];
-        if (!g.connections) g.connections = [];
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: r.data.widgetBlueprintName || assetId! };
-      } else {
-        const r = readAnimBP(projRoot, assetId!);
-        if (!r) return null;
-        if (!r.data.eventGraph) r.data.eventGraph = { nodes: [], connections: [] };
-        const g = r.data.eventGraph;
-        if (!g.nodes) g.nodes = [];
-        if (!g.connections) g.connections = [];
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: assetId! };
-      }
-    }
-
-    function saveAsset(a: { data: any; filePath: string; graph: any }) {
-      if (assetType === 'actor') {
-        if (!graphName || graphName === 'eventGraph') a.data.eventGraphData = a.graph;
-        else a.data.functionGraphData[graphName!] = a.graph;
-      } else if (assetType === 'widget') {
-        a.data.eventGraph = a.graph;
-      } else {
-        a.data.eventGraph = a.graph;
-      }
-      // Auto-compile: regenerate compiledCode from the updated graph
-      if (assetType === 'actor' && (!graphName || graphName === 'eventGraph')) {
-        const egraph = a.data.eventGraphData;
-        if (egraph && egraph.nodes && egraph.nodes.length > 0) {
-          a.data.compiledCode = compileGraphToCode(egraph, a.data);
-        } else {
-          a.data.compiledCode = '';
-        }
-      }
-      writeJsonFile(a.filePath, a.data);
-    }
-
-    // ── get ──
-    if (command === 'get') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const nodes = a.graph.nodes || [];
-      const conns = a.graph.connections || [];
-      let result = a.assetName + ' \u2014 ' + assetType + ' graph';
-      if (graphName && graphName !== 'eventGraph') result += ' (' + graphName + ')';
-      result += '\n\nNodes (' + nodes.length + '):\n';
-      for (const n of nodes) {
-        result += '  [' + n.id + '] ' + n.type + ' at (' + n.position.x + ', ' + n.position.y + ')';
-        if (n.data && n.data.label) result += ' \u2014 "' + n.data.label + '"';
-        if (n.data && n.data.controls) result += ' controls=' + JSON.stringify(n.data.controls);
-        result += '\n';
-      }
-      result += '\nConnections (' + conns.length + '):\n';
-      for (const c of conns) {
-        result += '  ' + c.source + '.' + c.sourceOutput + ' \u2192 ' + c.target + '.' + c.targetInput + '\n';
-      }
-      return { content: [{ type: 'text', text: result }] };
-    }
-
-    // ── add_node ──
-    if (command === 'add_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const nid = nodeUid();
-      const nodeObj: any = {
-        id: nid, type: args.nodeType,
-        position: { x: args.positionX ?? 200, y: args.positionY ?? 200 },
-        data: { label: args.label || args.nodeType.replace(/Node$/, '').replace(/([A-Z])/g, ' $1').trim(), ...(args.data || {}) }
-      };
-      if (args.controls) nodeObj.data.controls = args.controls;
-      // InputKeyEventNode needs selectedKey in data
-      if (args.nodeType === 'InputKeyEventNode' && args.controls?.key) nodeObj.data.selectedKey = args.controls.key;
-      a.graph.nodes.push(nodeObj);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Added node [' + nid + '] type=' + args.nodeType + ' at (' + (args.positionX ?? 200) + ', ' + (args.positionY ?? 200) + ')' }] };
-    }
-
-    // ── remove_node ──
-    if (command === 'remove_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const before = a.graph.nodes.length;
-      a.graph.nodes = a.graph.nodes.filter((n: any) => n.id !== args.nodeId);
-      a.graph.connections = a.graph.connections.filter((c: any) => c.source !== args.nodeId && c.target !== args.nodeId);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: (before - a.graph.nodes.length) ? 'Removed node ' + args.nodeId : 'Node not found: ' + args.nodeId }] };
-    }
-
-    // ── update_node ──
-    if (command === 'update_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const node = a.graph.nodes.find((n: any) => n.id === args.nodeId);
-      if (!node) return { content: [{ type: 'text', text: 'Node not found: ' + args.nodeId }] };
-      if (args.positionX !== undefined) node.position.x = args.positionX;
-      if (args.positionY !== undefined) node.position.y = args.positionY;
-      if (args.label) node.data.label = args.label;
-      if (args.controls) node.data.controls = { ...(node.data.controls || {}), ...args.controls };
-      if (args.data) Object.assign(node.data, args.data);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Updated node ' + args.nodeId }] };
-    }
-
-    // ── add_connection ──
-    if (command === 'add_connection') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const cid = nodeUid();
-      if (!a.graph.connections) a.graph.connections = [];
-      a.graph.connections.push({ id: cid, source: args.sourceNodeId, sourceOutput: args.sourceOutput, target: args.targetNodeId, targetInput: args.targetInput });
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Connected ' + args.sourceNodeId + '.' + args.sourceOutput + ' \u2192 ' + args.targetNodeId + '.' + args.targetInput + ' [' + cid + ']' }] };
-    }
-
-    // ── remove_connection ──
-    if (command === 'remove_connection') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      if (!a.graph.connections) return { content: [{ type: 'text', text: '0 connection(s) removed' }] };
-      const before = a.graph.connections.length;
-      if (args.connectionId) {
-        a.graph.connections = a.graph.connections.filter((c: any) => c.id !== args.connectionId);
-      } else if (args.sourceNodeId && args.targetNodeId) {
-        a.graph.connections = a.graph.connections.filter((c: any) => {
-          if (c.source !== args.sourceNodeId || c.target !== args.targetNodeId) return true;
-          if (args.sourceOutput && c.sourceOutput !== args.sourceOutput) return true;
-          if (args.targetInput && c.targetInput !== args.targetInput) return true;
-          return false;
-        });
-      }
-      saveAsset(a);
-      return { content: [{ type: 'text', text: (before - a.graph.connections.length) + ' connection(s) removed' }] };
-    }
-
-    // ── set_graph ──
-    if (command === 'set_graph') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const builtNodes = (args.nodes || []).map((n: any) => {
-        const nid = n.id || nodeUid();
-        const obj: any = { id: nid, type: n.type, position: { x: n.positionX, y: n.positionY },
-          data: { label: n.label || n.type.replace(/Node$/, '').replace(/([A-Z])/g, ' $1').trim(), ...(n.data || {}) } };
-        if (n.controls) obj.data.controls = n.controls;
-        return obj;
-      });
-      const builtConns = (args.connections_array || []).map((c: any) => ({
-        id: nodeUid(), source: c.sourceNodeId, sourceOutput: c.sourceOutput, target: c.targetNodeId, targetInput: c.targetInput
-      }));
-      a.graph = { nodes: builtNodes, connections: builtConns };
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Set graph: ' + builtNodes.length + ' nodes, ' + builtConns.length + ' connections' }] };
-    }
-
-    // ── compile ──
-    if (command === 'compile') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const graph = assetType === 'actor'
-        ? (graphName && graphName !== 'eventGraph' ? a.data.functionGraphData?.[graphName!] : a.data.eventGraphData)
-        : a.data.eventGraph;
-      if (!graph || !graph.nodes || graph.nodes.length === 0) {
-        a.data.compiledCode = '';
-        writeJsonFile(a.filePath, a.data);
-        return { content: [{ type: 'text', text: 'No graph to compile for ' + a.assetName + '. Cleared compiledCode.' }] };
-      }
-      const code = compileGraphToCode(graph, a.data);
-      a.data.compiledCode = code;
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Compiled ' + a.assetName + ' (' + graph.nodes.length + ' nodes) → ' + code.length + ' chars of runtime code.' }] };
-    }
-
-    // ── add_function ──
-    if (command === 'add_function') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_function only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const funcId = 'func_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const funcObj = {
-        name: args.functionName, id: funcId,
-        inputs: (args.inputs || []).map((i: any) => ({ name: i.name, type: i.type, defaultValue: null })),
-        outputs: (args.outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
-        localVariables: [], graph: {}
-      };
-      if (!a.data.functions) a.data.functions = [];
-      a.data.functions.push(funcObj);
-      if (assetType === 'actor') {
-        if (!a.data.functionGraphData) a.data.functionGraphData = {};
-        a.data.functionGraphData[funcId] = {
-          nodes: [
-            { id: nodeUid(), type: 'FunctionEntryNode', position: { x: 80, y: 80 }, data: { label: args.functionName } },
-            { id: nodeUid(), type: 'FunctionReturnNode', position: { x: 500, y: 80 }, data: { label: 'Return' } }
-          ],
-          connections: []
-        };
-      }
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added function "' + args.functionName + '" [' + funcId + ']' }] };
-    }
-
-    // ── add_custom_event ──
-    if (command === 'add_custom_event') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_custom_event only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const eventId = 'evt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const eventObj = { name: args.eventName, id: eventId, params: (args.params || []).map((p: any) => ({ name: p.name, type: p.type })) };
-      if (!a.data.customEvents) a.data.customEvents = [];
-      a.data.customEvents.push(eventObj);
-      if (assetType === 'actor') {
-        const ceNodeId = nodeUid();
-        a.graph.nodes.push({ id: ceNodeId, type: 'CustomEventNode', position: { x: 80, y: (a.graph.nodes.length + 1) * 180 }, data: { label: args.eventName, eventId, eventName: args.eventName } });
-        a.data.eventGraphData = a.graph;
-      }
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added custom event "' + args.eventName + '" [' + eventId + ']' }] };
-    }
-
-    // ── add_macro ──
-    if (command === 'add_macro') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_macro only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const macroId = 'macro_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const macroObj = {
-        name: args.macroName, id: macroId,
-        inputs: (args.inputs || []).map((i: any) => ({ name: i.name, type: i.type })),
-        outputs: (args.outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
-        graph: {}
-      };
-      if (!a.data.macros) a.data.macros = [];
-      a.data.macros.push(macroObj);
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added macro "' + args.macroName + '" [' + macroId + ']' }] };
-    }
-
-    return { content: [{ type: 'text', text: 'Unknown command: ' + command }] };
-  }
-);
 
 // -- Tool: create_event_asset --
 server.tool(
   'create_event_asset',
-  'Create a new event asset (for the engine event system � broadcasts between actors/systems).',
+  'Create a new event asset (for the engine event system ï¿½ broadcasts between actors/systems).',
   {
     projectPath: z.string().describe('Absolute path to the project root'),
     eventName: z.string().describe('Name for the event'),
@@ -4399,7 +3686,7 @@ server.tool(
       result += '  [' + d.id + '] ' + d.name;
       if (d.category) result += ' (category: ' + d.category + ')';
       if (d.payloadFields && d.payloadFields.length > 0) {
-        result += ' � fields: ' + d.payloadFields.map((p: any) => p.name + ':' + p.type).join(', ');
+        result += ' ï¿½ fields: ' + d.payloadFields.map((p: any) => p.name + ':' + p.type).join(', ');
       }
       result += '\n';
     }
@@ -4473,7 +3760,7 @@ server.tool(
     result += 'Widgets (' + widgetKeys.length + '):\n';
     for (const wk of widgetKeys) {
       const w = widgets[wk];
-      result += '  [' + w.id + '] ' + w.type + ' � "' + w.name + '"';
+      result += '  [' + w.id + '] ' + w.type + ' ï¿½ "' + w.name + '"';
       if (w.children && w.children.length > 0) result += ' children: ' + w.children.join(', ');
       result += '\n';
     }
@@ -4482,7 +3769,7 @@ server.tool(
     if (d.animations && d.animations.length > 0) {
       result += '\nAnimations (' + d.animations.length + '):\n';
       for (const a of d.animations) {
-        result += '  [' + a.id + '] ' + a.name + ' � ' + a.duration + 's' + (a.isLooping ? ' (looping)' : '') + ', ' + a.tracks.length + ' tracks\n';
+        result += '  [' + a.id + '] ' + a.name + ' ï¿½ ' + a.duration + 's' + (a.isLooping ? ' (looping)' : '') + ', ' + a.tracks.length + ' tracks\n';
       }
     }
 
