@@ -1,8 +1,9 @@
-﻿import './styles.css';
+import './styles.css';
 import 'dockview-core/dist/styles/dockview.css';
 import { initFeatherSelect } from './editor/FeatherSelect';
 import { Engine } from './engine';
 import { EditorLayout } from './editor/EditorLayout';
+import { MCPBridge } from './editor/MCPBridge';
 import { OutputLog } from './editor/OutputLog';
 import { ScriptComponent } from './engine/ScriptComponent';
 import { ProjectManager } from './editor/ProjectManager';
@@ -87,6 +88,8 @@ async function main() {
         <div class="toolbar-dropdown-item" id="menu-sprite-maker">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} Sprite Maker…</div>
       </div>
     </div>
+    <button class="toolbar-btn mcp-off" id="btn-mcp" title="Start/Stop MCP AI Server">${iconHTML(Icons.Bot, 'xs')} MCP</button>
+    <span class="mcp-status-dot" id="mcp-status-dot"></span>
     <div class="toolbar-separator"></div>
     <button class="toolbar-btn play" id="btn-play">${iconHTML(Icons.Play, 'xs')} Play</button>
     <button class="toolbar-btn stop" id="btn-stop" style="display:none">${iconHTML(Icons.Square, 'xs')} Stop</button>
@@ -1104,6 +1107,29 @@ async function main() {
     engine.scene.addGameObject('Cube', 'cube');
   }
   updateProjectName();
+
+
+  // ── MCP Bridge Setup ──
+  const mcpBridge = new MCPBridge();
+  editor.setMCPBridge(mcpBridge);
+
+  const mcpBtn = document.getElementById('btn-mcp');
+  const mcpDot = document.getElementById('mcp-status-dot');
+
+  if (mcpBtn && mcpDot) {
+    mcpBridge.onStatusChange((status) => {
+      mcpBtn.className = 'toolbar-btn ' + (status === 'running' ? 'mcp-on' : status === 'starting' ? 'mcp-starting' : 'mcp-off');
+      mcpDot.className = 'mcp-status-dot ' + (status === 'running' ? 'connected' : status === 'starting' ? 'connecting' : '');
+    });
+
+    mcpBridge.onEvent((event) => {
+      if (event.type === 'asset-changed') {
+        console.log(`[MCP] Asset changed: ${event.assetType} → ${event.name}`);
+      }
+    });
+
+    mcpBtn.addEventListener('click', () => mcpBridge.toggle());
+  }
 
   console.log('Feather Engine ready');
 }

@@ -1,11 +1,16 @@
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Child};
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+// Global handle for the MCP server child process
+static MCP_PROCESS: std::sync::LazyLock<Mutex<Option<Child>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 // ============================================================
 //  Project File I/O Commands
-//  Uses std::fs directly — no plugin scope restrictions,
+//  Uses std::fs directly â€” no plugin scope restrictions,
 //  works identically on Windows, Linux, and macOS.
 // ============================================================
 
@@ -28,7 +33,7 @@ fn create_project_structure(base_path: String, name: String) -> Result<String, S
         .replace('\\', "/");
     // Strip Windows UNC prefix (\\?\)
     let clean = path_str
-        .strip_prefix("///?/")
+        .strip_prefix("//?/")
         .unwrap_or(&path_str)
         .to_string();
 
@@ -75,7 +80,7 @@ fn delete_file(path: String) -> Result<(), String> {
     if p.exists() {
         fs::remove_file(&p).map_err(|e| format!("Failed to delete {}: {}", path, e))
     } else {
-        Ok(()) // already deleted — no-op
+        Ok(()) // already deleted â€” no-op
     }
 }
 
@@ -85,7 +90,7 @@ fn delete_directory(path: String) -> Result<(), String> {
     if p.exists() {
         fs::remove_dir_all(&p).map_err(|e| format!("Failed to delete directory {}: {}", path, e))
     } else {
-        Ok(()) // already deleted — no-op
+        Ok(()) // already deleted â€” no-op
     }
 }
 
@@ -234,14 +239,14 @@ fn get_engine_root() -> Result<String, String> {
         .unwrap_or_else(|_| engine_root.to_path_buf());
     let path_str = canonical.to_string_lossy().replace('\\', "/");
     let clean = path_str
-        .strip_prefix("///?/")
+        .strip_prefix("//?/")
         .unwrap_or(&path_str)
         .to_string();
     Ok(clean)
 }
 
 // ============================================================
-//  HTTP Proxy Command — allows frontend to make API calls
+//  HTTP Proxy Command â€” allows frontend to make API calls
 //  through the Rust backend (avoids CORS/CSP issues in webview)
 // ============================================================
 
@@ -285,6 +290,77 @@ async fn http_post_json(
     })
 }
 
+// ============================================================
+//  MCP Server Process Management
+// ============================================================
+
+/// Start the MCP server as a child process.
+#[tauri::command]
+fn start_mcp_server(server_script: String) -> Result<String, String> {
+    let mut guard = MCP_PROCESS.lock().map_err(|e| e.to_string())?;
+
+    if let Some(ref mut child) = *guard {
+        match child.try_wait() {
+            Ok(Some(_)) => { /* exited, fall through to restart */ }
+            Ok(None) => return Err("MCP server is already running".to_string()),
+            Err(_) => { /* assume dead, fall through */ }
+        }
+    }
+
+    let script_path = PathBuf::from(&server_script);
+    if !script_path.exists() {
+        return Err(format!("MCP server script not found: {}", server_script));
+    }
+
+    let child = Command::new("node")
+        .arg(&server_script)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .map_err(|e| format!("Failed to start MCP server: {}", e))?;
+
+    let pid = child.id();
+    *guard = Some(child);
+
+    Ok(format!("MCP server started (PID: {})", pid))
+}
+
+/// Stop the running MCP server process.
+#[tauri::command]
+fn stop_mcp_server() -> Result<String, String> {
+    let mut guard = MCP_PROCESS.lock().map_err(|e| e.to_string())?;
+
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+        Ok("MCP server stopped".to_string())
+    } else {
+        Ok("MCP server was not running".to_string())
+    }
+}
+
+/// Check if the MCP server process is currently running.
+#[tauri::command]
+fn mcp_server_status() -> Result<String, String> {
+    let mut guard = MCP_PROCESS.lock().map_err(|e| e.to_string())?;
+
+    if let Some(ref mut child) = *guard {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                *guard = None;
+                Ok(format!("exited:{}", status.code().unwrap_or(-1)))
+            }
+            Ok(None) => Ok(format!("running:{}", child.id())),
+            Err(e) => {
+                *guard = None;
+                Err(format!("Error checking process: {}", e))
+            }
+        }
+    } else {
+        Ok("stopped".to_string())
+    }
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -305,6 +381,9 @@ pub fn run() {
         show_in_folder,
         get_engine_root,
         http_post_json,
+        start_mcp_server,
+        stop_mcp_server,
+        mcp_server_status,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

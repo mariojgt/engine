@@ -10,6 +10,7 @@
 import type { Engine } from '../engine/Engine';
 import type { ProjectManager } from './ProjectManager';
 import type { GameInstanceBlueprintManager } from './GameInstanceData';
+import { MCPBridge, type MCPStatus } from './MCPBridge';
 import { iconHTML, Icons } from './icons';
 
 export class ProjectSettingsPanel {
@@ -17,6 +18,7 @@ export class ProjectSettingsPanel {
   private _engine: Engine;
   private _projectManager: ProjectManager | null = null;
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
+  private _mcpBridge: MCPBridge | null = null;
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -35,6 +37,12 @@ export class ProjectSettingsPanel {
     this._gameInstanceManager = mgr;
     // Rebuild whenever game instance assets change (e.g. after project load, add, delete)
     mgr.onChanged(() => this._build());
+    this._build();
+  }
+
+  /** Wire up the MCP bridge for server controls in project settings */
+  setMCPBridge(bridge: MCPBridge): void {
+    this._mcpBridge = bridge;
     this._build();
   }
 
@@ -87,6 +95,9 @@ export class ProjectSettingsPanel {
     body.appendChild(this._group('AI — Sprite Maker', [
       this._openaiApiKeyRow(),
     ]));
+
+    // ── MCP Server ───────────────────────────────────────────────
+    body.appendChild(this._group('MCP Server', this._mcpServerRows()));
   }
 
   // ─── Game Instance Class Dropdown ──────────────────────────────
@@ -203,6 +214,143 @@ export class ProjectSettingsPanel {
     row.appendChild(input);
     row.appendChild(toggleBtn);
     return row;
+  }
+
+  // ─── MCP Server Controls ──────────────────────────────────────
+
+  private _mcpServerRows(): HTMLElement[] {
+    const rows: HTMLElement[] = [];
+
+    // Status + Toggle button
+    const statusRow = document.createElement('div');
+    statusRow.className = 'prop-row';
+    statusRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:3px 0;font-size:11px;';
+
+    const statusLbl = document.createElement('span');
+    statusLbl.className = 'prop-label';
+    statusLbl.textContent = 'Server Status';
+    statusLbl.style.cssText = 'color:#aaa;flex:0 0 140px;';
+
+    const statusWrap = document.createElement('div');
+    statusWrap.style.cssText = 'display:flex;align-items:center;gap:8px;flex:1;';
+
+    const statusDot = document.createElement('span');
+    statusDot.style.cssText = 'width:8px;height:8px;border-radius:50%;display:inline-block;';
+
+    const statusText = document.createElement('span');
+    statusText.style.cssText = 'font-size:11px;color:#ccc;';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.style.cssText = 'margin-left:auto;background:#2a2a2a;border:1px solid #555;border-radius:3px;color:#ddd;cursor:pointer;padding:3px 12px;font-size:11px;';
+
+    const updateStatus = (status: MCPStatus) => {
+      statusDot.style.background = status === 'running' ? '#4ade80' : status === 'starting' ? '#fbbf24' : status === 'error' ? '#ef4444' : '#666';
+      statusText.textContent = status === 'running' ? 'Running' : status === 'starting' ? 'Starting...' : status === 'error' ? 'Error' : 'Stopped';
+      toggleBtn.textContent = (status === 'running' || status === 'starting') ? 'Stop Server' : 'Start Server';
+      toggleBtn.style.borderColor = status === 'running' ? '#4ade80' : '#555';
+    };
+
+    // Auto-create bridge if not yet wired (handles timing/init-order issues)
+    if (!this._mcpBridge) {
+      this._mcpBridge = new MCPBridge();
+    }
+    updateStatus(this._mcpBridge.status);
+    this._mcpBridge.onStatusChange(updateStatus);
+    toggleBtn.addEventListener('click', () => this._mcpBridge?.toggle());
+
+    statusWrap.append(statusDot, statusText, toggleBtn);
+    statusRow.append(statusLbl, statusWrap);
+    rows.push(statusRow);
+
+    // Project path info
+    if (this._projectManager) {
+      rows.push(this._readonlyRow('Project Path', this._projectManager.projectPath || '(none)'));
+    }
+
+    // WebSocket port
+    rows.push(this._readonlyRow('Bridge Port', '9960'));
+
+    // ── Connection Instructions ──────────────────────────────
+    const instrRow = document.createElement('div');
+    instrRow.style.cssText = 'margin-top:8px;';
+
+    const instrTitle = document.createElement('div');
+    instrTitle.style.cssText = 'font-size:11px;font-weight:bold;color:#ccc;margin-bottom:6px;';
+    instrTitle.textContent = 'LLM Connection Setup';
+    instrRow.appendChild(instrTitle);
+
+    const configs = this._mcpBridge?.getConnectionConfig() ?? {
+      claudeDesktop: '{ "mcpServers": { "feather-engine": { "url": "http://127.0.0.1:9961/sse" } } }',
+      vscodeSettings: '{ "servers": { "feather-engine": { "url": "http://127.0.0.1:9961/sse" } } }',
+      generic: 'SSE URL: http://127.0.0.1:9961/sse\nTransport: sse\nBridge WebSocket: ws://127.0.0.1:9960',
+    };
+
+    const tabs: { label: string; content: string; desc: string }[] = [
+      { label: 'VS Code', content: configs.vscodeSettings, desc: 'Add to .vscode/mcp.json or your VS Code MCP settings:' },
+      { label: 'Claude Desktop', content: configs.claudeDesktop, desc: 'Add to your claude_desktop_config.json:' },
+      { label: 'Generic / Other', content: configs.generic, desc: 'Configuration for any MCP-compatible LLM client:' },
+    ];
+
+    const tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display:flex;gap:2px;margin-bottom:4px;';
+
+    const codePanel = document.createElement('div');
+    codePanel.style.cssText = 'margin-bottom:4px;';
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'font-size:10px;color:#888;margin-bottom:4px;';
+
+    const codeBlock = document.createElement('pre');
+    codeBlock.style.cssText = 'background:#1a1a2e;border:1px solid #333;border-radius:4px;padding:8px;font-size:10px;color:#c4b5fd;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0;font-family:monospace;max-height:200px;overflow-y:auto;';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.style.cssText = 'margin-top:4px;background:#2a2a2a;border:1px solid #555;border-radius:3px;color:#ddd;cursor:pointer;padding:2px 10px;font-size:10px;';
+
+    let activeTab = 0;
+
+    const renderTab = (idx: number) => {
+      activeTab = idx;
+      descEl.textContent = tabs[idx].desc;
+      codeBlock.textContent = tabs[idx].content;
+      tabBar.querySelectorAll('button').forEach((b, i) => {
+        (b as HTMLButtonElement).style.borderBottom = i === idx ? '2px solid #c4b5fd' : '2px solid transparent';
+        (b as HTMLButtonElement).style.color = i === idx ? '#c4b5fd' : '#888';
+      });
+    };
+
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = document.createElement('button');
+      tab.textContent = tabs[i].label;
+      tab.style.cssText = 'background:none;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;padding:3px 8px;font-size:10px;';
+      tab.addEventListener('click', () => renderTab(i));
+      tabBar.appendChild(tab);
+    }
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(tabs[activeTab].content).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      });
+    });
+
+    codePanel.append(descEl, codeBlock, copyBtn);
+    instrRow.append(tabBar, codePanel);
+    rows.push(instrRow);
+
+    renderTab(0);
+
+    // ── Help text ──────────────────────────────────────────────
+    const helpRow = document.createElement('div');
+    helpRow.style.cssText = 'font-size:10px;color:#666;margin-top:6px;line-height:1.5;';
+    helpRow.innerHTML =
+      `${iconHTML(Icons.Info, 'xs')} The MCP server allows AI assistants to control Feather Engine — ` +
+      `creating actors, sprites, animations, scenes, and more. ` +
+      `Start the server above, then configure your LLM client using the JSON snippet. ` +
+      `The server exposes an <b>SSE</b> endpoint on <b>http://127.0.0.1:9961/sse</b> for LLM clients and broadcasts real-time changes via WebSocket on port <b>9960</b>.`;
+    rows.push(helpRow);
+
+    return rows;
   }
 
   // ─── UI Helpers ────────────────────────────────────────────────

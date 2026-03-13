@@ -10701,3 +10701,35 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .navmesh-info em {
   color: var(--color-text, #bbb);
 }
+
+/* -- MCP Status Styles -- */
+.mcp-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #666;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.mcp-status-dot.connected {
+  background: #4ade80;
+  box-shadow: 0 0 4px #4ade8080;
+}
+.mcp-status-dot.connecting {
+  background: #fbbf24;
+  animation: mcp-pulse 1s infinite;
+}
+@keyframes mcp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.toolbar-btn.mcp-on {
+  color: #4ade80;
+}
+.toolbar-btn.mcp-starting {
+  color: #fbbf24;
+}
+.toolbar-btn.mcp-off {
+  color: #888;
+}

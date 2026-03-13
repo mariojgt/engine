@@ -48,6 +48,7 @@ import { ParticleSystemManager } from '../engine/ParticleSystem';
 import { SoundCueEditorPanel } from './SoundCueEditorPanel';
 import { ShaderGraphEditorPanel } from './ShaderGraphEditorPanel';
 import { DockingManager, GroupHeaderActions } from './DockingManager';
+import type { MCPBridge } from './MCPBridge';
 import { Scene2DManager, type SceneMode } from './Scene2DManager';
 import { AnimBlueprint2DEditorPanel } from './AnimBlueprint2DEditorPanel';
 import { TileEditorPanel } from './TileEditorPanel';
@@ -144,6 +145,9 @@ export class EditorLayout {
 
   /** AI Sprite Maker panel */
   private _spriteMaker: SpriteMakerPanel | null = null;
+
+  /** MCP Bridge — manages MCP server process and WebSocket connection */
+  private _mcpBridge: MCPBridge | null = null;
 
   /** Profiler panel and viewport overlay */
   private _profilerPanel: ProfilerPanel | null = null;
@@ -599,8 +603,14 @@ export class EditorLayout {
     const el = renderer.element;
     this._projectSettings = new ProjectSettingsPanel(el, this._engine);
     // Wire managers that are already available
+    if (this._storedProjectManager) {
+      this._projectSettings.setProjectManager(this._storedProjectManager);
+    }
     if (this._gameInstanceManager) {
       this._projectSettings.setGameInstanceManager(this._gameInstanceManager);
+    }
+    if (this._mcpBridge) {
+      this._projectSettings.setMCPBridge(this._mcpBridge);
     }
   }
 
@@ -1632,6 +1642,22 @@ export class EditorLayout {
     return this._viewport?.getCanvas() ?? null;
   }
 
+  /** Store an export data provider for the build/export panel */
+  private _exportDataProvider: (() => any) | null = null;
+
+  /** Set the data provider used by the export panel to snapshot gameplay state */
+  setExportDataProvider(provider: () => any): void {
+    this._exportDataProvider = provider;
+  }
+
+  /** Focus (or open) the export panel tab */
+  focusExportPanel(): void {
+    try {
+      const panel = this._api.getPanel('build-dashboard');
+      if (panel) panel.api.setActive();
+    } catch (_e) { /* ignore if panel not present */ }
+  }
+
   /** Wire up project manager with folder manager and project settings */
   setProjectManager(mgr: any): void {
     this._storedProjectManager = mgr;
@@ -1650,6 +1676,14 @@ export class EditorLayout {
     // Wire Sprite Maker
     if (this._spriteMaker) {
       this._spriteMaker.setProjectManager(mgr);
+    }
+  }
+
+  /** Wire MCP bridge into the editor so Project Settings can show MCP controls */
+  setMCPBridge(bridge: MCPBridge): void {
+    this._mcpBridge = bridge;
+    if (this._projectSettings) {
+      this._projectSettings.setMCPBridge(bridge);
     }
   }
 
