@@ -127,7 +127,7 @@ function writeJsonFile(filePath: string, data: any): void {
   // Auto-broadcast asset change to the engine bridge
   const normPath = filePath.replace(/\\/g, '/');
   const folderMatch = normPath.match(
-    /\/(Actors|Scenes|Sprites|SpriteSheets|AnimBlueprints|Structures|Enums|Widgets|GameInstances|SaveGameClasses|DataTables|Config|Textures|Fonts|InputMappings|Events)\//i
+    /\/(Actors|Scenes|Sprites|SpriteSheets|AnimBlueprints|Structures|Enums|Widgets|GameInstances|SaveGameClasses|DataTables|Config|Textures|Fonts|InputMappings|Events|Meshes)\//i
   );
   if (folderMatch) {
     broadcastChange({
@@ -947,10 +947,25 @@ function eventGraph2DForPreset(preset: string): any {
 //  MCP Server
 // ============================================================
 function createServer(): McpServer {
-const server = new McpServer({
+const _server = new McpServer({
   name: 'feather-engine',
   version: '2.0.0',
 });
+
+// Wrap server.tool to auto-broadcast tool-completed events to the engine
+const server = {
+  tool: (name: string, ...rest: any[]) => {
+    // The handler is always the last argument
+    const handler = rest[rest.length - 1];
+    rest[rest.length - 1] = async (...handlerArgs: any[]) => {
+      const result = await handler(...handlerArgs);
+      broadcastChange({ type: 'tool-completed', toolName: name });
+      return result;
+    };
+    return (_server as any).tool(name, ...rest);
+  },
+  connect: (t: any) => _server.connect(t),
+};
 
 // ============================================================
 //  1. PROJECT MANAGEMENT
@@ -2745,19 +2760,367 @@ server.tool(
 
 server.tool(
   'set_scene_composition',
-  'Update scene composition: lights, skybox, fog, ambient color, post-processing effects.',
+  'Update scene composition: lights, skybox, fog, ambient color, post-processing effects. Settings keys: lighting (color, intensity, castShadows, pitch, yaw), environment (turbidity, rayleigh, elevation, azimuth, skyColor, groundColor), fog (enabled, fogDensity, fogColor), postProcessing (toneMappingType, exposure, bloomEnabled, bloomIntensity, bloomThreshold, bloomRadius), ground (planeSize, textureScale, showGridOverlay, visible), playerStart (positionX, positionY, positionZ).',
   {
     projectPath: z.string().describe('Absolute path to the project root folder'),
-    settings: z.record(z.string(), z.any()).describe('Composition settings to merge'),
+    settings: z.record(z.string(), z.any()).describe('Composition settings object with keys: lighting, environment, fog, postProcessing, ground, playerStart'),
   },
   async ({ projectPath, settings }) => {
     const projRoot = findProjectRoot(projectPath) || projectPath;
     const configPath = path.join(projRoot, 'Config', 'composition.json');
-    let config: any = {};
-    if (fs.existsSync(configPath)) config = readJsonFile(configPath);
-    Object.assign(config, settings);
+
+    // Load existing composition or start fresh
+    let config: any = { worldSettings: { gravity: -980, killZVolume: -500 }, actors: [] };
+    if (fs.existsSync(configPath)) {
+      const existing = readJsonFile(configPath);
+      if (existing.worldSettings) config.worldSettings = existing.worldSettings;
+      if (Array.isArray(existing.actors) && existing.actors.length > 0) config.actors = existing.actors;
+    }
+
+    // Helper to find or create an actor entry in the actors array
+    function upsertActor(actorId: string, actorName: string, actorType: string, category: string, properties: Record<string, any>, visible = true): void {
+      const idx = config.actors.findIndex((a: any) => a.actorId === actorId);
+      const entry = {
+        actorId, actorName, actorType, category,
+        locked: false, visible,
+        properties,
+      };
+      if (idx >= 0) {
+        // Merge properties into existing actor
+        config.actors[idx].properties = { ...config.actors[idx].properties, ...properties };
+        if (visible !== undefined) config.actors[idx].visible = visible;
+      } else {
+        config.actors.push(entry);
+      }
+    }
+
+    const updated: string[] = [];
+
+    // Lighting → DirectionalLight_Sun actor
+    if (settings.lighting) {
+      const l = settings.lighting;
+      upsertActor('default-sun', 'DirectionalLight_Sun', 'DirectionalLight', 'Lights', {
+        color: l.color ?? l.directionalColor ?? '#FFF8F0',
+        intensity: l.intensity ?? l.directionalIntensity ?? 1.0,
+        castShadows: l.castShadows ?? l.shadows ?? true,
+        shadowQuality: l.shadowQuality ?? 2048,
+        pitch: l.pitch ?? -50,
+        yaw: l.yaw ?? 30,
+      });
+      updated.push('lighting');
+    }
+
+    // Environment → SkyAtmosphere + SkyLight actors
+    if (settings.environment) {
+      const e = settings.environment;
+      upsertActor('default-skyatmosphere', 'SkyAtmosphere', 'SkyAtmosphere', 'Sky', {
+        turbidity: e.turbidity ?? 0.3,
+        rayleigh: e.rayleigh ?? 0.2,
+        elevation: e.elevation ?? 45,
+        azimuth: e.azimuth ?? 180,
+        generateEnvMap: e.generateEnvMap ?? true,
+      });
+      upsertActor('default-skylight', 'SkyLight', 'SkyLight', 'Lights', {
+        intensity: e.skyLightIntensity ?? 0.4,
+        skyColor: e.skyColor ?? '#B4D4F0',
+        groundColor: e.groundColor ?? '#AB8860',
+      });
+      updated.push('environment');
+    }
+
+    // Fog → ExponentialHeightFog actor
+    if (settings.fog) {
+      const f = settings.fog;
+      upsertActor('default-fog', 'ExponentialHeightFog', 'ExponentialHeightFog', 'Atmosphere', {
+        enabled: f.enabled ?? false,
+        fogDensity: f.fogDensity ?? 0.015,
+        fogColor: f.fogColor ?? '#b9d5ff',
+      }, f.enabled ?? false);
+      updated.push('fog');
+    }
+
+    // Post-processing → PostProcessVolume actor
+    if (settings.postProcessing) {
+      const p = settings.postProcessing;
+      upsertActor('default-postprocess', 'PostProcessVolume', 'PostProcessVolume', 'PostProcess', {
+        isUnbound: true,
+        toneMappingType: p.toneMappingType ?? 'ACES',
+        exposure: p.exposure ?? p.toneMappingExposure ?? 1.0,
+        bloomEnabled: p.bloomEnabled ?? p.bloom ?? true,
+        bloomIntensity: p.bloomIntensity ?? 0.15,
+        bloomThreshold: p.bloomThreshold ?? 0.85,
+        bloomRadius: p.bloomRadius ?? 0.4,
+      }, false);
+      updated.push('postProcessing');
+    }
+
+    // Ground → DevGroundPlane actor
+    if (settings.ground) {
+      const g = settings.ground;
+      upsertActor('default-devground', 'DevGroundPlane', 'DevGroundPlane', 'Geometry', {
+        planeSize: g.planeSize ?? 100,
+        textureScale: g.textureScale ?? 20,
+        showGridOverlay: g.showGridOverlay ?? true,
+      }, g.visible ?? false);
+      updated.push('ground');
+    }
+
+    // PlayerStart
+    if (settings.playerStart) {
+      const ps = settings.playerStart;
+      upsertActor('default-playerstart', 'PlayerStart', 'PlayerStart', 'Gameplay', {
+        positionX: ps.positionX ?? 0,
+        positionY: ps.positionY ?? 0,
+        positionZ: ps.positionZ ?? 0,
+      }, false);
+      updated.push('playerStart');
+    }
+
     writeJsonFile(configPath, config);
-    return { content: [{ type: 'text', text: `Updated composition: ${Object.keys(settings).join(', ')}` }] };
+    return { content: [{ type: 'text', text: `Updated composition: ${updated.join(', ')} (${config.actors.length} actors)` }] };
+  }
+);
+
+// ============================================================
+//  12b. MATERIAL MANAGEMENT
+// ============================================================
+
+let _matNextId = Date.now();
+function matUid(): string { return 'mat_' + (++_matNextId) + '_' + Date.now().toString(36); }
+
+server.tool(
+  'create_material',
+  'Create a new PBR material asset. Returns the material asset ID for assignment to actors.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().describe('Material name (e.g. "M_Red", "M_Metal_Gold")'),
+    baseColor: z.string().optional().describe('Base color hex (e.g. "#FF0000" for red). Default: "#CCCCCC"'),
+    metalness: z.number().optional().describe('Metalness 0-1 (0=dielectric, 1=metal). Default: 0'),
+    roughness: z.number().optional().describe('Roughness 0-1 (0=mirror, 1=matte). Default: 0.5'),
+    emissive: z.string().optional().describe('Emissive color hex. Default: "#000000"'),
+    emissiveIntensity: z.number().optional().describe('Emissive intensity 0-10. Default: 0'),
+    opacity: z.number().optional().describe('Opacity 0-1. Default: 1'),
+    doubleSided: z.boolean().optional().describe('Render both faces. Default: false'),
+    alphaMode: z.enum(['OPAQUE', 'MASK', 'BLEND']).optional().describe('Alpha/blend mode. Default: "OPAQUE"'),
+    type: z.enum(['PBR', 'Basic', 'Phong']).optional().describe('Shading model. Default: "PBR"'),
+    clearcoat: z.number().optional().describe('Clearcoat intensity 0-1 (car paint, lacquer)'),
+    clearcoatRoughness: z.number().optional().describe('Clearcoat roughness 0-1'),
+    sheen: z.number().optional().describe('Sheen intensity 0-1 (fabric, velvet)'),
+    sheenRoughness: z.number().optional().describe('Sheen roughness 0-1'),
+    sheenColor: z.string().optional().describe('Sheen color hex'),
+    transmission: z.number().optional().describe('Transmission 0-1 (glass, water)'),
+    ior: z.number().optional().describe('Index of refraction 1.0-2.5 (glass=1.5, water=1.33)'),
+    iridescence: z.number().optional().describe('Iridescence 0-1 (soap bubble, oil slick)'),
+    flatShading: z.boolean().optional().describe('Use flat shading'),
+    wireframe: z.boolean().optional().describe('Render as wireframe'),
+    envMapIntensity: z.number().optional().describe('Environment map reflection intensity 0-5'),
+  },
+  async ({ projectPath, name, baseColor, metalness, roughness, emissive, emissiveIntensity,
+    opacity, doubleSided, alphaMode, type, clearcoat, clearcoatRoughness, sheen, sheenRoughness,
+    sheenColor, transmission, ior, iridescence, flatShading, wireframe, envMapIntensity }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    const matId = matUid();
+
+    const materialData: Record<string, any> = {
+      type: type ?? 'PBR',
+      baseColor: baseColor ?? '#CCCCCC',
+      metalness: metalness ?? 0,
+      roughness: roughness ?? 0.5,
+      emissive: emissive ?? '#000000',
+      emissiveIntensity: emissiveIntensity ?? 0,
+      opacity: opacity ?? 1,
+      doubleSided: doubleSided ?? false,
+      alphaMode: alphaMode ?? 'OPAQUE',
+      baseColorMap: null,
+      normalMap: null,
+      metallicRoughnessMap: null,
+      emissiveMap: null,
+      occlusionMap: null,
+    };
+
+    // Advanced PBR properties (only include if specified)
+    if (clearcoat !== undefined) materialData.clearcoat = clearcoat;
+    if (clearcoatRoughness !== undefined) materialData.clearcoatRoughness = clearcoatRoughness;
+    if (sheen !== undefined) materialData.sheen = sheen;
+    if (sheenRoughness !== undefined) materialData.sheenRoughness = sheenRoughness;
+    if (sheenColor !== undefined) materialData.sheenColor = sheenColor;
+    if (transmission !== undefined) materialData.transmission = transmission;
+    if (ior !== undefined) materialData.ior = ior;
+    if (iridescence !== undefined) materialData.iridescence = iridescence;
+    if (flatShading !== undefined) materialData.flatShading = flatShading;
+    if (wireframe !== undefined) materialData.wireframe = wireframe;
+    if (envMapIntensity !== undefined) materialData.envMapIntensity = envMapIntensity;
+
+    const matAsset = {
+      assetId: matId,
+      assetName: name,
+      meshAssetId: '',
+      materialData,
+    };
+
+    // Save to standalone materials file
+    const standaloneFile = path.join(meshDir, '_standalone_materials.json');
+    let standalone: any = { materials: [], textures: [] };
+    if (fs.existsSync(standaloneFile)) {
+      try { standalone = readJsonFile(standaloneFile); } catch { /* start fresh */ }
+    }
+    if (!standalone.materials) standalone.materials = [];
+    if (!standalone.textures) standalone.textures = [];
+    standalone.materials.push(matAsset);
+    writeJsonFile(standaloneFile, standalone);
+
+    return { content: [{ type: 'text', text: `Created material "${name}" (ID: ${matId})\nProperties: baseColor=${materialData.baseColor}, metalness=${materialData.metalness}, roughness=${materialData.roughness}` }] };
+  }
+);
+
+server.tool(
+  'list_materials',
+  'List all material assets in the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    if (!fs.existsSync(meshDir)) return { content: [{ type: 'text', text: 'No materials found (no Meshes folder).' }] };
+
+    const allMaterials: any[] = [];
+
+    // Collect from mesh bundles
+    const files = fs.readdirSync(meshDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
+    for (const f of files) {
+      try {
+        const bundle = readJsonFile(path.join(meshDir, f));
+        if (bundle.materials) allMaterials.push(...bundle.materials);
+      } catch { /* skip */ }
+    }
+
+    // Collect from standalone materials
+    const standaloneFile = path.join(meshDir, '_standalone_materials.json');
+    if (fs.existsSync(standaloneFile)) {
+      try {
+        const standalone = readJsonFile(standaloneFile);
+        if (standalone.materials) allMaterials.push(...standalone.materials);
+      } catch { /* skip */ }
+    }
+
+    if (allMaterials.length === 0) return { content: [{ type: 'text', text: 'No materials found.' }] };
+
+    let result = `Materials (${allMaterials.length}):\n`;
+    for (const m of allMaterials) {
+      const d = m.materialData || {};
+      result += `  - "${m.assetName}" (ID: ${m.assetId}) — ${d.type || 'PBR'}, color=${d.baseColor}, metal=${d.metalness}, rough=${d.roughness}\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+server.tool(
+  'update_material',
+  'Update properties of an existing material asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    materialId: z.string().describe('Material asset ID'),
+    properties: z.record(z.string(), z.any()).describe('Material properties to update (e.g. { baseColor: "#FF0000", metalness: 0.8, roughness: 0.2 })'),
+  },
+  async ({ projectPath, materialId, properties }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    if (!fs.existsSync(meshDir)) return { content: [{ type: 'text', text: 'No Meshes folder found.' }] };
+
+    // Search in mesh bundles
+    const files = fs.readdirSync(meshDir).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+      const filePath = path.join(meshDir, f);
+      try {
+        const data = readJsonFile(filePath);
+        const mats = f.startsWith('_standalone') ? data.materials : (data.materials || []);
+        if (!mats) continue;
+        const mat = mats.find((m: any) => m.assetId === materialId);
+        if (mat) {
+          if (!mat.materialData) mat.materialData = {};
+          // Update name if provided
+          if (properties.assetName) { mat.assetName = properties.assetName; delete properties.assetName; }
+          Object.assign(mat.materialData, properties);
+          writeJsonFile(filePath, data);
+          return { content: [{ type: 'text', text: `Updated material "${mat.assetName}": ${Object.keys(properties).join(', ')}` }] };
+        }
+      } catch { /* skip */ }
+    }
+
+    return { content: [{ type: 'text', text: `Material not found: ${materialId}` }] };
+  }
+);
+
+server.tool(
+  'assign_material_to_actor',
+  'Assign a material to an actor\'s root mesh or a specific component. The actor JSON stores material overrides as { "slotIndex": "materialAssetId" }.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    actorId: z.string().describe('ID of the actor to assign material to'),
+    materialId: z.string().describe('Material asset ID to assign'),
+    componentName: z.string().optional().describe('Component name to assign to. If omitted, assigns to root mesh.'),
+    slotIndex: z.number().optional().describe('Material slot index (default: 0 = primary material)'),
+  },
+  async ({ projectPath, actorId, materialId, componentName, slotIndex }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath, data: actor } = findActorFile(actorsDir, actorId);
+    if (!filePath || !actor) return { content: [{ type: 'text', text: `Actor not found: ${actorId}` }] };
+
+    const slot = String(slotIndex ?? 0);
+
+    if (!componentName) {
+      // Assign to root mesh
+      if (!actor.rootMaterialOverrides) actor.rootMaterialOverrides = {};
+      actor.rootMaterialOverrides[slot] = materialId;
+      actor.modifiedAt = Date.now();
+      writeJsonFile(filePath, actor);
+      return { content: [{ type: 'text', text: `Assigned material "${materialId}" to root mesh slot ${slot} of "${actor.actorName}"` }] };
+    } else {
+      // Assign to component
+      const comp = (actor.components || []).find((c: any) => c.name === componentName);
+      if (!comp) return { content: [{ type: 'text', text: `Component "${componentName}" not found on "${actor.actorName}". Available: ${(actor.components || []).map((c: any) => c.name).join(', ')}` }] };
+      if (!comp.materialOverrides) comp.materialOverrides = {};
+      comp.materialOverrides[slot] = materialId;
+      actor.modifiedAt = Date.now();
+      writeJsonFile(filePath, actor);
+      return { content: [{ type: 'text', text: `Assigned material "${materialId}" to component "${componentName}" slot ${slot} of "${actor.actorName}"` }] };
+    }
+  }
+);
+
+server.tool(
+  'delete_material',
+  'Delete a material asset by ID.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    materialId: z.string().describe('Material asset ID to delete'),
+  },
+  async ({ projectPath, materialId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    if (!fs.existsSync(meshDir)) return { content: [{ type: 'text', text: 'No Meshes folder found.' }] };
+
+    const files = fs.readdirSync(meshDir).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+      const filePath = path.join(meshDir, f);
+      try {
+        const data = readJsonFile(filePath);
+        const mats = f.startsWith('_standalone') ? data.materials : (data.materials || []);
+        if (!mats) continue;
+        const idx = mats.findIndex((m: any) => m.assetId === materialId);
+        if (idx >= 0) {
+          const name = mats[idx].assetName;
+          mats.splice(idx, 1);
+          writeJsonFile(filePath, data);
+          return { content: [{ type: 'text', text: `Deleted material "${name}" (${materialId})` }] };
+        }
+      } catch { /* skip */ }
+    }
+
+    return { content: [{ type: 'text', text: `Material not found: ${materialId}` }] };
   }
 );
 
@@ -4506,7 +4869,7 @@ server.tool(
     return { content: [{ type: 'text', text: result }] };
   }
 );
-return server;
+return _server;
 }
 
 
