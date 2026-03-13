@@ -174,6 +174,26 @@ export class ContentFolderManager {
     return this._assetLocations.get(key)?.folderId || this._rootFolderId;
   }
 
+  /** Check if an asset has an explicit folder assignment */
+  hasAssetLocation(assetId: string, assetType: AssetType): boolean {
+    const key = `${assetType}:${assetId}`;
+    return this._assetLocations.has(key);
+  }
+
+  /** Bulk-add missing assets to a folder (only notifies once) */
+  ensureAssetLocations(assets: Array<{ assetId: string; assetType: AssetType }>, folderId: string = "root"): number {
+    let added = 0;
+    for (const { assetId, assetType } of assets) {
+      const key = `${assetType}:${assetId}`;
+      if (!this._assetLocations.has(key)) {
+        this._assetLocations.set(key, { assetId, assetType, folderId });
+        added++;
+      }
+    }
+    if (added > 0) this._notifyChanged();
+    return added;
+  }
+
   /** Get all assets in a specific folder */
   getAssetsInFolder(folderId: string): AssetLocation[] {
     const assets: AssetLocation[] = [];

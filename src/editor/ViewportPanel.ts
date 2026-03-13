@@ -871,6 +871,39 @@ export class ViewportPanel {
     return this._camera;
   }
 
+  /**
+   * Capture the current viewport as a base64 PNG data URL.
+   * Forces a render pass so the buffer is fresh (since preserveDrawingBuffer
+   * is off for performance).
+   */
+  captureScreenshot(maxWidth = 1280): string | null {
+    if (!this._renderer) return null;
+    const renderer = this._renderer;
+    const scene = this._engine.scene.threeScene;
+    const cam: THREE.Camera = this._playCamera
+      || (this._is2DMode && this._scene2DManager?.camera2D?.camera)
+      || this._camera;
+    if (!cam) return null;
+
+    // Force-render into the existing canvas so the buffer is populated
+    renderer.render(scene, cam);
+
+    // Canvas → data URL (resize if too large)
+    const canvas = renderer.domElement;
+    if (canvas.width <= maxWidth) {
+      return canvas.toDataURL('image/png');
+    }
+    // Down-scale for bandwidth
+    const ratio = maxWidth / canvas.width;
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = maxWidth;
+    tmpCanvas.height = Math.round(canvas.height * ratio);
+    const ctx = tmpCanvas.getContext('2d');
+    if (!ctx) return canvas.toDataURL('image/png');
+    ctx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
+    return tmpCanvas.toDataURL('image/png');
+  }
+
   /** Public accessor for the actor group system */
   get groupSystem(): ActorGroupSystem {
     return this._groupSystem;

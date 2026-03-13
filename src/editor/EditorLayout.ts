@@ -1685,6 +1685,14 @@ export class EditorLayout {
     if (this._projectSettings) {
       this._projectSettings.setMCPBridge(bridge);
     }
+
+    // Register screenshot handler so MCP server can capture the viewport
+    bridge.onBridgeRequest('capture_viewport', async () => {
+      if (!this._viewport) return { error: 'Viewport not available' };
+      const dataUrl = this._viewport.captureScreenshot();
+      if (!dataUrl) return { error: 'Failed to capture screenshot' };
+      return { imageDataUrl: dataUrl };
+    });
   }
 
   /** Wire up the BuildConfigurationManager so the build dashboard can use it */

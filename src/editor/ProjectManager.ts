@@ -2496,4 +2496,107 @@ export class ProjectManager {
   dispose(): void {
     this._stopAutoSave();
   }
+
+  // ============================================================
+  //  Reconcile Folder Assignments
+  // ============================================================
+
+  /** Ensure every loaded asset has a folder assignment (defaults to root) */
+  private _reconcileFolderAssignments(): void {
+    if (!this._folderManager) return;
+    const all: Array<{ assetId: string; assetType: import("./ContentFolderManager").AssetType }> = [];
+
+    for (const a of this._assetManager.assets) all.push({ assetId: a.id, assetType: "actor" });
+    if (this._structManager) {
+      for (const s of this._structManager.structures) all.push({ assetId: s.id, assetType: "structure" });
+      for (const e of this._structManager.enums) all.push({ assetId: e.id, assetType: "enum" });
+    }
+    if (this._animBPManager) for (const a of this._animBPManager.assets) all.push({ assetId: a.id, assetType: "animBP" });
+    if (this._widgetBPManager) for (const w of this._widgetBPManager.assets) all.push({ assetId: w.id, assetType: "widget" });
+    if (this._gameInstanceManager) for (const g of this._gameInstanceManager.assets) all.push({ assetId: g.id, assetType: "gameInstance" });
+    if (this._saveGameManager) for (const s of this._saveGameManager.assets) all.push({ assetId: s.id, assetType: "saveGame" });
+    if (this._dataTableManager) for (const d of this._dataTableManager.tables) all.push({ assetId: d.id, assetType: "dataTable" });
+    if (this._meshManager) for (const m of this._meshManager.assets) all.push({ assetId: m.id, assetType: "mesh" });
+
+    const added = this._folderManager.ensureAssetLocations(all);
+    if (added > 0) console.log("[ProjectManager] Reconciled " + added + " assets to root folder");
+  }
+
+  // ============================================================
+  //  Targeted Refresh (called by MCP bridge events)
+  // ============================================================
+
+  /** Reload only the scene composition (lights, sky, fog, ground) from disk */
+  async refreshComposition(): Promise<void> {
+    if (!this._projectPath || !this._compositionManager) return;
+    await this._loadComposition();
+    console.log('[ProjectManager] Composition refreshed from disk');
+  }
+
+  /** Reload the active scene (game objects) from disk */
+  async refreshScene(): Promise<void> {
+    if (!this._projectPath || !this._meta) return;
+    this._clearScene();
+    await this._loadScene(this._meta.activeScene);
+    this.onSceneChanged?.(this._meta.activeScene);
+    console.log('[ProjectManager] Scene refreshed from disk');
+  }
+
+  /** Reload actor assets from disk */
+  async refreshActors(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadActors();
+    this._reconcileFolderAssignments();
+    console.log('[ProjectManager] Actors refreshed from disk');
+  }
+
+  /** Reload textures from disk */
+  async refreshTextures(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadTextures();
+    console.log('[ProjectManager] Textures refreshed from disk');
+  }
+
+  /** Reload structures and enums from disk */
+  async refreshStructures(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadStructures();
+    await this._loadEnums();
+    console.log('[ProjectManager] Structures & enums refreshed from disk');
+  }
+
+  /** Reload widget blueprints from disk */
+  async refreshWidgets(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadWidgetBlueprints();
+    console.log('[ProjectManager] Widgets refreshed from disk');
+  }
+
+  /** Reload animation blueprints from disk */
+  async refreshAnimBlueprints(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadAnimBlueprints();
+    console.log('[ProjectManager] AnimBlueprints refreshed from disk');
+  }
+
+  /** Reload game instances from disk */
+  async refreshGameInstances(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadGameInstances();
+    console.log('[ProjectManager] GameInstances refreshed from disk');
+  }
+
+  /** Reload data tables from disk */
+  async refreshDataTables(): Promise<void> {
+    if (!this._projectPath) return;
+    await this._loadDataTables();
+    console.log('[ProjectManager] DataTables refreshed from disk');
+  }
+
+  /** Full project reload (fallback) */
+  async refreshAll(): Promise<void> {
+    if (!this._projectPath) return;
+    await this.openProjectFromPath(this._projectPath);
+    console.log('[ProjectManager] Full project refreshed from disk');
+  }
 }

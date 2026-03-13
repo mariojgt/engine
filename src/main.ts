@@ -1122,14 +1122,72 @@ async function main() {
       mcpDot.className = 'mcp-status-dot ' + (status === 'running' ? 'connected' : status === 'starting' ? 'connecting' : '');
     });
 
+    // -- Real-time MCP change handling (debounced, targeted refresh) --
+    let _mcpRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const _mcpPendingTypes = new Set<string>();
+
     mcpBridge.onEvent((event) => {
-      if (event.type === 'asset-changed') {
-        console.log(`[MCP] Asset changed: ${event.assetType} → ${event.name}`);
+      if (event.type === 'asset-changed' && projectManager.isProjectOpen) {
+        const assetType: string = (event.assetType || '').toLowerCase();
+        console.log('[MCP] Asset changed: ' + assetType + ' -> ' + event.name);
+        _mcpPendingTypes.add(assetType);
+
+        if (_mcpRefreshTimer) clearTimeout(_mcpRefreshTimer);
+        _mcpRefreshTimer = setTimeout(async () => {
+          const types = new Set(_mcpPendingTypes);
+          _mcpPendingTypes.clear();
+          _mcpRefreshTimer = null;
+
+          try {
+            for (const t of types) {
+              switch (t) {
+                case 'config':
+                  await projectManager.refreshComposition();
+                  break;
+                case 'scenes':
+                  await projectManager.refreshScene();
+                  break;
+                case 'actors':
+                  await projectManager.refreshActors();
+                  break;
+                case 'textures':
+                  await projectManager.refreshTextures();
+                  break;
+                case 'structures':
+                case 'enums':
+                  await projectManager.refreshStructures();
+                  break;
+                case 'widgets':
+                  await projectManager.refreshWidgets();
+                  break;
+                case 'animblueprints':
+                  await projectManager.refreshAnimBlueprints();
+                  break;
+                case 'gameinstances':
+                  await projectManager.refreshGameInstances();
+                  break;
+                case 'datatables':
+                  await projectManager.refreshDataTables();
+                  break;
+                default:
+                  await projectManager.refreshAll();
+                  break;
+              }
+            }
+            updateProjectName();
+          } catch (err) {
+            console.error('[MCP] Refresh failed:', err);
+          }
+        }, 300);
       }
     });
 
     mcpBtn.addEventListener('click', () => mcpBridge.toggle());
   }
+
+  // Start the bridge listener immediately - auto-connects to WebSocket
+  // port 9960 regardless of whether the MCP toggle is on
+  mcpBridge.startBridgeListener();
 
   console.log('Feather Engine ready');
 }

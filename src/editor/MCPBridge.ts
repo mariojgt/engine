@@ -18,6 +18,9 @@ export interface MCPEvent {
   [key: string]: unknown;
 }
 
+/** Handler for bridge request messages from MCP server */
+export type BridgeRequestHandler = (request: MCPEvent) => Promise<Record<string, unknown> | null>;
+
 export class MCPBridge {
   private _status: MCPStatus = 'stopped';
   private _ws: WebSocket | null = null;
@@ -33,9 +36,19 @@ export class MCPBridge {
   private _wsRetries = 0;
   private _maxWsRetries = 10;
 
+  /** Auto-connect WebSocket — independent of MCP toggle, reconnects forever */
+  private _autoWs: WebSocket | null = null;
+  private _autoWsTimer: ReturnType<typeof setTimeout> | null = null;
+  private _autoWsConnected = false;
+  private _autoWsInterval = 5000;
+
+  /** Handlers for bridge request types (screenshot, etc.) */
+  private _requestHandlers = new Map<string, BridgeRequestHandler>();
+
   get status(): MCPStatus { return this._status; }
   get projectPath(): string | null { return this._projectPath; }
   get serverScriptPath(): string | null { return this._serverScriptPath; }
+  get bridgeConnected(): boolean { return this._autoWsConnected; }
 
   // ~~ Public API ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -172,8 +185,81 @@ export class MCPBridge {
     this._stopStatusPolling();
     this._clearStartupTimer();
     this._disconnectWebSocket();
+    this._stopBridgeListener();
     this._statusListeners = [];
     this._eventListeners = [];
+  }
+
+  /**
+   * Start listening on the WebSocket bridge (port 9960) for real-time
+   * change events.  Runs independently of the MCP toggle — if the MCP
+   * server is running externally (e.g. VS Code SSE) this still picks up
+   * asset-changed broadcasts.  Reconnects forever.
+   */
+  startBridgeListener(): void {
+    if (this._autoWs || this._autoWsTimer) return; // already running
+    this._autoWsConnect();
+  }
+
+  private _stopBridgeListener(): void {
+    if (this._autoWsTimer) {
+      clearTimeout(this._autoWsTimer);
+      this._autoWsTimer = null;
+    }
+    if (this._autoWs) {
+      this._autoWs.onclose = null;
+      this._autoWs.onerror = null;
+      this._autoWs.close();
+      this._autoWs = null;
+    }
+    this._autoWsConnected = false;
+  }
+
+  private _autoWsConnect(): void {
+    // Don't double-connect
+    if (this._autoWs) return;
+
+    try {
+      this._autoWs = new WebSocket('ws://127.0.0.1:' + this._wsPort);
+
+      this._autoWs.onopen = () => {
+        this._autoWsConnected = true;
+        console.log('[MCPBridge] Bridge listener connected (auto)');
+      };
+
+      this._autoWs.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data.type === 'connected') {
+            console.log('[MCPBridge] Bridge handshake:', data.message);
+          } else if (data.type === 'bridge-request' && data.requestId) {
+            // Bidirectional: MCP server is requesting data from the engine
+            this._handleBridgeRequest(data);
+          } else {
+            this._emitEvent(data as MCPEvent);
+          }
+        } catch { /* ignore */ }
+      };
+
+      this._autoWs.onclose = () => {
+        this._autoWs = null;
+        this._autoWsConnected = false;
+        // Reconnect after interval — runs forever
+        this._autoWsTimer = setTimeout(() => {
+          this._autoWsTimer = null;
+          this._autoWsConnect();
+        }, this._autoWsInterval);
+      };
+
+      this._autoWs.onerror = () => {
+        // onclose fires after this
+      };
+    } catch {
+      this._autoWsTimer = setTimeout(() => {
+        this._autoWsTimer = null;
+        this._autoWsConnect();
+      }, this._autoWsInterval);
+    }
   }
 
   // ~~ Internal ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -189,6 +275,38 @@ export class MCPBridge {
   private _emitEvent(event: MCPEvent): void {
     for (const cb of this._eventListeners) {
       try { cb(event); } catch (e) { console.error('[MCPBridge] Event listener error:', e); }
+    }
+  }
+
+  /**
+   * Register a handler for a specific bridge request type.
+   * Called when the MCP server sends a { type: 'bridge-request', action: '...', requestId } message.
+   */
+  onBridgeRequest(action: string, handler: BridgeRequestHandler): void {
+    this._requestHandlers.set(action, handler);
+  }
+
+  /**
+   * Handle an incoming bridge request from the MCP server.
+   * Dispatches to registered handler, sends response back over WebSocket.
+   */
+  private async _handleBridgeRequest(data: any): Promise<void> {
+    const { requestId, action } = data;
+    const handler = this._requestHandlers.get(action);
+    let response: Record<string, unknown>;
+    if (handler) {
+      try {
+        const result = await handler(data);
+        response = { type: 'bridge-response', requestId, success: true, ...(result || {}) };
+      } catch (err: any) {
+        response = { type: 'bridge-response', requestId, success: false, error: err.message || 'Handler error' };
+      }
+    } else {
+      response = { type: 'bridge-response', requestId, success: false, error: 'Unknown action: ' + action };
+    }
+    // Send response back via the auto-reconnect WebSocket
+    if (this._autoWs && this._autoWs.readyState === WebSocket.OPEN) {
+      this._autoWs.send(JSON.stringify(response));
     }
   }
 
