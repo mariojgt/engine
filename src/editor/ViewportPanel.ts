@@ -3,7 +3,7 @@ import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
 import type { CameraStateJSON } from './SceneSerializer';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
-import { DirectionalLightActor } from './scene/SceneActors';
+import { DirectionalLightActor, SkyAtmosphereActor } from './scene/SceneActors';
 import type { Camera2D } from '../engine/Camera2D';
 import type { Scene2DManager } from './Scene2DManager';
 import type { TileEditorPanel, TileTool } from './TileEditorPanel';
@@ -134,7 +134,7 @@ export class ViewportPanel {
     this._renderer.shadowMap.enabled = true;
     this._renderer.shadowMap.type = THREE.VSMShadowMap;
     this._renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this._renderer.toneMappingExposure = 0.75;
+    this._renderer.toneMappingExposure = 1.0;
     // EffectComposer renders through render targets; the GammaCorrectionShader
     // at the end of the pipeline handles sRGB encoding.  If the renderer ALSO
     // encodes to sRGB (the default since r152) we get double-gamma → white.
@@ -785,6 +785,12 @@ export class ViewportPanel {
     // Animate dust particles
     const time = performance.now() * 0.001;
     sunActor.update(time);
+
+    // Animate clouds
+    const skyEntry = this._composition.getActor('default-skyatmosphere');
+    if (skyEntry) {
+      (skyEntry.actor as SkyAtmosphereActor).updateClouds(time);
+    }
 
     // Project sun position to screen space for god rays
     const lightDir = sunActor.getLightDirection();

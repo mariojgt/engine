@@ -202,8 +202,8 @@ export class DirectionalLightActor extends BaseSceneActor {
       shadowQuality: props.shadowQuality ?? 2048,
       shadowBias: props.shadowBias ?? -0.0001,
       shadowNormalBias: props.shadowNormalBias ?? 0.02,
-      shadowRadius: props.shadowRadius ?? 3,
-      dynamicShadowDistance: props.dynamicShadowDistance ?? 80,
+      shadowRadius: props.shadowRadius ?? 4,
+      dynamicShadowDistance: props.dynamicShadowDistance ?? 120,
       atmosphereAffected: props.atmosphereAffected ?? true,
       dustParticlesEnabled: props.dustParticlesEnabled ?? false,
       dustParticleCount: props.dustParticleCount ?? 3000,
@@ -485,7 +485,7 @@ export class DirectionalLightActor extends BaseSceneActor {
 export type SkyPreset = 'default' | 'sunset' | 'dawn' | 'overcast' | 'night';
 
 const SKY_PRESETS: Record<SkyPreset, Record<string, any>> = {
-  default: { skyType: 'atmosphere', turbidity: 0.3, rayleigh: 0.2, mieCoefficient: 0.001, mieDirectionalG: 0.3, elevation: 45, azimuth: 180 },
+  default: { skyType: 'atmosphere', turbidity: 0.8, rayleigh: 1.0, mieCoefficient: 0.003, mieDirectionalG: 0.7, elevation: 35, azimuth: 180 },
   sunset:  { skyType: 'atmosphere', turbidity: 2.0, rayleigh: 0.8, mieCoefficient: 0.01, mieDirectionalG: 0.85, elevation: 1.5, azimuth: 90 },
   dawn:    { skyType: 'atmosphere', turbidity: 1.2, rayleigh: 0.6, mieCoefficient: 0.005, mieDirectionalG: 0.75, elevation: 3, azimuth: 270 },
   overcast:{ skyType: 'gradient',   topColor: '#8A98A8', bottomColor: '#C0C8D0', gradientExponent: 0.4 },
@@ -497,6 +497,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
   public sky: Sky | null = null;
   private _gradientMesh: THREE.Mesh | null = null;
   private _skySphereMesh: THREE.Mesh | null = null;
+  private _cloudMesh: THREE.Mesh | null = null;
   private _sunPosition = new THREE.Vector3();
   private _sunLight: DirectionalLightActor | null = null;
   private _scene: THREE.Scene | null = null;
@@ -511,11 +512,11 @@ export class SkyAtmosphereActor extends BaseSceneActor {
     this.properties = {
       skyType: props.skyType ?? 'atmosphere',
       preset: props.preset ?? 'default',
-      turbidity: props.turbidity ?? 0.3,
-      rayleigh: props.rayleigh ?? 0.2,
-      mieCoefficient: props.mieCoefficient ?? 0.001,
-      mieDirectionalG: props.mieDirectionalG ?? 0.3,
-      elevation: props.elevation ?? 45,
+      turbidity: props.turbidity ?? 0.8,
+      rayleigh: props.rayleigh ?? 1.0,
+      mieCoefficient: props.mieCoefficient ?? 0.003,
+      mieDirectionalG: props.mieDirectionalG ?? 0.7,
+      elevation: props.elevation ?? 35,
       azimuth: props.azimuth ?? 180,
       topColor: props.topColor ?? '#87CEEB',
       bottomColor: props.bottomColor ?? '#FFFFFF',
@@ -528,7 +529,13 @@ export class SkyAtmosphereActor extends BaseSceneActor {
       hdriRotation: props.hdriRotation ?? 0,
       hdriMapping: props.hdriMapping ?? 'sphere',
       generateEnvMap: props.generateEnvMap ?? true,
-      skyIntensity: props.skyIntensity ?? 0.4,
+      skyIntensity: props.skyIntensity ?? 0.5,
+      cloudsEnabled: props.cloudsEnabled ?? true,
+      cloudCoverage: props.cloudCoverage ?? 0.45,
+      cloudSpeed: props.cloudSpeed ?? 0.003,
+      cloudOpacity: props.cloudOpacity ?? 0.9,
+      cloudColor: props.cloudColor ?? '#FFFFFF',
+      cloudHeight: props.cloudHeight ?? 0.25,
     };
   }
 
@@ -576,6 +583,149 @@ export class SkyAtmosphereActor extends BaseSceneActor {
       this._scene.environmentIntensity = this.properties.skyIntensity;
     }
     this._generateEnvMapFromSky();
+    // Create cloud layer
+    if (this.properties.cloudsEnabled) {
+      this._createCloudLayer();
+    }
+  }
+
+  /** Create a procedural volumetric-looking cloud dome using fbm noise shader */
+  private _createCloudLayer(): void {
+    this._removeCloudLayer();
+    if (!this._scene) return;
+
+    const cloudGeo = new THREE.SphereGeometry(8000, 64, 32, 0, Math.PI * 2, 0, Math.PI * 0.45);
+    const cloudMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 },
+        uSunPosition: { value: this._sunPosition.clone() },
+        uCloudColor: { value: new THREE.Color(this.properties.cloudColor) },
+        uCoverage: { value: this.properties.cloudCoverage },
+        uOpacity: { value: this.properties.cloudOpacity },
+        uCloudHeight: { value: this.properties.cloudHeight },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = wp.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        uniform vec3 uSunPosition;
+        uniform vec3 uCloudColor;
+        uniform float uCoverage;
+        uniform float uOpacity;
+        uniform float uCloudHeight;
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+
+        // Hash & noise functions for procedural clouds
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          vec2 shift = vec2(100.0);
+          mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
+          for (int i = 0; i < 6; i++) {
+            v += a * noise(p);
+            p = rot * p * 2.0 + shift;
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        void main() {
+          // Project world position onto a flat plane for cloud UVs
+          vec2 cloudUV = vWorldPosition.xz * 0.0003;
+          float t = uTime;
+
+          // Animate clouds
+          vec2 uv1 = cloudUV + vec2(t * 0.3, t * 0.1);
+          vec2 uv2 = cloudUV * 1.5 + vec2(-t * 0.2, t * 0.15);
+
+          float n1 = fbm(uv1 * 4.0);
+          float n2 = fbm(uv2 * 4.0);
+          float cloudDensity = (n1 + n2) * 0.5;
+
+          // Coverage threshold
+          float coverageThreshold = 1.0 - uCoverage;
+          cloudDensity = smoothstep(coverageThreshold, coverageThreshold + 0.3, cloudDensity);
+
+          // Fade at horizon to blend with sky
+          float horizonFade = smoothstep(0.0, 0.15, vUv.y);
+          // Also fade at top to avoid hard caps
+          float topFade = 1.0 - smoothstep(0.7, 1.0, vUv.y);
+          cloudDensity *= horizonFade * topFade;
+
+          // Sun-facing highlight: brighter where sun illuminates
+          vec3 sunDir = normalize(uSunPosition);
+          vec3 viewDir = normalize(vWorldPosition);
+          float sunDot = max(dot(viewDir, sunDir), 0.0);
+          float sunHighlight = pow(sunDot, 8.0) * 0.3;
+
+          // Cloud shading — darker underside for depth
+          float n3 = fbm(uv1 * 8.0 + 5.0);
+          float shadow = smoothstep(0.3, 0.7, n3) * 0.25;
+
+          vec3 litColor = uCloudColor + sunHighlight;
+          vec3 shadedColor = uCloudColor * 0.65;
+          vec3 finalColor = mix(shadedColor, litColor, 1.0 - shadow);
+
+          float alpha = cloudDensity * uOpacity;
+          if (alpha < 0.01) discard;
+
+          gl_FragColor = vec4(finalColor, alpha);
+        }
+      `,
+      transparent: true,
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: true,
+    });
+
+    this._cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+    this._cloudMesh.userData.__isSceneCompositionHelper = true;
+    this._cloudMesh.userData.__sceneActorId = this.id;
+    this._cloudMesh.raycast = () => {};
+    this._cloudMesh.frustumCulled = false;
+    this._cloudMesh.renderOrder = -999;
+    this._scene.add(this._cloudMesh);
+  }
+
+  /** Remove cloud layer mesh */
+  private _removeCloudLayer(): void {
+    if (this._cloudMesh && this._scene) {
+      this._scene.remove(this._cloudMesh);
+      this._cloudMesh.geometry.dispose();
+      (this._cloudMesh.material as THREE.Material).dispose();
+      this._cloudMesh = null;
+    }
+  }
+
+  /** Animate clouds — call per frame */
+  updateClouds(time: number): void {
+    if (!this._cloudMesh) return;
+    const mat = this._cloudMesh.material as THREE.ShaderMaterial;
+    mat.uniforms['uTime'].value = time * this.properties.cloudSpeed;
   }
 
   private _createGradientSky(): void {
@@ -627,6 +777,7 @@ export class SkyAtmosphereActor extends BaseSceneActor {
       (this.sky.material as THREE.Material).dispose();
       this.sky = null;
     }
+    this._removeCloudLayer();
     if (this._gradientMesh && this._scene) {
       this._scene.remove(this._gradientMesh);
       this._gradientMesh.geometry.dispose();
@@ -825,6 +976,11 @@ export class SkyAtmosphereActor extends BaseSceneActor {
 
     // Regenerate environment map when sun position changes
     this._generateEnvMapFromSky();
+
+    // Update cloud sun direction
+    if (this._cloudMesh) {
+      (this._cloudMesh.material as THREE.ShaderMaterial).uniforms['uSunPosition'].value.copy(this._sunPosition);
+    }
   }
 
   applyPreset(presetName: SkyPreset): void {
@@ -877,6 +1033,9 @@ export class SkyAtmosphereActor extends BaseSceneActor {
     if (this._skySphereMesh) {
       console.log('[Sky] - setting skySphereMesh.visible to:', visible, '(was:', this._skySphereMesh.visible, ')');
       this._skySphereMesh.visible = visible;
+    }
+    if (this._cloudMesh) {
+      this._cloudMesh.visible = visible && this.properties.cloudsEnabled;
     }
 
     // Also toggle environment map and scene intensity when hiding/showing sky
@@ -975,6 +1134,26 @@ export class SkyAtmosphereActor extends BaseSceneActor {
           this._scene.environmentIntensity = value;
         }
         break;
+      case 'cloudsEnabled':
+        if (value && this.properties.skyType === 'atmosphere') {
+          this._createCloudLayer();
+        } else {
+          this._removeCloudLayer();
+        }
+        break;
+      case 'cloudCoverage':
+        if (this._cloudMesh) (this._cloudMesh.material as THREE.ShaderMaterial).uniforms['uCoverage'].value = value;
+        break;
+      case 'cloudOpacity':
+        if (this._cloudMesh) (this._cloudMesh.material as THREE.ShaderMaterial).uniforms['uOpacity'].value = value;
+        break;
+      case 'cloudColor':
+        if (this._cloudMesh) (this._cloudMesh.material as THREE.ShaderMaterial).uniforms['uCloudColor'].value.set(value);
+        break;
+      case 'cloudSpeed':
+      case 'cloudHeight':
+        // These are read from properties directly
+        break;
     }
   }
 
@@ -1016,11 +1195,17 @@ export class SkyAtmosphereActor extends BaseSceneActor {
       { key: 'bottomColor', label: 'Bottom Color', group: 'Gradient', type: 'color', value: this.properties.bottomColor },
       { key: 'gradientExponent', label: 'Exponent', group: 'Gradient', type: 'number', min: 0.1, max: 5, step: 0.05, value: this.properties.gradientExponent },
       { key: 'solidColor', label: 'Sky Color', group: 'Color', type: 'color', value: this.properties.solidColor },
+      { key: 'cloudsEnabled', label: 'Clouds', group: 'Clouds', type: 'boolean', value: this.properties.cloudsEnabled },
+      { key: 'cloudCoverage', label: 'Coverage', group: 'Clouds', type: 'number', min: 0, max: 1, step: 0.05, value: this.properties.cloudCoverage },
+      { key: 'cloudOpacity', label: 'Opacity', group: 'Clouds', type: 'number', min: 0, max: 1, step: 0.05, value: this.properties.cloudOpacity },
+      { key: 'cloudSpeed', label: 'Speed', group: 'Clouds', type: 'number', min: 0, max: 0.02, step: 0.001, value: this.properties.cloudSpeed },
+      { key: 'cloudColor', label: 'Color', group: 'Clouds', type: 'color', value: this.properties.cloudColor },
     ];
   }
 
   dispose(): void {
     this._removeExisting();
+    this._removeCloudLayer();
     if (this._pmremGenerator) {
       this._pmremGenerator.dispose();
       this._pmremGenerator = null;
@@ -1549,14 +1734,14 @@ export class DevGroundPlaneActor extends BaseSceneActor {
     this.group.userData.__sceneActorType = 'DevGroundPlane';
 
     this.properties = {
-      planeSize: props.planeSize ?? 100,
-      textureScale: props.textureScale ?? 20,
-      primaryColor: props.primaryColor ?? '#4a4a5a',
-      secondaryColor: props.secondaryColor ?? '#3a3a4a',
-      lineColor: props.lineColor ?? '#555568',
+      planeSize: props.planeSize ?? 200,
+      textureScale: props.textureScale ?? 40,
+      primaryColor: props.primaryColor ?? '#8a8a9a',
+      secondaryColor: props.secondaryColor ?? '#707080',
+      lineColor: props.lineColor ?? '#9595a8',
       showGridOverlay: props.showGridOverlay ?? true,
-      gridOverlayDivisions: props.gridOverlayDivisions ?? 50,
-      gridOverlayColor: props.gridOverlayColor ?? '#555570',
+      gridOverlayDivisions: props.gridOverlayDivisions ?? 100,
+      gridOverlayColor: props.gridOverlayColor ?? '#666680',
       hasCollision: props.hasCollision ?? true,
     };
 

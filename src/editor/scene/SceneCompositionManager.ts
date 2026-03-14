@@ -125,7 +125,7 @@ export class SceneCompositionManager {
     // 1. Directional Light (Sun)
     this._addActor(new DirectionalLightActor('default-sun', 'DirectionalLight_Sun', {
       color: '#FFF8F0',
-      intensity: 1.0,
+      intensity: 1.5,
       castShadows: true,
       shadowQuality: 2048,
       pitch: -50,
@@ -134,11 +134,17 @@ export class SceneCompositionManager {
 
     // 2. Sky Atmosphere
     const skyActor = new SkyAtmosphereActor('default-skyatmosphere', 'SkyAtmosphere', {
-      turbidity: 0.3,
-      rayleigh: 0.2,
-      elevation: 45,
+      turbidity: 0.8,
+      rayleigh: 1.0,
+      mieCoefficient: 0.003,
+      mieDirectionalG: 0.7,
+      elevation: 35,
       azimuth: 180,
       generateEnvMap: true,
+      skyIntensity: 0.5,
+      cloudsEnabled: true,
+      cloudCoverage: 0.45,
+      cloudOpacity: 0.9,
     });
     // Link sky to sun and renderer
     const sunEntry = this._actors.get('default-sun');
@@ -152,15 +158,15 @@ export class SceneCompositionManager {
 
     // 3. Sky Light (Hemisphere)
     this._addActor(new SkyLightActor('default-skylight', 'SkyLight', {
-      intensity: 0.4,
+      intensity: 0.8,
       skyColor: '#B4D4F0',
       groundColor: '#AB8860',
     }), true);
 
-    // 4. Exponential Height Fog (disabled by default)
+    // 4. Exponential Height Fog (subtle atmospheric haze)
     this._addActor(new ExponentialHeightFogActor('default-fog', 'ExponentialHeightFog', {
-      enabled: false,
-      fogDensity: 0.015,
+      enabled: true,
+      fogDensity: 0.0008,
       fogColor: '#b9d5ff',
     }), false);
 
@@ -185,8 +191,8 @@ export class SceneCompositionManager {
 
     // 6. Dev Ground Plane (textured walkable floor)
     this._addActor(new DevGroundPlaneActor('default-devground', 'DevGroundPlane', {
-      planeSize: 100,
-      textureScale: 20,
+      planeSize: 200,
+      textureScale: 40,
       showGridOverlay: true,
     }), false);
 

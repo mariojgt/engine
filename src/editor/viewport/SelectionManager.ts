@@ -18,6 +18,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
 import type { GameObject } from '../../engine/GameObject';
 
@@ -52,6 +53,7 @@ export class SelectionManager {
 
   /* Post-processing effects */
   private _bloomPass: UnrealBloomPass;
+  private _ssaoPass: SSAOPass;
   private _colorGradingPass: ShaderPass;
   private _vignettePass: ShaderPass;
   private _filmGrainPass: ShaderPass;
@@ -129,6 +131,14 @@ export class SelectionManager {
 
     this._renderPass = new RenderPass(scene, camera);
     this.composer.addPass(this._renderPass);
+
+    // ── SSAO (Screen-Space Ambient Occlusion) ──
+    this._ssaoPass = new SSAOPass(scene, camera, size.x, size.y);
+    this._ssaoPass.kernelRadius = 8;
+    this._ssaoPass.minDistance = 0.005;
+    this._ssaoPass.maxDistance = 0.1;
+    this._ssaoPass.output = SSAOPass.OUTPUT.Default;
+    this.composer.addPass(this._ssaoPass);
 
     // Outline for selected objects (UE5-style blue)
     this._outlineSelected = new OutlinePass(size, scene, camera);
@@ -504,6 +514,7 @@ export class SelectionManager {
     this.composer.setSize(width, height);
     this._outlineSelected.resolution.set(width, height);
     this._outlineHover.resolution.set(width, height);
+    this._ssaoPass.setSize(width, height);
   }
 
   /** Render with post-processing (outlines + effects) */
