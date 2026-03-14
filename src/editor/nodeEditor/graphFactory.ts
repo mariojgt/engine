@@ -1222,7 +1222,7 @@ export async function createGraphEditor(
                       }, tex.name),
                       tex.width > 0 && React.createElement('span', {
                         style: { fontSize: 9, color: '#666' },
-                      }, `${tex.width}Ã—${tex.height}`),
+                      }, `${tex.width}×${tex.height}`),
                     ),
                   ),
                 ),

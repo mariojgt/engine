@@ -54,12 +54,12 @@ async function main() {
     <div class="toolbar-dropdown" id="file-menu">
       <button class="toolbar-btn" id="btn-file">File ${iconHTML(Icons.ChevronDown, 'xs')}</button>
       <div class="toolbar-dropdown-content" id="file-dropdown">
-        <div class="toolbar-dropdown-item" id="menu-new-project">New ProjectÃ¢â‚¬Â¦</div>
-        <div class="toolbar-dropdown-item" id="menu-open-project">Open ProjectÃ¢â‚¬Â¦</div>
+        <div class="toolbar-dropdown-item" id="menu-new-project">New Project...</div>
+        <div class="toolbar-dropdown-item" id="menu-open-project">Open Project...</div>
         <div class="toolbar-dropdown-divider"></div>
-        <div class="toolbar-dropdown-item" id="menu-new-scene">New SceneÃ¢â‚¬Â¦</div>
-        <div class="toolbar-dropdown-item" id="menu-open-scene">Open SceneÃ¢â‚¬Â¦</div>
-        <div class="toolbar-dropdown-item" id="menu-duplicate-scene">Duplicate SceneÃ¢â‚¬Â¦</div>
+        <div class="toolbar-dropdown-item" id="menu-new-scene">New Scene...</div>
+        <div class="toolbar-dropdown-item" id="menu-open-scene">Open Scene...</div>
+        <div class="toolbar-dropdown-item" id="menu-duplicate-scene">Duplicate Scene...</div>
         <div class="toolbar-dropdown-divider"></div>
         <div class="toolbar-dropdown-item" id="menu-save"><span>Save</span><span class="shortcut">Ctrl+S</span></div>
       </div>
@@ -79,13 +79,13 @@ async function main() {
     <div class="toolbar-dropdown" id="build-menu">
       <button class="toolbar-btn" id="btn-build">${iconHTML(Icons.Hammer, 'xs', '#f97316')} Build ${iconHTML(Icons.ChevronDown, 'xs')}</button>
       <div class="toolbar-dropdown-content" id="build-dropdown">
-        <div class="toolbar-dropdown-item" id="menu-build-dashboard">${iconHTML(Icons.Hammer, 'xs')} Build DashboardÃ¢â‚¬Â¦</div>
+        <div class="toolbar-dropdown-item" id="menu-build-dashboard">${iconHTML(Icons.Hammer, 'xs')} Build Dashboard...</div>
       </div>
     </div>
     <div class="toolbar-dropdown" id="ai-menu">
       <button class="toolbar-btn" id="btn-ai">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} AI ${iconHTML(Icons.ChevronDown, 'xs')}</button>
       <div class="toolbar-dropdown-content" id="ai-dropdown">
-        <div class="toolbar-dropdown-item" id="menu-sprite-maker">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} Sprite MakerÃ¢â‚¬Â¦</div>
+        <div class="toolbar-dropdown-item" id="menu-sprite-maker">${iconHTML(Icons.Sparkles, 'xs', '#a78bfa')} Sprite Maker...</div>
       </div>
     </div>
     <button class="toolbar-btn mcp-off" id="btn-mcp" title="Start/Stop MCP AI Server">${iconHTML(Icons.Bot, 'xs')} MCP</button>
@@ -244,7 +244,7 @@ async function main() {
   // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
   engine.projectManager = projectManager;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Initialize EngineDeps Ã¢â€â‚¬Ã¢â€â‚¬
+  // ---- Initialize EngineDeps ----
   // This wires all editor singletons into the unified dependency injection
   // interface so engine modules can access them without direct editor imports.
   setEngineDeps({
@@ -291,7 +291,7 @@ async function main() {
   // from both actor-blueprint and AnimBP2D script contexts.
   engine.scene2DManager = editor.scene2DManager;
 
-  // Wire engine.anim2d Ã¢â‚¬â€ delegates to Scene2DManager's AnimBP state machine
+  // Wire engine.anim2d -- delegates to Scene2DManager's AnimBP state machine
   // so blueprint nodes (Get Current Anim State, Get Anim Variable, Transition Anim State)
   // work during editor Play mode.
   {
@@ -314,7 +314,7 @@ async function main() {
         const animator = (actor as any).animator;
         if (animator && targetState) {
           if (targetState.blendSpace1D) {
-            // Use blend-space logic Ã¢â‚¬â€ pick animation based on driving variable
+            // Use blend-space logic -- pick animation based on driving variable
             const bs = targetState.blendSpace1D;
             const drivingVar = targetState.blendSpriteAxisVar || bs.drivingVariable;
             const vars: Record<string, any> = (actor as any).__animVars ?? {};
@@ -618,7 +618,7 @@ async function main() {
     for (const info of panels) {
       const item = document.createElement('div');
       item.className = 'toolbar-dropdown-item';
-      const modeIcon = info.mode === 'floating' ? 'Ã¢Å Å¾' : 'Ã¢Â§â€°';
+      const modeIcon = info.mode === 'floating' ? '☞' : '☷';
       const modeLabel = info.mode === 'popout' ? 'Focus' : 'Dock';
       item.innerHTML = `<span>${modeIcon} ${info.title}</span><span class="shortcut" style="font-size:10px;opacity:0.6;">${modeLabel}</span>`;
       item.addEventListener('click', () => {
@@ -650,7 +650,7 @@ async function main() {
   let prePlayGameObjectIds = new Set<number>();
 
   playBtn.addEventListener('click', async () => {
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 1. Fully re-sync all actor-asset instances from their latest asset Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 1. Fully re-sync all actor-asset instances from their latest asset ----
     // This ensures any blueprint edits (code, components, physics, mesh type)
     // are pushed into scene instances BEFORE we snapshot state.
     const syncedAssets = new Set<string>();
@@ -675,10 +675,10 @@ async function main() {
       );
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 2a. Save pre-play scene snapshot to disk so Stop can restore it Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 2a. Save pre-play scene snapshot to disk so Stop can restore it ----
     await projectManager.savePrePlaySnapshot();
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 2b. Save FULL state snapshot before play Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 2b. Save FULL state snapshot before play ----
     for (const go of engine.scene.gameObjects) {
       (go as any)._savedPos = go.mesh.position.clone();
       (go as any)._savedRot = go.mesh.rotation.clone();
@@ -700,10 +700,10 @@ async function main() {
       (go as any)._savedChildren = childSnaps;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 2c. Record which GOs exist pre-play so we can cleanup runtime-spawned actors on Stop Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 2c. Record which GOs exist pre-play so we can cleanup runtime-spawned actors on Stop ----
     prePlayGameObjectIds = new Set(engine.scene.gameObjects.map(go => go.id));
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 3. Ensure compiled code is up-to-date Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 3. Ensure compiled code is up-to-date ----
     for (const go of engine.scene.gameObjects) {
       if (go.actorAssetId) {
         const asset = editor.assetManager.getAsset(go.actorAssetId);
@@ -722,7 +722,7 @@ async function main() {
     outputLog.clear();
     outputLog.show();
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 4. Check if we're in Tauri environment Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- 4. Check if we're in Tauri environment ----
     // Multiple checks for Tauri (different Tauri versions use different globals)
     const isTauri = '__TAURI__' in window ||
                     '__TAURI_INTERNALS__' in window ||
@@ -738,7 +738,7 @@ async function main() {
     // Try to create gameplay window if in Tauri, fallback to in-editor if it fails
     // DISABLED: Gameplay window needs better architecture to preserve Engine state
     if (false && isTauri) {
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Gameplay window mode (UE-style "Play in Window") Ã¢â€â‚¬Ã¢â€â‚¬
+      // ---- Gameplay window mode (UE-style "Play in Window") ----
       try {
         console.log('[Editor] Attempting to import Tauri APIs...');
 
@@ -854,7 +854,7 @@ async function main() {
         stopBtn.style.display = '';
       }
     } else {
-      // Ã¢â€â‚¬Ã¢â€â‚¬ In-editor play mode (for browser/non-Tauri) Ã¢â€â‚¬Ã¢â€â‚¬
+      // ---- In-editor play mode (for browser/non-Tauri) ----
       console.log('[Editor] Starting in-editor play mode (not in Tauri)');
 
       // Serialize scene before play starts
@@ -864,8 +864,8 @@ async function main() {
       const is2DMode = editor.getSceneMode() === '2D';
 
       if (is2DMode) {
-        // Ã¢â€â‚¬Ã¢â€â‚¬ 2D Play Mode Ã¢â€â‚¬Ã¢â€â‚¬
-        console.log('[Editor] 2D play mode Ã¢â‚¬â€ spawning 2D actors');
+        // ---- 2D Play Mode ----
+        console.log('[Editor] 2D play mode -- spawning 2D actors');
 
         // Enable 3D physics isPlaying so the script tick loop runs
         engine.physics.play(engine.scene);
@@ -873,10 +873,10 @@ async function main() {
         await engine.onPlayStarted(canvas ?? undefined);
 
         // Cache asset managers before play so runtime spawnActorFromClassId always works
-        // (even if the scene starts with zero actors Ã¢â‚¬â€ side-effect caching wouldn't fire)
+        // (even if the scene starts with zero actors -- side-effect caching wouldn't fire)
         editor.scene2DManager.setAssetManagers(editor.assetManager, editor.animBPManager);
 
-        // Also start 2D physics (async Ã¢â‚¬â€ reinitialises Rapier world for clean state)
+        // Also start 2D physics (async -- reinitialises Rapier world for clean state)
         await editor.scene2DManager.startPlay();
 
         // Spawn SpriteActors for all characterPawn2D game objects
@@ -915,7 +915,7 @@ async function main() {
           }
         }
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Create AI controllers for 2D actors Ã¢â€â‚¬Ã¢â€â‚¬
+        // ---- Create AI controllers for 2D actors ----
         editor.scene2DManager.setupAIControllers2D();
 
         // Camera follows the first character pawn using config smoothing / dead zone
@@ -936,20 +936,20 @@ async function main() {
         // Log final physics world stats for debugging
         if (editor.scene2DManager.physics2D) {
           const stats = editor.scene2DManager.physics2D.getWorldStats();
-          console.log('[Editor] 2D Play Ã¢â‚¬â€ Rapier world stats: bodies=%d (dynamic=%d, fixed=%d), colliders=%d',
+          console.log('[Editor] 2D Play -- Rapier world stats: bodies=%d (dynamic=%d, fixed=%d), colliders=%d',
             stats.bodies, stats.dynamicBodies, stats.fixedBodies, stats.colliders);
           if (stats.fixedBodies === 0) {
-            console.warn('[Editor] Ã¢Å¡Â  NO FIXED (TILE) BODIES in Rapier world! Tile collision will not work.');
+            console.warn('[Editor] ⚠ NO FIXED (TILE) BODIES in Rapier world! Tile collision will not work.');
           }
           if (stats.colliders === 0) {
-            console.warn('[Editor] Ã¢Å¡Â  NO COLLIDERS in Rapier world! Nothing will collide.');
+            console.warn('[Editor] ⚠ NO COLLIDERS in Rapier world! Nothing will collide.');
           }
         }
 
-        // Don't set a 3D _playCamera Ã¢â‚¬â€ let 2D render continue
+        // Don't set a 3D _playCamera -- let 2D render continue
         editor.set2DPlayMode(true);
       } else {
-        // Ã¢â€â‚¬Ã¢â€â‚¬ 3D Play Mode Ã¢â€â‚¬Ã¢â€â‚¬
+        // ---- 3D Play Mode ----
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         await engine.onPlayStarted(canvas ?? undefined);
@@ -1017,12 +1017,12 @@ async function main() {
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Restore the filtered original scene Ã¢â€â‚¬Ã¢â€â‚¬
+    // ---- Restore the filtered original scene ----
     // In 2D mode the original GameObjects are untouched (only sprite actors
     // were added to root2D and already cleaned up), so skip deserializing
     // which would call scene.clear() and destroy tilesets / 2D state.
     if (was2DPlaying) {
-      console.log('[Editor] 2D play stopped Ã¢â‚¬â€ skipping 3D scene restore (2D state preserved)');
+      console.log('[Editor] 2D play stopped -- skipping 3D scene restore (2D state preserved)');
       prePlaySceneState = null;
       // Restore GO mesh positions/rotations/scales to their pre-play state.
       // 3D physics (which runs alongside 2D play) can move go.mesh, so we
@@ -1091,9 +1091,9 @@ async function main() {
       }
       engine.input.update();
     } catch (err) {
-      // Log but never let an exception kill the RAF loop Ã¢â‚¬â€ a crashed loop is
+      // Log but never let an exception kill the RAF loop -- a crashed loop is
       // unrecoverable (game freezes and Stop/Play buttons stop working).
-      console.error('[Loop] Uncaught error in game loop Ã¢â‚¬â€ continuing:', err);
+      console.error('[Loop] Uncaught error in game loop -- continuing:', err);
     }
     requestAnimationFrame(loop);
   }
@@ -1103,13 +1103,13 @@ async function main() {
   // --- Show project dialog on startup ---
   const result = await showProjectDialog(app, projectManager);
   if (result.action === 'cancelled') {
-    // User skipped Ã¢â‚¬â€ add a default cube so the scene isn't empty
+    // User skipped -- add a default cube so the scene isn't empty
     engine.scene.addGameObject('Cube', 'cube');
   }
   updateProjectName();
 
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ MCP Bridge Setup Ã¢â€â‚¬Ã¢â€â‚¬
+  // ---- MCP Bridge Setup ----
   const mcpBridge = new MCPBridge();
   editor.setMCPBridge(mcpBridge);
 
@@ -1215,11 +1215,11 @@ async function main() {
 }
 
 // ============================================================
-//  Scene Name Dialog Ã¢â‚¬â€ prompts user for a scene name
+//  Scene Name Dialog -- prompts user for a scene name
 // ============================================================
 
 // ============================================================
-//  Scene Mode Dialog Ã¢â‚¬â€ ask user for 2D or 3D
+//  Scene Mode Dialog -- ask user for 2D or 3D
 // ============================================================
 
 function showSceneModeDialog(parentEl: HTMLElement): Promise<string | null> {
@@ -1283,7 +1283,7 @@ function showSceneModeDialog(parentEl: HTMLElement): Promise<string | null> {
             (b as HTMLElement).style.opacity = b === btn ? '1' : '0.4';
           });
         } else {
-          // 3D selected Ã¢â‚¬â€ resolve immediately
+          // 3D selected -- resolve immediately
           close('3D');
         }
       });
@@ -1336,7 +1336,7 @@ function showSceneModeDialog(parentEl: HTMLElement): Promise<string | null> {
 }
 
 // ============================================================
-//  Scene Name Dialog Ã¢â‚¬â€ used for New / Duplicate scene
+//  Scene Name Dialog -- used for New / Duplicate scene
 // ============================================================
 
 function showSceneNameDialog(
@@ -1398,7 +1398,7 @@ function showSceneNameDialog(
 }
 
 // ============================================================
-//  Scene Picker Dialog Ã¢â‚¬â€ shows list of scenes to open
+//  Scene Picker Dialog -- shows list of scenes to open
 // ============================================================
 
 function showScenePickerDialog(
@@ -1480,5 +1480,5 @@ main().catch((err) => {
 });
 
 // ============================================================
-//  Scene Name Dialog Ã¢â‚¬â€ prompts user for a scene name
+//  Scene Name Dialog -- prompts user for a scene name
 // ============================================================
