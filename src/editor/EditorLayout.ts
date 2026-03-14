@@ -1715,6 +1715,53 @@ export class EditorLayout {
       }
       return { nodeTypes: byCategory };
     });
+
+    // Focus viewport on a named object or coordinates
+    bridge.onBridgeRequest('focus_viewport', async (req: any) => {
+      if (!this._viewport) return { error: 'Viewport not available' };
+      if (req.objectName) {
+        const go = this._engine.scene.gameObjects.find((g: any) => g.name === req.objectName);
+        if (!go) return { error: `Object not found: ${req.objectName}` };
+        this._engine.scene.selectObject(go);
+        (this._viewport as any)._cameraController.focusOnObjects([go.mesh]);
+        return { message: `Focused on ${req.objectName}` };
+      }
+      // Focus on coordinates by moving orbit target
+      const x = req.x ?? 0, y = req.y ?? 0, z = req.z ?? 0;
+      (this._viewport as any)._cameraController.orbitTarget.set(x, y, z);
+      return { message: 'Viewport focused' };
+    });
+
+    // Compile a blueprint — reload asset from disk and re-open in editor to trigger compilation
+    bridge.onBridgeRequest('compile_blueprint', async (req: any) => {
+      const { assetType, assetId } = req;
+      if (!assetType || !assetId) return { error: 'Missing assetType or assetId' };
+
+      if (assetType === 'actor') {
+        // Refresh actors from disk first
+        if (this._storedProjectManager) {
+          try { await this._storedProjectManager.refreshActors(); } catch { /* ignore */ }
+        }
+        // Get the fresh asset
+        const asset = this.assetManager.getAsset(assetId);
+        if (!asset) return { error: `Actor not found: ${assetId}` };
+
+        // If the actor editor is open with this asset, re-open it to trigger recompilation
+        if (this._actorEditor) {
+          this._openActorEditor(asset);
+          // Wait a bit for the node editor to mount and compile
+          await new Promise(r => setTimeout(r, 500));
+          return { message: `Blueprint compiled for "${asset.name}"`, compiledCode: asset.compiledCode ? 'yes' : 'no' };
+        }
+
+        // Actor editor not open — open it to trigger compilation, then return
+        this._openActorEditor(asset);
+        await new Promise(r => setTimeout(r, 500));
+        return { message: `Blueprint compiled for "${asset.name}" (editor opened)`, compiledCode: asset.compiledCode ? 'yes' : 'no' };
+      }
+
+      return { error: `Compile not yet supported for assetType: ${assetType}. Only "actor" is supported.` };
+    });
   }
 
   /** Wire up the BuildConfigurationManager so the build dashboard can use it */

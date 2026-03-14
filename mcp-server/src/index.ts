@@ -110,6 +110,14 @@ function enumUid(): string { return 'enum_' + Date.now().toString(36) + '_' + (+
 function eventUid(): string { return 'evt_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
 function varUid(name: string): string { return `var_${name}_${Date.now().toString(36)}`; }
 function nodeUid(): string { return 'node_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function soundUid(): string { return 'snd_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function cueUid(): string { return 'cue_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function cueNodeUid(): string { return 'scn_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function fontUid(): string { return 'font_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function inputMapUid(): string { return 'inputmapping_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function particleUid(): string { return 'ptcl_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function navUid(): string { return 'nav_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
+function shaderNodeUid(): string { return 'shn_' + Date.now().toString(36) + '_' + (++_uid).toString(36); }
 
 // ── File I/O helpers ─────────────────────────────────────────
 function readJsonFile(filePath: string): any {
@@ -127,7 +135,7 @@ function writeJsonFile(filePath: string, data: any): void {
   // Auto-broadcast asset change to the engine bridge
   const normPath = filePath.replace(/\\/g, '/');
   const folderMatch = normPath.match(
-    /\/(Actors|Scenes|Sprites|SpriteSheets|AnimBlueprints|Structures|Enums|Widgets|GameInstances|SaveGameClasses|DataTables|Config|Textures|Fonts|InputMappings|Events|Meshes)\//i
+    /\/(Actors|Scenes|Sprites|SpriteSheets|AnimBlueprints|Structures|Enums|Widgets|GameInstances|SaveGameClasses|DataTables|Config|Textures|Fonts|InputMappings|Events|Meshes|Sounds|SoundCues|Particles|NavMesh|Shaders)\//i
   );
   if (folderMatch) {
     broadcastChange({
@@ -3425,6 +3433,12 @@ server.tool(
     searchDir('SaveGameClasses', 'Save Game', ['name']);
     searchDir('DataTables', 'Data Table', ['name']);
     searchDir('Scenes', 'Scene', ['name']);
+    searchDir('Sounds', 'Sound', ['assetName', 'name']);
+    searchDir('SoundCues', 'Sound Cue', ['assetName', 'name']);
+    searchDir('Particles', 'Particle', ['assetName', 'name']);
+    searchDir('BehaviorTrees', 'Behavior Tree', ['assetName', 'name']);
+    searchDir('InputMappings', 'Input Mapping', ['name']);
+    searchDir('Fonts', 'Font', ['displayName', 'assetName']);
 
     if (results.length === 0) return { content: [{ type: 'text', text: `No assets matching "${query}".` }] };
     return { content: [{ type: 'text', text: `Search results for "${query}" (${results.length}):\n${results.join('\n')}` }] };
@@ -4290,11 +4304,109 @@ Use \`setup_2d_character_complete\` — one call creates sprite sheet, animation
 ## Component Types
 \`spriteRenderer\`, \`rigidbody2d\`, \`collider2d\`, \`characterMovement2d\`,
 \`camera2d\`, \`mesh\`, \`skeletalMesh\`, \`trigger\`, \`light\`, \`camera\`, \`characterMovement\`,
-\`springArm\`, \`tilemap\`, \`navMeshBounds\`
+\`springArm\`, \`tilemap\`, \`navMeshBounds\`, \`ParticleEmitterComponent\`, \`AudioSourceComponent\`,
+\`AIControllerComponent\`
 
 ### skeletalMesh Properties
 - \`meshAssetId\` — ID of the imported mesh asset (from import_mesh)
 - \`animationBlueprintId\` — ID of the 3D animation blueprint (from create_anim_blueprint_3d)
+
+### ParticleEmitterComponent Properties
+- \`particleAssetId\` — ID of the particle emitter asset (from create_particle_emitter)
+- \`autoPlay\` — Auto-play on spawn (default: true)
+- \`offset\` — Local offset {x, y, z}
+
+### AudioSourceComponent Properties
+- \`soundAssetId\` — ID of a sound asset (from import_sound)
+- \`soundCueId\` — ID of a sound cue asset (from create_sound_cue)
+- \`spatial\` — 3D spatial audio (default: false)
+- \`autoPlay\` — Auto-play on spawn (default: false)
+- \`volume\` — Volume override (0-1)
+- \`maxDistance\` — Max hearing distance for spatial audio
+
+### AIControllerComponent Properties
+- \`behaviorTreeId\` — ID of a behavior tree asset (from create_behavior_tree)
+
+## Audio System
+- \`import_sound\` — Import audio (MP3/WAV/OGG/FLAC/WEBM/AAC)
+- \`list_sounds\` — List all sound assets
+- \`set_sound_properties\` — Update volume, pitch, loop, bus, category
+- \`delete_sound\` — Remove a sound asset
+- \`create_sound_cue\` — Create Sound Cue (visual audio graph with WavePlayer, Random, Modulator, Mixer nodes)
+- \`list_sound_cues\` — List all sound cues
+- \`get_sound_cue_details\` — Inspect cue graph
+- \`modify_sound_cue\` — Add/remove/update nodes and connections in a Sound Cue
+
+## Particle System
+- \`create_particle_emitter\` — Create particle effect (fire, smoke, sparks, rain, etc.)
+- \`list_particle_emitters\` — List all particle assets
+- \`modify_particle_emitter\` — Update particle properties
+- \`delete_particle_emitter\` — Remove a particle asset
+- \`add_particle_component\` — Attach particle to actor
+
+## AI / Navigation
+- \`configure_navmesh\` — Set up NavMesh bake params for a scene
+- \`bake_navmesh\` — Trigger NavMesh generation (bridge)
+- \`create_behavior_tree\` — Create a Behavior Tree for AI actors
+- \`list_behavior_trees\` — List all BT assets
+- \`assign_behavior_tree_to_actor\` — Wire a BT to an actor
+
+## Input Mappings
+- \`get_input_mappings\` — Read current bindings (read-only)
+- \`create_input_mapping\` — Create new input mapping with action/axis bindings
+- \`modify_input_mapping\` — Add, remove, or update individual bindings
+- \`delete_input_mapping\` — Remove an input mapping asset
+
+## Physics
+- \`set_actor_physics\` — Per-actor physics settings
+- \`set_world_physics\` — World-level gravity, timestep, solver, debug draw
+
+## Scene Management (Extended)
+- \`delete_scene\` — Remove a scene file
+- \`duplicate_scene\` — Clone a scene
+- \`rename_scene\` — Rename a scene (updates active scene ref)
+- \`set_active_scene\` — Change project startup scene
+- \`set_scene_2d_config\` — 2D scene settings (gravity, BG color, PPU, resolution)
+
+## Font Management
+- \`import_font\` — Import TTF/OTF/WOFF/WOFF2
+- \`list_fonts\` — List imported + system fonts
+- \`delete_font\` — Remove an imported font
+
+## Sorting Layers (2D)
+- \`set_sorting_layers\` — Define rendering layer stack
+- \`get_sorting_layers\` — Read current sorting layers
+
+## Class Inheritance
+- \`set_actor_parent_class\` — Make an actor inherit from another
+- \`create_child_actor\` — Create an actor inheriting from a parent
+- \`sync_actor_with_parent\` — Pull parent changes into child
+
+## Shader Graph
+- \`create_shader\` — Create a custom shader node graph on a material
+
+## LOD & Collision
+- \`generate_lod\` — Generate LOD levels for mesh optimization
+- \`generate_collision\` — Generate collision shapes for meshes
+
+## Project Settings
+- \`set_project_settings\` — Update project name, version, active scene, game instance
+
+## Play/Stop Controls
+- \`play_scene\` — Start play mode (bridge)
+- \`stop_scene\` — Stop play mode (bridge)
+- \`get_play_state\` — Check current engine mode
+
+## Runtime/Bridge Tools
+- \`get_runtime_errors\` — Read output log errors (bridge)
+- \`reload_project\` — Force engine to reload assets (bridge)
+- \`focus_viewport_on\` — Move camera to position/object (bridge)
+- \`select_object\` — Select object in editor (bridge)
+- \`get_game_object_state\` — Inspect live object state in play mode (bridge)
+
+## Export/Build
+- \`export_game\` — Trigger game build (web/desktop) (bridge)
+- \`get_build_status\` — Check build progress (bridge)
 
 ## Variable Types
 \`Float\`, \`Integer\`, \`Boolean\`, \`String\`, \`Vector3\`, \`Color\`,
@@ -4302,38 +4414,42 @@ Use \`setup_2d_character_complete\` — one call creates sprite sheet, animation
 
 ## Tile Collision Types
 \`none\`, \`full\`, \`top\`, \`bottom\`, \`left\`, \`right\`, \`slope-left\`, \`slope-right\`, \`platform\`
+
+## Blueprint Graph Manipulation (§34)
+- \`get_blueprint_graph\` — Read full graph (nodes + connections) from any asset
+- \`add_blueprint_node\` — Add nodes with type, position, data (246 types available)
+- \`remove_blueprint_node\` — Remove nodes + auto-cleanup connections
+- \`connect_blueprint_nodes\` — Wire output pins to input pins
+- \`disconnect_blueprint_nodes\` — Remove connections by ID or by node/pin
+- \`move_blueprint_node\` — Reposition nodes
+- \`set_node_value\` — Set control/data values on existing nodes
+- \`clear_blueprint_graph\` — Remove all nodes and connections
+- \`list_node_types\` — List all 246 node types grouped by category
+- \`compile_blueprint\` — Trigger recompilation via live editor bridge
+
+## Blueprint Introspection (§35)
+- \`list_blueprint_variables\` — List all variables with types, defaults, IDs
+- \`list_blueprint_functions\` — List functions with parameter signatures
+- \`list_custom_events\` — List custom events with params
+- \`add_blueprint_function\` — Add a custom function with entry/return nodes
+- \`add_blueprint_custom_event\` — Add a custom event definition + node
+- \`add_blueprint_macro\` — Add a reusable macro
+
+## Debug & Print Log
+- \`get_print_log\` — Read all print output (from PrintStringNode) with optional level/limit filter
+- \`clear_print_log\` — Clear the print log entries
+
+## Event System
+- \`create_event_asset\` — Create a broadcast event asset
+- \`list_event_assets\` — List all event assets
+
+## Widget Extras
+- \`add_widget_animation\` — Add keyframe animation to a widget blueprint
+- \`get_widget_details\` — Detailed info about a widget (tree, animations, variables, graph)
 `;
     return { content: [{ type: 'text', text: docs }] };
   }
 );
-
-
-// ============================================================
-//  VISUAL SCRIPT EDITING TOOLS
-// ============================================================
-
-// Helper: generate a random hex ID like the engine does
-function nodeUid(): string {
-  return Math.random().toString(16).slice(2, 10) + Math.random().toString(16).slice(2, 10);
-}
-
-// Helper: read an actor's eventGraphData
-function readActorGraph(projRoot: string, actorId: string): { filePath: string; data: any; graph: any } | null {
-  const actorsDir = path.join(projRoot, 'Actors');
-  if (!fs.existsSync(actorsDir)) return null;
-  const files = fs.readdirSync(actorsDir).filter(f => f.endsWith('.json') && f !== '_index.json');
-  for (const f of files) {
-    const fp = path.join(actorsDir, f);
-    const d = readJsonFile(fp);
-    if (d && d.actorId === actorId) {
-      if (!d.eventGraphData) d.eventGraphData = { nodes: [], connections: [] };
-      if (!d.eventGraphData.nodes) d.eventGraphData.nodes = [];
-      if (!d.eventGraphData.connections) d.eventGraphData.connections = [];
-      return { filePath: fp, data: d, graph: d.eventGraphData };
-    }
-  }
-  return null;
-}
 
 // Helper: read widget blueprint
 function readWidgetBP(projRoot: string, widgetId: string): { filePath: string; data: any } | null {
@@ -4348,369 +4464,12 @@ function readWidgetBP(projRoot: string, widgetId: string): { filePath: string; d
   return null;
 }
 
-// Helper: read anim blueprint
-function readAnimBP(projRoot: string, animId: string): { filePath: string; data: any } | null {
-  const dir = path.join(projRoot, 'AnimBlueprints');
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
-  for (const f of files) {
-    const fp = path.join(dir, f);
-    const d = readJsonFile(fp);
-    if (d && d.animBlueprintId === animId) return { filePath: fp, data: d };
-  }
-  return null;
-}
-
-// -- Tool: blueprint_graph (consolidated compound tool) --
-// Replaces 12 individual tools: get_blueprint_graph, add_blueprint_node,
-// remove_blueprint_node, add_blueprint_connection, remove_blueprint_connection,
-// update_blueprint_node, add_blueprint_function, add_blueprint_custom_event,
-// add_blueprint_macro, set_blueprint_graph, compile_blueprint, list_node_types
-server.tool(
-  'blueprint_graph',
-  `Unified visual-script graph tool. Use the 'command' param to select an operation.
-
-Commands:
-  get            — Read graph nodes & connections
-  add_node       — Add a node (returns new node ID). Common types: EventBeginPlayNode, EventTickNode, BranchNode, PrintStringNode, InputKeyEventNode, InputAxisNode, SetVariableNode, GetVariableNode, FloatNode, AddNode, SubtractNode, etc.
-  remove_node    — Remove a node and its connections
-  update_node    — Modify position, controls, or data of an existing node
-  add_connection — Wire two nodes together (exec pins: "exec"/"pressed"/"released"; data pins: "value"/"x"/"y"/"result"/etc.)
-  remove_connection — Remove a connection by ID or by source/target pins
-  set_graph      — Replace an entire graph (nodes + connections)
-  compile        — Compile graph to runtime JavaScript code (auto-runs on graph mutations for actors)
-  list_node_types — List available node types (optionally filter by category: events, flow, math, transform, physics, character, input, variables, ui, audio, ai, debug, cast, string, array, animation, etc.)
-  add_function   — Add a custom function with entry/return nodes
-  add_custom_event — Add a custom event definition + node
-  add_macro      — Add a reusable macro`,
-  {
-    command: z.enum(['get', 'add_node', 'remove_node', 'update_node', 'add_connection', 'remove_connection', 'set_graph', 'compile', 'list_node_types', 'add_function', 'add_custom_event', 'add_macro']).describe('Which operation to perform'),
-    projectPath: z.string().optional().describe('Absolute path to the project root (required for all commands except list_node_types)'),
-    assetType: z.enum(['actor', 'widget', 'animBlueprint']).optional().describe('Type of asset'),
-    assetId: z.string().optional().describe('The asset ID'),
-    graphName: z.string().optional().describe('For actors: "eventGraph" (default) or a function/macro ID'),
-    // add_node / update_node
-    nodeType: z.string().optional().describe('[add_node] Node class name, e.g. "PrintStringNode", "InputKeyEventNode"'),
-    nodeId: z.string().optional().describe('[remove_node/update_node] The node ID'),
-    positionX: z.number().optional().describe('[add_node/update_node] X position'),
-    positionY: z.number().optional().describe('[add_node/update_node] Y position'),
-    label: z.string().optional().describe('[add_node/update_node] Display label'),
-    controls: z.record(z.any()).optional().describe('[add_node/update_node] Control values, e.g. {"key":"Space"}, {"text":"hello"}'),
-    data: z.record(z.any()).optional().describe('[add_node/update_node] Additional data fields'),
-    // connections
-    sourceNodeId: z.string().optional().describe('[add_connection/remove_connection] Source node ID'),
-    sourceOutput: z.string().optional().describe('[add_connection/remove_connection] Source output pin, e.g. "exec","value","pressed"'),
-    targetNodeId: z.string().optional().describe('[add_connection/remove_connection] Target node ID'),
-    targetInput: z.string().optional().describe('[add_connection/remove_connection] Target input pin, e.g. "exec","a","b","condition"'),
-    connectionId: z.string().optional().describe('[remove_connection] Connection ID (alternative to source/target)'),
-    // set_graph
-    nodes: z.array(z.object({
-      id: z.string().optional(), type: z.string(), positionX: z.number(), positionY: z.number(),
-      label: z.string().optional(), controls: z.record(z.any()).optional(), data: z.record(z.any()).optional()
-    })).optional().describe('[set_graph] Array of nodes'),
-    connections_array: z.array(z.object({
-      sourceNodeId: z.string(), sourceOutput: z.string(), targetNodeId: z.string(), targetInput: z.string()
-    })).optional().describe('[set_graph] Array of connections'),
-    // list_node_types
-    category: z.string().optional().describe('[list_node_types] Filter by category'),
-    // functions/macros/events
-    functionName: z.string().optional().describe('[add_function] Function name'),
-    macroName: z.string().optional().describe('[add_macro] Macro name'),
-    eventName: z.string().optional().describe('[add_custom_event] Event name'),
-    inputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_function/add_macro] Input params'),
-    outputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_function/add_macro] Output params'),
-    params: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('[add_custom_event] Event params'),
-  },
-  async (args: any) => {
-    const { command, projectPath, assetType, assetId, graphName } = args;
-
-    // ── list_node_types: no project needed ──
-    if (command === 'list_node_types') {
-      // Ask the engine for the live node registry via bridge WebSocket
-      let allNodes: Record<string, string[]> | null = null;
-      const resp = await bridgeRequest('list_node_types', {}, 5000);
-      if (resp && resp.nodeTypes && typeof resp.nodeTypes === 'object') {
-        allNodes = resp.nodeTypes as Record<string, string[]>;
-      }
-      if (!allNodes || Object.keys(allNodes).length === 0) {
-        return { content: [{ type: 'text', text: 'Engine is not connected — cannot query available node types.\nMake sure the Feather Engine UI is open and the bridge WebSocket is connected (port 9960).' }] };
-      }
-      const cat = args.category;
-      let result = '';
-      let totalNodes = 0;
-      const cats = cat ? [cat] : Object.keys(allNodes);
-      for (const c of cats) {
-        const nodes = allNodes[c];
-        if (!nodes) { result += 'Unknown category: ' + c + '\n'; continue; }
-        totalNodes += nodes.length;
-        result += c.toUpperCase() + ' (' + nodes.length + '):\n';
-        for (const n of nodes) result += '  ' + n + '\n';
-        result += '\n';
-      }
-      result = 'Total: ' + totalNodes + ' node types in ' + cats.length + ' categories (live from engine)\n\n' + result;
-      return { content: [{ type: 'text', text: result }] };
-    }
-
-    // All other commands need project + asset
-    const projRoot = findProjectRoot(projectPath!) || projectPath!;
-
-    // Helper: resolve graph from asset
-    function resolveAsset(): { graph: any; data: any; filePath: string; assetName: string } | null {
-      if (assetType === 'actor') {
-        const r = readActorGraph(projRoot, assetId!);
-        if (!r) return null;
-        let g = r.graph;
-        if (graphName && graphName !== 'eventGraph') {
-          if (!r.data.functionGraphData) r.data.functionGraphData = {};
-          g = r.data.functionGraphData[graphName] || { nodes: [], connections: [] };
-        }
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: r.data.actorName || assetId! };
-      } else if (assetType === 'widget') {
-        const r = readWidgetBP(projRoot, assetId!);
-        if (!r) return null;
-        if (!r.data.eventGraph) r.data.eventGraph = { nodes: [], connections: [] };
-        const g = r.data.eventGraph;
-        if (!g.nodes) g.nodes = [];
-        if (!g.connections) g.connections = [];
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: r.data.widgetBlueprintName || assetId! };
-      } else {
-        const r = readAnimBP(projRoot, assetId!);
-        if (!r) return null;
-        if (!r.data.eventGraph) r.data.eventGraph = { nodes: [], connections: [] };
-        const g = r.data.eventGraph;
-        if (!g.nodes) g.nodes = [];
-        if (!g.connections) g.connections = [];
-        return { graph: g, data: r.data, filePath: r.filePath, assetName: assetId! };
-      }
-    }
-
-    function saveAsset(a: { data: any; filePath: string; graph: any }) {
-      if (assetType === 'actor') {
-        if (!graphName || graphName === 'eventGraph') a.data.eventGraphData = a.graph;
-        else a.data.functionGraphData[graphName!] = a.graph;
-      } else if (assetType === 'widget') {
-        a.data.eventGraph = a.graph;
-      } else {
-        a.data.eventGraph = a.graph;
-      }
-      // Auto-compile: regenerate compiledCode from the updated graph
-      if (assetType === 'actor' && (!graphName || graphName === 'eventGraph')) {
-        const egraph = a.data.eventGraphData;
-        if (egraph && egraph.nodes && egraph.nodes.length > 0) {
-          a.data.compiledCode = compileGraphToCode(egraph, a.data);
-        } else {
-          a.data.compiledCode = '';
-        }
-      }
-      writeJsonFile(a.filePath, a.data);
-    }
-
-    // ── get ──
-    if (command === 'get') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const nodes = a.graph.nodes || [];
-      const conns = a.graph.connections || [];
-      let result = a.assetName + ' \u2014 ' + assetType + ' graph';
-      if (graphName && graphName !== 'eventGraph') result += ' (' + graphName + ')';
-      result += '\n\nNodes (' + nodes.length + '):\n';
-      for (const n of nodes) {
-        result += '  [' + n.id + '] ' + n.type + ' at (' + n.position.x + ', ' + n.position.y + ')';
-        if (n.data && n.data.label) result += ' \u2014 "' + n.data.label + '"';
-        if (n.data && n.data.controls) result += ' controls=' + JSON.stringify(n.data.controls);
-        result += '\n';
-      }
-      result += '\nConnections (' + conns.length + '):\n';
-      for (const c of conns) {
-        result += '  ' + c.source + '.' + c.sourceOutput + ' \u2192 ' + c.target + '.' + c.targetInput + '\n';
-      }
-      return { content: [{ type: 'text', text: result }] };
-    }
-
-    // ── add_node ──
-    if (command === 'add_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const nid = nodeUid();
-      const nodeObj: any = {
-        id: nid, type: args.nodeType,
-        position: { x: args.positionX ?? 200, y: args.positionY ?? 200 },
-        data: { label: args.label || args.nodeType.replace(/Node$/, '').replace(/([A-Z])/g, ' $1').trim(), ...(args.data || {}) }
-      };
-      if (args.controls) nodeObj.data.controls = args.controls;
-      // InputKeyEventNode needs selectedKey in data
-      if (args.nodeType === 'InputKeyEventNode' && args.controls?.key) nodeObj.data.selectedKey = args.controls.key;
-      a.graph.nodes.push(nodeObj);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Added node [' + nid + '] type=' + args.nodeType + ' at (' + (args.positionX ?? 200) + ', ' + (args.positionY ?? 200) + ')' }] };
-    }
-
-    // ── remove_node ──
-    if (command === 'remove_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const before = a.graph.nodes.length;
-      a.graph.nodes = a.graph.nodes.filter((n: any) => n.id !== args.nodeId);
-      a.graph.connections = a.graph.connections.filter((c: any) => c.source !== args.nodeId && c.target !== args.nodeId);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: (before - a.graph.nodes.length) ? 'Removed node ' + args.nodeId : 'Node not found: ' + args.nodeId }] };
-    }
-
-    // ── update_node ──
-    if (command === 'update_node') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const node = a.graph.nodes.find((n: any) => n.id === args.nodeId);
-      if (!node) return { content: [{ type: 'text', text: 'Node not found: ' + args.nodeId }] };
-      if (args.positionX !== undefined) node.position.x = args.positionX;
-      if (args.positionY !== undefined) node.position.y = args.positionY;
-      if (args.label) node.data.label = args.label;
-      if (args.controls) node.data.controls = { ...(node.data.controls || {}), ...args.controls };
-      if (args.data) Object.assign(node.data, args.data);
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Updated node ' + args.nodeId }] };
-    }
-
-    // ── add_connection ──
-    if (command === 'add_connection') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const cid = nodeUid();
-      if (!a.graph.connections) a.graph.connections = [];
-      a.graph.connections.push({ id: cid, source: args.sourceNodeId, sourceOutput: args.sourceOutput, target: args.targetNodeId, targetInput: args.targetInput });
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Connected ' + args.sourceNodeId + '.' + args.sourceOutput + ' \u2192 ' + args.targetNodeId + '.' + args.targetInput + ' [' + cid + ']' }] };
-    }
-
-    // ── remove_connection ──
-    if (command === 'remove_connection') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      if (!a.graph.connections) return { content: [{ type: 'text', text: '0 connection(s) removed' }] };
-      const before = a.graph.connections.length;
-      if (args.connectionId) {
-        a.graph.connections = a.graph.connections.filter((c: any) => c.id !== args.connectionId);
-      } else if (args.sourceNodeId && args.targetNodeId) {
-        a.graph.connections = a.graph.connections.filter((c: any) => {
-          if (c.source !== args.sourceNodeId || c.target !== args.targetNodeId) return true;
-          if (args.sourceOutput && c.sourceOutput !== args.sourceOutput) return true;
-          if (args.targetInput && c.targetInput !== args.targetInput) return true;
-          return false;
-        });
-      }
-      saveAsset(a);
-      return { content: [{ type: 'text', text: (before - a.graph.connections.length) + ' connection(s) removed' }] };
-    }
-
-    // ── set_graph ──
-    if (command === 'set_graph') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const builtNodes = (args.nodes || []).map((n: any) => {
-        const nid = n.id || nodeUid();
-        const obj: any = { id: nid, type: n.type, position: { x: n.positionX, y: n.positionY },
-          data: { label: n.label || n.type.replace(/Node$/, '').replace(/([A-Z])/g, ' $1').trim(), ...(n.data || {}) } };
-        if (n.controls) obj.data.controls = n.controls;
-        return obj;
-      });
-      const builtConns = (args.connections_array || []).map((c: any) => ({
-        id: nodeUid(), source: c.sourceNodeId, sourceOutput: c.sourceOutput, target: c.targetNodeId, targetInput: c.targetInput
-      }));
-      a.graph = { nodes: builtNodes, connections: builtConns };
-      saveAsset(a);
-      return { content: [{ type: 'text', text: 'Set graph: ' + builtNodes.length + ' nodes, ' + builtConns.length + ' connections' }] };
-    }
-
-    // ── compile ──
-    if (command === 'compile') {
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const graph = assetType === 'actor'
-        ? (graphName && graphName !== 'eventGraph' ? a.data.functionGraphData?.[graphName!] : a.data.eventGraphData)
-        : a.data.eventGraph;
-      if (!graph || !graph.nodes || graph.nodes.length === 0) {
-        a.data.compiledCode = '';
-        writeJsonFile(a.filePath, a.data);
-        return { content: [{ type: 'text', text: 'No graph to compile for ' + a.assetName + '. Cleared compiledCode.' }] };
-      }
-      const code = compileGraphToCode(graph, a.data);
-      a.data.compiledCode = code;
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Compiled ' + a.assetName + ' (' + graph.nodes.length + ' nodes) → ' + code.length + ' chars of runtime code.' }] };
-    }
-
-    // ── add_function ──
-    if (command === 'add_function') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_function only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const funcId = 'func_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const funcObj = {
-        name: args.functionName, id: funcId,
-        inputs: (args.inputs || []).map((i: any) => ({ name: i.name, type: i.type, defaultValue: null })),
-        outputs: (args.outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
-        localVariables: [], graph: {}
-      };
-      if (!a.data.functions) a.data.functions = [];
-      a.data.functions.push(funcObj);
-      if (assetType === 'actor') {
-        if (!a.data.functionGraphData) a.data.functionGraphData = {};
-        a.data.functionGraphData[funcId] = {
-          nodes: [
-            { id: nodeUid(), type: 'FunctionEntryNode', position: { x: 80, y: 80 }, data: { label: args.functionName } },
-            { id: nodeUid(), type: 'FunctionReturnNode', position: { x: 500, y: 80 }, data: { label: 'Return' } }
-          ],
-          connections: []
-        };
-      }
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added function "' + args.functionName + '" [' + funcId + ']' }] };
-    }
-
-    // ── add_custom_event ──
-    if (command === 'add_custom_event') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_custom_event only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const eventId = 'evt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const eventObj = { name: args.eventName, id: eventId, params: (args.params || []).map((p: any) => ({ name: p.name, type: p.type })) };
-      if (!a.data.customEvents) a.data.customEvents = [];
-      a.data.customEvents.push(eventObj);
-      if (assetType === 'actor') {
-        const ceNodeId = nodeUid();
-        a.graph.nodes.push({ id: ceNodeId, type: 'CustomEventNode', position: { x: 80, y: (a.graph.nodes.length + 1) * 180 }, data: { label: args.eventName, eventId, eventName: args.eventName } });
-        a.data.eventGraphData = a.graph;
-      }
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added custom event "' + args.eventName + '" [' + eventId + ']' }] };
-    }
-
-    // ── add_macro ──
-    if (command === 'add_macro') {
-      if (assetType !== 'actor' && assetType !== 'widget') return { content: [{ type: 'text', text: 'add_macro only supports actor/widget' }] };
-      const a = resolveAsset();
-      if (!a) return { content: [{ type: 'text', text: 'Asset not found: ' + assetId }] };
-      const macroId = 'macro_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const macroObj = {
-        name: args.macroName, id: macroId,
-        inputs: (args.inputs || []).map((i: any) => ({ name: i.name, type: i.type })),
-        outputs: (args.outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
-        graph: {}
-      };
-      if (!a.data.macros) a.data.macros = [];
-      a.data.macros.push(macroObj);
-      writeJsonFile(a.filePath, a.data);
-      return { content: [{ type: 'text', text: 'Added macro "' + args.macroName + '" [' + macroId + ']' }] };
-    }
-
-    return { content: [{ type: 'text', text: 'Unknown command: ' + command }] };
-  }
-);
+// -- (legacy consolidated blueprint_graph tool removed — replaced by individual tools in §34/§35) --
 
 // -- Tool: create_event_asset --
 server.tool(
   'create_event_asset',
-  'Create a new event asset (for the engine event system � broadcasts between actors/systems).',
+  'Create a new event asset (for the engine event system — broadcasts between actors/systems).',
   {
     projectPath: z.string().describe('Absolute path to the project root'),
     eventName: z.string().describe('Name for the event'),
@@ -4869,6 +4628,2362 @@ server.tool(
     return { content: [{ type: 'text', text: result }] };
   }
 );
+
+// ============================================================
+//  §17  AUDIO / SOUND SYSTEM
+// ============================================================
+
+server.tool(
+  'import_sound',
+  'Import an audio file into the project Sounds folder. Supports MP3, WAV, OGG, FLAC, WEBM, AAC.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sourcePath: z.string().describe('Absolute path to the source audio file'),
+    name: z.string().describe('Display name for the sound asset'),
+    category: z.enum(['SFX', 'Music', 'Ambient', 'UI', 'Voice']).optional().describe('Sound category. Default: "SFX"'),
+    volume: z.number().optional().describe('Playback volume 0-1. Default: 1.0'),
+    pitch: z.number().optional().describe('Playback pitch 0.1-4. Default: 1.0'),
+    loop: z.boolean().optional().describe('Whether to loop. Default: false'),
+    bus: z.enum(['SFX', 'Music', 'Ambient', 'UI', 'Master']).optional().describe('Audio bus. Default: "SFX"'),
+  },
+  async ({ projectPath, sourcePath, name, category, volume, pitch, loop, bus }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const soundsDir = path.join(projRoot, 'Sounds');
+    if (!fs.existsSync(soundsDir)) fs.mkdirSync(soundsDir, { recursive: true });
+    if (!fs.existsSync(sourcePath)) return { content: [{ type: 'text', text: `Source not found: ${sourcePath}` }] };
+    const ext = path.extname(sourcePath).toLowerCase();
+    const validExts = ['.mp3', '.wav', '.ogg', '.flac', '.webm', '.aac'];
+    if (!validExts.includes(ext)) return { content: [{ type: 'text', text: `Unsupported format: ${ext}. Supported: ${validExts.join(', ')}` }] };
+    const audioData = fs.readFileSync(sourcePath);
+    const mimeMap: Record<string, string> = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.webm': 'audio/webm', '.aac': 'audio/aac' };
+    const dataUrl = `data:${mimeMap[ext] || 'audio/mpeg'};base64,${audioData.toString('base64')}`;
+    const id = soundUid();
+    const asset = {
+      assetId: id,
+      assetName: name,
+      sourceFile: path.basename(sourcePath),
+      category: category ?? 'SFX',
+      settings: { volume: volume ?? 1.0, pitch: pitch ?? 1.0, loop: loop ?? false, bus: bus ?? 'SFX' },
+      metadata: { format: ext.replace('.', '').toUpperCase(), fileSize: audioData.length },
+      storedData: dataUrl,
+    };
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(soundsDir, `${safeName}_${id}.json`), asset);
+    return { content: [{ type: 'text', text: `Imported sound "${name}" (ID: ${id}, ${(audioData.length / 1024).toFixed(1)} KB, ${ext.replace('.', '').toUpperCase()})\nCategory: ${asset.category}, Bus: ${asset.settings.bus}` }] };
+  }
+);
+
+server.tool(
+  'list_sounds',
+  'List all sound assets in the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const soundsDir = path.join(projRoot, 'Sounds');
+    if (!fs.existsSync(soundsDir)) return { content: [{ type: 'text', text: 'No sounds. Sounds/ folder does not exist.' }] };
+    const files = fs.readdirSync(soundsDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
+    if (files.length === 0) return { content: [{ type: 'text', text: 'No sound assets found.' }] };
+    const lines: string[] = [];
+    for (const f of files) {
+      try {
+        const d = readJsonFile(path.join(soundsDir, f));
+        lines.push(`[${d.category || 'SFX'}] ${d.assetName} (ID: ${d.assetId}) — ${d.settings?.bus || 'SFX'} bus, vol=${d.settings?.volume ?? 1}, loop=${d.settings?.loop ?? false}`);
+      } catch { /* skip */ }
+    }
+    return { content: [{ type: 'text', text: `Sounds (${lines.length}):\n${lines.join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'set_sound_properties',
+  'Update properties of an existing sound asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    soundId: z.string().describe('Sound asset ID'),
+    volume: z.number().optional().describe('Playback volume 0-1'),
+    pitch: z.number().optional().describe('Playback pitch 0.1-4'),
+    loop: z.boolean().optional().describe('Whether to loop'),
+    bus: z.enum(['SFX', 'Music', 'Ambient', 'UI', 'Master']).optional().describe('Audio bus'),
+    category: z.enum(['SFX', 'Music', 'Ambient', 'UI', 'Voice']).optional().describe('Sound category'),
+  },
+  async ({ projectPath, soundId, volume, pitch, loop, bus, category }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const soundsDir = path.join(projRoot, 'Sounds');
+    if (!fs.existsSync(soundsDir)) return { content: [{ type: 'text', text: 'Sounds/ folder not found.' }] };
+    for (const f of fs.readdirSync(soundsDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(soundsDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === soundId) {
+        if (!d.settings) d.settings = {};
+        if (volume !== undefined) d.settings.volume = volume;
+        if (pitch !== undefined) d.settings.pitch = pitch;
+        if (loop !== undefined) d.settings.loop = loop;
+        if (bus !== undefined) d.settings.bus = bus;
+        if (category !== undefined) d.category = category;
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Updated sound "${d.assetName}" — vol=${d.settings.volume}, pitch=${d.settings.pitch}, loop=${d.settings.loop}, bus=${d.settings.bus}, category=${d.category}` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Sound not found: ${soundId}` }] };
+  }
+);
+
+server.tool(
+  'delete_sound',
+  'Delete a sound asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    soundId: z.string().describe('Sound asset ID to delete'),
+  },
+  async ({ projectPath, soundId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const soundsDir = path.join(projRoot, 'Sounds');
+    if (!fs.existsSync(soundsDir)) return { content: [{ type: 'text', text: 'Sounds/ folder not found.' }] };
+    for (const f of fs.readdirSync(soundsDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(soundsDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === soundId) {
+        fs.unlinkSync(fp);
+        broadcastChange({ type: 'asset-deleted', assetType: 'sounds', assetId: soundId, name: d.assetName });
+        return { content: [{ type: 'text', text: `Deleted sound "${d.assetName}" (${soundId})` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Sound not found: ${soundId}` }] };
+  }
+);
+
+// ── Sound Cues ──
+server.tool(
+  'create_sound_cue',
+  'Create a Sound Cue asset with a visual node graph for complex sound playback (randomization, modulation, mixing).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().describe('Sound Cue name'),
+    bus: z.enum(['SFX', 'Music', 'Ambient', 'UI', 'Master']).optional().describe('Output bus. Default: "SFX"'),
+    volume: z.number().optional().describe('Master volume 0-1. Default: 1'),
+    pitch: z.number().optional().describe('Master pitch. Default: 1'),
+    loop: z.boolean().optional().describe('Loop playback. Default: false'),
+    soundAssetIds: z.array(z.string()).optional().describe('Sound asset IDs to add as WavePlayer nodes'),
+  },
+  async ({ projectPath, name, bus, volume, pitch, loop, soundAssetIds }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const cuesDir = path.join(projRoot, 'SoundCues');
+    if (!fs.existsSync(cuesDir)) fs.mkdirSync(cuesDir, { recursive: true });
+    const id = cueUid();
+    const outputNode = {
+      id: 'output_' + id,
+      type: 'Output',
+      x: 600, y: 200,
+      data: { bus: bus ?? 'SFX', volume: volume ?? 1, pitch: pitch ?? 1, loop: loop ?? false, maxConcurrency: 1, fadeIn: 0, fadeOut: 0 },
+    };
+    const nodes: any[] = [outputNode];
+    const connections: any[] = [];
+    if (soundAssetIds && soundAssetIds.length > 0) {
+      for (let i = 0; i < soundAssetIds.length; i++) {
+        const wnId = cueNodeUid();
+        nodes.push({
+          id: wnId, type: 'WavePlayer',
+          x: 200, y: 100 + i * 150,
+          data: { soundAssetId: soundAssetIds[i], volume: 1, pitchMin: 1, pitchMax: 1 },
+        });
+        connections.push({ id: 'scc_' + (++_uid).toString(36), fromNodeId: wnId, toNodeId: outputNode.id, toInputIndex: i });
+      }
+    }
+    const cue = { assetId: id, assetName: name, nodes, connections };
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(cuesDir, `${safeName}_${id}.json`), cue);
+    return { content: [{ type: 'text', text: `Created Sound Cue "${name}" (ID: ${id}) with ${nodes.length} nodes, ${connections.length} connections` }] };
+  }
+);
+
+server.tool(
+  'list_sound_cues',
+  'List all Sound Cue assets in the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const cuesDir = path.join(projRoot, 'SoundCues');
+    if (!fs.existsSync(cuesDir)) return { content: [{ type: 'text', text: 'No sound cues. SoundCues/ folder does not exist.' }] };
+    const files = fs.readdirSync(cuesDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
+    if (files.length === 0) return { content: [{ type: 'text', text: 'No sound cue assets found.' }] };
+    const lines: string[] = [];
+    for (const f of files) {
+      try {
+        const d = readJsonFile(path.join(cuesDir, f));
+        const outputNode = (d.nodes || []).find((n: any) => n.type === 'Output');
+        lines.push(`${d.assetName} (ID: ${d.assetId}) — ${(d.nodes || []).length} nodes, bus=${outputNode?.data?.bus || 'SFX'}`);
+      } catch { /* skip */ }
+    }
+    return { content: [{ type: 'text', text: `Sound Cues (${lines.length}):\n${lines.join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'get_sound_cue_details',
+  'Get the detailed node graph and properties of a Sound Cue.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    cueId: z.string().describe('Sound Cue asset ID'),
+  },
+  async ({ projectPath, cueId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const cuesDir = path.join(projRoot, 'SoundCues');
+    if (!fs.existsSync(cuesDir)) return { content: [{ type: 'text', text: 'SoundCues/ folder not found.' }] };
+    for (const f of fs.readdirSync(cuesDir).filter(f => f.endsWith('.json'))) {
+      const d = readJsonFile(path.join(cuesDir, f));
+      if (d.assetId === cueId) {
+        let result = `Sound Cue: ${d.assetName}\nID: ${d.assetId}\n\nNodes (${(d.nodes || []).length}):\n`;
+        for (const n of (d.nodes || [])) {
+          result += `  [${n.id}] ${n.type} at (${n.x}, ${n.y})`;
+          if (n.data) result += ' ' + JSON.stringify(n.data);
+          result += '\n';
+        }
+        result += `\nConnections (${(d.connections || []).length}):\n`;
+        for (const c of (d.connections || [])) {
+          result += `  ${c.fromNodeId} → ${c.toNodeId} (input ${c.toInputIndex})\n`;
+        }
+        return { content: [{ type: 'text', text: result }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Sound Cue not found: ${cueId}` }] };
+  }
+);
+
+server.tool(
+  'modify_sound_cue',
+  'Add, remove, or modify nodes and connections in a Sound Cue graph.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    cueId: z.string().describe('Sound Cue asset ID'),
+    command: z.enum(['add_node', 'remove_node', 'update_node', 'add_connection', 'remove_connection']).describe('Operation to perform'),
+    nodeType: z.enum(['WavePlayer', 'Random', 'Modulator', 'Mixer']).optional().describe('Node type for add_node'),
+    nodeId: z.string().optional().describe('Node ID for remove_node / update_node'),
+    nodeData: z.record(z.any()).optional().describe('Node data properties (soundAssetId, volume, pitchMin, pitchMax, weights, volumeMin, volumeMax)'),
+    positionX: z.number().optional().describe('Node X position'),
+    positionY: z.number().optional().describe('Node Y position'),
+    fromNodeId: z.string().optional().describe('Source node ID for add_connection'),
+    toNodeId: z.string().optional().describe('Target node ID for add_connection'),
+    toInputIndex: z.number().optional().describe('Target input index for add_connection'),
+    connectionId: z.string().optional().describe('Connection ID for remove_connection'),
+  },
+  async ({ projectPath, cueId, command, nodeType, nodeId, nodeData, positionX, positionY, fromNodeId, toNodeId, toInputIndex, connectionId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const cuesDir = path.join(projRoot, 'SoundCues');
+    if (!fs.existsSync(cuesDir)) return { content: [{ type: 'text', text: 'SoundCues/ folder not found.' }] };
+    for (const f of fs.readdirSync(cuesDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(cuesDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId !== cueId) continue;
+      if (!d.nodes) d.nodes = [];
+      if (!d.connections) d.connections = [];
+
+      if (command === 'add_node') {
+        const nid = cueNodeUid();
+        d.nodes.push({ id: nid, type: nodeType, x: positionX ?? 200, y: positionY ?? 200, data: nodeData || {} });
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Added ${nodeType} node [${nid}] to Sound Cue "${d.assetName}"` }] };
+      }
+      if (command === 'remove_node') {
+        const before = d.nodes.length;
+        d.nodes = d.nodes.filter((n: any) => n.id !== nodeId);
+        d.connections = d.connections.filter((c: any) => c.fromNodeId !== nodeId && c.toNodeId !== nodeId);
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: (before - d.nodes.length) ? `Removed node ${nodeId}` : `Node not found: ${nodeId}` }] };
+      }
+      if (command === 'update_node') {
+        const node = d.nodes.find((n: any) => n.id === nodeId);
+        if (!node) return { content: [{ type: 'text', text: `Node not found: ${nodeId}` }] };
+        if (positionX !== undefined) node.x = positionX;
+        if (positionY !== undefined) node.y = positionY;
+        if (nodeData) node.data = { ...(node.data || {}), ...nodeData };
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Updated node ${nodeId}` }] };
+      }
+      if (command === 'add_connection') {
+        const cid = 'scc_' + (++_uid).toString(36);
+        d.connections.push({ id: cid, fromNodeId, toNodeId, toInputIndex: toInputIndex ?? 0 });
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Connected ${fromNodeId} → ${toNodeId} [${cid}]` }] };
+      }
+      if (command === 'remove_connection') {
+        const before = d.connections.length;
+        d.connections = d.connections.filter((c: any) => c.id !== connectionId);
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `${before - d.connections.length} connection(s) removed` }] };
+      }
+      return { content: [{ type: 'text', text: `Unknown command: ${command}` }] };
+    }
+    return { content: [{ type: 'text', text: `Sound Cue not found: ${cueId}` }] };
+  }
+);
+
+// ============================================================
+//  §18  PARTICLE SYSTEM
+// ============================================================
+
+server.tool(
+  'create_particle_emitter',
+  'Create a particle emitter asset that can be attached to actors as a ParticleComponent.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().describe('Particle emitter name (e.g. "Fire", "Smoke", "Sparks")'),
+    emissionRate: z.number().optional().describe('Particles per second. Default: 50'),
+    maxParticles: z.number().optional().describe('Max simultaneous particles. Default: 1000'),
+    startLifetime: z.number().optional().describe('Particle lifetime in seconds. Default: 2'),
+    lifetimeVariance: z.number().optional().describe('Random lifetime variance. Default: 0'),
+    startSpeed: z.number().optional().describe('Initial speed. Default: 5'),
+    speedVariance: z.number().optional().describe('Random speed variance. Default: 0'),
+    startSize: z.number().optional().describe('Initial particle size. Default: 0.5'),
+    endSize: z.number().optional().describe('End-of-life particle size. Default: 0'),
+    sizeVariance: z.number().optional().describe('Random size variance. Default: 0'),
+    startColor: z.string().optional().describe('Start color hex. Default: "#FFAA00"'),
+    endColor: z.string().optional().describe('End color hex. Default: "#FF0000"'),
+    gravityX: z.number().optional().describe('Gravity X. Default: 0'),
+    gravityY: z.number().optional().describe('Gravity Y. Default: -9.8'),
+    gravityZ: z.number().optional().describe('Gravity Z. Default: 0'),
+    drag: z.number().optional().describe('Air drag 0-1. Default: 0'),
+    shape: z.enum(['sphere', 'box', 'cone']).optional().describe('Emission shape. Default: "cone"'),
+    shapeRadius: z.number().optional().describe('Emission shape radius. Default: 0.5'),
+    shapeAngle: z.number().optional().describe('Cone emission angle in degrees. Default: 25'),
+    blendMode: z.enum(['normal', 'additive', 'multiply']).optional().describe('Blend mode. Default: "additive"'),
+    texture: z.string().optional().describe('Texture filename in Textures folder'),
+    loop: z.boolean().optional().describe('Loop emission. Default: true'),
+  },
+  async ({ projectPath, name, emissionRate, maxParticles, startLifetime, lifetimeVariance, startSpeed, speedVariance, startSize, endSize, sizeVariance, startColor, endColor, gravityX, gravityY, gravityZ, drag, shape, shapeRadius, shapeAngle, blendMode, texture, loop }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const particlesDir = path.join(projRoot, 'Particles');
+    if (!fs.existsSync(particlesDir)) fs.mkdirSync(particlesDir, { recursive: true });
+    const id = particleUid();
+    const asset = {
+      assetId: id,
+      assetName: name,
+      emissionRate: emissionRate ?? 50,
+      maxParticles: maxParticles ?? 1000,
+      startLifetime: startLifetime ?? 2,
+      lifetimeVariance: lifetimeVariance ?? 0,
+      startSpeed: startSpeed ?? 5,
+      speedVariance: speedVariance ?? 0,
+      startSize: startSize ?? 0.5,
+      endSize: endSize ?? 0,
+      sizeVariance: sizeVariance ?? 0,
+      startColor: startColor ?? '#FFAA00',
+      endColor: endColor ?? '#FF0000',
+      gravity: { x: gravityX ?? 0, y: gravityY ?? -9.8, z: gravityZ ?? 0 },
+      drag: drag ?? 0,
+      shape: shape ?? 'cone',
+      shapeRadius: shapeRadius ?? 0.5,
+      shapeAngle: shapeAngle ?? 25,
+      blendMode: blendMode ?? 'additive',
+      texture: texture || null,
+      loop: loop ?? true,
+      transparent: true,
+      depthWrite: false,
+    };
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(particlesDir, `${safeName}_${id}.json`), asset);
+    return { content: [{ type: 'text', text: `Created particle emitter "${name}" (ID: ${id})\nRate: ${asset.emissionRate}/s, Max: ${asset.maxParticles}, Lifetime: ${asset.startLifetime}s\nShape: ${asset.shape}, Color: ${asset.startColor}→${asset.endColor}` }] };
+  }
+);
+
+server.tool(
+  'list_particle_emitters',
+  'List all particle emitter assets in the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const particlesDir = path.join(projRoot, 'Particles');
+    if (!fs.existsSync(particlesDir)) return { content: [{ type: 'text', text: 'No particles. Particles/ folder does not exist.' }] };
+    const files = fs.readdirSync(particlesDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
+    if (files.length === 0) return { content: [{ type: 'text', text: 'No particle emitter assets found.' }] };
+    const lines: string[] = [];
+    for (const f of files) {
+      try {
+        const d = readJsonFile(path.join(particlesDir, f));
+        lines.push(`${d.assetName} (ID: ${d.assetId}) — rate=${d.emissionRate}/s, shape=${d.shape}, color=${d.startColor}→${d.endColor}`);
+      } catch { /* skip */ }
+    }
+    return { content: [{ type: 'text', text: `Particle Emitters (${lines.length}):\n${lines.join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'modify_particle_emitter',
+  'Update properties of an existing particle emitter asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    particleId: z.string().describe('Particle emitter asset ID'),
+    emissionRate: z.number().optional().describe('Particles per second'),
+    maxParticles: z.number().optional().describe('Max simultaneous particles'),
+    startLifetime: z.number().optional().describe('Particle lifetime in seconds'),
+    lifetimeVariance: z.number().optional().describe('Random lifetime variance'),
+    startSpeed: z.number().optional().describe('Initial speed'),
+    speedVariance: z.number().optional().describe('Random speed variance'),
+    startSize: z.number().optional().describe('Initial particle size'),
+    endSize: z.number().optional().describe('End-of-life particle size'),
+    startColor: z.string().optional().describe('Start color hex'),
+    endColor: z.string().optional().describe('End color hex'),
+    gravityX: z.number().optional().describe('Gravity X'),
+    gravityY: z.number().optional().describe('Gravity Y'),
+    gravityZ: z.number().optional().describe('Gravity Z'),
+    drag: z.number().optional().describe('Air drag 0-1'),
+    shape: z.enum(['sphere', 'box', 'cone']).optional().describe('Emission shape'),
+    shapeRadius: z.number().optional().describe('Emission shape radius'),
+    shapeAngle: z.number().optional().describe('Cone emission angle in degrees'),
+    blendMode: z.enum(['normal', 'additive', 'multiply']).optional().describe('Blend mode'),
+    loop: z.boolean().optional().describe('Loop emission'),
+  },
+  async ({ projectPath, particleId, ...props }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const particlesDir = path.join(projRoot, 'Particles');
+    if (!fs.existsSync(particlesDir)) return { content: [{ type: 'text', text: 'Particles/ folder not found.' }] };
+    for (const f of fs.readdirSync(particlesDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(particlesDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === particleId) {
+        for (const [k, v] of Object.entries(props)) {
+          if (v === undefined) continue;
+          if (k === 'gravityX') { if (!d.gravity) d.gravity = {}; d.gravity.x = v; }
+          else if (k === 'gravityY') { if (!d.gravity) d.gravity = {}; d.gravity.y = v; }
+          else if (k === 'gravityZ') { if (!d.gravity) d.gravity = {}; d.gravity.z = v; }
+          else (d as any)[k] = v;
+        }
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Updated particle emitter "${d.assetName}"` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Particle emitter not found: ${particleId}` }] };
+  }
+);
+
+server.tool(
+  'delete_particle_emitter',
+  'Delete a particle emitter asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    particleId: z.string().describe('Particle emitter asset ID'),
+  },
+  async ({ projectPath, particleId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const particlesDir = path.join(projRoot, 'Particles');
+    if (!fs.existsSync(particlesDir)) return { content: [{ type: 'text', text: 'Particles/ folder not found.' }] };
+    for (const f of fs.readdirSync(particlesDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(particlesDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === particleId) {
+        fs.unlinkSync(fp);
+        broadcastChange({ type: 'asset-deleted', assetType: 'particles', assetId: particleId, name: d.assetName });
+        return { content: [{ type: 'text', text: `Deleted particle emitter "${d.assetName}" (${particleId})` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Particle emitter not found: ${particleId}` }] };
+  }
+);
+
+// ============================================================
+//  §19  NAVMESH / AI PATHFINDING
+// ============================================================
+
+server.tool(
+  'configure_navmesh',
+  'Create or update NavMesh configuration for a scene. Sets agent and voxelization parameters.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+    cellSize: z.number().optional().describe('Voxel cell size. Default: 0.3'),
+    cellHeight: z.number().optional().describe('Voxel cell height. Default: 0.2'),
+    agentHeight: z.number().optional().describe('Agent height. Default: 2.0'),
+    agentRadius: z.number().optional().describe('Agent radius. Default: 0.6'),
+    agentMaxClimb: z.number().optional().describe('Max step height. Default: 0.9'),
+    agentMaxSlope: z.number().optional().describe('Max walkable slope in degrees. Default: 45'),
+    regionMinSize: z.number().optional().describe('Min region size. Default: 8'),
+    regionMergeSize: z.number().optional().describe('Region merge size. Default: 20'),
+    edgeMaxLen: z.number().optional().describe('Max edge length. Default: 12'),
+    edgeMaxError: z.number().optional().describe('Max edge error. Default: 1.3'),
+    detailSampleDist: z.number().optional().describe('Detail mesh sample distance. Default: 6'),
+    detailSampleMaxError: z.number().optional().describe('Detail mesh max error. Default: 1'),
+    tileSize: z.number().optional().describe('Tile size (0 = non-tiled). Default: 0'),
+  },
+  async ({ projectPath, sceneName, ...params }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const scene = readJsonFile(scenePath);
+    if (!scene.navMeshConfig) scene.navMeshConfig = {};
+    const cfg = scene.navMeshConfig;
+    cfg.cellSize = params.cellSize ?? cfg.cellSize ?? 0.3;
+    cfg.cellHeight = params.cellHeight ?? cfg.cellHeight ?? 0.2;
+    cfg.agentHeight = params.agentHeight ?? cfg.agentHeight ?? 2.0;
+    cfg.agentRadius = params.agentRadius ?? cfg.agentRadius ?? 0.6;
+    cfg.agentMaxClimb = params.agentMaxClimb ?? cfg.agentMaxClimb ?? 0.9;
+    cfg.agentMaxSlope = params.agentMaxSlope ?? cfg.agentMaxSlope ?? 45;
+    cfg.regionMinSize = params.regionMinSize ?? cfg.regionMinSize ?? 8;
+    cfg.regionMergeSize = params.regionMergeSize ?? cfg.regionMergeSize ?? 20;
+    cfg.edgeMaxLen = params.edgeMaxLen ?? cfg.edgeMaxLen ?? 12;
+    cfg.edgeMaxError = params.edgeMaxError ?? cfg.edgeMaxError ?? 1.3;
+    cfg.detailSampleDist = params.detailSampleDist ?? cfg.detailSampleDist ?? 6;
+    cfg.detailSampleMaxError = params.detailSampleMaxError ?? cfg.detailSampleMaxError ?? 1;
+    cfg.tileSize = params.tileSize ?? cfg.tileSize ?? 0;
+    writeJsonFile(scenePath, scene);
+    return { content: [{ type: 'text', text: `NavMesh configured for scene "${sceneName}"\nAgent: h=${cfg.agentHeight} r=${cfg.agentRadius} climb=${cfg.agentMaxClimb} slope=${cfg.agentMaxSlope}°\nVoxel: cell=${cfg.cellSize} height=${cfg.cellHeight}` }] };
+  }
+);
+
+server.tool(
+  'bake_navmesh',
+  'Trigger NavMesh baking for a scene via the engine bridge. Requires the engine to be running.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const result = await bridgeRequest('bake_navmesh', { sceneName }, 30000);
+    if (!result) return { content: [{ type: 'text', text: 'NavMesh bake request sent but no response from engine. Is the engine running?' }] };
+    if (result.error) return { content: [{ type: 'text', text: `NavMesh bake failed: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `NavMesh baked for scene "${sceneName}". ${result.triangles || '?'} triangles, ${result.vertices || '?'} vertices.` }] };
+  }
+);
+
+server.tool(
+  'create_behavior_tree',
+  'Create a Behavior Tree asset for AI actor decision-making.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().describe('Behavior Tree name (e.g. "BT_EnemyPatrol")'),
+    rootType: z.enum(['sequence', 'selector', 'parallel']).optional().describe('Root composite type. Default: "selector"'),
+    nodes: z.array(z.object({
+      type: z.enum(['sequence', 'selector', 'parallel', 'condition', 'action', 'wait', 'decorator', 'inverter']).describe('Node type'),
+      name: z.string().describe('Node name'),
+      parentIndex: z.number().optional().describe('Parent node index (0-based, -1 for root children). Default: -1'),
+      data: z.record(z.any()).optional().describe('Node-specific data (e.g. waitTime, conditionKey, actionName)'),
+    })).optional().describe('Child nodes to add under the root'),
+  },
+  async ({ projectPath, name, rootType, nodes }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const btDir = path.join(projRoot, 'BehaviorTrees');
+    if (!fs.existsSync(btDir)) fs.mkdirSync(btDir, { recursive: true });
+    const id = navUid();
+    const rootNode = { id: 'bt_root_' + id, type: rootType ?? 'selector', name: 'Root', children: [] as any[] };
+    const allNodes = [rootNode];
+    if (nodes && nodes.length > 0) {
+      for (const n of nodes) {
+        const nid = 'bt_' + (++_uid).toString(36);
+        const btNode: any = { id: nid, type: n.type, name: n.name, children: [], data: n.data || {} };
+        allNodes.push(btNode);
+        const parentIdx = n.parentIndex ?? -1;
+        if (parentIdx === -1) {
+          rootNode.children.push(btNode);
+        } else if (parentIdx >= 0 && parentIdx < allNodes.length) {
+          allNodes[parentIdx].children.push(btNode);
+        }
+      }
+    }
+    const btAsset = { assetId: id, assetName: name, rootNode };
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(btDir, `${safeName}_${id}.json`), btAsset);
+    return { content: [{ type: 'text', text: `Created Behavior Tree "${name}" (ID: ${id}) with ${allNodes.length} nodes` }] };
+  }
+);
+
+server.tool(
+  'list_behavior_trees',
+  'List all Behavior Tree assets in the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const btDir = path.join(projRoot, 'BehaviorTrees');
+    if (!fs.existsSync(btDir)) return { content: [{ type: 'text', text: 'No behavior trees. BehaviorTrees/ folder does not exist.' }] };
+    const files = fs.readdirSync(btDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
+    if (files.length === 0) return { content: [{ type: 'text', text: 'No behavior tree assets found.' }] };
+    const lines: string[] = [];
+    for (const f of files) {
+      try {
+        const d = readJsonFile(path.join(btDir, f));
+        const countNodes = (n: any): number => { let c = 1; for (const ch of (n.children || [])) c += countNodes(ch); return c; };
+        lines.push(`${d.assetName} (ID: ${d.assetId}) — ${countNodes(d.rootNode)} nodes, root=${d.rootNode.type}`);
+      } catch { /* skip */ }
+    }
+    return { content: [{ type: 'text', text: `Behavior Trees (${lines.length}):\n${lines.join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'assign_behavior_tree_to_actor',
+  'Assign a Behavior Tree to an actor by adding an AIController component.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    actorId: z.string().describe('Actor asset ID to assign the behavior tree to'),
+    behaviorTreeId: z.string().describe('Behavior Tree asset ID'),
+  },
+  async ({ projectPath, actorId, behaviorTreeId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath, data: actor } = findActorFile(actorsDir, actorId);
+    if (!filePath || !actor) return { content: [{ type: 'text', text: `Actor not found: ${actorId}` }] };
+    if (!actor.components) actor.components = [];
+    // Remove existing AI controller if present
+    actor.components = actor.components.filter((c: any) => c.type !== 'AIControllerComponent');
+    const cid = compUid();
+    actor.components.push({
+      id: cid, type: 'AIControllerComponent', name: 'AIController',
+      behaviorTreeId,
+    });
+    writeJsonFile(filePath, actor);
+    return { content: [{ type: 'text', text: `Assigned Behavior Tree "${behaviorTreeId}" to actor "${actor.actorName}" via AIControllerComponent [${cid}]` }] };
+  }
+);
+
+// ============================================================
+//  §20  INPUT MAPPINGS (CREATE / MODIFY / DELETE)
+// ============================================================
+
+server.tool(
+  'create_input_mapping',
+  'Create a new input mapping configuration with action and axis bindings.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().describe('Input mapping name (e.g. "DefaultInput")'),
+    actionMappings: z.array(z.object({
+      name: z.string().describe('Action name (e.g. "Jump", "Fire", "Interact")'),
+      keys: z.array(z.string()).describe('Key bindings (e.g. ["Space"], ["LeftMouseButton", "GamepadA"])'),
+    })).optional().describe('Action mappings (binary on/off inputs)'),
+    axisMappings: z.array(z.object({
+      name: z.string().describe('Axis name (e.g. "MoveForward", "MoveRight", "LookUp")'),
+      key: z.string().describe('Key binding'),
+      scale: z.number().describe('Scale factor (-1 for negative direction, 1 for positive)'),
+    })).optional().describe('Axis mappings (continuous -1 to 1 inputs)'),
+  },
+  async ({ projectPath, name, actionMappings, axisMappings }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const inputDir = path.join(projRoot, 'InputMappings');
+    if (!fs.existsSync(inputDir)) fs.mkdirSync(inputDir, { recursive: true });
+    const id = inputMapUid();
+    const asset = {
+      id,
+      name,
+      actionMappings: actionMappings || [],
+      axisMappings: axisMappings || [],
+    };
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(inputDir, `${safeName}_${id}.json`), asset);
+    return { content: [{ type: 'text', text: `Created input mapping "${name}" (ID: ${id})\n${(actionMappings || []).length} actions, ${(axisMappings || []).length} axes` }] };
+  }
+);
+
+server.tool(
+  'modify_input_mapping',
+  'Add, remove, or update action/axis bindings in an existing input mapping.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    inputMappingId: z.string().describe('Input mapping asset ID'),
+    command: z.enum(['add_action', 'remove_action', 'add_axis', 'remove_axis', 'update_action_keys']).describe('Operation to perform'),
+    actionName: z.string().optional().describe('Action or axis name'),
+    keys: z.array(z.string()).optional().describe('Key bindings for add_action / update_action_keys'),
+    key: z.string().optional().describe('Key binding for add_axis'),
+    scale: z.number().optional().describe('Scale factor for add_axis'),
+  },
+  async ({ projectPath, inputMappingId, command, actionName, keys, key, scale }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const inputDir = path.join(projRoot, 'InputMappings');
+    if (!fs.existsSync(inputDir)) return { content: [{ type: 'text', text: 'InputMappings/ folder not found.' }] };
+    for (const f of fs.readdirSync(inputDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(inputDir, f);
+      const d = readJsonFile(fp);
+      if (d.id !== inputMappingId) continue;
+      if (!d.actionMappings) d.actionMappings = [];
+      if (!d.axisMappings) d.axisMappings = [];
+
+      if (command === 'add_action') {
+        if (!actionName || !keys) return { content: [{ type: 'text', text: 'actionName and keys are required for add_action' }] };
+        d.actionMappings.push({ name: actionName, keys });
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Added action "${actionName}" with keys [${keys.join(', ')}]` }] };
+      }
+      if (command === 'remove_action') {
+        d.actionMappings = d.actionMappings.filter((a: any) => a.name !== actionName);
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Removed action "${actionName}"` }] };
+      }
+      if (command === 'add_axis') {
+        if (!actionName || !key) return { content: [{ type: 'text', text: 'actionName (axis name) and key are required for add_axis' }] };
+        d.axisMappings.push({ name: actionName, key, scale: scale ?? 1 });
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Added axis "${actionName}" key=${key} scale=${scale ?? 1}` }] };
+      }
+      if (command === 'remove_axis') {
+        d.axisMappings = d.axisMappings.filter((a: any) => !(a.name === actionName && (key ? a.key === key : true)));
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Removed axis "${actionName}"${key ? ` key=${key}` : ''}` }] };
+      }
+      if (command === 'update_action_keys') {
+        const action = d.actionMappings.find((a: any) => a.name === actionName);
+        if (!action) return { content: [{ type: 'text', text: `Action not found: ${actionName}` }] };
+        action.keys = keys || [];
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Updated action "${actionName}" keys to [${(keys || []).join(', ')}]` }] };
+      }
+      return { content: [{ type: 'text', text: `Unknown command: ${command}` }] };
+    }
+    return { content: [{ type: 'text', text: `Input mapping not found: ${inputMappingId}` }] };
+  }
+);
+
+server.tool(
+  'delete_input_mapping',
+  'Delete an input mapping asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    inputMappingId: z.string().describe('Input mapping asset ID to delete'),
+  },
+  async ({ projectPath, inputMappingId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const inputDir = path.join(projRoot, 'InputMappings');
+    if (!fs.existsSync(inputDir)) return { content: [{ type: 'text', text: 'InputMappings/ folder not found.' }] };
+    for (const f of fs.readdirSync(inputDir).filter(f => f.endsWith('.json'))) {
+      const fp = path.join(inputDir, f);
+      const d = readJsonFile(fp);
+      if (d.id === inputMappingId) {
+        fs.unlinkSync(fp);
+        broadcastChange({ type: 'asset-deleted', assetType: 'inputmappings', assetId: inputMappingId, name: d.name });
+        return { content: [{ type: 'text', text: `Deleted input mapping "${d.name}" (${inputMappingId})` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Input mapping not found: ${inputMappingId}` }] };
+  }
+);
+
+// ============================================================
+//  §21  WORLD PHYSICS SETTINGS
+// ============================================================
+
+server.tool(
+  'set_world_physics',
+  'Configure world-level physics settings for a scene (gravity, timestep, solver).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+    gravityX: z.number().optional().describe('Gravity X component. Default: 0'),
+    gravityY: z.number().optional().describe('Gravity Y component. Default: -9.8'),
+    gravityZ: z.number().optional().describe('Gravity Z component. Default: 0'),
+    fixedTimestep: z.number().optional().describe('Physics fixed timestep in seconds (0.001-0.1). Default: 0.016'),
+    maxSubsteps: z.number().optional().describe('Max physics sub-steps per frame (1-32). Default: 4'),
+    solverIterations: z.number().optional().describe('Physics solver iterations (1-32). Default: 4'),
+    enableInterpolation: z.boolean().optional().describe('Enable transform interpolation. Default: true'),
+    debugDraw: z.boolean().optional().describe('Show physics debug visualization. Default: false'),
+  },
+  async ({ projectPath, sceneName, gravityX, gravityY, gravityZ, fixedTimestep, maxSubsteps, solverIterations, enableInterpolation, debugDraw }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const scene = readJsonFile(scenePath);
+    if (!scene.physicsSettings) scene.physicsSettings = {};
+    const ps = scene.physicsSettings;
+    if (gravityX !== undefined || gravityY !== undefined || gravityZ !== undefined) {
+      if (!ps.gravity) ps.gravity = { x: 0, y: -9.8, z: 0 };
+      if (gravityX !== undefined) ps.gravity.x = gravityX;
+      if (gravityY !== undefined) ps.gravity.y = gravityY;
+      if (gravityZ !== undefined) ps.gravity.z = gravityZ;
+    }
+    if (fixedTimestep !== undefined) ps.fixedTimestep = Math.max(0.001, Math.min(0.1, fixedTimestep));
+    if (maxSubsteps !== undefined) ps.maxSubsteps = Math.max(1, Math.min(32, maxSubsteps));
+    if (solverIterations !== undefined) ps.solverIterations = Math.max(1, Math.min(32, solverIterations));
+    if (enableInterpolation !== undefined) ps.enableInterpolation = enableInterpolation;
+    if (debugDraw !== undefined) ps.debugDraw = debugDraw;
+    writeJsonFile(scenePath, scene);
+    const g = ps.gravity || { x: 0, y: -9.8, z: 0 };
+    return { content: [{ type: 'text', text: `Physics settings updated for "${sceneName}"\nGravity: (${g.x}, ${g.y}, ${g.z})\nTimestep: ${ps.fixedTimestep ?? 0.016}s, SubSteps: ${ps.maxSubsteps ?? 4}, Solver: ${ps.solverIterations ?? 4}\nInterpolation: ${ps.enableInterpolation ?? true}, DebugDraw: ${ps.debugDraw ?? false}` }] };
+  }
+);
+
+// ============================================================
+//  §22  PLAY / STOP CONTROLS (via Bridge)
+// ============================================================
+
+server.tool(
+  'play_scene',
+  'Start play mode in the engine to test the game. Requires the engine to be running and connected.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().optional().describe('Scene to play. If omitted, plays the active scene.'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const result = await bridgeRequest('play_scene', { sceneName }, 10000);
+    if (!result) return { content: [{ type: 'text', text: 'Play request sent but no response from engine. Is the engine running and connected via WebSocket?' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Failed to start play mode: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Play mode started${sceneName ? ` for scene "${sceneName}"` : ''}. ${result.message || ''}` }] };
+  }
+);
+
+server.tool(
+  'stop_scene',
+  'Stop play mode and return to the editor. Requires the engine to be running and connected.',
+  {},
+  async () => {
+    const result = await bridgeRequest('stop_scene', {}, 10000);
+    if (!result) return { content: [{ type: 'text', text: 'Stop request sent but no response from engine. Is the engine running?' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Failed to stop play mode: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Play mode stopped. ${result.message || ''}` }] };
+  }
+);
+
+server.tool(
+  'get_play_state',
+  'Check whether the engine is in play mode or editor mode.',
+  {},
+  async () => {
+    const result = await bridgeRequest('get_play_state', {}, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine. Is it running?' }] };
+    return { content: [{ type: 'text', text: `Engine state: ${result.state || 'unknown'}${result.sceneName ? ` (scene: ${result.sceneName})` : ''}` }] };
+  }
+);
+
+// ============================================================
+//  §23  SCENE MANAGEMENT GAPS
+// ============================================================
+
+server.tool(
+  'delete_scene',
+  'Delete a scene file from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    fs.unlinkSync(scenePath);
+    broadcastChange({ type: 'asset-deleted', assetType: 'scenes', assetId: sceneName, name: sceneName });
+    return { content: [{ type: 'text', text: `Deleted scene "${sceneName}"` }] };
+  }
+);
+
+server.tool(
+  'duplicate_scene',
+  'Clone an existing scene into a new scene with a different name.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sourceName: z.string().describe('Source scene name (without .json)'),
+    newName: z.string().describe('New scene name'),
+  },
+  async ({ projectPath, sourceName, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const sourcePath = path.join(projRoot, 'Scenes', sourceName + '.json');
+    if (!fs.existsSync(sourcePath)) return { content: [{ type: 'text', text: `Source scene not found: ${sourceName}` }] };
+    const scene = readJsonFile(sourcePath);
+    scene.sceneName = newName;
+    scene.name = newName;
+    const newPath = path.join(projRoot, 'Scenes', newName + '.json');
+    if (fs.existsSync(newPath)) return { content: [{ type: 'text', text: `Scene "${newName}" already exists.` }] };
+    writeJsonFile(newPath, scene);
+    return { content: [{ type: 'text', text: `Duplicated scene "${sourceName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_scene',
+  'Rename an existing scene.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    oldName: z.string().describe('Current scene name (without .json)'),
+    newName: z.string().describe('New scene name'),
+  },
+  async ({ projectPath, oldName, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const oldPath = path.join(projRoot, 'Scenes', oldName + '.json');
+    if (!fs.existsSync(oldPath)) return { content: [{ type: 'text', text: `Scene not found: ${oldName}` }] };
+    const newPath = path.join(projRoot, 'Scenes', newName + '.json');
+    if (fs.existsSync(newPath)) return { content: [{ type: 'text', text: `Scene "${newName}" already exists.` }] };
+    const scene = readJsonFile(oldPath);
+    scene.sceneName = newName;
+    scene.name = newName;
+    writeJsonFile(newPath, scene);
+    fs.unlinkSync(oldPath);
+    // Update project.json active scene if it was the active one
+    const projFile = path.join(projRoot, 'project.json');
+    if (fs.existsSync(projFile)) {
+      const proj = readJsonFile(projFile);
+      if (proj.activeScene && (proj.activeScene === oldName || proj.activeScene === `Scenes/${oldName}.json`)) {
+        proj.activeScene = `Scenes/${newName}.json`;
+        writeJsonFile(projFile, proj);
+      }
+    }
+    broadcastChange({ type: 'asset-renamed', assetType: 'scenes', oldName, newName });
+    return { content: [{ type: 'text', text: `Renamed scene "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'set_active_scene',
+  'Set the project\'s active/default scene that loads on startup.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const projFile = path.join(projRoot, 'project.json');
+    if (!fs.existsSync(projFile)) return { content: [{ type: 'text', text: 'project.json not found' }] };
+    const proj = readJsonFile(projFile);
+    proj.activeScene = `Scenes/${sceneName}.json`;
+    writeJsonFile(projFile, proj);
+    return { content: [{ type: 'text', text: `Active scene set to "${sceneName}"` }] };
+  }
+);
+
+server.tool(
+  'set_scene_2d_config',
+  'Configure 2D-specific scene settings (gravity, background color, reference resolution, pixels-per-unit).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+    gravityX: z.number().optional().describe('2D gravity X. Default: 0'),
+    gravityY: z.number().optional().describe('2D gravity Y. Default: -9.8'),
+    backgroundColor: z.string().optional().describe('Background color hex (e.g. "#1a1a2e")'),
+    referenceWidth: z.number().optional().describe('Reference resolution width'),
+    referenceHeight: z.number().optional().describe('Reference resolution height'),
+    pixelsPerUnit: z.number().optional().describe('Pixels per world unit. Default: 100'),
+  },
+  async ({ projectPath, sceneName, gravityX, gravityY, backgroundColor, referenceWidth, referenceHeight, pixelsPerUnit }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const scene = readJsonFile(scenePath);
+    if (!scene.scene2DConfig) scene.scene2DConfig = {};
+    const cfg = scene.scene2DConfig;
+    if (gravityX !== undefined) cfg.gravityX = gravityX;
+    if (gravityY !== undefined) cfg.gravityY = gravityY;
+    if (backgroundColor !== undefined) cfg.backgroundColor = backgroundColor;
+    if (referenceWidth !== undefined) cfg.referenceWidth = referenceWidth;
+    if (referenceHeight !== undefined) cfg.referenceHeight = referenceHeight;
+    if (pixelsPerUnit !== undefined) cfg.pixelsPerUnit = pixelsPerUnit;
+    writeJsonFile(scenePath, scene);
+    return { content: [{ type: 'text', text: `2D scene config updated for "${sceneName}"\nGravity: (${cfg.gravityX ?? 0}, ${cfg.gravityY ?? -9.8}), PPU: ${cfg.pixelsPerUnit ?? 100}${backgroundColor ? `, BG: ${backgroundColor}` : ''}` }] };
+  }
+);
+
+// ============================================================
+//  §24  FONT MANAGEMENT
+// ============================================================
+
+server.tool(
+  'import_font',
+  'Import a font file (TTF/OTF/WOFF/WOFF2) into the project Fonts folder.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sourcePath: z.string().describe('Absolute path to the source font file'),
+    displayName: z.string().optional().describe('Display name for the font (defaults to filename)'),
+  },
+  async ({ projectPath, sourcePath, displayName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const fontsDir = path.join(projRoot, 'Fonts');
+    if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true });
+    if (!fs.existsSync(sourcePath)) return { content: [{ type: 'text', text: `Source not found: ${sourcePath}` }] };
+    const ext = path.extname(sourcePath).toLowerCase();
+    const formatMap: Record<string, string> = { '.ttf': 'truetype', '.otf': 'opentype', '.woff': 'woff', '.woff2': 'woff2' };
+    if (!formatMap[ext]) return { content: [{ type: 'text', text: `Unsupported font format: ${ext}. Supported: .ttf, .otf, .woff, .woff2` }] };
+    const fontData = fs.readFileSync(sourcePath);
+    const mimeMap: Record<string, string> = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2' };
+    const dataUrl = `data:${mimeMap[ext]};base64,${fontData.toString('base64')}`;
+    const baseName = path.basename(sourcePath, ext);
+    const name = displayName || baseName;
+    const id = fontUid();
+    const cleanName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cssFamily = 'Custom_' + cleanName + '_' + id;
+    const asset = {
+      assetId: id,
+      assetName: cleanName,
+      displayName: name,
+      sourceFile: path.basename(sourcePath),
+      format: formatMap[ext],
+      cssFamily,
+      data: dataUrl,
+    };
+    writeJsonFile(path.join(fontsDir, `${cleanName}_${id}.json`), asset);
+    // Update index
+    const indexPath = path.join(fontsDir, '_index.json');
+    let index: Record<string, string> = {};
+    if (fs.existsSync(indexPath)) { try { index = readJsonFile(indexPath); } catch { /* start fresh */ } }
+    index[id] = `${cleanName}_${id}.json`;
+    writeJsonFile(indexPath, index);
+    return { content: [{ type: 'text', text: `Imported font "${name}" (ID: ${id}, format: ${formatMap[ext]})\nCSS Family: ${cssFamily}` }] };
+  }
+);
+
+server.tool(
+  'list_fonts',
+  'List all fonts available in the project (imported + system defaults).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+  },
+  async ({ projectPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const fontsDir = path.join(projRoot, 'Fonts');
+    const systemFonts = ['Arial', 'Georgia', 'Courier New', 'Verdana', 'Impact', 'Times New Roman', 'Comic Sans MS', 'Trebuchet MS', 'Lucida Console'];
+    const lines: string[] = [];
+    lines.push('System Fonts: ' + systemFonts.join(', '));
+    if (fs.existsSync(fontsDir)) {
+      const files = fs.readdirSync(fontsDir).filter(f => f.endsWith('.json') && f !== '_index.json');
+      for (const f of files) {
+        try {
+          const d = readJsonFile(path.join(fontsDir, f));
+          lines.push(`[Imported] ${d.displayName || d.assetName} (ID: ${d.assetId}, format: ${d.format}, CSS: ${d.cssFamily})`);
+        } catch { /* skip */ }
+      }
+    }
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  }
+);
+
+server.tool(
+  'delete_font',
+  'Delete an imported font asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    fontId: z.string().describe('Font asset ID to delete'),
+  },
+  async ({ projectPath, fontId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const fontsDir = path.join(projRoot, 'Fonts');
+    if (!fs.existsSync(fontsDir)) return { content: [{ type: 'text', text: 'Fonts/ folder not found.' }] };
+    for (const f of fs.readdirSync(fontsDir).filter(f => f.endsWith('.json') && f !== '_index.json')) {
+      const fp = path.join(fontsDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === fontId) {
+        fs.unlinkSync(fp);
+        // Update index
+        const indexPath = path.join(fontsDir, '_index.json');
+        if (fs.existsSync(indexPath)) {
+          try {
+            const index = readJsonFile(indexPath);
+            delete index[fontId];
+            writeJsonFile(indexPath, index);
+          } catch { /* ok */ }
+        }
+        broadcastChange({ type: 'asset-deleted', assetType: 'fonts', assetId: fontId, name: d.displayName || d.assetName });
+        return { content: [{ type: 'text', text: `Deleted font "${d.displayName || d.assetName}" (${fontId})` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Font not found: ${fontId}` }] };
+  }
+);
+
+// ============================================================
+//  §25  SORTING LAYERS (2D)
+// ============================================================
+
+server.tool(
+  'set_sorting_layers',
+  'Define the 2D sorting layer stack for a scene. Controls rendering order.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+    layers: z.array(z.object({
+      name: z.string().describe('Layer name (e.g. "Background", "Characters", "UI")'),
+      z: z.number().describe('Z-order value (higher = rendered on top)'),
+      visible: z.boolean().optional().describe('Whether layer is visible. Default: true'),
+      locked: z.boolean().optional().describe('Whether layer is locked. Default: false'),
+    })).describe('Sorting layers from back to front'),
+  },
+  async ({ projectPath, sceneName, layers }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const scene = readJsonFile(scenePath);
+    // Ensure Default layer exists
+    if (!layers.find(l => l.name === 'Default')) {
+      layers.push({ name: 'Default', z: 20, visible: true, locked: false });
+    }
+    scene.sortingLayers = layers.map(l => ({ name: l.name, z: l.z, visible: l.visible ?? true, locked: l.locked ?? false }));
+    writeJsonFile(scenePath, scene);
+    return { content: [{ type: 'text', text: `Set ${layers.length} sorting layers for "${sceneName}":\n${layers.map(l => `  ${l.name} (z=${l.z})`).join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'get_sorting_layers',
+  'Get the current 2D sorting layers for a scene.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name (without .json)'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const scene = readJsonFile(scenePath);
+    const layers = scene.sortingLayers || [
+      { name: 'Background', z: 0 }, { name: 'Ground', z: 10 }, { name: 'Default', z: 20 },
+      { name: 'Characters', z: 30 }, { name: 'Projectiles', z: 40 }, { name: 'Effects', z: 50 },
+      { name: 'UI', z: 90 }, { name: 'Overlay', z: 100 },
+    ];
+    return { content: [{ type: 'text', text: `Sorting Layers for "${sceneName}" (${layers.length}):\n${layers.map((l: any) => `  ${l.name} (z=${l.z}, visible=${l.visible ?? true}, locked=${l.locked ?? false})`).join('\n')}` }] };
+  }
+);
+
+// ============================================================
+//  §26  CLASS INHERITANCE
+// ============================================================
+
+server.tool(
+  'set_actor_parent_class',
+  'Make an actor inherit from another actor. The child gets the parent\'s components, variables, and event graph as a base.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    childActorId: z.string().describe('Actor ID of the child class'),
+    parentActorId: z.string().describe('Actor ID of the parent class'),
+  },
+  async ({ projectPath, childActorId, parentActorId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath: childPath, data: child } = findActorFile(actorsDir, childActorId);
+    const { filePath: parentPath, data: parent } = findActorFile(actorsDir, parentActorId);
+    if (!childPath || !child) return { content: [{ type: 'text', text: `Child actor not found: ${childActorId}` }] };
+    if (!parentPath || !parent) return { content: [{ type: 'text', text: `Parent actor not found: ${parentActorId}` }] };
+    // Mark parent as a parent class
+    if (!parent._inheritance) parent._inheritance = {};
+    parent._inheritance.isParentClass = true;
+    if (!parent._inheritance.childClassIds) parent._inheritance.childClassIds = [];
+    if (!parent._inheritance.childClassIds.includes(childActorId)) {
+      parent._inheritance.childClassIds.push(childActorId);
+    }
+    parent._inheritance.classVersion = (parent._inheritance.classVersion || 0) + 1;
+    writeJsonFile(parentPath, parent);
+    // Set up child inheritance
+    if (!child._inheritance) child._inheritance = {};
+    child._inheritance.parentClassId = parentActorId;
+    child._inheritance.parentVersion = parent._inheritance.classVersion;
+    child._inheritance.lastSyncedWithParent = new Date().toISOString();
+    child._inheritance.componentOverrides = child._inheritance.componentOverrides || [];
+    child._inheritance.variableOverrides = child._inheritance.variableOverrides || [];
+    writeJsonFile(childPath, child);
+    return { content: [{ type: 'text', text: `Set "${child.actorName}" to inherit from "${parent.actorName}"\nParent class version: ${parent._inheritance.classVersion}` }] };
+  }
+);
+
+server.tool(
+  'create_child_actor',
+  'Create a new actor that inherits from a parent actor class, copying its components, variables, and event graph.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    parentActorId: z.string().describe('Parent actor ID to inherit from'),
+    childName: z.string().describe('Name for the new child actor'),
+  },
+  async ({ projectPath, parentActorId, childName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath: parentPath, data: parent } = findActorFile(actorsDir, parentActorId);
+    if (!parentPath || !parent) return { content: [{ type: 'text', text: `Parent actor not found: ${parentActorId}` }] };
+    const childId = assetUid();
+    // Deep clone parent data
+    const child = JSON.parse(JSON.stringify(parent));
+    child.actorId = childId;
+    child.actorName = childName;
+    // Set up inheritance metadata
+    if (!parent._inheritance) parent._inheritance = {};
+    parent._inheritance.isParentClass = true;
+    if (!parent._inheritance.childClassIds) parent._inheritance.childClassIds = [];
+    parent._inheritance.childClassIds.push(childId);
+    parent._inheritance.classVersion = (parent._inheritance.classVersion || 0) + 1;
+    writeJsonFile(parentPath, parent);
+    child._inheritance = {
+      parentClassId: parentActorId,
+      parentVersion: parent._inheritance.classVersion,
+      lastSyncedWithParent: new Date().toISOString(),
+      componentOverrides: [],
+      variableOverrides: [],
+    };
+    // Regenerate component IDs to avoid collisions
+    if (child.components) {
+      for (const comp of child.components) {
+        comp.id = compUid();
+      }
+    }
+    const safeName = childName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(path.join(actorsDir, `${safeName}_${childId}.json`), child);
+    return { content: [{ type: 'text', text: `Created child actor "${childName}" (ID: ${childId}) inheriting from "${parent.actorName}" (${parentActorId})\nInherited ${(child.components || []).length} components, ${(child.variables || []).length} variables` }] };
+  }
+);
+
+server.tool(
+  'sync_actor_with_parent',
+  'Synchronize a child actor with its parent class, applying any changes from the parent while preserving child overrides.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    childActorId: z.string().describe('Child actor ID to sync with its parent'),
+  },
+  async ({ projectPath, childActorId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath: childPath, data: child } = findActorFile(actorsDir, childActorId);
+    if (!childPath || !child) return { content: [{ type: 'text', text: `Child actor not found: ${childActorId}` }] };
+    if (!child._inheritance?.parentClassId) return { content: [{ type: 'text', text: `Actor "${child.actorName}" has no parent class.` }] };
+    const { filePath: parentPath, data: parent } = findActorFile(actorsDir, child._inheritance.parentClassId);
+    if (!parentPath || !parent) return { content: [{ type: 'text', text: `Parent actor not found: ${child._inheritance.parentClassId}` }] };
+    // Track what changed
+    const changes: string[] = [];
+    // Sync components that child hasn't overridden
+    const overriddenCompIds = new Set((child._inheritance.componentOverrides || []).map((o: any) => o.componentId));
+    if (parent.components) {
+      for (const pc of parent.components) {
+        if (!overriddenCompIds.has(pc.id)) {
+          const existingIdx = (child.components || []).findIndex((c: any) => c._parentCompId === pc.id);
+          if (existingIdx >= 0) {
+            child.components[existingIdx] = { ...JSON.parse(JSON.stringify(pc)), _parentCompId: pc.id };
+            changes.push(`Updated component: ${pc.name || pc.type}`);
+          }
+        }
+      }
+    }
+    // Sync variables that child hasn't overridden
+    const overriddenVarIds = new Set((child._inheritance.variableOverrides || []).map((o: any) => o.variableId));
+    if (parent.variables) {
+      for (const pv of parent.variables) {
+        if (!overriddenVarIds.has(pv.id)) {
+          const existingIdx = (child.variables || []).findIndex((v: any) => v.id === pv.id);
+          if (existingIdx >= 0) {
+            child.variables[existingIdx] = JSON.parse(JSON.stringify(pv));
+            changes.push(`Updated variable: ${pv.name}`);
+          } else {
+            if (!child.variables) child.variables = [];
+            child.variables.push(JSON.parse(JSON.stringify(pv)));
+            changes.push(`Added variable: ${pv.name}`);
+          }
+        }
+      }
+    }
+    child._inheritance.parentVersion = parent._inheritance?.classVersion || 0;
+    child._inheritance.lastSyncedWithParent = new Date().toISOString();
+    writeJsonFile(childPath, child);
+    return { content: [{ type: 'text', text: `Synced "${child.actorName}" with parent "${parent.actorName}"\n${changes.length ? changes.join('\n') : 'No changes needed (already in sync)'}` }] };
+  }
+);
+
+// ============================================================
+//  §27  SHADER GRAPH
+// ============================================================
+
+server.tool(
+  'create_shader',
+  'Create a custom shader with a node graph for advanced visual effects.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    materialId: z.string().describe('Material asset ID to attach the shader graph to'),
+    nodes: z.array(z.object({
+      type: z.enum(['Color', 'Float', 'Math', 'Time', 'UV', 'Texture2D', 'Vector2', 'Vector3']).describe('Shader node type'),
+      positionX: z.number().optional().describe('Node X position'),
+      positionY: z.number().optional().describe('Node Y position'),
+      data: z.record(z.any()).optional().describe('Node-specific data (e.g. value for Float, hex for Color, operation for Math)'),
+    })).optional().describe('Shader graph nodes to add'),
+    connections: z.array(z.object({
+      fromNodeIndex: z.number().describe('Source node index (0-based, within the nodes array)'),
+      fromPort: z.number().describe('Source port index'),
+      toNodeIndex: z.number().describe('Target node index (-1 for Output node)'),
+      toPort: z.number().describe('Target port index (0=BaseColor, 1=Normal, 2=Roughness, 3=Metalness, 4=Emissive, 5=Opacity for Output)'),
+    })).optional().describe('Connections between nodes'),
+  },
+  async ({ projectPath, materialId, nodes, connections }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    // Find the material in standalone materials or mesh files
+    const standaloneFile = path.join(meshDir, '_standalone_materials.json');
+    let matAsset: any = null;
+    let matFile: string | null = null;
+    let matContainer: any = null;
+    if (fs.existsSync(standaloneFile)) {
+      const standalone = readJsonFile(standaloneFile);
+      const found = (standalone.materials || []).find((m: any) => m.assetId === materialId);
+      if (found) { matAsset = found; matFile = standaloneFile; matContainer = standalone; }
+    }
+    if (!matAsset) return { content: [{ type: 'text', text: `Material not found: ${materialId}` }] };
+
+    // Build the Output node (always present)
+    const outputNode = {
+      id: 'output_' + shaderNodeUid(),
+      type: 'Output', x: 600, y: 200, w: 180, h: 200,
+      inputs: ['Base Color', 'Normal', 'Roughness', 'Metalness', 'Emissive', 'Opacity'],
+      outputs: [],
+      data: {},
+    };
+    const graphNodes: any[] = [outputNode];
+    const graphConns: any[] = [];
+    if (nodes && nodes.length > 0) {
+      for (const n of nodes) {
+        const nid = shaderNodeUid();
+        graphNodes.push({
+          id: nid,
+          type: n.type,
+          x: n.positionX ?? 200,
+          y: n.positionY ?? 200,
+          w: 150, h: 100,
+          data: n.data || {},
+        });
+      }
+    }
+    if (connections && connections.length > 0) {
+      for (const c of connections) {
+        const fromNode = c.fromNodeIndex >= 0 && c.fromNodeIndex < nodes!.length ? graphNodes[c.fromNodeIndex + 1] : null; // +1 because output is at index 0
+        const toNode = c.toNodeIndex === -1 ? outputNode : (c.toNodeIndex >= 0 && c.toNodeIndex < nodes!.length ? graphNodes[c.toNodeIndex + 1] : null);
+        if (fromNode && toNode) {
+          graphConns.push({
+            id: shaderNodeUid(),
+            fromNode: fromNode.id,
+            fromPort: c.fromPort,
+            toNode: toNode.id,
+            toPort: c.toPort,
+          });
+        }
+      }
+    }
+    if (!matAsset.materialData) matAsset.materialData = {};
+    matAsset.materialData.shaderGraph = { nodes: graphNodes, connections: graphConns };
+    if (matFile && matContainer) writeJsonFile(matFile, matContainer);
+    return { content: [{ type: 'text', text: `Created shader graph for material "${matAsset.assetName}" (${materialId})\n${graphNodes.length} nodes, ${graphConns.length} connections` }] };
+  }
+);
+
+// ============================================================
+//  §28  LOD & COLLISION GENERATION
+// ============================================================
+
+server.tool(
+  'generate_lod',
+  'Generate LOD (Level of Detail) meshes for a mesh asset to optimize performance.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    meshId: z.string().describe('Mesh asset ID'),
+    levels: z.number().optional().describe('Number of LOD levels to generate (2-5). Default: 3'),
+    reductionPerLevel: z.number().optional().describe('Vertex reduction factor per level (0.3-0.8). Default: 0.5 (50% reduction each level)'),
+  },
+  async ({ projectPath, meshId, levels, reductionPerLevel }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    if (!fs.existsSync(meshDir)) return { content: [{ type: 'text', text: 'Meshes/ folder not found.' }] };
+    for (const f of fs.readdirSync(meshDir).filter(f => f.endsWith('.json') && !f.startsWith('_'))) {
+      const fp = path.join(meshDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === meshId || d.meshAssetId === meshId) {
+        const numLevels = Math.max(2, Math.min(5, levels ?? 3));
+        const reduction = Math.max(0.3, Math.min(0.8, reductionPerLevel ?? 0.5));
+        const origVerts = d.vertexCount || d.meshData?.vertexCount || 1000;
+        const lodLevels: any[] = [];
+        let currentVerts = origVerts;
+        for (let i = 0; i < numLevels; i++) {
+          currentVerts = Math.round(currentVerts * reduction);
+          lodLevels.push({
+            level: i + 1,
+            targetVertices: currentVerts,
+            reductionFactor: Math.pow(reduction, i + 1),
+            distance: (i + 1) * 20, // Auto-calculate switching distances
+          });
+        }
+        d.lodConfig = { enabled: true, levels: lodLevels, algorithm: 'QEM' };
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Generated ${numLevels} LOD levels for mesh "${d.assetName || d.meshAssetId}"\nOriginal: ${origVerts} verts\n${lodLevels.map(l => `LOD${l.level}: ~${l.targetVertices} verts (${Math.round(l.reductionFactor * 100)}% reduction) at ${l.distance}m`).join('\n')}` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Mesh not found: ${meshId}` }] };
+  }
+);
+
+server.tool(
+  'generate_collision',
+  'Generate collision shapes for a mesh asset (box, sphere, capsule, convex hull, or auto-decomposition).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    meshId: z.string().describe('Mesh asset ID'),
+    shape: z.enum(['box', 'sphere', 'capsule', 'convex', 'auto']).describe('Collision shape type. "auto" uses convex decomposition for complex meshes'),
+    maxConvexHulls: z.number().optional().describe('Max convex hulls for auto-decomposition (1-32). Default: 8'),
+  },
+  async ({ projectPath, meshId, shape, maxConvexHulls }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const meshDir = path.join(projRoot, 'Meshes');
+    if (!fs.existsSync(meshDir)) return { content: [{ type: 'text', text: 'Meshes/ folder not found.' }] };
+    for (const f of fs.readdirSync(meshDir).filter(f => f.endsWith('.json') && !f.startsWith('_'))) {
+      const fp = path.join(meshDir, f);
+      const d = readJsonFile(fp);
+      if (d.assetId === meshId || d.meshAssetId === meshId) {
+        d.collisionConfig = {
+          shape,
+          enabled: true,
+          ...(shape === 'auto' ? { maxConvexHulls: Math.max(1, Math.min(32, maxConvexHulls ?? 8)), algorithm: 'V-HACD' } : {}),
+        };
+        writeJsonFile(fp, d);
+        return { content: [{ type: 'text', text: `Generated ${shape} collision for mesh "${d.assetName || d.meshAssetId}"${shape === 'auto' ? ` (max ${d.collisionConfig.maxConvexHulls} hulls)` : ''}` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: `Mesh not found: ${meshId}` }] };
+  }
+);
+
+// ============================================================
+//  §29  PROJECT SETTINGS
+// ============================================================
+
+server.tool(
+  'set_project_settings',
+  'Update project-level settings (name, version, active scene, game instance class, etc.).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    name: z.string().optional().describe('Project display name'),
+    version: z.string().optional().describe('Project version string'),
+    activeScene: z.string().optional().describe('Active scene name (without .json)'),
+    gameInstanceClassId: z.string().optional().describe('Game Instance class actor ID for global state'),
+  },
+  async ({ projectPath, name, version, activeScene, gameInstanceClassId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const projFile = path.join(projRoot, 'project.json');
+    if (!fs.existsSync(projFile)) return { content: [{ type: 'text', text: 'project.json not found' }] };
+    const proj = readJsonFile(projFile);
+    if (name !== undefined) proj.name = name;
+    if (version !== undefined) proj.version = version;
+    if (activeScene !== undefined) proj.activeScene = `Scenes/${activeScene}.json`;
+    if (gameInstanceClassId !== undefined) proj.gameInstanceClassId = gameInstanceClassId;
+    proj.modifiedAt = Date.now();
+    writeJsonFile(projFile, proj);
+    return { content: [{ type: 'text', text: `Project settings updated:\nName: ${proj.name}\nVersion: ${proj.version || '1.0.0'}\nActive Scene: ${proj.activeScene || 'none'}${proj.gameInstanceClassId ? `\nGame Instance: ${proj.gameInstanceClassId}` : ''}` }] };
+  }
+);
+
+// ============================================================
+//  §30  RUNTIME BRIDGE — Engine Interaction
+// ============================================================
+
+server.tool(
+  'get_runtime_errors',
+  'Get runtime errors and warnings from the engine output log. Requires the engine to be running.',
+  {},
+  async () => {
+    const result = await bridgeRequest('get_runtime_errors', {}, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine. Is it running?' }] };
+    if (result.errors && result.errors.length > 0) {
+      return { content: [{ type: 'text', text: `Runtime Errors (${result.errors.length}):\n${result.errors.map((e: any) => `[${e.level || 'ERROR'}] ${e.message}`).join('\n')}` }] };
+    }
+    return { content: [{ type: 'text', text: 'No runtime errors.' }] };
+  }
+);
+
+server.tool(
+  'get_print_log',
+  'Get all Print String output from the running engine, including INFO/WARN/ERROR messages. Useful for debugging blueprint Print String nodes.',
+  {
+    limit: z.number().optional().describe('Max entries to return (default: 100)'),
+    level: z.enum(['ERROR', 'WARN', 'INFO']).optional().describe('Filter by level'),
+  },
+  async ({ limit, level }: any) => {
+    const result = await bridgeRequest('get_print_log', { limit: limit ?? 100, level }, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine. Is it running?' }] };
+    const entries = result.entries || [];
+    if (entries.length === 0) return { content: [{ type: 'text', text: 'No print log entries.' }] };
+    const lines = entries.map((e: any) => `[${e.level}] ${e.message}`).join('\n');
+    return { content: [{ type: 'text', text: `Print Log (${entries.length}/${result.total || '?'}):\n${lines}` }] };
+  }
+);
+
+server.tool(
+  'clear_print_log',
+  'Clear all accumulated print log entries in the running engine.',
+  {},
+  async () => {
+    const result = await bridgeRequest('clear_print_log', {}, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine.' }] };
+    return { content: [{ type: 'text', text: result.message || 'Log cleared' }] };
+  }
+);
+
+server.tool(
+  'reload_project',
+  'Force the engine to reload all assets from disk. Use after making changes via MCP tools.',
+  {},
+  async () => {
+    const result = await bridgeRequest('reload_project', {}, 15000);
+    if (!result) return { content: [{ type: 'text', text: 'Reload request sent but no response from engine.' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Reload failed: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Project reloaded successfully. ${result.message || ''}` }] };
+  }
+);
+
+server.tool(
+  'focus_viewport_on',
+  'Move the editor viewport camera to focus on a specific position or object.',
+  {
+    x: z.number().optional().describe('World X position'),
+    y: z.number().optional().describe('World Y position'),
+    z: z.number().optional().describe('World Z position'),
+    objectName: z.string().optional().describe('Name of a scene object to focus on (alternative to X/Y/Z)'),
+  },
+  async ({ x, y, z: zPos, objectName }) => {
+    const payload: Record<string, unknown> = {};
+    if (objectName) payload.objectName = objectName;
+    else { payload.x = x ?? 0; payload.y = y ?? 0; payload.z = zPos ?? 0; }
+    const result = await bridgeRequest('focus_viewport', payload, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine.' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Focus failed: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Viewport focused${objectName ? ` on "${objectName}"` : ` on (${x ?? 0}, ${y ?? 0}, ${zPos ?? 0})`}` }] };
+  }
+);
+
+server.tool(
+  'select_object',
+  'Select a game object in the editor (updates properties panel and viewport highlight).',
+  {
+    objectName: z.string().describe('Name of the object to select in the current scene'),
+  },
+  async ({ objectName }) => {
+    const result = await bridgeRequest('select_object', { objectName }, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine.' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Selection failed: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Selected "${objectName}"` }] };
+  }
+);
+
+server.tool(
+  'get_game_object_state',
+  'Query a live game object\'s position, variable values, and component state during play mode.',
+  {
+    objectName: z.string().describe('Name of the game object to inspect'),
+  },
+  async ({ objectName }) => {
+    const result = await bridgeRequest('get_object_state', { objectName }, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine. Is it running and in play mode?' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Query failed: ${result.error}` }] };
+    let text = `Object: ${objectName}\n`;
+    if (result.position) text += `Position: (${result.position.x}, ${result.position.y}, ${result.position.z})\n`;
+    if (result.rotation) text += `Rotation: (${result.rotation.x}, ${result.rotation.y}, ${result.rotation.z})\n`;
+    if (result.scale) text += `Scale: (${result.scale.x}, ${result.scale.y}, ${result.scale.z})\n`;
+    if (result.variables) text += `Variables: ${JSON.stringify(result.variables, null, 2)}\n`;
+    if (result.components) text += `Components: ${JSON.stringify(result.components, null, 2)}\n`;
+    return { content: [{ type: 'text', text }] };
+  }
+);
+
+// ============================================================
+//  §31  EXPORT / BUILD
+// ============================================================
+
+server.tool(
+  'export_game',
+  'Trigger a game export/build. Requires the engine to be running.',
+  {
+    platform: z.enum(['web', 'desktop', 'electron']).optional().describe('Target platform. Default: "web"'),
+    outputPath: z.string().optional().describe('Output directory path'),
+  },
+  async ({ platform, outputPath }) => {
+    const result = await bridgeRequest('export_game', { platform: platform ?? 'web', outputPath }, 60000);
+    if (!result) return { content: [{ type: 'text', text: 'Export request sent but no response from engine. Is it running?' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Export failed: ${result.error}` }] };
+    return { content: [{ type: 'text', text: `Game exported successfully to ${result.outputPath || 'default location'}.\nPlatform: ${platform ?? 'web'}\n${result.message || ''}` }] };
+  }
+);
+
+server.tool(
+  'get_build_status',
+  'Check the current build/export progress.',
+  {},
+  async () => {
+    const result = await bridgeRequest('get_build_status', {}, 5000);
+    if (!result) return { content: [{ type: 'text', text: 'No response from engine.' }] };
+    return { content: [{ type: 'text', text: `Build status: ${result.status || 'unknown'}${result.progress !== undefined ? ` (${result.progress}%)` : ''}${result.message ? `\n${result.message}` : ''}` }] };
+  }
+);
+
+// ============================================================
+//  §32  ADD PARTICLE COMPONENT TO ACTOR  
+// ============================================================
+
+server.tool(
+  'add_particle_component',
+  'Add a ParticleEmitter component to an actor referencing a particle asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    actorId: z.string().describe('Actor asset ID'),
+    particleId: z.string().describe('Particle emitter asset ID'),
+    name: z.string().optional().describe('Component name. Default: "ParticleEmitter"'),
+    offsetX: z.number().optional().describe('Local offset X'),
+    offsetY: z.number().optional().describe('Local offset Y'),
+    offsetZ: z.number().optional().describe('Local offset Z'),
+    autoPlay: z.boolean().optional().describe('Auto-play on spawn. Default: true'),
+  },
+  async ({ projectPath, actorId, particleId, name, offsetX, offsetY, offsetZ, autoPlay }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath, data: actor } = findActorFile(actorsDir, actorId);
+    if (!filePath || !actor) return { content: [{ type: 'text', text: `Actor not found: ${actorId}` }] };
+    if (!actor.components) actor.components = [];
+    const cid = compUid();
+    actor.components.push({
+      id: cid, type: 'ParticleEmitterComponent', name: name ?? 'ParticleEmitter',
+      particleAssetId: particleId,
+      offset: { x: offsetX ?? 0, y: offsetY ?? 0, z: offsetZ ?? 0 },
+      autoPlay: autoPlay ?? true,
+    });
+    writeJsonFile(filePath, actor);
+    return { content: [{ type: 'text', text: `Added ParticleEmitterComponent [${cid}] to actor "${actor.actorName}" referencing particle "${particleId}"` }] };
+  }
+);
+
+// ============================================================
+//  §33  ADD SOUND COMPONENT TO ACTOR
+// ============================================================
+
+server.tool(
+  'add_sound_component',
+  'Add an AudioSource component to an actor for playing sounds.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    actorId: z.string().describe('Actor asset ID'),
+    soundId: z.string().optional().describe('Sound asset ID to assign'),
+    soundCueId: z.string().optional().describe('Sound Cue asset ID to assign (alternative to soundId)'),
+    name: z.string().optional().describe('Component name. Default: "AudioSource"'),
+    spatial: z.boolean().optional().describe('3D spatial audio. Default: false'),
+    autoPlay: z.boolean().optional().describe('Auto-play on spawn. Default: false'),
+    volume: z.number().optional().describe('Volume override 0-1'),
+    maxDistance: z.number().optional().describe('Max hearing distance for spatial audio. Default: 50'),
+  },
+  async ({ projectPath, actorId, soundId, soundCueId, name, spatial, autoPlay, volume, maxDistance }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath, data: actor } = findActorFile(actorsDir, actorId);
+    if (!filePath || !actor) return { content: [{ type: 'text', text: `Actor not found: ${actorId}` }] };
+    if (!actor.components) actor.components = [];
+    const cid = compUid();
+    const comp: any = {
+      id: cid, type: 'AudioSourceComponent', name: name ?? 'AudioSource',
+      spatial: spatial ?? false,
+      autoPlay: autoPlay ?? false,
+    };
+    if (soundId) comp.soundAssetId = soundId;
+    if (soundCueId) comp.soundCueId = soundCueId;
+    if (volume !== undefined) comp.volume = volume;
+    if (maxDistance !== undefined) comp.maxDistance = maxDistance;
+    actor.components.push(comp);
+    writeJsonFile(filePath, actor);
+    return { content: [{ type: 'text', text: `Added AudioSourceComponent [${cid}] to actor "${actor.actorName}"${soundId ? ` (sound: ${soundId})` : ''}${soundCueId ? ` (cue: ${soundCueId})` : ''}` }] };
+  }
+);
+
+// ════════════════════════════════════════════════════════════
+//  §34  BLUEPRINT GRAPH MANIPULATION
+//  Full programmatic control over blueprint event graphs:
+//  add/remove nodes, connect/disconnect pins, read graphs,
+//  set control values, and recompile.
+// ════════════════════════════════════════════════════════════
+
+// ── Helper: Resolve an asset and its graph by assetType + assetId ──
+function resolveAssetGraph(
+  projRoot: string,
+  assetType: string,
+  assetId: string,
+  graphTarget?: string,
+): { filePath: string; asset: any; graph: any; graphKey: string; error?: string } {
+  let filePath: string | null = null;
+  let asset: any = null;
+  let graphKey = 'eventGraphData';
+
+  if (assetType === 'actor') {
+    const actorsDir = path.join(projRoot, 'Actors');
+    const result = findActorFile(actorsDir, assetId);
+    filePath = result.filePath;
+    asset = result.data;
+    if (graphTarget && graphTarget !== 'eventGraph') {
+      graphKey = 'functionGraphData';
+    }
+  } else if (assetType === 'widget') {
+    const dir = path.join(projRoot, 'Widgets');
+    const result = findAssetFile(dir, 'id', assetId);
+    filePath = result.filePath;
+    asset = result.data;
+    graphKey = 'eventGraph';
+    if (asset?.eventGraph?.nodeData) {
+      // Widget stores graph as eventGraph.nodeData
+    }
+  } else if (assetType === 'animBlueprint') {
+    const dir = path.join(projRoot, 'AnimBlueprints');
+    const result = findAbpFile(dir, assetId);
+    filePath = result.filePath;
+    asset = result.data;
+    graphKey = 'eventGraphData';
+  } else if (assetType === 'gameInstance') {
+    const dir = path.join(projRoot, 'GameInstances');
+    const result = findAssetFile(dir, 'id', assetId);
+    filePath = result.filePath;
+    asset = result.data;
+    graphKey = 'eventGraphData';
+  }
+
+  if (!filePath || !asset) {
+    return { filePath: '', asset: null, graph: null, graphKey, error: `Asset not found: ${assetType}/${assetId}` };
+  }
+
+  // Resolve the graph data
+  let graph: any;
+  if (assetType === 'widget') {
+    graph = asset.eventGraph?.nodeData || { nodes: [], connections: [] };
+  } else if (graphTarget && graphTarget !== 'eventGraph' && assetType === 'actor') {
+    // Function graph
+    const funcGraphs = asset.functionGraphData || {};
+    graph = funcGraphs[graphTarget] || { nodes: [], connections: [] };
+  } else {
+    graph = asset[graphKey] || { nodes: [], connections: [] };
+  }
+
+  if (!graph.nodes) graph.nodes = [];
+  if (!graph.connections) graph.connections = [];
+
+  return { filePath, asset, graph, graphKey };
+}
+
+// ── Helper: Write back graph data to asset ──
+function writeGraphBack(
+  filePath: string,
+  asset: any,
+  assetType: string,
+  graphKey: string,
+  graph: any,
+  graphTarget?: string,
+): void {
+  if (assetType === 'widget') {
+    if (!asset.eventGraph) asset.eventGraph = {};
+    asset.eventGraph.nodeData = graph;
+  } else if (graphTarget && graphTarget !== 'eventGraph' && assetType === 'actor') {
+    if (!asset.functionGraphData) asset.functionGraphData = {};
+    asset.functionGraphData[graphTarget] = graph;
+  } else {
+    asset[graphKey] = graph;
+  }
+  asset.modifiedAt = Date.now();
+  writeJsonFile(filePath, asset);
+}
+
+// ── Helper: Generate a Rete-compatible node ID ──
+function graphNodeId(): string {
+  return 'n_' + Date.now().toString(36) + '_' + (++_uid).toString(36);
+}
+function graphConnId(): string {
+  return 'c_' + Date.now().toString(36) + '_' + (++_uid).toString(36);
+}
+
+// ────────────────────────────────────────────────────────────
+//  get_blueprint_graph — Read the full graph (nodes + connections)
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'get_blueprint_graph',
+  'Read the full blueprint event graph (nodes + connections) of an actor, widget, animBlueprint, or gameInstance. Returns all nodes with their types, positions, controls, and all connections between them.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID to read that function\'s graph'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { graph, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    return { content: [{ type: 'text', text: JSON.stringify(graph, null, 2) }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  add_blueprint_node — Add one or more nodes to a graph
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'add_blueprint_node',
+  `Add one or more nodes to a blueprint event graph. Each node needs a type string and optional position/data.
+
+Common node types (246 total):
+  Events: EventBeginPlayNode, EventTickNode, EventOnDestroyNode, CustomEventNode, InputKeyEventNode
+  Math: MathAddNode, MathSubtractNode, MathMultiplyNode, MathDivideNode, ClampNode, LerpNode, GreaterThanNode, AbsNode
+  Values: FloatNode, BooleanNode, StringLiteralNode, Vector3LiteralNode, ColorNode, TimeNode, DeltaTimeNode
+  Variables: GetVariableNode, SetVariableNode (need varId, varName, varType in data)
+  Flow: BranchNode, SequenceNode, ForLoopNode, DelayNode
+  Utility: PrintStringNode
+  Transform: SetPositionNode, GetPositionNode, SetRotationNode, GetRotationNode, SetScaleNode, GetScaleNode
+  Physics: AddForceNode, AddImpulseNode, SetVelocityNode
+  Collision: OnTriggerBeginOverlapNode, OnActorBeginOverlapNode, OnCollisionHitNode
+  UI: CreateWidgetNode, AddToViewportNode, SetWidgetTextNode, SetProgressBarPercentNode
+  Casting: GetSelfReferenceNode, GetActorByNameNode, GetActorVariableNode, SetActorVariableNode, CastToNode
+  Character: AddMovementInputNode, JumpNode, SetMaxWalkSpeedNode
+  Spawning: SpawnActorFromClassNode
+
+Node data fields vary by type:
+  - FloatNode: { controls: { value: 42 } }
+  - GetVariableNode/SetVariableNode: { varId, varName, varType }
+  - InputKeyEventNode: { selectedKey: 'Space' }
+  - CastToNode: { targetClassId, targetClassName }
+  - GetActorVariableNode: { varName, varType, targetActorId }
+  - CreateWidgetNode: { widgetBPId, widgetBPName }
+  - CustomEventNode: { eventId, eventName, eventParams: [{name,type}] }
+  - Component nodes: { compName, compIndex }
+  - StringLiteralNode: { controls: { value: 'hello' } }
+  - PrintStringNode: { controls: { text: 'Debug message' } }`,
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    nodes: z.array(z.object({
+      type: z.string().describe('Node type string (e.g. "EventBeginPlayNode", "FloatNode", "MathAddNode")'),
+      position: z.object({
+        x: z.number(),
+        y: z.number(),
+      }).optional().describe('Position in the graph editor canvas (default: {x:0, y:0})'),
+      data: z.record(z.any()).optional().describe('Node-specific data (controls, varId, selectedKey, etc.)'),
+      id: z.string().optional().describe('Custom node ID (auto-generated if omitted)'),
+    })).describe('Array of nodes to add'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, nodes }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const addedIds: string[] = [];
+    for (const n of nodes) {
+      const id = n.id || graphNodeId();
+      graph.nodes.push({
+        id,
+        type: n.type,
+        position: n.position || { x: 0, y: 0 },
+        data: n.data || {},
+      });
+      addedIds.push(id);
+    }
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Added ${addedIds.length} node(s): ${addedIds.join(', ')}` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  remove_blueprint_node — Remove nodes from a graph
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'remove_blueprint_node',
+  'Remove one or more nodes from a blueprint graph by ID. Also removes all connections involving the removed nodes.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    nodeIds: z.array(z.string()).describe('Array of node IDs to remove'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, nodeIds }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const idSet = new Set(nodeIds);
+    const beforeNodes = graph.nodes.length;
+    const beforeConns = graph.connections.length;
+    graph.nodes = graph.nodes.filter((n: any) => !idSet.has(n.id));
+    graph.connections = graph.connections.filter((c: any) => !idSet.has(c.source) && !idSet.has(c.target));
+    const removedNodes = beforeNodes - graph.nodes.length;
+    const removedConns = beforeConns - graph.connections.length;
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Removed ${removedNodes} node(s) and ${removedConns} connection(s)` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  connect_blueprint_nodes — Connect two node pins
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'connect_blueprint_nodes',
+  `Connect output pins to input pins between nodes. Creates one or more wired connections in the blueprint graph.
+
+Common pin names:
+  Execution: "exec" (both input and output for flow)
+  Values: "value", "result", "a", "b"
+  Math outputs: "result"
+  Variable Get: "value" (or "x","y","z" for Vector3)
+  Variable Set: input "value", output "value" + "exec"
+  Branch: input "condition", outputs "true","false"
+  ForLoop: inputs "firstIndex","lastIndex", outputs "loopBody","index","completed"
+  GetPosition: outputs "x","y","z"
+  SetPosition: inputs "x","y","z"
+  Overlap events: outputs "exec","otherActor","otherActorName","otherActorId"
+  PrintString: input "exec","text"
+  CreateWidget: input "exec","owner", output "exec","widget"
+  SetProgressBarPercent: input "exec","percent"
+  CastTo: input "exec","object", output "exec","castFailed","asType"
+  GetActorVariable: input "target", output "value"
+  SetActorVariable: input "exec","target","value", output "exec"`,
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    connections: z.array(z.object({
+      sourceNodeId: z.string().describe('ID of the source node'),
+      sourcePin: z.string().describe('Output pin name on the source node (e.g. "exec", "value", "result")'),
+      targetNodeId: z.string().describe('ID of the target node'),
+      targetPin: z.string().describe('Input pin name on the target node (e.g. "exec", "a", "value")'),
+    })).describe('Array of connections to create'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, connections }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const nodeIds = new Set(graph.nodes.map((n: any) => n.id));
+    const added: string[] = [];
+    const errors: string[] = [];
+
+    for (const c of connections) {
+      if (!nodeIds.has(c.sourceNodeId)) {
+        errors.push(`Source node not found: ${c.sourceNodeId}`);
+        continue;
+      }
+      if (!nodeIds.has(c.targetNodeId)) {
+        errors.push(`Target node not found: ${c.targetNodeId}`);
+        continue;
+      }
+      const id = graphConnId();
+      graph.connections.push({
+        id,
+        source: c.sourceNodeId,
+        sourceOutput: c.sourcePin,
+        target: c.targetNodeId,
+        targetInput: c.targetPin,
+      });
+      added.push(id);
+    }
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    let msg = `Created ${added.length} connection(s)`;
+    if (errors.length > 0) msg += `\nErrors: ${errors.join('; ')}`;
+    return { content: [{ type: 'text', text: msg }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  disconnect_blueprint_nodes — Remove connections
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'disconnect_blueprint_nodes',
+  'Remove connections from a blueprint graph by connection ID, or disconnect all connections on specific pins.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    connectionIds: z.array(z.string()).optional().describe('Specific connection IDs to remove'),
+    nodeId: z.string().optional().describe('Remove all connections on this node'),
+    pin: z.string().optional().describe('If nodeId is set, only disconnect this specific pin'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, connectionIds, nodeId, pin }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const before = graph.connections.length;
+
+    if (connectionIds && connectionIds.length > 0) {
+      const idSet = new Set(connectionIds);
+      graph.connections = graph.connections.filter((c: any) => !idSet.has(c.id));
+    } else if (nodeId) {
+      graph.connections = graph.connections.filter((c: any) => {
+        if (pin) {
+          return !((c.source === nodeId && c.sourceOutput === pin) || (c.target === nodeId && c.targetInput === pin));
+        }
+        return c.source !== nodeId && c.target !== nodeId;
+      });
+    }
+
+    const removed = before - graph.connections.length;
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Removed ${removed} connection(s)` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  move_blueprint_node — Reposition nodes in the graph
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'move_blueprint_node',
+  'Move/reposition one or more nodes in the blueprint graph canvas. Useful for organizing node layout.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    moves: z.array(z.object({
+      nodeId: z.string().describe('Node ID to move'),
+      x: z.number().describe('New X position'),
+      y: z.number().describe('New Y position'),
+    })).describe('Array of node repositions'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, moves }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const nodeMap = new Map<string, any>();
+    for (const n of graph.nodes) nodeMap.set(n.id, n);
+    let moved = 0;
+    for (const m of moves) {
+      const node = nodeMap.get(m.nodeId);
+      if (node) { node.position = { x: m.x, y: m.y }; moved++; }
+    }
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Moved ${moved} node(s)` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  set_node_value — Set control values on a node
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'set_node_value',
+  `Set control/data values on an existing blueprint node. For example, change a FloatNode's value, a PrintStringNode's text, or a variable node's varId.
+
+Examples:
+  FloatNode: { controls: { value: 42 } }
+  StringLiteralNode: { controls: { value: "hello" } }
+  PrintStringNode: { controls: { text: "Debug" } }
+  BooleanNode: { controls: { value: true } }
+  Vector3LiteralNode: { controls: { x: 1, y: 2, z: 3 } }
+  GetVariableNode: { varId: "var_Health_xxx", varName: "Health", varType: "Float" }
+  InputKeyEventNode: { selectedKey: "Space" }`,
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+    nodeId: z.string().describe('Node ID to modify'),
+    data: z.record(z.any()).describe('Data fields to merge into the node (e.g. { controls: { value: 42 } })'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget, nodeId, data }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const node = graph.nodes.find((n: any) => n.id === nodeId);
+    if (!node) return { content: [{ type: 'text', text: `Node not found: ${nodeId}` }] };
+
+    // Deep merge data into node.data
+    if (!node.data) node.data = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (k === 'controls' && typeof v === 'object' && v !== null) {
+        if (!node.data.controls) node.data.controls = {};
+        Object.assign(node.data.controls, v);
+      } else {
+        node.data[k] = v;
+      }
+    }
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Updated node ${nodeId} data` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  clear_blueprint_graph — Remove all nodes and connections
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'clear_blueprint_graph',
+  'Clear all nodes and connections from a blueprint graph.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    graphTarget: z.string().optional().describe('For actors: "eventGraph" (default) or a function ID'),
+  },
+  async ({ projectPath, assetType, assetId, graphTarget }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId, graphTarget);
+    if (error) return { content: [{ type: 'text', text: error }] };
+
+    const nodeCount = graph.nodes.length;
+    const connCount = graph.connections.length;
+    graph.nodes = [];
+    graph.connections = [];
+
+    writeGraphBack(filePath, asset, assetType, graphKey, graph, graphTarget);
+    return { content: [{ type: 'text', text: `Cleared ${nodeCount} nodes and ${connCount} connections` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  list_node_types — List all available blueprint node types
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'list_node_types',
+  'List all available blueprint node type strings grouped by category. Use these type strings with add_blueprint_node. Optionally filter by category name. When the editor is running, returns the live node registry; otherwise falls back to a static list.',
+  {
+    category: z.string().optional().describe('Filter to a specific category (e.g. "Math", "Events", "UI", "Collision")'),
+  },
+  async ({ category }: any) => {
+    // Try live bridge first — this auto-discovers new nodes
+    let allTypes: Record<string, string[]> | null = null;
+    const resp = await bridgeRequest('list_node_types', {}, 5000);
+    if (resp && resp.nodeTypes && typeof resp.nodeTypes === 'object' && Object.keys(resp.nodeTypes).length > 0) {
+      allTypes = resp.nodeTypes as Record<string, string[]>;
+    }
+
+    // Fallback: static list (used when editor is not running)
+    if (!allTypes) {
+      allTypes = {
+      'Events': ['EventBeginPlayNode', 'EventTickNode', 'EventOnDestroyNode', 'CustomEventNode', 'CallCustomEventNode', 'InputKeyEventNode', 'IsKeyDownNode', 'InputAxisNode'],
+      'Variables': ['GetVariableNode', 'SetVariableNode'],
+      'Structs': ['MakeStructNode', 'BreakStructNode'],
+      'Functions': ['FunctionEntryNode', 'FunctionReturnNode', 'FunctionCallNode'],
+      'Macros': ['MacroEntryNode', 'MacroExitNode', 'MacroCallNode'],
+      'Math': ['MathAddNode', 'MathSubtractNode', 'MathMultiplyNode', 'MathDivideNode', 'SineNode', 'CosineNode', 'AbsNode', 'ClampNode', 'LerpNode', 'GreaterThanNode'],
+      'Values': ['FloatNode', 'BooleanNode', 'StringLiteralNode', 'Vector3LiteralNode', 'ColorNode', 'TimeNode', 'DeltaTimeNode'],
+      'Transform': ['SetPositionNode', 'GetPositionNode', 'SetRotationNode', 'GetRotationNode', 'SetScaleNode', 'GetScaleNode'],
+      'Flow Control': ['BranchNode', 'SequenceNode', 'ForLoopNode', 'DelayNode'],
+      'Utility': ['PrintStringNode'],
+      'Physics': ['AddForceNode', 'AddImpulseNode', 'SetVelocityNode', 'GetMassNode', 'SetMassNode', 'GetVelocityNode', 'GetAngularVelocityNode', 'SetLinearVelocityNode', 'SetAngularVelocityNode', 'IsSimulatingPhysicsNode', 'SetSimulatePhysicsNode', 'IsGravityEnabledNode', 'SetGravityEnabledNode', 'GetGravityScaleNode', 'SetGravityScaleNode', 'SetLinearDampingNode', 'SetAngularDampingNode', 'SetPhysicsMaterialNode', 'GetPhysicsMaterialNode', 'AddTorqueNode', 'AddForceAtLocationNode', 'AddImpulseAtLocationNode', 'SetConstraintNode'],
+      'Physics Events': ['OnComponentHitNode', 'OnComponentBeginOverlapNode', 'OnComponentEndOverlapNode', 'OnComponentWakeNode', 'OnComponentSleepNode'],
+      'Components': ['GetComponentLocationNode', 'SetComponentLocationNode', 'GetComponentRotationNode', 'SetComponentRotationNode', 'GetComponentScaleNode', 'SetComponentScaleNode', 'SetComponentVisibilityNode', 'SetStaticMeshNode', 'SetMeshMaterialNode', 'GetMeshMaterialNode'],
+      'Lights': ['SetLightEnabledNode', 'GetLightEnabledNode', 'SetLightColorNode', 'GetLightColorNode', 'SetLightIntensityNode', 'GetLightIntensityNode', 'SetLightDistanceNode', 'SetLightPositionNode', 'GetLightPositionNode', 'SetLightTargetNode', 'SetCastShadowNode', 'SetSpotAngleNode', 'SetSpotPenumbraNode'],
+      'Conversions': ['BoolToNumberNode', 'NumberToBoolNode', 'BoolToStringNode', 'StringToBoolNode', 'NumberToStringNode', 'StringToNumberNode', 'ColorToStringNode', 'StringToColorNode'],
+      'Collision': ['OnTriggerBeginOverlapNode', 'OnTriggerEndOverlapNode', 'OnActorBeginOverlapNode', 'OnActorEndOverlapNode', 'OnCollisionHitNode', 'IsOverlappingActorNode', 'GetOverlapCountNode', 'SetCollisionEnabledNode'],
+      'Trigger Components': ['OnTriggerComponentBeginOverlapNode', 'OnTriggerComponentEndOverlapNode', 'SetTriggerEnabledNode', 'GetTriggerEnabledNode', 'SetTriggerSizeNode', 'GetTriggerOverlapCountNode', 'IsTriggerOverlappingNode', 'GetTriggerShapeNode'],
+      'Character': ['AddMovementInputNode', 'JumpNode', 'StopJumpingNode', 'CrouchNode', 'UncrouchNode', 'SetMovementModeNode', 'SetMaxWalkSpeedNode', 'LaunchCharacterNode', 'SetCameraModeNode', 'SetCameraFOVNode', 'AddControllerYawInputNode', 'AddControllerPitchInputNode', 'GetControllerRotationNode', 'SetControllerRotationNode', 'SetMouseLockEnabledNode', 'GetMouseLockStatusNode', 'GetPlayerControllerNode', 'SetShowMouseCursorNode', 'IsMouseCursorVisibleNode', 'SetInputModeGameOnlyNode', 'SetInputModeGameAndUINode', 'SetInputModeUIOnlyNode', 'GetCharacterVelocityNode', 'GetMovementSpeedNode', 'IsGroundedNode', 'IsJumpingNode', 'IsCrouchingNode', 'IsFallingNode', 'IsFlyingNode', 'IsSwimmingNode', 'StartFlyingNode', 'StopFlyingNode', 'StartSwimmingNode', 'StopSwimmingNode', 'IsMovingNode', 'GetMovementModeNode', 'GetCameraLocationNode'],
+      'Camera': ['SetSpringArmLengthNode', 'SetSpringArmTargetOffsetNode', 'SetSpringArmSocketOffsetNode', 'SetSpringArmCollisionNode', 'SetCameraCollisionEnabledNode', 'SetCameraLagNode', 'SetCameraRotationLagNode', 'GetSpringArmLengthNode', 'GetSpringArmTargetOffsetNode', 'GetSpringArmSocketOffsetNode', 'CameraModeLiteralNode', 'MovementModeLiteralNode', 'GetCameraRotationNode'],
+      'Player Controller': ['PossessPawnNode', 'UnpossessPawnNode', 'GetControlledPawnNode', 'IsPossessingNode'],
+      'AI': ['AIMoveToNode', 'AIStopMovementNode', 'AISetFocalPointNode', 'AIClearFocalPointNode', 'AIStartPatrolNode', 'AIStopPatrolNode', 'AIStartFollowingNode', 'AIStopFollowingNode', 'GetAIStateNode', 'AIHasReachedTargetNode', 'AIGetDistanceToTargetNode', 'GetControllerNode', 'GetControllerTypeNode', 'GetPawnNode', 'IsPlayerControlledNode', 'IsAIControlledNode'],
+      'Casting': ['CastToNode', 'PureCastNode', 'GetSelfReferenceNode', 'GetPlayerPawnNode', 'GetActorByNameNode', 'GetAllActorsOfClassNode', 'IsValidNode', 'GetActorNameNode', 'GetActorVariableNode', 'SetActorVariableNode', 'GetOwnerNode', 'GetAnimInstanceNode', 'CallActorFunctionNode'],
+      'Animation': ['AnimUpdateEventNode', 'TryGetPawnOwnerNode', 'SetAnimVarNode', 'GetAnimVarNode'],
+      'UI': ['CreateWidgetNode', 'AddToViewportNode', 'RemoveFromViewportNode', 'SetWidgetTextNode', 'GetWidgetTextNode', 'SetWidgetVisibilityNode', 'SetWidgetColorNode', 'SetWidgetOpacityNode', 'SetProgressBarPercentNode', 'GetProgressBarPercentNode', 'SetSliderValueNode', 'GetSliderValueNode', 'SetCheckBoxStateNode', 'GetCheckBoxStateNode', 'IsWidgetVisibleNode', 'PlayWidgetAnimationNode', 'SetInputModeNode', 'ShowMouseCursorNode'],
+      'Widget Interaction': ['GetWidgetVariableNode', 'SetWidgetVariableNode', 'CallWidgetFunctionNode', 'CallWidgetEventNode'],
+      'Widget Events': ['ButtonOnClickedNode', 'ButtonOnPressedNode', 'ButtonOnReleasedNode', 'ButtonOnHoveredNode', 'ButtonOnUnhoveredNode', 'TextBoxOnTextChangedNode', 'TextBoxOnTextCommittedNode', 'SliderOnValueChangedNode', 'CheckBoxOnCheckStateChangedNode'],
+      'Scene': ['OpenSceneNode', 'LoadSceneNode', 'GetGameInstanceNode', 'GetGameInstanceVariableNode', 'SetGameInstanceVariableNode'],
+      'Spawning': ['SpawnActorFromClassNode'],
+      'DataTable': ['GetDataTableRowNode', 'GetDataTableRowPureNode', 'GetAllDataTableRowsNode', 'GetDataTableRowNamesNode', 'DoesDataTableRowExistNode', 'GetDataTableRowCountNode', 'FindRowsByPredicateNode', 'ForEachDataTableRowNode', 'MakeDataTableRowHandleNode', 'ResolveDataTableRowHandleNode', 'IsDataTableRowHandleValidNode', 'AddDataTableRowNode', 'RemoveDataTableRowNode', 'UpdateDataTableRowNode'],
+      'Character 2D': ['AddMovementInput2DNode', 'Jump2DNode', 'StopJump2DNode', 'LaunchCharacter2DNode', 'SetMaxWalkSpeed2DNode', 'GetMaxWalkSpeed2DNode', 'IsGrounded2DNode', 'IsJumping2DNode', 'IsFalling2DNode', 'GetCharacterVelocity2DNode', 'AddCharacterImpulse2DNode', 'StopMovement2DNode', 'SetJumpHeight2DNode', 'SetMaxJumps2DNode', 'GetJumpsRemaining2DNode', 'SetGravityMultiplier2DNode', 'FlipSpriteDirection2DNode', 'SetAirControl2DNode', 'GetSpriteFacingDirection2DNode', 'GetCharacterSpeed2DNode'],
+      };
+    }
+
+    let source = resp?.nodeTypes ? '(live from engine)' : '(static fallback — editor not connected)';
+
+    if (category) {
+      const key = Object.keys(allTypes).find(k => k.toLowerCase() === category.toLowerCase());
+      if (!key) return { content: [{ type: 'text', text: `Category "${category}" not found. Available: ${Object.keys(allTypes).join(', ')}` }] };
+      return { content: [{ type: 'text', text: `${source}\n` + JSON.stringify({ [key]: allTypes[key] }, null, 2) }] };
+    }
+    return { content: [{ type: 'text', text: `${source}\n` + JSON.stringify(allTypes, null, 2) }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  compile_blueprint — Trigger recompilation of blueprint code
+//  via bridge request to the live editor
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'compile_blueprint',
+  'Trigger recompilation of a blueprint graph in the live editor. The editor will re-read the asset JSON, rebuild the Rete graph, and regenerate the compiled JavaScript code. Requires the editor to be running and the asset to be open.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+  },
+  async ({ projectPath, assetType, assetId }: any) => {
+    const result = await bridgeRequest('compile_blueprint', { assetType, assetId });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected or editor not running. The graph data has been saved — open the actor in the editor to compile.' }] };
+    if (result.error) return { content: [{ type: 'text', text: `Compile error: ${result.error}` }] };
+    return { content: [{ type: 'text', text: result.message || 'Blueprint compiled successfully' }] };
+  }
+);
+
+// ════════════════════════════════════════════════════════════
+//  §35  BLUEPRINT VARIABLE MANAGEMENT (via graph tools)
+// ════════════════════════════════════════════════════════════
+
+// ────────────────────────────────────────────────────────────
+//  list_blueprint_variables — Read all variables on an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'list_blueprint_variables',
+  'List all blueprint variables defined on an actor, widget, animBlueprint, or gameInstance asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+  },
+  async ({ projectPath, assetType, assetId }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { asset, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const vars = asset.variables || [];
+    if (vars.length === 0) return { content: [{ type: 'text', text: 'No variables defined on this asset' }] };
+    const list = vars.map((v: any) => `• ${v.name} (${v.type}) = ${JSON.stringify(v.defaultValue)} [id: ${v.id}]${v.exposeOnSpawn ? ' [exposed]' : ''}${v.instanceEditable ? ' [editable]' : ''}`);
+    return { content: [{ type: 'text', text: list.join('\n') }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  list_blueprint_functions — Read all functions on an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'list_blueprint_functions',
+  'List all blueprint functions defined on an actor, widget, or gameInstance asset, including their parameter signatures.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+  },
+  async ({ projectPath, assetType, assetId }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { asset, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const funcs = asset.functions || [];
+    if (funcs.length === 0) return { content: [{ type: 'text', text: 'No functions defined on this asset' }] };
+    const list = funcs.map((f: any) => {
+      const inputs = (f.inputs || []).map((i: any) => `${i.name}:${i.type}`).join(', ');
+      const outputs = (f.outputs || []).map((o: any) => `${o.name}:${o.type}`).join(', ');
+      return `• ${f.name}(${inputs})${outputs ? ` → (${outputs})` : ''} [id: ${f.id}]`;
+    });
+    return { content: [{ type: 'text', text: list.join('\n') }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  list_custom_events — Read all custom events on an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'list_custom_events',
+  'List all custom events defined on an actor, widget, or gameInstance asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget', 'animBlueprint', 'gameInstance']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+  },
+  async ({ projectPath, assetType, assetId }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { asset, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const events = asset.customEvents || [];
+    if (events.length === 0) return { content: [{ type: 'text', text: 'No custom events defined' }] };
+    const list = events.map((e: any) => {
+      const params = (e.params || []).map((p: any) => `${p.name}:${p.type}`).join(', ');
+      return `• ${e.name}(${params}) [id: ${e.id}]`;
+    });
+    return { content: [{ type: 'text', text: list.join('\n') }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  add_blueprint_function — Add a function to an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'add_blueprint_function',
+  'Add a custom function to an actor or widget blueprint. Creates FunctionEntry and FunctionReturn nodes in a new function graph automatically.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    functionName: z.string().describe('Name for the function'),
+    inputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('Input params [{name, type}]'),
+    outputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('Output params [{name, type}]'),
+  },
+  async ({ projectPath, assetType, assetId, functionName, inputs, outputs }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const funcId = 'func_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const funcObj = {
+      name: functionName, id: funcId,
+      inputs: (inputs || []).map((i: any) => ({ name: i.name, type: i.type, defaultValue: null })),
+      outputs: (outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
+      localVariables: [], graph: {}
+    };
+    if (!asset.functions) asset.functions = [];
+    asset.functions.push(funcObj);
+    if (assetType === 'actor') {
+      if (!asset.functionGraphData) asset.functionGraphData = {};
+      asset.functionGraphData[funcId] = {
+        nodes: [
+          { id: graphNodeId(), type: 'FunctionEntryNode', position: { x: 80, y: 80 }, data: { label: functionName } },
+          { id: graphNodeId(), type: 'FunctionReturnNode', position: { x: 500, y: 80 }, data: { label: 'Return' } }
+        ],
+        connections: []
+      };
+    }
+    asset.modifiedAt = Date.now();
+    writeJsonFile(filePath, asset);
+    return { content: [{ type: 'text', text: `Added function "${functionName}" [${funcId}]` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  add_blueprint_custom_event — Add a custom event to an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'add_blueprint_custom_event',
+  'Add a custom event definition to an actor or widget blueprint. For actors, also adds a CustomEventNode to the event graph.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    eventName: z.string().describe('Name for the custom event'),
+    params: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('Event params [{name, type}]'),
+  },
+  async ({ projectPath, assetType, assetId, eventName, params }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, graph, graphKey, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const eventId = 'evt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const eventObj = { name: eventName, id: eventId, params: (params || []).map((p: any) => ({ name: p.name, type: p.type })) };
+    if (!asset.customEvents) asset.customEvents = [];
+    asset.customEvents.push(eventObj);
+    if (assetType === 'actor') {
+      const ceNodeId = graphNodeId();
+      graph.nodes.push({ id: ceNodeId, type: 'CustomEventNode', position: { x: 80, y: (graph.nodes.length + 1) * 180 }, data: { label: eventName, eventId, eventName } });
+      writeGraphBack(filePath, asset, assetType, graphKey, graph);
+    } else {
+      asset.modifiedAt = Date.now();
+      writeJsonFile(filePath, asset);
+    }
+    return { content: [{ type: 'text', text: `Added custom event "${eventName}" [${eventId}]` }] };
+  }
+);
+
+// ────────────────────────────────────────────────────────────
+//  add_blueprint_macro — Add a macro to an asset
+// ────────────────────────────────────────────────────────────
+server.tool(
+  'add_blueprint_macro',
+  'Add a reusable macro to an actor or widget blueprint.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    assetType: z.enum(['actor', 'widget']).describe('Type of asset'),
+    assetId: z.string().describe('The asset ID'),
+    macroName: z.string().describe('Name for the macro'),
+    inputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('Input params [{name, type}]'),
+    outputs: z.array(z.object({ name: z.string(), type: z.string() })).optional().describe('Output params [{name, type}]'),
+  },
+  async ({ projectPath, assetType, assetId, macroName, inputs, outputs }: any) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const { filePath, asset, error } = resolveAssetGraph(projRoot, assetType, assetId);
+    if (error) return { content: [{ type: 'text', text: error }] };
+    const macroId = 'macro_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const macroObj = {
+      name: macroName, id: macroId,
+      inputs: (inputs || []).map((i: any) => ({ name: i.name, type: i.type })),
+      outputs: (outputs || []).map((o: any) => ({ name: o.name, type: o.type })),
+      graph: {}
+    };
+    if (!asset.macros) asset.macros = [];
+    asset.macros.push(macroObj);
+    asset.modifiedAt = Date.now();
+    writeJsonFile(filePath, asset);
+    return { content: [{ type: 'text', text: `Added macro "${macroName}" [${macroId}]` }] };
+  }
+);
+
 return _server;
 }
 
