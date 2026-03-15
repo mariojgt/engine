@@ -6984,6 +6984,1261 @@ server.tool(
   }
 );
 
+// ============================================================
+//  §36. DELETE TOOLS — Full CRUD for all asset types
+// ============================================================
+
+server.tool(
+  'delete_structure',
+  'Delete a custom structure asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    structureId: z.string().describe('ID of the structure to delete'),
+  },
+  async ({ projectPath, structureId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Structures');
+    const { filePath, data } = findAssetFile(dir, 'structId', structureId);
+    if (!filePath) return { content: [{ type: 'text', text: `Structure not found: ${structureId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'structId', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'structures', assetId: structureId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted structure "${data.name}" (${structureId})` }] };
+  }
+);
+
+server.tool(
+  'delete_enum',
+  'Delete a custom enum asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    enumId: z.string().describe('ID of the enum to delete'),
+  },
+  async ({ projectPath, enumId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Enums');
+    const { filePath, data } = findAssetFile(dir, 'enumId', enumId);
+    if (!filePath) return { content: [{ type: 'text', text: `Enum not found: ${enumId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'enumId', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'enums', assetId: enumId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted enum "${data.name}" (${enumId})` }] };
+  }
+);
+
+server.tool(
+  'delete_data_table',
+  'Delete a data table asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    dataTableId: z.string().describe('ID of the data table to delete'),
+  },
+  async ({ projectPath, dataTableId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'DataTables');
+    const { filePath, data } = findAssetFile(dir, 'id', dataTableId);
+    if (!filePath) return { content: [{ type: 'text', text: `Data table not found: ${dataTableId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'datatables', assetId: dataTableId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted data table "${data.name}" (${dataTableId})` }] };
+  }
+);
+
+server.tool(
+  'delete_widget',
+  'Delete a widget blueprint asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    widgetId: z.string().describe('ID of the widget blueprint to delete'),
+  },
+  async ({ projectPath, widgetId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Widgets');
+    const { filePath, data } = findAssetFile(dir, 'widgetBlueprintId', widgetId);
+    if (!filePath) return { content: [{ type: 'text', text: `Widget not found: ${widgetId}` }] };
+    fs.unlinkSync(filePath);
+    broadcastChange({ type: 'asset-deleted', assetType: 'widgets', assetId: widgetId, name: data.widgetBlueprintName });
+    return { content: [{ type: 'text', text: `Deleted widget "${data.widgetBlueprintName}" (${widgetId})` }] };
+  }
+);
+
+server.tool(
+  'delete_game_instance',
+  'Delete a game instance asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    gameInstanceId: z.string().describe('ID of the game instance to delete'),
+  },
+  async ({ projectPath, gameInstanceId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'GameInstances');
+    const { filePath, data } = findAssetFile(dir, 'id', gameInstanceId);
+    if (!filePath) return { content: [{ type: 'text', text: `Game instance not found: ${gameInstanceId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'gameinstances', assetId: gameInstanceId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted game instance "${data.name}" (${gameInstanceId})` }] };
+  }
+);
+
+server.tool(
+  'delete_save_game_class',
+  'Delete a save game class asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    saveGameId: z.string().describe('ID of the save game class to delete'),
+  },
+  async ({ projectPath, saveGameId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'SaveGameClasses');
+    const { filePath, data } = findAssetFile(dir, 'id', saveGameId);
+    if (!filePath) return { content: [{ type: 'text', text: `Save game class not found: ${saveGameId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'savegameclasses', assetId: saveGameId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted save game class "${data.name}" (${saveGameId})` }] };
+  }
+);
+
+server.tool(
+  'delete_anim_blueprint',
+  'Delete an animation blueprint asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    animBlueprintId: z.string().describe('ID of the animation blueprint to delete'),
+  },
+  async ({ projectPath, animBlueprintId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'AnimBlueprints');
+    const { filePath, data } = findAbpFile(dir, animBlueprintId);
+    if (!filePath) return { content: [{ type: 'text', text: `Anim blueprint not found: ${animBlueprintId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'animBlueprintId', 'animBlueprintName');
+    broadcastChange({ type: 'asset-deleted', assetType: 'animblueprints', assetId: animBlueprintId, name: data.animBlueprintName });
+    return { content: [{ type: 'text', text: `Deleted anim blueprint "${data.animBlueprintName}" (${animBlueprintId})` }] };
+  }
+);
+
+server.tool(
+  'delete_sprite_sheet',
+  'Delete a sprite sheet asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    spriteSheetId: z.string().describe('ID of the sprite sheet to delete'),
+  },
+  async ({ projectPath, spriteSheetId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'SpriteSheets');
+    const { filePath, data } = findAssetFile(dir, 'id', spriteSheetId);
+    if (!filePath) return { content: [{ type: 'text', text: `Sprite sheet not found: ${spriteSheetId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'spritesheets', assetId: spriteSheetId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted sprite sheet "${data.name}" (${spriteSheetId})` }] };
+  }
+);
+
+server.tool(
+  'delete_tileset',
+  'Delete a tileset asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    tilesetId: z.string().describe('ID of the tileset to delete'),
+  },
+  async ({ projectPath, tilesetId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Tilesets');
+    const { filePath, data } = findAssetFile(dir, 'id', tilesetId);
+    if (!filePath) return { content: [{ type: 'text', text: `Tileset not found: ${tilesetId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'tilesets', assetId: tilesetId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted tileset "${data.name}" (${tilesetId})` }] };
+  }
+);
+
+server.tool(
+  'delete_tilemap',
+  'Delete a tilemap asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    tilemapId: z.string().describe('ID of the tilemap to delete'),
+  },
+  async ({ projectPath, tilemapId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Tilemaps');
+    const { filePath, data } = findAssetFile(dir, 'id', tilemapId);
+    if (!filePath) return { content: [{ type: 'text', text: `Tilemap not found: ${tilemapId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'tilemaps', assetId: tilemapId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted tilemap "${data.name}" (${tilemapId})` }] };
+  }
+);
+
+server.tool(
+  'delete_event_asset',
+  'Delete an event asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    eventId: z.string().describe('ID of the event asset to delete'),
+  },
+  async ({ projectPath, eventId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Events');
+    const { filePath, data } = findAssetFile(dir, 'id', eventId);
+    if (!filePath) return { content: [{ type: 'text', text: `Event asset not found: ${eventId}` }] };
+    fs.unlinkSync(filePath);
+    broadcastChange({ type: 'asset-deleted', assetType: 'events', assetId: eventId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted event "${data.name}" (${eventId})` }] };
+  }
+);
+
+server.tool(
+  'delete_sound_cue',
+  'Delete a sound cue asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    soundCueId: z.string().describe('ID of the sound cue to delete'),
+  },
+  async ({ projectPath, soundCueId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'SoundCues');
+    const { filePath, data } = findAssetFile(dir, 'id', soundCueId);
+    if (!filePath) return { content: [{ type: 'text', text: `Sound cue not found: ${soundCueId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'soundcues', assetId: soundCueId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted sound cue "${data.name}" (${soundCueId})` }] };
+  }
+);
+
+server.tool(
+  'delete_behavior_tree',
+  'Delete a behavior tree asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    behaviorTreeId: z.string().describe('ID of the behavior tree to delete'),
+  },
+  async ({ projectPath, behaviorTreeId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'BehaviorTrees');
+    const { filePath, data } = findAssetFile(dir, 'id', behaviorTreeId);
+    if (!filePath) return { content: [{ type: 'text', text: `Behavior tree not found: ${behaviorTreeId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'behaviortrees', assetId: behaviorTreeId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted behavior tree "${data.name}" (${behaviorTreeId})` }] };
+  }
+);
+
+server.tool(
+  'delete_mesh',
+  'Delete an imported mesh asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    meshId: z.string().describe('ID of the mesh asset to delete'),
+  },
+  async ({ projectPath, meshId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Meshes');
+    const { filePath, data } = findAssetFile(dir, 'id', meshId);
+    if (!filePath) return { content: [{ type: 'text', text: `Mesh not found: ${meshId}` }] };
+    fs.unlinkSync(filePath);
+    updateIndex(dir, 'id', 'name');
+    broadcastChange({ type: 'asset-deleted', assetType: 'meshes', assetId: meshId, name: data.name });
+    return { content: [{ type: 'text', text: `Deleted mesh "${data.name}" (${meshId})` }] };
+  }
+);
+
+server.tool(
+  'delete_texture',
+  'Delete a texture/image asset from the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    textureName: z.string().describe('Texture filename to delete (e.g. "player.png")'),
+  },
+  async ({ projectPath, textureName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const texPath = path.join(projRoot, 'Textures', textureName);
+    if (!fs.existsSync(texPath)) return { content: [{ type: 'text', text: `Texture not found: ${textureName}` }] };
+    fs.unlinkSync(texPath);
+    broadcastChange({ type: 'asset-deleted', assetType: 'textures', name: textureName });
+    return { content: [{ type: 'text', text: `Deleted texture "${textureName}"` }] };
+  }
+);
+
+// ============================================================
+//  §37. MODIFY/EDIT TOOLS — Full edit for structures, enums, data tables, etc.
+// ============================================================
+
+server.tool(
+  'modify_structure',
+  'Add, remove, or update fields on an existing structure. Use operations array for multiple changes.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    structureId: z.string().describe('ID of the structure'),
+    operations: z.array(z.object({
+      action: z.enum(['add', 'remove', 'update']).describe('"add" a new field, "remove" by name, "update" field properties'),
+      fieldName: z.string().describe('Field name'),
+      type: z.enum(['Float', 'Integer', 'Boolean', 'String', 'Vector3', 'Color', 'Object']).optional().describe('Field type (required for add)'),
+      defaultValue: z.any().optional().describe('Default value for the field'),
+      newName: z.string().optional().describe('Rename field to this (update only)'),
+    })).describe('Array of field operations'),
+  },
+  async ({ projectPath, structureId, operations }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Structures');
+    const { filePath, data } = findAssetFile(dir, 'structId', structureId);
+    if (!filePath) return { content: [{ type: 'text', text: `Structure not found: ${structureId}` }] };
+
+    const results: string[] = [];
+    for (const op of operations) {
+      if (op.action === 'add') {
+        data.fields.push({ id: varUid(op.fieldName), name: op.fieldName, type: op.type || 'String', defaultValue: op.defaultValue ?? null });
+        results.push(`Added field "${op.fieldName}" (${op.type})`);
+      } else if (op.action === 'remove') {
+        const before = data.fields.length;
+        data.fields = data.fields.filter((f: any) => f.name !== op.fieldName);
+        results.push(data.fields.length < before ? `Removed field "${op.fieldName}"` : `Field "${op.fieldName}" not found`);
+      } else if (op.action === 'update') {
+        const field = data.fields.find((f: any) => f.name === op.fieldName);
+        if (field) {
+          if (op.type) field.type = op.type;
+          if (op.defaultValue !== undefined) field.defaultValue = op.defaultValue;
+          if (op.newName) field.name = op.newName;
+          results.push(`Updated field "${op.fieldName}"`);
+        } else {
+          results.push(`Field "${op.fieldName}" not found`);
+        }
+      }
+    }
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'structId', 'name');
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'modify_enum',
+  'Add or remove values from an existing enum.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    enumId: z.string().describe('ID of the enum'),
+    addValues: z.array(z.string()).optional().describe('Values to add'),
+    removeValues: z.array(z.string()).optional().describe('Values to remove'),
+  },
+  async ({ projectPath, enumId, addValues, removeValues }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Enums');
+    const { filePath, data } = findAssetFile(dir, 'enumId', enumId);
+    if (!filePath) return { content: [{ type: 'text', text: `Enum not found: ${enumId}` }] };
+
+    const results: string[] = [];
+    if (removeValues && removeValues.length > 0) {
+      const removeSet = new Set(removeValues);
+      const before = data.values.length;
+      data.values = data.values.filter((v: string) => !removeSet.has(v));
+      results.push(`Removed ${before - data.values.length} value(s)`);
+    }
+    if (addValues && addValues.length > 0) {
+      const existing = new Set(data.values);
+      const added = addValues.filter(v => !existing.has(v));
+      data.values.push(...added);
+      results.push(`Added ${added.length} value(s): ${added.join(', ')}`);
+    }
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'enumId', 'name');
+    return { content: [{ type: 'text', text: `Enum "${data.name}": ${results.join('; ')}. Values: [${data.values.join(', ')}]` }] };
+  }
+);
+
+server.tool(
+  'modify_data_table',
+  'Add, update, or remove rows from a data table. Each row is identified by a row key (first column).',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    dataTableId: z.string().describe('ID of the data table'),
+    operations: z.array(z.object({
+      action: z.enum(['add', 'update', 'remove']).describe('"add" a new row, "update" existing row, "remove" by rowKey'),
+      rowKey: z.string().describe('Row identifier (first column value)'),
+      rowData: z.record(z.string(), z.any()).optional().describe('Column values for add/update'),
+    })).describe('Array of row operations'),
+  },
+  async ({ projectPath, dataTableId, operations }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'DataTables');
+    const { filePath, data } = findAssetFile(dir, 'id', dataTableId);
+    if (!filePath) return { content: [{ type: 'text', text: `Data table not found: ${dataTableId}` }] };
+
+    if (!data.rows) data.rows = [];
+    const results: string[] = [];
+    for (const op of operations) {
+      if (op.action === 'add') {
+        data.rows.push({ _key: op.rowKey, ...op.rowData });
+        results.push(`Added row "${op.rowKey}"`);
+      } else if (op.action === 'update') {
+        const row = data.rows.find((r: any) => r._key === op.rowKey);
+        if (row && op.rowData) {
+          Object.assign(row, op.rowData);
+          results.push(`Updated row "${op.rowKey}"`);
+        } else {
+          results.push(`Row "${op.rowKey}" not found`);
+        }
+      } else if (op.action === 'remove') {
+        const before = data.rows.length;
+        data.rows = data.rows.filter((r: any) => r._key !== op.rowKey);
+        results.push(data.rows.length < before ? `Removed row "${op.rowKey}"` : `Row "${op.rowKey}" not found`);
+      }
+    }
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'get_data_table_details',
+  'Get the full contents of a data table including columns and all rows.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    dataTableId: z.string().describe('ID of the data table'),
+  },
+  async ({ projectPath, dataTableId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'DataTables');
+    const { filePath, data } = findAssetFile(dir, 'id', dataTableId);
+    if (!filePath) return { content: [{ type: 'text', text: `Data table not found: ${dataTableId}` }] };
+
+    let result = `Data Table: ${data.name} (ID: ${data.id})\n`;
+    result += `Structure: ${data.structureId || 'None'}\n`;
+    const cols = data.columns || [];
+    result += `Columns (${cols.length}): ${cols.map((c: any) => `${c.name}:${c.type}`).join(', ')}\n`;
+    const rows = data.rows || [];
+    result += `Rows (${rows.length}):\n`;
+    for (const row of rows) {
+      result += `  [${row._key}] ${JSON.stringify(row)}\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+server.tool(
+  'modify_game_instance',
+  'Add, remove, or update variables on a game instance asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    gameInstanceId: z.string().describe('ID of the game instance'),
+    operations: z.array(z.object({
+      action: z.enum(['add', 'remove', 'update']).describe('"add" a new variable, "remove" by name, "update" properties'),
+      variableName: z.string().describe('Variable name'),
+      type: z.enum(['Float', 'Integer', 'Boolean', 'String', 'Vector3', 'Color', 'Object', 'Array']).optional().describe('Variable type (required for add)'),
+      defaultValue: z.any().optional().describe('Default value'),
+      category: z.string().optional().describe('Category grouping'),
+    })).describe('Array of variable operations'),
+  },
+  async ({ projectPath, gameInstanceId, operations }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'GameInstances');
+    const { filePath, data } = findAssetFile(dir, 'id', gameInstanceId);
+    if (!filePath) return { content: [{ type: 'text', text: `Game instance not found: ${gameInstanceId}` }] };
+
+    if (!data.variables) data.variables = [];
+    const results: string[] = [];
+    for (const op of operations) {
+      if (op.action === 'add') {
+        data.variables.push({ id: varUid(op.variableName), name: op.variableName, type: op.type || 'String', defaultValue: op.defaultValue ?? null, category: op.category || 'Default' });
+        results.push(`Added variable "${op.variableName}" (${op.type})`);
+      } else if (op.action === 'remove') {
+        const before = data.variables.length;
+        data.variables = data.variables.filter((v: any) => v.name !== op.variableName);
+        results.push(data.variables.length < before ? `Removed "${op.variableName}"` : `"${op.variableName}" not found`);
+      } else if (op.action === 'update') {
+        const v = data.variables.find((v: any) => v.name === op.variableName);
+        if (v) {
+          if (op.type) v.type = op.type;
+          if (op.defaultValue !== undefined) v.defaultValue = op.defaultValue;
+          if (op.category) v.category = op.category;
+          results.push(`Updated "${op.variableName}"`);
+        } else results.push(`"${op.variableName}" not found`);
+      }
+    }
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'modify_save_game_class',
+  'Add, remove, or update variables on a save game class.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    saveGameId: z.string().describe('ID of the save game class'),
+    operations: z.array(z.object({
+      action: z.enum(['add', 'remove', 'update']),
+      variableName: z.string(),
+      type: z.enum(['Float', 'Integer', 'Boolean', 'String', 'Vector3', 'Color', 'Object', 'Array']).optional(),
+      defaultValue: z.any().optional(),
+    })).describe('Array of variable operations'),
+  },
+  async ({ projectPath, saveGameId, operations }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'SaveGameClasses');
+    const { filePath, data } = findAssetFile(dir, 'id', saveGameId);
+    if (!filePath) return { content: [{ type: 'text', text: `Save game class not found: ${saveGameId}` }] };
+
+    if (!data.variables) data.variables = [];
+    const results: string[] = [];
+    for (const op of operations) {
+      if (op.action === 'add') {
+        data.variables.push({ id: varUid(op.variableName), name: op.variableName, type: op.type || 'String', defaultValue: op.defaultValue ?? null });
+        results.push(`Added "${op.variableName}" (${op.type})`);
+      } else if (op.action === 'remove') {
+        const before = data.variables.length;
+        data.variables = data.variables.filter((v: any) => v.name !== op.variableName);
+        results.push(data.variables.length < before ? `Removed "${op.variableName}"` : `Not found`);
+      } else if (op.action === 'update') {
+        const v = data.variables.find((v: any) => v.name === op.variableName);
+        if (v) {
+          if (op.type) v.type = op.type;
+          if (op.defaultValue !== undefined) v.defaultValue = op.defaultValue;
+          results.push(`Updated "${op.variableName}"`);
+        } else results.push(`"${op.variableName}" not found`);
+      }
+    }
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'modify_behavior_tree',
+  'Add, remove, or update nodes and edges in a behavior tree.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    behaviorTreeId: z.string().describe('ID of the behavior tree'),
+    addNodes: z.array(z.object({
+      type: z.enum(['Selector', 'Sequence', 'Parallel', 'Decorator', 'Condition', 'Action', 'Wait', 'MoveTo', 'Custom']),
+      name: z.string(),
+      properties: z.record(z.string(), z.any()).optional(),
+    })).optional().describe('Nodes to add'),
+    removeNodeIds: z.array(z.string()).optional().describe('Node IDs to remove'),
+    addEdges: z.array(z.object({
+      parentId: z.string(),
+      childId: z.string(),
+      order: z.number().optional(),
+    })).optional().describe('Edges to add (parent → child)'),
+    removeEdgeIds: z.array(z.string()).optional().describe('Edge IDs to remove'),
+  },
+  async ({ projectPath, behaviorTreeId, addNodes, removeNodeIds, addEdges, removeEdgeIds }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'BehaviorTrees');
+    const { filePath, data } = findAssetFile(dir, 'id', behaviorTreeId);
+    if (!filePath) return { content: [{ type: 'text', text: `Behavior tree not found: ${behaviorTreeId}` }] };
+
+    if (!data.nodes) data.nodes = [];
+    if (!data.edges) data.edges = [];
+    const results: string[] = [];
+
+    if (addNodes) {
+      for (const n of addNodes) {
+        const nodeId = 'btn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        data.nodes.push({ id: nodeId, type: n.type, name: n.name, properties: n.properties || {} });
+        results.push(`Added node "${n.name}" [${nodeId}]`);
+      }
+    }
+    if (removeNodeIds) {
+      const removeSet = new Set(removeNodeIds);
+      data.nodes = data.nodes.filter((n: any) => !removeSet.has(n.id));
+      data.edges = data.edges.filter((e: any) => !removeSet.has(e.parentId) && !removeSet.has(e.childId));
+      results.push(`Removed ${removeNodeIds.length} node(s)`);
+    }
+    if (addEdges) {
+      for (const e of addEdges) {
+        const edgeId = 'bte_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        data.edges.push({ id: edgeId, parentId: e.parentId, childId: e.childId, order: e.order ?? data.edges.length });
+        results.push(`Added edge ${e.parentId} → ${e.childId}`);
+      }
+    }
+    if (removeEdgeIds) {
+      const removeSet = new Set(removeEdgeIds);
+      data.edges = data.edges.filter((e: any) => !removeSet.has(e.id));
+      results.push(`Removed ${removeEdgeIds.length} edge(s)`);
+    }
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+// ============================================================
+//  §38. DUPLICATE TOOLS
+// ============================================================
+
+server.tool(
+  'duplicate_actor',
+  'Clone an actor asset into a new actor with a different name. Copies all components, variables, and blueprint graphs.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    actorId: z.string().describe('ID of the source actor to duplicate'),
+    newName: z.string().describe('Name for the duplicated actor'),
+  },
+  async ({ projectPath, actorId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const actorsDir = path.join(projRoot, 'Actors');
+    const { filePath, data: actor } = findActorFile(actorsDir, actorId);
+    if (!filePath || !actor) return { content: [{ type: 'text', text: `Actor not found: ${actorId}` }] };
+
+    const newId = assetUid();
+    const clone = JSON.parse(JSON.stringify(actor));
+    clone.actorId = newId;
+    clone.actorName = newName;
+    clone.createdAt = Date.now();
+    clone.modifiedAt = Date.now();
+    // Generate new component IDs
+    if (clone.components) {
+      for (const comp of clone.components) {
+        comp.id = compUid();
+      }
+    }
+    const fileName = `${safeName(newName)}_${newId}.json`;
+    writeJsonFile(path.join(actorsDir, fileName), clone);
+    updateIndex(actorsDir, 'actorId', 'actorName');
+    return { content: [{ type: 'text', text: `Duplicated "${actor.actorName}" → "${newName}" (ID: ${newId})\nFile: Actors/${fileName}` }] };
+  }
+);
+
+server.tool(
+  'duplicate_widget_blueprint',
+  'Clone a widget blueprint into a new one with a different name.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    widgetId: z.string().describe('ID of the source widget blueprint'),
+    newName: z.string().describe('Name for the duplicated widget'),
+  },
+  async ({ projectPath, widgetId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const r = readWidgetBP(projRoot, widgetId);
+    if (!r) return { content: [{ type: 'text', text: `Widget not found: ${widgetId}` }] };
+
+    const newId = widgetUid();
+    const clone = JSON.parse(JSON.stringify(r.data));
+    clone.widgetBlueprintId = newId;
+    clone.widgetBlueprintName = newName;
+    clone.createdAt = Date.now();
+    clone.modifiedAt = Date.now();
+    const dir = path.join(projRoot, 'Widgets');
+    const fileName = `${safeName(newName)}_${newId}.json`;
+    writeJsonFile(path.join(dir, fileName), clone);
+    return { content: [{ type: 'text', text: `Duplicated "${r.data.widgetBlueprintName}" → "${newName}" (ID: ${newId})` }] };
+  }
+);
+
+// ============================================================
+//  §39. RENAME TOOLS for assets missing rename support
+// ============================================================
+
+server.tool(
+  'rename_structure',
+  'Rename a structure asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    structureId: z.string().describe('ID of the structure'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, structureId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Structures');
+    const { filePath, data } = findAssetFile(dir, 'structId', structureId);
+    if (!filePath) return { content: [{ type: 'text', text: `Structure not found: ${structureId}` }] };
+    const oldName = data.name;
+    data.name = newName;
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'structId', 'name');
+    return { content: [{ type: 'text', text: `Renamed structure "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_enum',
+  'Rename an enum asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    enumId: z.string().describe('ID of the enum'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, enumId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Enums');
+    const { filePath, data } = findAssetFile(dir, 'enumId', enumId);
+    if (!filePath) return { content: [{ type: 'text', text: `Enum not found: ${enumId}` }] };
+    const oldName = data.name;
+    data.name = newName;
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'enumId', 'name');
+    return { content: [{ type: 'text', text: `Renamed enum "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_widget',
+  'Rename a widget blueprint asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    widgetId: z.string().describe('ID of the widget blueprint'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, widgetId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Widgets');
+    const { filePath, data } = findAssetFile(dir, 'widgetBlueprintId', widgetId);
+    if (!filePath) return { content: [{ type: 'text', text: `Widget not found: ${widgetId}` }] };
+    const oldName = data.widgetBlueprintName;
+    data.widgetBlueprintName = newName;
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    return { content: [{ type: 'text', text: `Renamed widget "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_data_table',
+  'Rename a data table asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    dataTableId: z.string().describe('ID of the data table'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, dataTableId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'DataTables');
+    const { filePath, data } = findAssetFile(dir, 'id', dataTableId);
+    if (!filePath) return { content: [{ type: 'text', text: `Data table not found: ${dataTableId}` }] };
+    const oldName = data.name;
+    data.name = newName;
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'id', 'name');
+    return { content: [{ type: 'text', text: `Renamed data table "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_game_instance',
+  'Rename a game instance asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    gameInstanceId: z.string().describe('ID of the game instance'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, gameInstanceId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'GameInstances');
+    const { filePath, data } = findAssetFile(dir, 'id', gameInstanceId);
+    if (!filePath) return { content: [{ type: 'text', text: `Game instance not found: ${gameInstanceId}` }] };
+    const oldName = data.name;
+    data.name = newName;
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'id', 'name');
+    return { content: [{ type: 'text', text: `Renamed game instance "${oldName}" → "${newName}"` }] };
+  }
+);
+
+server.tool(
+  'rename_anim_blueprint',
+  'Rename an animation blueprint asset.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    animBlueprintId: z.string().describe('ID of the animation blueprint'),
+    newName: z.string().describe('New name'),
+  },
+  async ({ projectPath, animBlueprintId, newName }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'AnimBlueprints');
+    const { filePath, data } = findAbpFile(dir, animBlueprintId);
+    if (!filePath) return { content: [{ type: 'text', text: `Anim blueprint not found: ${animBlueprintId}` }] };
+    const oldName = data.animBlueprintName;
+    data.animBlueprintName = newName;
+    data.modifiedAt = Date.now();
+    writeJsonFile(filePath, data);
+    updateIndex(dir, 'animBlueprintId', 'animBlueprintName');
+    return { content: [{ type: 'text', text: `Renamed anim blueprint "${oldName}" → "${newName}"` }] };
+  }
+);
+
+// ============================================================
+//  §40. BRIDGE TOOLS — Editor interaction via WebSocket bridge
+// ============================================================
+
+server.tool(
+  'open_scene',
+  'Open/load a scene in the engine editor (switches the active scene). Requires the engine to be running and connected via the WebSocket bridge.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Name of the scene to open'),
+  },
+  async ({ projectPath, sceneName }) => {
+    const result = await bridgeRequest('open_scene', { sceneName });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected. Make sure the engine is running.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `Opened scene "${sceneName}" in editor` }] };
+    return { content: [{ type: 'text', text: `Failed to open scene: ${result.error || 'Unknown error'}` }] };
+  }
+);
+
+server.tool(
+  'undo',
+  'Undo the last editor action. Requires the engine to be running and connected.',
+  {},
+  async () => {
+    const result = await bridgeRequest('undo');
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected.' }] };
+    if (result.success) return { content: [{ type: 'text', text: result.message || 'Undone' }] };
+    return { content: [{ type: 'text', text: `Undo failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'redo',
+  'Redo the last undone editor action. Requires the engine to be running and connected.',
+  {},
+  async () => {
+    const result = await bridgeRequest('redo');
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected.' }] };
+    if (result.success) return { content: [{ type: 'text', text: result.message || 'Redone' }] };
+    return { content: [{ type: 'text', text: `Redo failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'set_viewport_camera',
+  'Set the viewport camera position and/or rotation. Requires the engine to be running.',
+  {
+    position: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe('Camera position'),
+    lookAt: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe('Point for the camera to look at'),
+  },
+  async ({ position, lookAt }) => {
+    const result = await bridgeRequest('set_viewport_camera', { position, lookAt });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected.' }] };
+    if (result.success) return { content: [{ type: 'text', text: 'Viewport camera updated.' }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'set_gizmo_mode',
+  'Change the editor gizmo mode. Requires the engine to be running.',
+  {
+    mode: z.enum(['translate', 'rotate', 'scale']).describe('Gizmo transformation mode'),
+    space: z.enum(['world', 'local']).optional().describe('Transform space'),
+  },
+  async ({ mode, space }) => {
+    const result = await bridgeRequest('set_gizmo_mode', { mode, space });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `Gizmo mode: ${mode}${space ? ' (' + space + ')' : ''}` }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'set_snap_settings',
+  'Configure grid snap settings in the editor. Requires engine running.',
+  {
+    translateSnap: z.number().optional().describe('Position snap increment (0 to disable)'),
+    rotateSnap: z.number().optional().describe('Rotation snap in degrees (0 to disable)'),
+    scaleSnap: z.number().optional().describe('Scale snap increment (0 to disable)'),
+  },
+  async ({ translateSnap, rotateSnap, scaleSnap }) => {
+    const result = await bridgeRequest('set_snap_settings', { translateSnap, rotateSnap, scaleSnap });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected.' }] };
+    if (result.success) return { content: [{ type: 'text', text: 'Snap settings updated.' }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'spawn_actor_runtime',
+  'Spawn an actor instance during play mode. Requires the engine to be in play mode via the bridge.',
+  {
+    actorId: z.string().describe('ID of the actor class to spawn'),
+    position: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe('Spawn position'),
+    rotation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe('Spawn rotation (degrees)'),
+  },
+  async ({ actorId, position, rotation }) => {
+    const result = await bridgeRequest('spawn_actor_runtime', { actorId, position: position || { x: 0, y: 0, z: 0 }, rotation: rotation || { x: 0, y: 0, z: 0 } });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected or not in play mode.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `Spawned actor at (${(position || { x: 0 }).x}, ${(position || { y: 0 }).y}, ${(position || { z: 0 }).z}). Instance: ${result.instanceId || 'created'}` }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'destroy_actor_runtime',
+  'Destroy a specific actor instance during play mode. Requires the engine to be in play mode.',
+  {
+    objectName: z.string().describe('Name of the game object to destroy in the running scene'),
+  },
+  async ({ objectName }) => {
+    const result = await bridgeRequest('destroy_actor_runtime', { objectName });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected or not in play mode.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `Destroyed "${objectName}" at runtime` }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'get_runtime_variable',
+  'Read a blueprint variable value from a running actor instance during play mode.',
+  {
+    objectName: z.string().describe('Name of the game object in the scene'),
+    variableName: z.string().describe('Variable name to read'),
+  },
+  async ({ objectName, variableName }) => {
+    const result = await bridgeRequest('get_runtime_variable', { objectName, variableName });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected or not in play mode.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `${variableName} = ${JSON.stringify(result.value)}` }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+server.tool(
+  'set_runtime_variable',
+  'Set a blueprint variable value on a running actor instance during play mode.',
+  {
+    objectName: z.string().describe('Name of the game object in the scene'),
+    variableName: z.string().describe('Variable name to set'),
+    value: z.any().describe('New value for the variable'),
+  },
+  async ({ objectName, variableName, value }) => {
+    const result = await bridgeRequest('set_runtime_variable', { objectName, variableName, value });
+    if (!result) return { content: [{ type: 'text', text: 'Bridge not connected or not in play mode.' }] };
+    if (result.success) return { content: [{ type: 'text', text: `Set ${variableName} = ${JSON.stringify(value)} on "${objectName}"` }] };
+    return { content: [{ type: 'text', text: `Failed: ${result.error}` }] };
+  }
+);
+
+// ============================================================
+//  §41. CONTENT FOLDER MANAGEMENT
+// ============================================================
+
+server.tool(
+  'create_folder',
+  'Create a folder within the project for organizing assets.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    folderPath: z.string().describe('Relative path for the folder (e.g. "Actors/Characters", "Textures/UI")'),
+  },
+  async ({ projectPath, folderPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const fullPath = path.join(projRoot, folderPath);
+    if (fs.existsSync(fullPath)) return { content: [{ type: 'text', text: `Folder already exists: ${folderPath}` }] };
+    fs.mkdirSync(fullPath, { recursive: true });
+    return { content: [{ type: 'text', text: `Created folder: ${folderPath}` }] };
+  }
+);
+
+server.tool(
+  'list_folders',
+  'List all folders in the project or within a specific directory.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    parentFolder: z.string().optional().describe('Relative parent folder to list (default: project root)'),
+  },
+  async ({ projectPath, parentFolder }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const target = parentFolder ? path.join(projRoot, parentFolder) : projRoot;
+    if (!fs.existsSync(target)) return { content: [{ type: 'text', text: 'Folder not found.' }] };
+    const entries = fs.readdirSync(target, { withFileTypes: true });
+    const folders = entries.filter(e => e.isDirectory()).map(e => e.name);
+    return { content: [{ type: 'text', text: `Folders in ${parentFolder || '/'}:\n${folders.map(f => '  ' + f + '/').join('\n') || '  (empty)'}` }] };
+  }
+);
+
+server.tool(
+  'move_asset',
+  'Move an asset file to a different folder within the project.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sourcePath: z.string().describe('Current relative path of the file'),
+    destinationPath: z.string().describe('New relative path for the file'),
+  },
+  async ({ projectPath, sourcePath, destinationPath }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const srcFull = path.join(projRoot, sourcePath);
+    const dstFull = path.join(projRoot, destinationPath);
+    if (!fs.existsSync(srcFull)) return { content: [{ type: 'text', text: `Source not found: ${sourcePath}` }] };
+    const dstDir = path.dirname(dstFull);
+    if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true });
+    fs.renameSync(srcFull, dstFull);
+    return { content: [{ type: 'text', text: `Moved ${sourcePath} → ${destinationPath}` }] };
+  }
+);
+
+// ============================================================
+//  §42. ASSET INTROSPECTION — Get full details for any asset type
+// ============================================================
+
+server.tool(
+  'get_structure_details',
+  'Get full details of a structure asset including all fields.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    structureId: z.string().describe('ID of the structure'),
+  },
+  async ({ projectPath, structureId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Structures');
+    const { data } = findAssetFile(dir, 'structId', structureId);
+    if (!data) return { content: [{ type: 'text', text: `Structure not found: ${structureId}` }] };
+    let result = `Structure: ${data.name} (ID: ${data.structId})\n`;
+    result += `Fields (${(data.fields || []).length}):\n`;
+    for (const f of data.fields || []) {
+      result += `  • ${f.name} : ${f.type} = ${JSON.stringify(f.defaultValue)}\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+server.tool(
+  'get_enum_details',
+  'Get full details of an enum asset including all values.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    enumId: z.string().describe('ID of the enum'),
+  },
+  async ({ projectPath, enumId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'Enums');
+    const { data } = findAssetFile(dir, 'enumId', enumId);
+    if (!data) return { content: [{ type: 'text', text: `Enum not found: ${enumId}` }] };
+    return { content: [{ type: 'text', text: `Enum: ${data.name} (ID: ${data.enumId})\nValues: ${(data.values || []).join(', ')}` }] };
+  }
+);
+
+server.tool(
+  'get_game_instance_details',
+  'Get full details of a game instance asset including all variables.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    gameInstanceId: z.string().describe('ID of the game instance'),
+  },
+  async ({ projectPath, gameInstanceId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'GameInstances');
+    const { data } = findAssetFile(dir, 'id', gameInstanceId);
+    if (!data) return { content: [{ type: 'text', text: `Game instance not found: ${gameInstanceId}` }] };
+    let result = `Game Instance: ${data.name} (ID: ${data.id})\n`;
+    result += `Variables (${(data.variables || []).length}):\n`;
+    for (const v of data.variables || []) {
+      result += `  • ${v.name} : ${v.type} = ${JSON.stringify(v.defaultValue)} [${v.category || 'Default'}]\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+server.tool(
+  'get_save_game_details',
+  'Get full details of a save game class including all variables.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    saveGameId: z.string().describe('ID of the save game class'),
+  },
+  async ({ projectPath, saveGameId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'SaveGameClasses');
+    const { data } = findAssetFile(dir, 'id', saveGameId);
+    if (!data) return { content: [{ type: 'text', text: `Save game class not found: ${saveGameId}` }] };
+    let result = `Save Game: ${data.name} (ID: ${data.id})\n`;
+    result += `Variables (${(data.variables || []).length}):\n`;
+    for (const v of data.variables || []) {
+      result += `  • ${v.name} : ${v.type} = ${JSON.stringify(v.defaultValue)}\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+server.tool(
+  'get_behavior_tree_details',
+  'Get full details of a behavior tree including nodes and edges.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    behaviorTreeId: z.string().describe('ID of the behavior tree'),
+  },
+  async ({ projectPath, behaviorTreeId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const dir = path.join(projRoot, 'BehaviorTrees');
+    const { data } = findAssetFile(dir, 'id', behaviorTreeId);
+    if (!data) return { content: [{ type: 'text', text: `Behavior tree not found: ${behaviorTreeId}` }] };
+    let result = `Behavior Tree: ${data.name} (ID: ${data.id})\n`;
+    const nodes = data.nodes || [];
+    result += `Nodes (${nodes.length}):\n`;
+    for (const n of nodes) {
+      result += `  • [${n.type}] ${n.name} (${n.id})\n`;
+    }
+    const edges = data.edges || [];
+    result += `Edges (${edges.length}):\n`;
+    for (const e of edges) {
+      result += `  ${e.parentId} → ${e.childId}\n`;
+    }
+    return { content: [{ type: 'text', text: result }] };
+  }
+);
+
+// ============================================================
+//  §43. SCENE QUERIES — Find actors by criteria
+// ============================================================
+
+server.tool(
+  'find_actors_in_scene',
+  'Search for objects in a scene by name pattern, type, or asset ID.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene to search in'),
+    namePattern: z.string().optional().describe('Substring to match against object names (case-insensitive)'),
+    actorType: z.string().optional().describe('Filter by actor type (actor, characterPawn, etc.)'),
+    assetId: z.string().optional().describe('Filter by source asset ID'),
+  },
+  async ({ projectPath, sceneName, namePattern, actorType, assetId }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const sceneData = readJsonFile(scenePath);
+    let objects = sceneData.gameObjects || [];
+
+    if (namePattern) {
+      const lower = namePattern.toLowerCase();
+      objects = objects.filter((o: any) => (o.name || '').toLowerCase().includes(lower));
+    }
+    if (actorType) objects = objects.filter((o: any) => o.actorType === actorType);
+    if (assetId) objects = objects.filter((o: any) => o.assetId === assetId);
+
+    if (objects.length === 0) return { content: [{ type: 'text', text: 'No matching objects found.' }] };
+    const lines = objects.map((o: any) => {
+      const pos = o.position || { x: 0, y: 0, z: 0 };
+      return `  • ${o.name}${o.actorType ? ' [' + o.actorType + ']' : ''} at (${pos.x?.toFixed(2)}, ${pos.y?.toFixed(2)}, ${pos.z?.toFixed(2)})${o.assetId ? ' asset:' + o.assetId : ''}`;
+    });
+    return { content: [{ type: 'text', text: `Found ${objects.length} object(s):\n${lines.join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'count_scene_objects',
+  'Count the number of objects in a scene, optionally filtered by type.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name'),
+    actorType: z.string().optional().describe('Count only this type'),
+  },
+  async ({ projectPath, sceneName, actorType }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const sceneData = readJsonFile(scenePath);
+    let objects = sceneData.gameObjects || [];
+    if (actorType) objects = objects.filter((o: any) => o.actorType === actorType);
+    return { content: [{ type: 'text', text: `${objects.length} object(s)${actorType ? ' of type ' + actorType : ''} in "${sceneName}"` }] };
+  }
+);
+
+// ============================================================
+//  §44. BATCH OPERATIONS — Perform multiple operations at once
+// ============================================================
+
+server.tool(
+  'batch_add_actors_to_scene',
+  'Add multiple actor instances to a scene in a single call. More efficient than calling add_actor_to_scene repeatedly.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene to add actors to'),
+    actors: z.array(z.object({
+      actorId: z.string().describe('Actor asset ID'),
+      name: z.string().optional().describe('Instance name override'),
+      position: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+      rotation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+      scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+    })).describe('Array of actors to place'),
+  },
+  async ({ projectPath, sceneName, actors }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const sceneData = readJsonFile(scenePath);
+    if (!sceneData.gameObjects) sceneData.gameObjects = [];
+    const actorsDir = path.join(projRoot, 'Actors');
+
+    const added: string[] = [];
+    for (const a of actors) {
+      const { data: actorData } = findActorFile(actorsDir, a.actorId);
+      const actorName = a.name || actorData?.actorName || a.actorId;
+      // Check for duplicate names
+      let finalName = actorName;
+      const existing = sceneData.gameObjects.map((o: any) => o.name);
+      if (existing.includes(finalName)) {
+        let suffix = 1;
+        while (existing.includes(finalName + '_' + suffix)) suffix++;
+        finalName = finalName + '_' + suffix;
+      }
+
+      const sceneObj: any = {
+        name: finalName,
+        meshType: actorData?.rootMeshType || 'cube',
+        position: a.position || { x: 0, y: 0, z: 0 },
+        rotation: a.rotation || { x: 0, y: 0, z: 0 },
+        scale: a.scale || { x: 1, y: 1, z: 1 },
+        assetId: a.actorId,
+      };
+      if (actorData?.actorType) sceneObj.actorType = actorData.actorType;
+      sceneData.gameObjects.push(sceneObj);
+      added.push(finalName);
+    }
+
+    writeJsonFile(scenePath, sceneData);
+    broadcastChange({ type: 'scene-changed', sceneName, action: 'batch-add' });
+    return { content: [{ type: 'text', text: `Added ${added.length} actor(s) to "${sceneName}":\n${added.map(n => '  • ' + n).join('\n')}` }] };
+  }
+);
+
+server.tool(
+  'batch_modify_scene_objects',
+  'Modify multiple scene objects in one call. Set position, rotation, scale, or visibility for many objects at once.',
+  {
+    projectPath: z.string().describe('Absolute path to the project root folder'),
+    sceneName: z.string().describe('Scene name'),
+    modifications: z.array(z.object({
+      objectName: z.string().describe('Name of the object in the scene'),
+      position: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+      rotation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+      scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+      visible: z.boolean().optional(),
+    })).describe('Array of modifications'),
+  },
+  async ({ projectPath, sceneName, modifications }) => {
+    const projRoot = findProjectRoot(projectPath) || projectPath;
+    const scenePath = path.join(projRoot, 'Scenes', sceneName + '.json');
+    if (!fs.existsSync(scenePath)) return { content: [{ type: 'text', text: `Scene not found: ${sceneName}` }] };
+    const sceneData = readJsonFile(scenePath);
+    const objects = sceneData.gameObjects || [];
+
+    const results: string[] = [];
+    for (const mod of modifications) {
+      const obj = objects.find((o: any) => o.name === mod.objectName);
+      if (!obj) { results.push(`"${mod.objectName}": not found`); continue; }
+      if (mod.position) obj.position = mod.position;
+      if (mod.rotation) obj.rotation = mod.rotation;
+      if (mod.scale) obj.scale = mod.scale;
+      if (mod.visible !== undefined) obj.visible = mod.visible;
+      results.push(`"${mod.objectName}": updated`);
+    }
+
+    writeJsonFile(scenePath, sceneData);
+    broadcastChange({ type: 'scene-changed', sceneName, action: 'batch-modify' });
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
 return _server;
 }
 

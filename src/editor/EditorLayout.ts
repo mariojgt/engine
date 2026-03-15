@@ -1627,6 +1627,8 @@ export class EditorLayout {
 
   // ---- Camera state for project save/load ----
 
+  getViewport(): ViewportPanel | null { return this._viewport; }
+
   getCameraState(): CameraStateJSON | undefined {
     if (!this._viewport) return undefined;
     return this._viewport.getCameraState();
