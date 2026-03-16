@@ -26,6 +26,7 @@ export function showProjectDialog(
 
     overlay.innerHTML = `
       <div class="project-dialog">
+        <button class="project-dialog-close-btn" id="pd-close" title="Close">&times;</button>
         <div class="project-dialog-header">
           <div class="project-dialog-logo">${iconHTML(Icons.Feather, 'xl', ICON_COLORS.blue)}</div>
           <h1 class="project-dialog-title">Feather Engine</h1>
@@ -85,6 +86,7 @@ export function showProjectDialog(
     const createBtn = overlay.querySelector('#pd-create') as HTMLButtonElement;
     const openBtn = overlay.querySelector('#pd-open') as HTMLButtonElement;
     const skipBtn = overlay.querySelector('#pd-skip') as HTMLButtonElement;
+    const closeBtn = overlay.querySelector('#pd-close') as HTMLButtonElement;
 
     // Focus the name input
     setTimeout(() => nameInput.focus(), 100);
@@ -95,8 +97,32 @@ export function showProjectDialog(
     });
 
     const cleanup = () => {
+      document.removeEventListener('keydown', onEscKey);
       overlay.remove();
     };
+
+    // --- Close on Escape key ---
+    const onEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cleanup();
+        resolve({ action: 'cancelled' });
+      }
+    };
+    document.addEventListener('keydown', onEscKey);
+
+    // --- Close on overlay (outside dialog) click ---
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve({ action: 'cancelled' });
+      }
+    });
+
+    // --- Close button (X) ---
+    closeBtn.addEventListener('click', () => {
+      cleanup();
+      resolve({ action: 'cancelled' });
+    });
 
     // --- Create Project ---
     createBtn.addEventListener('click', async () => {

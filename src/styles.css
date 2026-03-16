@@ -2784,6 +2784,31 @@ html, body, #app {
   max-width: 90vw;
   box-shadow: var(--shadow-xl);
   overflow: hidden;
+  position: relative;
+}
+
+.project-dialog-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 22px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  z-index: 1;
+  line-height: 1;
+  padding: 0;
+}
+.project-dialog-close-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--text-bright);
 }
 
 .project-dialog-header {

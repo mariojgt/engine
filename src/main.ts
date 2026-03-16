@@ -811,6 +811,11 @@ async function main() {
               sounds: SoundLibrary.instance?.exportAllSounds() ?? [],
               cues: SoundLibrary.instance?.exportAllCues() ?? [],
             },
+            // Include composition data so gameplay window can size ground collider
+            composition: {
+              actors: editor.composition.serialize?.() ?? [],
+              groundPlane: editor.composition.getGroundPlaneSettings(),
+            },
           };
 
           console.log('[Editor] Sending', sceneData.gameObjects.length, 'game objects to gameplay window');
@@ -837,6 +842,11 @@ async function main() {
         console.log('[Editor] Falling back to in-editor play mode');
 
         // Fallback to in-editor mode
+        // Sync ground plane physics collider with DevGroundPlane visual size
+        const gpFallback = editor.composition.getGroundPlaneSettings();
+        if (gpFallback.hasCollision) {
+          engine.physics.setGroundPlaneSize(gpFallback.halfExtent);
+        }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         await engine.onPlayStarted(canvas ?? undefined);
@@ -950,6 +960,11 @@ async function main() {
         editor.set2DPlayMode(true);
       } else {
         // ---- 3D Play Mode ----
+        // Sync ground plane physics collider with DevGroundPlane visual size
+        const gpSettings = editor.composition.getGroundPlaneSettings();
+        if (gpSettings.hasCollision) {
+          engine.physics.setGroundPlaneSize(gpSettings.halfExtent);
+        }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         await engine.onPlayStarted(canvas ?? undefined);

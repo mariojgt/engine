@@ -183,6 +183,15 @@ async function startGameplay(sceneData: any): Promise<void> {
   // Wait for async mesh loads then start physics
   await runtimeEngine.scene.waitForMeshLoads();
   if (token !== sessionToken || engine !== runtimeEngine) return;
+
+  // Sync ground plane collider size from composition data before play
+  if (sceneData.composition?.groundPlane) {
+    const gp = sceneData.composition.groundPlane;
+    if (gp.hasCollision && gp.halfExtent) {
+      runtimeEngine.physics.setGroundPlaneSize(gp.halfExtent);
+    }
+  }
+
   runtimeEngine.physics.play(runtimeEngine.scene);
 
   // Initialize Render Pipeline
