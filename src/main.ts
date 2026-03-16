@@ -91,8 +91,6 @@ async function main() {
     <button class="toolbar-btn mcp-off" id="btn-mcp" title="Start/Stop MCP AI Server">${iconHTML(Icons.Bot, 'xs')} MCP</button>
     <span class="mcp-status-dot" id="mcp-status-dot"></span>
     <div class="toolbar-separator"></div>
-    <button class="toolbar-btn" id="btn-terrain" title="Open Terrain Editor">${iconHTML(Icons.Mountain, 'xs', '#4ade80')} Terrain</button>
-    <div class="toolbar-separator"></div>
     <button class="toolbar-btn play" id="btn-play">${iconHTML(Icons.Play, 'xs')} Play</button>
     <button class="toolbar-btn stop" id="btn-stop" style="display:none">${iconHTML(Icons.Square, 'xs')} Stop</button>
     <div class="toolbar-separator"></div>
@@ -849,11 +847,6 @@ async function main() {
         if (gpFallback.hasCollision) {
           engine.physics.setGroundPlaneSize(gpFallback.halfExtent);
         }
-        // Sync terrain trimesh collider if a terrain actor exists
-        const terrainGeoFb = editor.composition.getTerrainCollisionData();
-        if (terrainGeoFb) {
-          engine.physics.setTerrainCollider(terrainGeoFb.vertices, terrainGeoFb.indices);
-        }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         await engine.onPlayStarted(canvas ?? undefined);
@@ -971,11 +964,6 @@ async function main() {
         const gpSettings = editor.composition.getGroundPlaneSettings();
         if (gpSettings.hasCollision) {
           engine.physics.setGroundPlaneSize(gpSettings.halfExtent);
-        }
-        // Sync terrain trimesh collider if a terrain actor exists
-        const terrainGeo = editor.composition.getTerrainCollisionData();
-        if (terrainGeo) {
-          engine.physics.setTerrainCollider(terrainGeo.vertices, terrainGeo.indices);
         }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
@@ -1106,11 +1094,6 @@ async function main() {
       (o) => o.mesh.geometry.type === 'SphereGeometry'
     ).length;
     engine.scene.addGameObject(`Sphere${count > 0 ? '_' + count : ''}`, 'sphere');
-  });
-
-  // Terrain editor button
-  document.getElementById('btn-terrain')!.addEventListener('click', () => {
-    editor.openTerrainEditor();
   });
 
   // --- Main loop ---

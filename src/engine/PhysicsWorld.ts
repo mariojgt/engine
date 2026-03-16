@@ -72,40 +72,6 @@ export class PhysicsWorld {
     this._groundCollider = this.world.createCollider(groundDesc);
   }
 
-  /** Handle to a terrain trimesh collider (if any) */
-  private _terrainCollider: RAPIER.Collider | null = null;
-  private _terrainBody: RAPIER.RigidBody | null = null;
-
-  /**
-   * Add a terrain trimesh collider from raw vertex/index data.
-   * Replaces any existing terrain collider.  Call after init() and before play().
-   */
-  setTerrainCollider(vertices: Float32Array, indices: Uint32Array): void {
-    if (!this.world) return;
-
-    // Remove existing terrain collider
-    if (this._terrainCollider) {
-      this.world.removeCollider(this._terrainCollider, false);
-      this._terrainCollider = null;
-    }
-    if (this._terrainBody) {
-      this.world.removeRigidBody(this._terrainBody);
-      this._terrainBody = null;
-    }
-
-    // Create a static rigid body for the terrain
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed();
-    this._terrainBody = this.world.createRigidBody(bodyDesc);
-
-    // Create trimesh collider
-    const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices)
-      .setFriction(0.8)
-      .setRestitution(0.0);
-    this._terrainCollider = this.world.createCollider(colliderDesc, this._terrainBody);
-
-    console.log(`[PhysicsWorld] Terrain collider set: ${vertices.length / 3} verts, ${indices.length / 3} tris`);
-  }
-
   addPhysicsBody(go: GameObject): void {
     if (!this.world || !this._initialized) return;
 
