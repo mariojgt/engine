@@ -70,6 +70,8 @@ import { BuildConfigurationEditorPanel } from './build/BuildConfigurationEditorP
 import type { BuildConfigurationManager } from './build/BuildConfigurationAsset';
 import type { DependencyAnalyzerContext } from './build/DependencyAnalyzer';
 import { SpriteMakerPanel } from './SpriteMakerPanel';
+import { TerrainEditorPanel, type TerrainData } from './TerrainEditorPanel';
+import { TerrainActor } from './scene/SceneActors';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -137,6 +139,7 @@ export class EditorLayout {
   private _materialEditor: MaterialEditorPanel | null = null;
   private _shaderGraphEditor: ShaderGraphEditorPanel | null = null;
   private _soundCueEditor: SoundCueEditorPanel | null = null;
+  private _terrainEditor: TerrainEditorPanel | null = null;
 
   // ── AI ──
   private _aiManager: AIAssetManager | null = null;
@@ -922,6 +925,82 @@ export class EditorLayout {
         );
       }
     }
+  }
+
+  /** Open the Terrain Editor panel for the scene's terrain actor */
+  openTerrainEditor(): void {
+    const terrainActor = this.composition.getTerrainActor();
+    if (!terrainActor) {
+      // Create a terrain actor first
+      const id = this.composition.addNewActor('Terrain' as any);
+      if (!id) return;
+      // Re-fetch
+      const actor = this.composition.getTerrainActor();
+      if (!actor) return;
+      this._openTerrainEditorForActor(actor);
+    } else {
+      this._openTerrainEditorForActor(terrainActor);
+    }
+  }
+
+  private _openTerrainEditorForActor(terrainActor: TerrainActor): void {
+    // Close existing terrain editor if open
+    if (this._terrainEditor) {
+      this._terrainEditor.dispose();
+      this._terrainEditor = null;
+      if (this._viewport) this._viewport.setTerrainEditor(null);
+      try { this._api.getPanel('terrain-editor')?.api.close(); } catch (_e) {}
+    }
+
+    const panelId = 'terrain-editor';
+    this._api.addPanel({
+      id: panelId,
+      title: 'Terrain Editor',
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Mountain, ICON_COLORS.green);
+
+    // Listen for panel close to disconnect viewport sculpting
+    try {
+      const panel = this._api.getPanel(panelId);
+      if (panel) {
+        panel.api.onDidActiveChange((ev: { isActive: boolean }) => {
+          // If it becomes inactive (closed), clear the terrain editor from viewport
+        });
+      }
+    } catch (_e) {}
+
+    try {
+      this._api.getPanel('viewport')?.group.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+
+    this._terrainEditor = new TerrainEditorPanel(
+      renderer.element,
+      terrainActor.terrainData,
+      {
+        onDataChanged: (data: TerrainData) => {
+          terrainActor.rebuildMesh();
+        },
+        onLayerMaterialRequest: (layerId: string) => {
+          // Could open a material picker dialog here
+          console.log('[Terrain] Material assignment requested for layer:', layerId);
+        },
+      },
+    );
+
+    // Wire terrain editor to viewport for mouse-based sculpting
+    if (this._viewport) {
+      this._viewport.setTerrainEditor(this._terrainEditor);
+    }
+  }
+
+  /** Get the terrain editor panel (for viewport mouse interaction) */
+  getTerrainEditor(): TerrainEditorPanel | null {
+    return this._terrainEditor;
   }
 
   /** Open a game instance blueprint editor panel */

@@ -8,6 +8,8 @@ import type { Camera2D } from '../engine/Camera2D';
 import type { Scene2DManager } from './Scene2DManager';
 import type { TileEditorPanel, TileTool } from './TileEditorPanel';
 import type { TilemapRenderer } from './TilemapRenderer';
+import type { TerrainEditorPanel } from './TerrainEditorPanel';
+import { TerrainActor } from './scene/SceneActors';
 
 /* Viewport sub-systems */
 import { ViewportCameraController } from './viewport/ViewportCameraController';
@@ -87,6 +89,11 @@ export class ViewportPanel {
 
   /* 2D play mode — blocks editing while keeping 2D render active */
   private _isPlaying2D = false;
+
+  /* Terrain sculpting state */
+  private _terrainEditor: TerrainEditorPanel | null = null;
+  private _terrainSculpting = false;
+  private _terrainRaycaster = new THREE.Raycaster();
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -327,6 +334,21 @@ export class ViewportPanel {
     // Hide context menu on any click
     this._contextMenu.hide();
 
+    // ── Terrain sculpting mode (3D, when terrain editor is active) ──
+    if (!this._is2DMode && this._terrainEditor && e.button === 0 && !e.altKey) {
+      const mode = this._terrainEditor.mode;
+      if (mode === 'sculpt' || mode === 'paint') {
+        // Only intercept the click if we actually hit the terrain
+        const hit = this._terrainRaycast(e);
+        if (hit) {
+          this._terrainSculpting = true;
+          this._handleTerrainSculptAtHit(hit);
+          return;
+        }
+        // If we missed the terrain, fall through to normal input handling
+      }
+    }
+
     // ── 2D Tile painting mode (only when tileset tab is visible) ──
     if (this._is2DMode && this._tileEditorPanel && this._tileEditorPanel.isVisible && e.button === 0 && !e.altKey) {
       const tool = this._tileEditorPanel.activeTool;
@@ -360,6 +382,19 @@ export class ViewportPanel {
   private _onMouseMove(e: MouseEvent): void {
     if (this._playCamera || this._isPlaying2D) return;
 
+    // ── Terrain sculpting (3D) ──
+    if (!this._is2DMode && this._terrainEditor) {
+      const mode = this._terrainEditor.mode;
+      if (mode === 'sculpt' || mode === 'paint') {
+        // Always show brush indicator on hover
+        this._handleTerrainBrushPreview(e);
+        if (this._terrainSculpting) {
+          this._handleTerrainSculptEvent(e);
+          return;
+        }
+      }
+    }
+
     // ── Tile preview ghost (always update when in 2D tile paint mode) ──
     if (this._is2DMode && this._tileEditorPanel && this._tileEditorPanel.isVisible
         && this._scene2DManager?.camera2D && this._renderer) {
@@ -388,6 +423,13 @@ export class ViewportPanel {
 
   private _onMouseUp(e: MouseEvent): void {
     if (this._playCamera || this._isPlaying2D) return;
+
+    // ── End terrain sculpting ──
+    if (this._terrainSculpting) {
+      this._terrainSculpting = false;
+      this._inputManager.onPointerUp(e);
+      return;
+    }
 
     // ── End tile painting ──
     if (this._tilePaintMouseDown) {
@@ -1017,6 +1059,87 @@ export class ViewportPanel {
   /** Set the tile editor panel for 2D tile painting integration */
   setTileEditorPanel(panel: TileEditorPanel | null): void {
     this._tileEditorPanel = panel;
+  }
+
+  /** Set the terrain editor panel for 3D terrain sculpting integration */
+  setTerrainEditor(panel: TerrainEditorPanel | null): void {
+    this._terrainEditor = panel;
+    // When editor is cleared, hide any lingering brush indicator
+    if (!panel && this._composition) {
+      const terrain = this._composition.getTerrainActor?.();
+      if (terrain) terrain.hideBrush();
+    }
+  }
+
+  // ── Terrain sculpting helpers ────────────────────────────────────────
+
+  /** Raycast the mouse position against the terrain mesh to get a world-space hit point */
+  private _terrainRaycast(e: MouseEvent): THREE.Vector3 | null {
+    if (!this._renderer || !this._camera) return null;
+    const rect = this._renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this._terrainRaycaster.setFromCamera(ndc, this._camera);
+
+    // Collect terrain meshes (marked with __isTerrainMesh userData)
+    const scene3 = this._engine.scene.threeScene;
+    const terrainMeshes: THREE.Object3D[] = [];
+    scene3.traverse((obj) => {
+      if (obj.userData.__isTerrainMesh) terrainMeshes.push(obj);
+    });
+    if (terrainMeshes.length === 0) return null;
+
+    const hits = this._terrainRaycaster.intersectObjects(terrainMeshes, false);
+    return hits.length > 0 ? hits[0].point : null;
+  }
+
+  /** Handle a sculpt/paint stroke at the current mouse position (used by mouse-move during drag) */
+  private _handleTerrainSculptEvent(e: MouseEvent): void {
+    if (!this._terrainEditor || !this._composition) return;
+    const hit = this._terrainRaycast(e);
+    if (!hit) return;
+    this._handleTerrainSculptAtHit(hit);
+  }
+
+  /** Apply sculpt/paint at a known hit point */
+  private _handleTerrainSculptAtHit(hit: THREE.Vector3): void {
+    if (!this._terrainEditor || !this._composition) return;
+
+    const terrainActor = this._composition.getTerrainActor?.();
+    if (!terrainActor) return;
+
+    const radius = this._terrainEditor.brushRadius;
+    const strength = this._terrainEditor.brushStrength;
+    const dt = 1 / 60; // fixed timestep per event
+
+    const mode = this._terrainEditor.mode;
+    if (mode === 'sculpt') {
+      terrainActor.applySculpt(this._terrainEditor.sculptTool, hit, radius, strength, dt);
+    } else if (mode === 'paint') {
+      const layerId = this._terrainEditor.activeLayerId;
+      if (layerId) {
+        terrainActor.applyPaint(layerId, hit, radius, strength, false, dt);
+      }
+    }
+
+    // Update brush indicator position
+    terrainActor.showBrush(hit, radius);
+  }
+
+  /** Show/move the brush indicator as the mouse hovers over terrain (no click needed) */
+  private _handleTerrainBrushPreview(e: MouseEvent): void {
+    if (!this._terrainEditor || !this._composition) return;
+    const terrainActor = this._composition.getTerrainActor?.();
+    if (!terrainActor) return;
+
+    const hit = this._terrainRaycast(e);
+    if (hit) {
+      terrainActor.showBrush(hit, this._terrainEditor.brushRadius);
+    } else {
+      terrainActor.hideBrush();
+    }
   }
 
   /** Set the tilemap renderer so animated tile UVs can be updated each frame */

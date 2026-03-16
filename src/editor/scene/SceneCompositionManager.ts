@@ -20,6 +20,7 @@ import {
   PostProcessVolumeActor,
   WorldGridActor,
   DevGroundPlaneActor,
+  TerrainActor,
   PlayerStartActor,
   getSceneActorIcon,
 } from './SceneActors';
@@ -338,6 +339,9 @@ export class SceneCompositionManager {
       case 'DevGroundPlane':
         actor = new DevGroundPlaneActor(id, name, props);
         break;
+      case 'Terrain':
+        actor = new TerrainActor(id, name, props);
+        break;
       case 'PlayerStart':
         actor = new PlayerStartActor(id, name, props);
         break;
@@ -360,6 +364,7 @@ export class SceneCompositionManager {
       { type: 'ExponentialHeightFog', label: 'Exponential Height Fog', icon: getSceneActorIcon('ExponentialHeightFog') },
       { type: 'PostProcessVolume', label: 'Post Process Volume', icon: getSceneActorIcon('PostProcessVolume') },
       { type: 'DevGroundPlane', label: 'Dev Ground Plane', icon: getSceneActorIcon('DevGroundPlane') },
+      { type: 'Terrain', label: 'Terrain', icon: getSceneActorIcon('Terrain') },
       { type: 'PlayerStart', label: 'Player Start', icon: getSceneActorIcon('PlayerStart') },
     ];
   }
@@ -496,6 +501,8 @@ export class SceneCompositionManager {
         return new WorldGridActor(json.actorId, json.actorName, json.properties);
       case 'DevGroundPlane':
         return new DevGroundPlaneActor(json.actorId, json.actorName, json.properties);
+      case 'Terrain':
+        return new TerrainActor(json.actorId, json.actorName, json.properties);
       case 'PlayerStart':
         return new PlayerStartActor(json.actorId, json.actorName, json.properties);
       default:
@@ -572,6 +579,23 @@ export class SceneCompositionManager {
     });
     this._actors.clear();
     this._selectedActorId = null;
+  }
+
+  /** Get the first TerrainActor in the scene (if any) */
+  getTerrainActor(): TerrainActor | null {
+    for (const entry of this._actors.values()) {
+      if (entry.actor instanceof TerrainActor) {
+        return entry.actor;
+      }
+    }
+    return null;
+  }
+
+  /** Get terrain collision data for the physics system */
+  getTerrainCollisionData(): { vertices: Float32Array; indices: Uint32Array } | null {
+    const terrain = this.getTerrainActor();
+    if (!terrain || !terrain.terrainData.hasCollision) return null;
+    return terrain.getCollisionGeometry();
   }
 
   dispose(): void {

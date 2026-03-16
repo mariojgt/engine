@@ -8,6 +8,15 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import {
+  type TerrainData,
+  type TerrainLayer,
+  TerrainMeshBuilder,
+  SculptBrush,
+  PaintBrush,
+  createDefaultTerrainData,
+} from '../TerrainEditorPanel';
+import { MeshAssetManager } from '../MeshAsset';
 
 // ---- Shared types ----
 
@@ -34,6 +43,7 @@ export type SceneActorType =
   | 'PostProcessVolume'
   | 'WorldGrid'
   | 'DevGroundPlane'
+  | 'Terrain'
   | 'PlayerStart';
 
 /** Allowed gizmo modes per actor type */
@@ -1937,6 +1947,360 @@ export class DevGroundPlaneActor extends BaseSceneActor {
 }
 
 // ============================================================
+//  6c. TERRAIN — Heightmap-based landscape with splatmap materials
+// ============================================================
+
+export class TerrainActor extends BaseSceneActor {
+  readonly type: SceneActorType = 'Terrain';
+  private _terrainMesh: THREE.Mesh | null = null;
+  private _brushIndicator: THREE.Mesh | null = null;
+  private _scene: THREE.Scene | null = null;
+  private _terrainData: TerrainData;
+  private _devTexture: THREE.CanvasTexture | null = null;
+
+  /** Expose terrain data for the editor panel and external systems */
+  get terrainData(): TerrainData { return this._terrainData; }
+  get terrainMesh(): THREE.Mesh | null { return this._terrainMesh; }
+
+  constructor(id: string, name: string, props: Record<string, any> = {}) {
+    super(id, name);
+    this.group.userData.__sceneActorType = 'Terrain';
+
+    // Deserialize or create default terrain data
+    if (props._terrainData) {
+      this._terrainData = TerrainActor._deserializeTerrainData(props._terrainData);
+    } else {
+      this._terrainData = createDefaultTerrainData();
+      if (props.sizeX != null) this._terrainData.sizeX = props.sizeX;
+      if (props.sizeZ != null) this._terrainData.sizeZ = props.sizeZ;
+      if (props.maxHeight != null) this._terrainData.maxHeight = props.maxHeight;
+      if (props.resolution != null) this._terrainData.resolution = props.resolution;
+      if (props.hasCollision != null) this._terrainData.hasCollision = props.hasCollision;
+    }
+
+    this.properties = {
+      sizeX: this._terrainData.sizeX,
+      sizeZ: this._terrainData.sizeZ,
+      maxHeight: this._terrainData.maxHeight,
+      resolution: this._terrainData.resolution,
+      hasCollision: this._terrainData.hasCollision,
+      layerCount: this._terrainData.layers.length,
+    };
+
+    if (props.positionY != null) this.group.position.y = props.positionY;
+  }
+
+  getGizmoCapabilities(): GizmoCapability[] {
+    return ['translate'];
+  }
+
+  addToScene(scene: THREE.Scene): void {
+    this._scene = scene;
+    scene.add(this.group);
+    this._createMesh();
+    this._createBrushIndicator();
+  }
+
+  removeFromScene(scene: THREE.Scene): void {
+    this._disposeMesh();
+    this._disposeBrushIndicator();
+    scene.remove(this.group);
+    this._scene = null;
+  }
+
+  setVisible(visible: boolean): void {
+    if (this._terrainMesh) this._terrainMesh.visible = visible;
+  }
+
+  setEditorVisible(visible: boolean): void {
+    // Brush indicator is editor-only
+    if (this._brushIndicator) this._brushIndicator.visible = visible;
+  }
+
+  updateProperty(key: string, value: any): void {
+    this.properties[key] = value;
+
+    switch (key) {
+      case 'sizeX':
+        this._terrainData.sizeX = value;
+        this._rebuildMesh();
+        break;
+      case 'sizeZ':
+        this._terrainData.sizeZ = value;
+        this._rebuildMesh();
+        break;
+      case 'maxHeight':
+        this._terrainData.maxHeight = value;
+        this._updateHeights();
+        break;
+      case 'resolution':
+        this._terrainData.resolution = value;
+        this._rebuildMesh();
+        break;
+      case 'hasCollision':
+        this._terrainData.hasCollision = value;
+        break;
+    }
+  }
+
+  /** Apply a sculpt brush stroke — called from the viewport mouse handler */
+  applySculpt(
+    tool: import('../TerrainEditorPanel').SculptTool,
+    worldPos: THREE.Vector3,
+    radius: number,
+    strength: number,
+    dt: number,
+  ): void {
+    // Convert world position to terrain-local
+    const local = this.group.worldToLocal(worldPos.clone());
+    SculptBrush.apply(this._terrainData, tool, local.x, local.z, radius, strength, dt);
+    this._updateHeights();
+  }
+
+  /** Apply a paint brush stroke */
+  applyPaint(
+    layerId: string,
+    worldPos: THREE.Vector3,
+    radius: number,
+    strength: number,
+    erase: boolean,
+    dt: number,
+  ): void {
+    const local = this.group.worldToLocal(worldPos.clone());
+    PaintBrush.apply(this._terrainData, layerId, local.x, local.z, radius, strength, erase, dt);
+    // Update the splatmap DataTexture so changes are visible immediately
+    if (this._terrainMesh) {
+      TerrainMeshBuilder.updateSplatmapTexture(this._terrainMesh.material as THREE.Material, this._terrainData);
+    }
+  }
+
+  /** Show brush indicator at world position */
+  showBrush(worldPos: THREE.Vector3, radius: number): void {
+    if (!this._brushIndicator) return;
+    const local = this.group.worldToLocal(worldPos.clone());
+    this._brushIndicator.position.set(local.x, local.y + 0.15, local.z);
+    this._brushIndicator.scale.set(radius * 2, radius * 2, radius * 2);
+    this._brushIndicator.visible = true;
+  }
+
+  /** Hide brush indicator */
+  hideBrush(): void {
+    if (this._brushIndicator) this._brushIndicator.visible = false;
+  }
+
+  /** Rebuild the entire terrain mesh (after resolution/size change) */
+  rebuildMesh(): void {
+    this._rebuildMesh();
+  }
+
+  /** Update only vertex heights (fast path for sculpting) */
+  refreshHeights(): void {
+    this._updateHeights();
+  }
+
+  /** Get flat vertex/index arrays for physics trimesh collider */
+  getCollisionGeometry(): { vertices: Float32Array; indices: Uint32Array } | null {
+    if (!this._terrainMesh) return null;
+    const geo = this._terrainMesh.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    if (!pos) return null;
+
+    const vertices = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      vertices[i * 3] = pos.getX(i) + this.group.position.x;
+      vertices[i * 3 + 1] = pos.getY(i) + this.group.position.y;
+      vertices[i * 3 + 2] = pos.getZ(i) + this.group.position.z;
+    }
+
+    let indices: Uint32Array;
+    if (geo.index) {
+      indices = new Uint32Array(geo.index.array);
+    } else {
+      indices = new Uint32Array(pos.count);
+      for (let i = 0; i < pos.count; i++) indices[i] = i;
+    }
+
+    return { vertices, indices };
+  }
+
+  /** Serialize terrain data for saving */
+  override serialize(): SceneActorJSON {
+    const base = super.serialize();
+    // Embed terrain data in properties
+    base.properties._terrainData = TerrainActor._serializeTerrainData(this._terrainData);
+    return base;
+  }
+
+  getPropertyDescriptors(): PropertyDescriptor[] {
+    return [
+      { key: 'sizeX', label: 'Size X', group: 'Terrain', type: 'number', min: 10, max: 10000, step: 10, value: this._terrainData.sizeX },
+      { key: 'sizeZ', label: 'Size Z', group: 'Terrain', type: 'number', min: 10, max: 10000, step: 10, value: this._terrainData.sizeZ },
+      { key: 'maxHeight', label: 'Max Height', group: 'Terrain', type: 'number', min: 1, max: 5000, step: 1, value: this._terrainData.maxHeight },
+      { key: 'resolution', label: 'Resolution', group: 'Terrain', type: 'number', min: 17, max: 513, step: 16, value: this._terrainData.resolution },
+      { key: 'hasCollision', label: 'Has Collision', group: 'Physics', type: 'boolean', value: this._terrainData.hasCollision },
+      { key: 'layerCount', label: 'Layers', group: 'Materials', type: 'number', min: 0, max: 4, step: 1, value: this._terrainData.layers.length },
+    ];
+  }
+
+  dispose(): void {
+    this._disposeMesh();
+    this._disposeBrushIndicator();
+  }
+
+  // ---- Internal ----
+
+  private _createMesh(): void {
+    if (!this._scene) return;
+
+    const geo = TerrainMeshBuilder.buildGeometry(this._terrainData);
+
+    // Provide texture resolver so splatmap material can load real textures
+    const resolveTexture = (materialAssetId: string): THREE.Texture | null => {
+      const mgr = MeshAssetManager.getInstance();
+      if (!mgr) return null;
+      const matAsset = mgr.getMaterial(materialAssetId);
+      if (!matAsset) return null;
+      const texId = matAsset.materialData.baseColorMap;
+      if (!texId) {
+        // No texture — generate a solid-color texture from baseColor
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = matAsset.materialData.baseColor || '#888';
+        ctx.fillRect(0, 0, 64, 64);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+      }
+      const texAsset = mgr.getTexture(texId);
+      if (!texAsset || !texAsset.dataUrl) return null;
+      const loader = new THREE.TextureLoader();
+      const tex = loader.load(texAsset.dataUrl);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      return tex;
+    };
+
+    const mat = TerrainMeshBuilder.buildSplatMaterial(this._terrainData, resolveTexture);
+
+    this._terrainMesh = new THREE.Mesh(geo, mat);
+    this._terrainMesh.receiveShadow = true;
+    this._terrainMesh.castShadow = true;
+    this._terrainMesh.userData.__isSceneCompositionHelper = true;
+    this._terrainMesh.userData.__isTerrainMesh = true;
+    this.group.add(this._terrainMesh);
+  }
+
+  private _createBrushIndicator(): void {
+    const geo = new THREE.RingGeometry(0.45, 0.5, 48);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.7,
+      depthTest: false,
+    });
+    this._brushIndicator = new THREE.Mesh(geo, mat);
+    this._brushIndicator.rotation.x = -Math.PI / 2;
+    this._brushIndicator.visible = false;
+    this._brushIndicator.renderOrder = 999;
+    this._brushIndicator.userData.__isSceneCompositionHelper = true;
+    this._brushIndicator.raycast = () => {};
+    this.group.add(this._brushIndicator);
+  }
+
+  private _updateHeights(): void {
+    if (!this._terrainMesh) return;
+    TerrainMeshBuilder.updateHeights(this._terrainMesh.geometry, this._terrainData);
+    this._terrainMesh.geometry.attributes.position.needsUpdate = true;
+    this._terrainMesh.geometry.computeVertexNormals();
+    this._terrainMesh.geometry.computeBoundingBox();
+    this._terrainMesh.geometry.computeBoundingSphere();
+
+    // Update properties
+    this.properties.sizeX = this._terrainData.sizeX;
+    this.properties.sizeZ = this._terrainData.sizeZ;
+    this.properties.maxHeight = this._terrainData.maxHeight;
+    this.properties.resolution = this._terrainData.resolution;
+  }
+
+  private _rebuildMesh(): void {
+    this._disposeMesh();
+    this._createMesh();
+  }
+
+  private _disposeMesh(): void {
+    if (this._terrainMesh) {
+      this.group.remove(this._terrainMesh);
+      this._terrainMesh.geometry.dispose();
+      if (Array.isArray(this._terrainMesh.material)) {
+        this._terrainMesh.material.forEach(m => m.dispose());
+      } else {
+        (this._terrainMesh.material as THREE.Material).dispose();
+      }
+      this._terrainMesh = null;
+    }
+    if (this._devTexture) {
+      this._devTexture.dispose();
+      this._devTexture = null;
+    }
+  }
+
+  private _disposeBrushIndicator(): void {
+    if (this._brushIndicator) {
+      this.group.remove(this._brushIndicator);
+      this._brushIndicator.geometry.dispose();
+      (this._brushIndicator.material as THREE.Material).dispose();
+      this._brushIndicator = null;
+    }
+  }
+
+  // ---- Serialization helpers ----
+
+  private static _serializeTerrainData(data: TerrainData): any {
+    const splatmaps: Record<string, number[]> = {};
+    for (const [id, arr] of data.splatmaps) {
+      splatmaps[id] = Array.from(arr);
+    }
+    return {
+      resolution: data.resolution,
+      sizeX: data.sizeX,
+      sizeZ: data.sizeZ,
+      maxHeight: data.maxHeight,
+      heightmap: Array.from(data.heightmap),
+      splatmaps,
+      layers: data.layers,
+      hasCollision: data.hasCollision,
+    };
+  }
+
+  private static _deserializeTerrainData(raw: any): TerrainData {
+    const resolution = raw.resolution ?? 129;
+    const heightmap = new Float32Array(raw.heightmap ?? new Array(resolution * resolution).fill(0));
+
+    const splatmaps = new Map<string, Float32Array>();
+    if (raw.splatmaps) {
+      for (const [id, arr] of Object.entries(raw.splatmaps)) {
+        splatmaps.set(id, new Float32Array(arr as number[]));
+      }
+    }
+
+    return {
+      resolution,
+      sizeX: raw.sizeX ?? 200,
+      sizeZ: raw.sizeZ ?? 200,
+      maxHeight: raw.maxHeight ?? 100,
+      heightmap,
+      splatmaps,
+      layers: raw.layers ?? [],
+      hasCollision: raw.hasCollision ?? true,
+    };
+  }
+}
+
+// ============================================================
 //  7. PLAYER START
 // ============================================================
 
@@ -2061,6 +2425,7 @@ export function getSceneActorIcon(type: SceneActorType | string): string {
     PostProcessVolume: '\u{1F4F7}',
     WorldGrid: '\u{1F532}',
     DevGroundPlane: '\u{1F7EB}',
+    Terrain: '\u{26F0}',
     PlayerStart: '\u{1F680}',
   };
   return icons[type] || '\u{1F4E6}';

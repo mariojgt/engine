@@ -139,6 +139,7 @@ import {
   Wrench,
   Sparkles,
   Wand2,
+  Mountain,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -477,4 +478,5 @@ export const Icons = {
   Wrench,
   Sparkles,
   Wand2,
+  Mountain,
 };
