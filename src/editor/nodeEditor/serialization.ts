@@ -170,6 +170,17 @@ export function getNodeTypeName(node: ClassicPreset.Node): string {
   if (node instanceof N.GetTriggerOverlapCountNode) return 'GetTriggerOverlapCountNode';
   if (node instanceof N.IsTriggerOverlappingNode) return 'IsTriggerOverlappingNode';
   if (node instanceof N.GetTriggerShapeNode) return 'GetTriggerShapeNode';
+  // Projectile component nodes
+  if (node instanceof N.GetProjectileConfigNode) return 'GetProjectileConfigNode';
+  if (node instanceof N.GetProjectileCompVelocityNode) return 'GetProjectileCompVelocityNode';
+  if (node instanceof N.IsProjectileActiveNode) return 'IsProjectileActiveNode';
+  if (node instanceof N.LaunchProjectileCompNode) return 'LaunchProjectileCompNode';
+  if (node instanceof N.SetProjectileSpeedNode) return 'SetProjectileSpeedNode';
+  if (node instanceof N.SetProjectileGravityScaleNode) return 'SetProjectileGravityScaleNode';
+  if (node instanceof N.SetProjectileBounceNode) return 'SetProjectileBounceNode';
+  if (node instanceof N.SetProjectileCompHomingNode) return 'SetProjectileCompHomingNode';
+  if (node instanceof N.DestroyProjectileCompNode) return 'DestroyProjectileCompNode';
+  if (node instanceof N.SetProjectileLifetimeNode) return 'SetProjectileLifetimeNode';
   // Character Movement nodes
   if (node instanceof N.AddMovementInputNode) return 'AddMovementInputNode';
   if (node instanceof N.JumpNode) return 'JumpNode';
@@ -588,6 +599,15 @@ export function getNodeSerialData(node: ClassicPreset.Node): any {
   ) {
     data.compName = (node as any).compName;
     data.compIndex = (node as any).compIndex;
+  } else if (
+    node instanceof N.GetProjectileConfigNode || node instanceof N.GetProjectileCompVelocityNode ||
+    node instanceof N.IsProjectileActiveNode || node instanceof N.LaunchProjectileCompNode ||
+    node instanceof N.SetProjectileSpeedNode || node instanceof N.SetProjectileGravityScaleNode ||
+    node instanceof N.SetProjectileBounceNode || node instanceof N.SetProjectileCompHomingNode ||
+    node instanceof N.DestroyProjectileCompNode || node instanceof N.SetProjectileLifetimeNode
+  ) {
+    data.compName = (node as any).compName;
+    data.compIndex = (node as any).compIndex;
   }
   // Casting & Reference nodes â€” dynamic data
   if (node instanceof N.CastToNode || node instanceof N.PureCastNode) {
@@ -984,6 +1004,18 @@ export function createNodeFromData(
     case 'GetTriggerOverlapCountNode':  return new N.GetTriggerOverlapCountNode(d.compName || 'Trigger', d.compIndex ?? 0);
     case 'IsTriggerOverlappingNode':    return new N.IsTriggerOverlappingNode(d.compName || 'Trigger', d.compIndex ?? 0);
     case 'GetTriggerShapeNode':         return new N.GetTriggerShapeNode(d.compName || 'Trigger', d.compIndex ?? 0);
+
+    // Projectile component nodes
+    case 'GetProjectileConfigNode':         return new N.GetProjectileConfigNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'GetProjectileCompVelocityNode':   return new N.GetProjectileCompVelocityNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'IsProjectileActiveNode':          return new N.IsProjectileActiveNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'LaunchProjectileCompNode':        return new N.LaunchProjectileCompNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'SetProjectileSpeedNode':          return new N.SetProjectileSpeedNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'SetProjectileGravityScaleNode':   return new N.SetProjectileGravityScaleNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'SetProjectileBounceNode':         return new N.SetProjectileBounceNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'SetProjectileCompHomingNode':     return new N.SetProjectileCompHomingNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'DestroyProjectileCompNode':       return new N.DestroyProjectileCompNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
+    case 'SetProjectileLifetimeNode':       return new N.SetProjectileLifetimeNode(d.compName || 'ProjectileMovement', d.compIndex ?? 0);
 
     // Collision / Trigger event nodes
     case 'OnTriggerBeginOverlapNode':   return new N.OnTriggerBeginOverlapNode();

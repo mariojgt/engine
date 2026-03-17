@@ -598,9 +598,51 @@ export class Engine {
       script.beginPlay(ctx);
     }
 
+    // ── 4b. Auto-launch Projectile Movement components ──
+    // Any actor placed in the scene with a ProjectileMovement component
+    // gets auto-registered with the ProjectileMovementSystem so it starts
+    // moving immediately.  The direction defaults to the actor's forward vector.
+    for (const go of this.scene.gameObjects) {
+      this._autoLaunchProjectile(go);
+    }
+
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
 
 
+  }
+
+  // ── Projectile auto-launch helper ────────────────────────
+  /**
+   * If a GameObject has a `_projectileMovementConfig` (from a ProjectileMovement
+   * component), register it with the ProjectileMovementSystem so it begins
+   * moving automatically.  Uses the actor's forward direction.
+   */
+  public _autoLaunchProjectile(go: import('./GameObject').GameObject): void {
+    const pcfg = (go as any)._projectileMovementConfig;
+    if (!pcfg) return;
+
+    // Compute forward direction from the actor's current rotation
+    const forward = new THREE.Vector3(0, 0, -1); // Three.js default forward is -Z
+    forward.applyQuaternion(go.mesh.quaternion);
+
+    this.physics.projectile.create(go, {
+      initialSpeed: pcfg.initialSpeed ?? 20,
+      maxSpeed: pcfg.maxSpeed ?? 50,
+      direction: { x: forward.x, y: forward.y, z: forward.z },
+      gravityScale: pcfg.gravityScale ?? 0.1,
+      shouldBounce: pcfg.shouldBounce ?? false,
+      bounciness: pcfg.bounciness ?? 0.6,
+      maxBounces: pcfg.maxBounces ?? 3,
+      lifetime: pcfg.lifetime ?? 5,
+      homingAcceleration: pcfg.homingAcceleration ?? 10,
+      usePhysics: pcfg.usePhysics ?? false,
+      stopOnHit: pcfg.stopOnHit ?? true,
+    });
+
+    // Also add physics body if not already present and physics mode is on
+    if (!go.rigidBody && go.hasPhysics) {
+      this.physics.addPhysicsBody(go);
+    }
   }
 
   /** Called when Stop is pressed — fires OnDestroy on all scripts */

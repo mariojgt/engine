@@ -1,6 +1,6 @@
 // ============================================================
-//  Projectile Movement Nodes — Blueprint nodes for creating
-//  and managing UE-style projectile movement.
+//  Projectile Movement Nodes — Blueprint nodes for runtime
+//  configuration of the Projectile Movement component.
 // ============================================================
 
 import { ClassicPreset } from 'rete';
@@ -27,7 +27,7 @@ export class LaunchProjectileNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Launch Projectile', 'Projectile', () => new LaunchProjectileNode());
+registerNode('Launch Projectile', 'Components', () => new LaunchProjectileNode());
 
 // ── Launch Projectile (Simple) ──────────────────────────────
 
@@ -45,7 +45,7 @@ export class LaunchProjectileSimpleNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Launch Projectile Simple', 'Projectile', () => new LaunchProjectileSimpleNode());
+registerNode('Launch Projectile Simple', 'Components', () => new LaunchProjectileSimpleNode());
 
 // ── Set Homing Target ───────────────────────────────────────
 
@@ -60,7 +60,7 @@ export class SetProjectileHomingNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Set Projectile Homing', 'Projectile', () => new SetProjectileHomingNode());
+registerNode('Set Projectile Homing', 'Components', () => new SetProjectileHomingNode());
 
 // ── Destroy Projectile ──────────────────────────────────────
 
@@ -73,7 +73,7 @@ export class DestroyProjectileNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Destroy Projectile', 'Projectile', () => new DestroyProjectileNode());
+registerNode('Destroy Projectile', 'Components', () => new DestroyProjectileNode());
 
 // ── Get Projectile Velocity ─────────────────────────────────
 
@@ -88,4 +88,4 @@ export class GetProjectileVelocityNode extends ClassicPreset.Node {
   }
 }
 
-registerNode('Get Projectile Velocity', 'Projectile', () => new GetProjectileVelocityNode());
+registerNode('Get Projectile Velocity', 'Components', () => new GetProjectileVelocityNode());

@@ -288,8 +288,6 @@ export function getActorTypeIcon(actorType: string): { icon: any[]; color: strin
     case 'playerController':
     case 'aiController':
       return { icon: Workflow, color: ICON_COLORS.blueprint };
-    case 'projectile':
-      return { icon: Rocket, color: ICON_COLORS.error };
     case 'texture':
     case 'image':
       return { icon: Image, color: ICON_COLORS.success };

@@ -489,6 +489,9 @@ export function showDragPinContextMenu(
         relevantCategories.add('Camera 2D');
         relevantCategories.add('Animation 2D');
       }
+      if (targetActorType === 'projectile') {
+        relevantCategories.add('Projectile');
+      }
 
       for (const cat of relevantCategories) {
         const items: { label: string; action: () => void }[] = [];

@@ -556,6 +556,38 @@ function resolveValue(
     return `(((gameObject._triggerComponents || [])[${(node as N.GetTriggerShapeNode).compIndex}] || {}).config || {}).shape || 'box'`;
   }
 
+  // Projectile component getter nodes (pure)
+  if (node instanceof N.GetProjectileConfigNode) {
+    const ci = (node as N.GetProjectileConfigNode).compIndex;
+    const base = `((gameObject._projectileComponents || [])[${ci}] || {}).config || {}`;
+    if (outputKey === 'initialSpeed')      return `((${base}).initialSpeed || 20)`;
+    if (outputKey === 'maxSpeed')           return `((${base}).maxSpeed || 50)`;
+    if (outputKey === 'gravityScale')       return `((${base}).gravityScale ?? 0.1)`;
+    if (outputKey === 'lifetime')           return `((${base}).lifetime || 5)`;
+    if (outputKey === 'bounciness')         return `((${base}).bounciness || 0.6)`;
+    if (outputKey === 'maxBounces')         return `((${base}).maxBounces || 3)`;
+    if (outputKey === 'homingAcceleration') return `((${base}).homingAcceleration || 10)`;
+    if (outputKey === 'shouldBounce')       return `((${base}).shouldBounce ? 1 : 0)`;
+    if (outputKey === 'usePhysics')         return `((${base}).usePhysics ? 1 : 0)`;
+    if (outputKey === 'stopOnHit')          return `((${base}).stopOnHit ? 1 : 0)`;
+    return '0';
+  }
+  if (node instanceof N.GetProjectileCompVelocityNode) {
+    const ci = (node as N.GetProjectileCompVelocityNode).compIndex;
+    const pid = `((gameObject._projectileComponents || [])[${ci}] || {}).activeProjectileId || -1`;
+    if (outputKey === 'vx') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pid}) || {x:0}).x : 0)`;
+    if (outputKey === 'vy') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pid}) || {y:0}).y : 0)`;
+    if (outputKey === 'vz') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pid}) || {z:0}).z : 0)`;
+    if (outputKey === 'speed') {
+      return `(function(){ var __v = (__engine && __engine.physics && __engine.physics.projectile) ? __engine.physics.projectile.getVelocity(${pid}) : null; return __v ? Math.sqrt(__v.x*__v.x+__v.y*__v.y+__v.z*__v.z) : 0; })()`;
+    }
+    return '0';
+  }
+  if (node instanceof N.IsProjectileActiveNode) {
+    const ci = (node as N.IsProjectileActiveNode).compIndex;
+    return `(function(){ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (!_pc || _pc.activeProjectileId < 0) return 0; return (__engine && __engine.physics && __engine.physics.projectile && __engine.physics.projectile.getProjectile(_pc.activeProjectileId)) ? 1 : 0; })()`;
+  }
+
   // Light component getter nodes
   if (node instanceof N.GetLightEnabledNode) {
     const ci = (node as N.GetLightEnabledNode).compIndex;
@@ -3424,6 +3456,74 @@ function genAction(
   if (node instanceof N.SetCollisionEnabledNode || node instanceof N.SetCollisionEnabledPhysicsNode) {
     const eS = inputSrc.get(`${nodeId}.enabled`);
     lines.push(`{ const _tcs = gameObject._triggerComponents || []; for (const _tc of _tcs) _tc.config.enabled = ${eS ? rv(eS.nid, eS.ok) : 'true'}; }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── Projectile component exec nodes ──
+  if (node instanceof N.LaunchProjectileCompNode) {
+    const ci = (node as N.LaunchProjectileCompNode).compIndex;
+    const dxS = inputSrc.get(`${nodeId}.dirX`);
+    const dyS = inputSrc.get(`${nodeId}.dirY`);
+    const dzS = inputSrc.get(`${nodeId}.dirZ`);
+    const soS = inputSrc.get(`${nodeId}.speedOverride`);
+    const dx = dxS ? rv(dxS.nid, dxS.ok) : '0';
+    const dy = dyS ? rv(dyS.nid, dyS.ok) : '0';
+    const dz = dzS ? rv(dzS.nid, dzS.ok) : '1';
+    const so = soS ? rv(soS.nid, soS.ok) : '0';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc && __engine && __engine.physics && __engine.physics.projectile) { var _cfg = _pc.config; var _sp = (${so}) > 0 ? (${so}) : _cfg.initialSpeed; var _pid = __engine.physics.projectile.create(gameObject, { initialSpeed: _sp, direction: {x:${dx},y:${dy},z:${dz}}, gravityScale: _cfg.gravityScale, lifetime: _cfg.lifetime, shouldBounce: _cfg.shouldBounce, bounciness: _cfg.bounciness, maxBounces: _cfg.maxBounces }); _pc.activeProjectileId = _pid; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.SetProjectileSpeedNode) {
+    const ci = (node as N.SetProjectileSpeedNode).compIndex;
+    const sS = inputSrc.get(`${nodeId}.speed`);
+    const sp = sS ? rv(sS.nid, sS.ok) : '20';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc) { _pc.config.initialSpeed = ${sp}; if (_pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { var _pp = __engine.physics.projectile.getProjectile(_pc.activeProjectileId); if (_pp) _pp.config.initialSpeed = ${sp}; } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.SetProjectileGravityScaleNode) {
+    const ci = (node as N.SetProjectileGravityScaleNode).compIndex;
+    const gS = inputSrc.get(`${nodeId}.gravityScale`);
+    const gs = gS ? rv(gS.nid, gS.ok) : '0.1';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc) { _pc.config.gravityScale = ${gs}; if (_pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { var _pp = __engine.physics.projectile.getProjectile(_pc.activeProjectileId); if (_pp) _pp.config.gravityScale = ${gs}; } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.SetProjectileBounceNode) {
+    const ci = (node as N.SetProjectileBounceNode).compIndex;
+    const sbS = inputSrc.get(`${nodeId}.shouldBounce`);
+    const bnS = inputSrc.get(`${nodeId}.bounciness`);
+    const mbS = inputSrc.get(`${nodeId}.maxBounces`);
+    const sb = sbS ? rv(sbS.nid, sbS.ok) : 'false';
+    const bn = bnS ? rv(bnS.nid, bnS.ok) : '0.6';
+    const mb = mbS ? rv(mbS.nid, mbS.ok) : '3';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc) { _pc.config.shouldBounce = !!(${sb}); _pc.config.bounciness = ${bn}; _pc.config.maxBounces = ${mb}; if (_pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { var _pp = __engine.physics.projectile.getProjectile(_pc.activeProjectileId); if (_pp) { _pp.config.shouldBounce = !!(${sb}); _pp.config.bounciness = ${bn}; _pp.config.maxBounces = ${mb}; } } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.SetProjectileCompHomingNode) {
+    const ci = (node as N.SetProjectileCompHomingNode).compIndex;
+    const tS = inputSrc.get(`${nodeId}.targetId`);
+    const haS = inputSrc.get(`${nodeId}.homingAccel`);
+    const t = tS ? rv(tS.nid, tS.ok) : '-1';
+    const ha = haS ? rv(haS.nid, haS.ok) : '10';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc) { _pc.config.homingAcceleration = ${ha}; if (_pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { __engine.physics.projectile.setHomingTarget(_pc.activeProjectileId, ${t}); var _pp = __engine.physics.projectile.getProjectile(_pc.activeProjectileId); if (_pp) _pp.config.homingAcceleration = ${ha}; } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.DestroyProjectileCompNode) {
+    const ci = (node as N.DestroyProjectileCompNode).compIndex;
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc && _pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { __engine.physics.projectile.destroy(_pc.activeProjectileId); _pc.activeProjectileId = -1; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node instanceof N.SetProjectileLifetimeNode) {
+    const ci = (node as N.SetProjectileLifetimeNode).compIndex;
+    const ltS = inputSrc.get(`${nodeId}.lifetime`);
+    const lt = ltS ? rv(ltS.nid, ltS.ok) : '5';
+    lines.push(`{ var _pc = (gameObject._projectileComponents || [])[${ci}]; if (_pc) { _pc.config.lifetime = ${lt}; if (_pc.activeProjectileId >= 0 && __engine && __engine.physics && __engine.physics.projectile) { var _pp = __engine.physics.projectile.getProjectile(_pc.activeProjectileId); if (_pp) _pp.config.lifetime = ${lt}; } } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }

@@ -13,11 +13,10 @@ import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, Chara
 import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings, defaultCamera2DConfig } from '../engine/CharacterPawnData';
 import type { ControllerType } from '../engine/Controller';
 import { platformer2DTemplate, topDown2DTemplate, characterPawn3DTemplate, firstPerson3DTemplate, topDown3DTemplate } from './pretemplates';
-import { projectile3DTemplate, projectile3DPhysicsDefaults } from './pretemplates/Projectile3DTemplate';
 
 // ---- Actor type ----
 export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController'
-  | 'spriteActor' | 'characterPawn2D' | 'tilemapActor' | 'parallaxLayer' | 'projectile';
+  | 'spriteActor' | 'characterPawn2D' | 'tilemapActor' | 'parallaxLayer';
 
 // ---- Light component configuration ----
 
@@ -187,7 +186,8 @@ export interface ActorComponentData {
   /** Unique id within this actor */
   id: string;
   type: 'mesh' | 'trigger' | 'light' | 'camera' | 'characterMovement' | 'springArm' | 'capsule' | 'skeletalMesh'
-    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap' | 'camera2d' | 'navMeshBounds';
+    | 'spriteRenderer' | 'rigidbody2d' | 'collider2d' | 'characterMovement2d' | 'tilemap' | 'camera2d' | 'navMeshBounds'
+    | 'projectileMovement';
   meshType: 'cube' | 'sphere' | 'cylinder' | 'plane';
   /** Display name */
   name: string;
@@ -254,6 +254,8 @@ export interface ActorComponentData {
   // ── NavMesh ──
   /** NavMesh generation config (for type='navMeshBounds') */
   navMeshConfig?: import('../engine/ai/NavMeshSystem').NavMeshConfig;
+  /** Projectile movement configuration (for type='projectileMovement') */
+  projectile?: ProjectileMovementComponentConfig;
 }
 
 /** Configuration for skeletal mesh components */
@@ -270,6 +272,46 @@ export interface SkeletalMeshConfig {
   strictSkeletonMatching?: boolean;
   /** Animation Blueprint asset ID (when set, overrides animationName) */
   animationBlueprintId?: string;
+}
+
+/** Configuration for projectile movement components */
+export interface ProjectileMovementComponentConfig {
+  /** Initial speed in units/second */
+  initialSpeed: number;
+  /** Maximum speed cap (0 = no cap) */
+  maxSpeed: number;
+  /** Gravity multiplier (0 = no gravity, 1 = world gravity, 2 = double) */
+  gravityScale: number;
+  /** If true, projectile bounces off surfaces instead of stopping */
+  shouldBounce: boolean;
+  /** Bounciness factor (0-1, how much velocity is retained per bounce) */
+  bounciness: number;
+  /** Maximum number of bounces before stopping (-1 = infinite) */
+  maxBounces: number;
+  /** Auto-destroy after this many seconds (0 = never) */
+  lifetime: number;
+  /** Homing acceleration magnitude (how fast it turns toward target) */
+  homingAcceleration: number;
+  /** If true, uses physics body for movement; if false, kinematic */
+  usePhysics: boolean;
+  /** If true, stops at first hit (non-bounce mode) */
+  stopOnHit: boolean;
+}
+
+/** Returns sensible defaults for a projectile movement component */
+export function defaultProjectileMovementConfig(): ProjectileMovementComponentConfig {
+  return {
+    initialSpeed: 20,
+    maxSpeed: 50,
+    gravityScale: 0.1,
+    shouldBounce: false,
+    bounciness: 0.6,
+    maxBounces: 3,
+    lifetime: 5,
+    homingAcceleration: 10,
+    usePhysics: false,
+    stopOnHit: true,
+  };
 }
 
 export interface ActorAssetJSON {
@@ -618,26 +660,7 @@ export class ActorAssetManager {
         asset.blueprintData.eventGraph = structuredClone(characterPawn3DTemplate.eventGraph);
       }
     }
-    if (actorType === 'projectile') {
-      asset.rootMeshType = 'sphere';
-      // Apply projectile-optimised physics config
-      asset.physicsConfig = { ...defaultPhysicsConfig(), ...projectile3DPhysicsDefaults };
-      // Add a ProjectileMovement component
-      const pmId = 'comp_projmove_' + Date.now().toString(36);
-      asset.components = [
-        {
-          id: pmId,
-          type: 'mesh' as any,
-          meshType: 'sphere',
-          name: 'ProjectileMesh',
-          offset: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-          scale: { x: 0.2, y: 0.2, z: 0.2 },
-        },
-      ];
-      // Pre-populate event graph (OnHit → Destroy)
-      asset.blueprintData.eventGraph = structuredClone(projectile3DTemplate.eventGraph);
-    }
+    // Projectile actor type removed — use Projectile Movement component instead
     if (actorType === 'spectatorPawn') {
       asset.rootMeshType = 'none';
       // Spectator pawn is a simple free-flying camera with no components needed

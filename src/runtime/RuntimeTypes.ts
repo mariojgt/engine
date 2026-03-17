@@ -198,7 +198,8 @@ export type ActorComponentType =
   | 'navMeshBounds'
   | 'audio'
   | 'particle'
-  | 'skeletal';
+  | 'skeletal'
+  | 'projectileMovement';
 
 export interface ActorComponentData {
   type: ActorComponentType;

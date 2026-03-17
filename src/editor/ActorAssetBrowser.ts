@@ -1569,7 +1569,6 @@ export class ActorAssetBrowser {
       case 'characterPawn': return 'Character Pawn';
       case 'playerController': return 'Player Controller';
       case 'aiController': return 'AI Controller';
-      case 'projectile': return 'Projectile';
       default: return 'Actor Blueprint';
     }
   }
@@ -1987,7 +1986,6 @@ export class ActorAssetBrowser {
       { icon: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint), label: 'Actor Blueprint', action: () => this._createNewAsset(), keywords: 'actor bp blueprint class' },
       { icon: iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor), label: 'Character Pawn', action: () => this._createNewAsset('characterPawn'), keywords: 'character pawn player' },
       { icon: iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor), label: 'Player Controller', action: () => this._createNewAsset('playerController'), keywords: 'player controller input' },
-      { icon: iconHTML(Icons.Rocket, 12, ICON_COLORS.error), label: 'Projectile', action: () => this._createNewAsset('projectile'), keywords: 'projectile bullet missile rocket' },
     ];
     if (this._widgetBPManager) {
       bpItems.push({
@@ -3417,7 +3415,6 @@ export class ActorAssetBrowser {
       characterPawn2D: 'BP_CharacterPawn2D',
       tilemapActor: 'BP_TilemapActor',
       parallaxLayer: 'BP_ParallaxLayer',
-      projectile: 'BP_Projectile',
     };
     const titles: Record<string, string> = {
       actor: 'New Actor Asset',
@@ -3428,7 +3425,6 @@ export class ActorAssetBrowser {
       characterPawn2D: 'New Character Pawn 2D',
       tilemapActor: 'New Tilemap Actor',
       parallaxLayer: 'New Parallax Layer',
-      projectile: 'New Projectile',
     };
     const defaultName = defaultNames[actorType] || 'BP_NewActor';
     const title = titles[actorType] || 'New Actor Asset';

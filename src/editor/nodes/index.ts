@@ -193,6 +193,20 @@ export {
 export { getComponentNodeEntries, registerComponentRule } from './components/ComponentNodeRules';
 export type { ComponentNodeEntry, ComponentRule } from './components/ComponentNodeRules';
 
+// ── Projectile Component ────────────────────────────────────
+export {
+  GetProjectileConfigNode,
+  GetProjectileCompVelocityNode,
+  IsProjectileActiveNode,
+  LaunchProjectileCompNode,
+  SetProjectileSpeedNode,
+  SetProjectileGravityScaleNode,
+  SetProjectileBounceNode,
+  SetProjectileCompHomingNode,
+  DestroyProjectileCompNode,
+  SetProjectileLifetimeNode,
+} from './components/ProjectileComponentNodes';
+
 // ── Collision / Trigger Events ──────────────────────────────
 export {
   OnTriggerBeginOverlapNode,

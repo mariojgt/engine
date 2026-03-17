@@ -6,7 +6,7 @@
 // ============================================================
 
 import type { ActorAsset, ActorComponentData, PhysicsConfig, CollisionChannel, LightType, SkeletalMeshConfig } from './ActorAsset';
-import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig } from './ActorAsset';
+import { ActorAssetManager, defaultPhysicsConfig, defaultLightConfig, defaultProjectileMovementConfig } from './ActorAsset';
 import type { MeshAssetManager, MeshAsset, MaterialAssetJSON } from './MeshAsset';
 import { buildThreeMaterialFromAsset } from './MeshAsset';
 import type { AnimBlueprintManager, AnimBlueprintAsset } from './AnimBlueprintData';
@@ -768,6 +768,7 @@ export class ActorEditorPanel {
           case 'characterMovement2d': return { icon: Icons.PersonStanding, color: ICON_COLORS.actor };
           case 'camera2d': return { icon: Icons.Camera, color: ICON_COLORS.camera };
           case 'tilemap': return { icon: Icons.Map, color: ICON_COLORS.secondary };
+          case 'projectileMovement': return { icon: Icons.Rocket, color: ICON_COLORS.error };
           default: return { icon: Icons.Diamond, color: ICON_COLORS.blue };
         }
       })();
@@ -1843,6 +1844,51 @@ export class ActorEditorPanel {
       if (!comp.camera2dConfig) comp.camera2dConfig = defaultCamera2DConfig();
       this._buildCamera2DSection(container, comp.camera2dConfig);
 
+    } else if (comp.type === 'projectileMovement') {
+      // ---- Projectile Movement component properties ----
+      if (!comp.projectile) comp.projectile = defaultProjectileMovementConfig();
+      const pcfg = comp.projectile;
+      const notify = () => { this._asset.touch(); this._onAssetChanged(); };
+
+      // Speed section
+      const speedHdr = document.createElement('div');
+      speedHdr.className = 'prop-section-header';
+      speedHdr.textContent = '';
+      setTextWithIcon(speedHdr, Icons.Rocket, 'Speed', 'sm', ICON_COLORS.error);
+      container.appendChild(speedHdr);
+      container.appendChild(this._makeNumberRow('Initial Speed', pcfg.initialSpeed, 1, 0, 9999, v => { pcfg.initialSpeed = v; notify(); }));
+      container.appendChild(this._makeNumberRow('Max Speed', pcfg.maxSpeed, 1, 0, 9999, v => { pcfg.maxSpeed = v; notify(); }));
+
+      // Gravity
+      container.appendChild(this._makeNumberRow('Gravity Scale', pcfg.gravityScale, 0.05, -5, 10, v => { pcfg.gravityScale = v; notify(); }));
+
+      // Lifetime
+      container.appendChild(this._makeNumberRow('Lifetime (s)', pcfg.lifetime, 0.5, 0, 120, v => { pcfg.lifetime = v; notify(); }));
+
+      // Bounce section
+      const bounceHdr = document.createElement('div');
+      bounceHdr.className = 'prop-section-header';
+      bounceHdr.textContent = '';
+      setTextWithIcon(bounceHdr, Icons.Settings, 'Bounce', 'sm', ICON_COLORS.muted);
+      container.appendChild(bounceHdr);
+      container.appendChild(this._makeCheckboxRow('Should Bounce', pcfg.shouldBounce, v => { pcfg.shouldBounce = v; notify(); this._refreshComponentProps(); }));
+      if (pcfg.shouldBounce) {
+        container.appendChild(this._makeNumberRow('Bounciness', pcfg.bounciness, 0.05, 0, 1, v => { pcfg.bounciness = v; notify(); }));
+        container.appendChild(this._makeNumberRow('Max Bounces', pcfg.maxBounces, 1, -1, 999, v => { pcfg.maxBounces = v; notify(); }));
+      }
+
+      // Homing
+      container.appendChild(this._makeNumberRow('Homing Acceleration', pcfg.homingAcceleration, 1, 0, 9999, v => { pcfg.homingAcceleration = v; notify(); }));
+
+      // Movement mode
+      const mvmtHdr = document.createElement('div');
+      mvmtHdr.className = 'prop-section-header';
+      mvmtHdr.textContent = '';
+      setTextWithIcon(mvmtHdr, Icons.Settings, 'Movement Mode', 'sm', ICON_COLORS.muted);
+      container.appendChild(mvmtHdr);
+      container.appendChild(this._makeCheckboxRow('Use Physics', pcfg.usePhysics, v => { pcfg.usePhysics = v; notify(); }));
+      container.appendChild(this._makeCheckboxRow('Stop On Hit', pcfg.stopOnHit, v => { pcfg.stopOnHit = v; notify(); }));
+
     } else {
       // ---- Mesh component properties (Static Mesh or Primitive) ----
 
@@ -2157,6 +2203,23 @@ export class ActorEditorPanel {
         menu.appendChild(item);
       }
 
+      // ---- Projectile Movement sub-header ----
+      const projHeader = document.createElement('div');
+      projHeader.className = 'context-menu-header';
+      projHeader.textContent = '';
+      setTextWithIcon(projHeader, Icons.Rocket, 'Movement', 'sm', ICON_COLORS.error);
+      menu.appendChild(projHeader);
+
+      const addProjItem = document.createElement('div');
+      addProjItem.className = 'context-menu-item';
+      addProjItem.textContent = 'Projectile Movement';
+      addProjItem.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        this._addProjectileMovementComponent();
+      });
+      menu.appendChild(addProjItem);
+
       // ---- Camera sub-header ----
       const cameraHeader = document.createElement('div');
       cameraHeader.className = 'context-menu-header';
@@ -2285,6 +2348,46 @@ export class ActorEditorPanel {
       light: defaultLightConfig(lightType),
     };
     this._asset.components.push(comp);
+    this._asset.touch();
+    this._selectedComponentId = comp.id;
+
+    if (this._preview) this._preview.rebuild();
+    this._refreshComponentsList();
+    this._refreshComponentProps();
+    this._onAssetChanged();
+  }
+
+  private _addProjectileMovementComponent(): void {
+    // Prevent duplicates — only one projectile movement per actor
+    if (this._asset.components.some(c => c.type === 'projectileMovement')) {
+      console.warn('Actor already has a ProjectileMovement component');
+      return;
+    }
+    const comp: ActorComponentData = {
+      id: compUid(),
+      type: 'projectileMovement',
+      meshType: 'cube',           // placeholder — not rendered as mesh
+      name: 'ProjectileMovement',
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      projectile: defaultProjectileMovementConfig(),
+      hiddenInGame: true,
+    };
+    this._asset.components.push(comp);
+
+    // Auto-configure root physics for projectile behaviour
+    const rp = this._asset.rootPhysics;
+    rp.enabled = true;
+    rp.simulatePhysics = true;
+    rp.bodyType = 'Dynamic';
+    rp.ccdEnabled = true;
+    rp.collisionChannel = 'Projectile' as any;
+    rp.generateHitEvents = true;
+    rp.generateOverlapEvents = true;
+    if (rp.gravityScale === 1) rp.gravityScale = 0.1; // gentle default
+    if (rp.mass === 1) rp.mass = 0.1;
+
     this._asset.touch();
     this._selectedComponentId = comp.id;
 

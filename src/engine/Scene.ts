@@ -399,6 +399,18 @@ export class Scene {
       script.beginPlay(ctx);
     }
 
+    // If the spawned actor has a physics body, create it now
+    // (physics.play() already ran, so we need to add it manually for
+    //  runtime-spawned actors)
+    if (this._runtimePhysics && go.hasPhysics && !go.rigidBody) {
+      this._runtimePhysics.addPhysicsBody(go);
+    }
+
+    // Auto-launch projectile movement if the actor has the component
+    if (this._runtimeEngine && (this._runtimeEngine as any)._autoLaunchProjectile) {
+      (this._runtimeEngine as any)._autoLaunchProjectile(go);
+    }
+
     console.log(`[Scene] spawnActorFromClass: spawned "${asset.name}" at (${position.x}, ${position.y}, ${position.z})`);
     return go;
   }
@@ -1177,6 +1189,12 @@ export class Scene {
     (go as any)._lightComponents = lightComps;
     // Store mesh component children so codegen can index them reliably
     (go as any)._meshComponents = meshComps;
+
+    // Store projectile movement config so the engine can auto-launch at play time
+    const projComp = components.find(c => c.type === 'projectileMovement' && c.projectile);
+    if (projComp && projComp.projectile) {
+      (go as any)._projectileMovementConfig = structuredClone(projComp.projectile);
+    }
   }
 
   /** Hide or show meshes marked as 'Hidden In Game' during Play/Stop.

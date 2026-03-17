@@ -153,6 +153,11 @@ export function getNodeCategory(node: ClassicPreset.Node): string {
       node instanceof N.GetLightPositionNode || node instanceof N.SetLightTargetNode ||
       node instanceof N.SetCastShadowNode || node instanceof N.SetSpotAngleNode ||
       node instanceof N.SetSpotPenumbraNode) return 'Components';
+  if (node instanceof N.GetProjectileConfigNode || node instanceof N.GetProjectileCompVelocityNode ||
+      node instanceof N.IsProjectileActiveNode || node instanceof N.LaunchProjectileCompNode ||
+      node instanceof N.SetProjectileSpeedNode || node instanceof N.SetProjectileGravityScaleNode ||
+      node instanceof N.SetProjectileBounceNode || node instanceof N.SetProjectileCompHomingNode ||
+      node instanceof N.DestroyProjectileCompNode || node instanceof N.SetProjectileLifetimeNode) return 'Projectile';
   if (node instanceof N.CastToNode || node instanceof N.PureCastNode ||
       node instanceof N.GetSelfReferenceNode || node instanceof N.GetPlayerPawnNode ||
       node instanceof N.GetActorByNameNode || node instanceof N.GetAllActorsOfClassNode ||
