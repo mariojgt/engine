@@ -9,3 +9,6 @@
 export { platformer2DTemplate }  from './Platformer2DTemplate';
 export { topDown2DTemplate }     from './TopDown2DTemplate';
 export { characterPawn3DTemplate } from './CharacterPawn3DTemplate';
+export { firstPerson3DTemplate } from './FirstPerson3DTemplate';
+export { topDown3DTemplate }     from './TopDown3DTemplate';
+export { projectile3DTemplate, projectile3DPhysicsDefaults } from './Projectile3DTemplate';

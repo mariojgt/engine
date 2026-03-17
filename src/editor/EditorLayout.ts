@@ -495,7 +495,7 @@ export class EditorLayout {
     });
 
     this._hierarchyPanel.setActorManager(this.assetManager);
-    
+
     // Listen for Shader Graph requests from Material Editor
     window.addEventListener('open-shader-graph', ((e: CustomEvent) => {
         const matId = e.detail.materialId;
@@ -516,11 +516,11 @@ export class EditorLayout {
               component: 'default',
               position: { referencePanel: 'viewport', direction: 'below' } // Dock below viewport
           });
-          
+
           this._initShaderGraph('shader_graph');
           panel = this._api.getPanel('shader_graph');
       }
-      
+
       panel?.api.setActive();
       if (this._shaderGraphEditor) {
           this._shaderGraphEditor.setMaterial(mat);
@@ -1592,7 +1592,7 @@ export class EditorLayout {
       this._materialEditor = null;
     }
     if (this._shaderGraphEditor) {
-      // this._shaderGraphEditor.dispose(); 
+      // this._shaderGraphEditor.dispose();
       this._shaderGraphEditor = null;
     }
     if (this._soundCueEditor) {

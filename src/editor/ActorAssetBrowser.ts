@@ -1569,6 +1569,7 @@ export class ActorAssetBrowser {
       case 'characterPawn': return 'Character Pawn';
       case 'playerController': return 'Player Controller';
       case 'aiController': return 'AI Controller';
+      case 'projectile': return 'Projectile';
       default: return 'Actor Blueprint';
     }
   }
@@ -1986,6 +1987,7 @@ export class ActorAssetBrowser {
       { icon: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint), label: 'Actor Blueprint', action: () => this._createNewAsset(), keywords: 'actor bp blueprint class' },
       { icon: iconHTML(Icons.PersonStanding, 12, ICON_COLORS.actor), label: 'Character Pawn', action: () => this._createNewAsset('characterPawn'), keywords: 'character pawn player' },
       { icon: iconHTML(Icons.Gamepad2, 12, ICON_COLORS.actor), label: 'Player Controller', action: () => this._createNewAsset('playerController'), keywords: 'player controller input' },
+      { icon: iconHTML(Icons.Rocket, 12, ICON_COLORS.error), label: 'Projectile', action: () => this._createNewAsset('projectile'), keywords: 'projectile bullet missile rocket' },
     ];
     if (this._widgetBPManager) {
       bpItems.push({
@@ -3398,6 +3400,14 @@ export class ActorAssetBrowser {
       preset2D = choice;
     }
 
+    // For Character Pawn 3D, show a 3D preset selection dialog
+    let preset3D: 'thirdPerson' | 'firstPerson' | 'topDown' | undefined;
+    if (actorType === 'characterPawn') {
+      const choice = await this._showPreset3DDialog();
+      if (!choice) return;               // user cancelled
+      preset3D = choice;
+    }
+
     const defaultNames: Record<string, string> = {
       actor: 'BP_NewActor',
       characterPawn: 'BP_CharacterPawn',
@@ -3407,6 +3417,7 @@ export class ActorAssetBrowser {
       characterPawn2D: 'BP_CharacterPawn2D',
       tilemapActor: 'BP_TilemapActor',
       parallaxLayer: 'BP_ParallaxLayer',
+      projectile: 'BP_Projectile',
     };
     const titles: Record<string, string> = {
       actor: 'New Actor Asset',
@@ -3417,12 +3428,13 @@ export class ActorAssetBrowser {
       characterPawn2D: 'New Character Pawn 2D',
       tilemapActor: 'New Tilemap Actor',
       parallaxLayer: 'New Parallax Layer',
+      projectile: 'New Projectile',
     };
     const defaultName = defaultNames[actorType] || 'BP_NewActor';
     const title = titles[actorType] || 'New Actor Asset';
     const name = await this._showNameDialog(title, defaultName);
     if (!name) return;
-    const asset = this._manager.createAsset(name, actorType, preset2D);
+    const asset = this._manager.createAsset(name, actorType, preset2D, preset3D);
     this._folderManager.setAssetLocation(asset.id, 'actor', this._currentFolderId);
     this._selectedIds.clear();
     this._selectedIds.add(asset.id);
@@ -3527,6 +3539,124 @@ export class ActorAssetBrowser {
 
       document.body.appendChild(overlay);
       // Focus overlay so keyboard events work immediately
+      overlay.tabIndex = -1;
+      overlay.focus();
+    });
+  }
+
+  // ============================================================
+  //  Character Pawn 3D Preset Dialog
+  // ============================================================
+
+  private _showPreset3DDialog(): Promise<'thirdPerson' | 'firstPerson' | 'topDown' | null> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'cb-dialog-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'cb-dialog';
+      dialog.style.minWidth = '580px';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'cb-dialog-title';
+      titleEl.textContent = 'Create Character Pawn';
+
+      const subtitle = document.createElement('div');
+      subtitle.className = 'cb-preset-subtitle';
+      subtitle.textContent = 'Choose a camera preset. This will set up the camera, movement blueprint, and input bindings for you.';
+
+      // ── Preset cards ──
+      const cards = document.createElement('div');
+      cards.className = 'cb-preset-cards';
+
+      type Preset3D = { key: 'thirdPerson' | 'firstPerson' | 'topDown'; icon: string; title: string; desc: string };
+      const presets: Preset3D[] = [
+        {
+          key: 'thirdPerson',
+          icon: iconHTML(Icons.PersonStanding, 'lg', ICON_COLORS.actor),
+          title: 'Third Person',
+          desc: 'Over-the-shoulder camera with spring arm. WASD movement, jump, and orient-to-movement rotation.',
+        },
+        {
+          key: 'firstPerson',
+          icon: iconHTML(Icons.Eye, 'lg', ICON_COLORS.camera),
+          title: 'First Person',
+          desc: 'First-person camera with mouse look. Includes crosshair widget creation and left-click projectile shooting.',
+        },
+        {
+          key: 'topDown',
+          icon: iconHTML(Icons.Map, 'lg', ICON_COLORS.secondary),
+          title: 'Top Down',
+          desc: 'Bird\'s-eye overhead camera. WASD movement, orient-to-movement, smooth camera follow.',
+        },
+      ];
+
+      let selected: Preset3D['key'] = 'thirdPerson';
+
+      const cardEls: HTMLElement[] = [];
+      for (const preset of presets) {
+        const card = document.createElement('div');
+        card.className = 'cb-preset-card' + (preset.key === selected ? ' selected' : '');
+
+        const icon = document.createElement('div');
+        icon.className = 'cb-preset-card-icon';
+        icon.innerHTML = preset.icon;
+
+        const ti = document.createElement('div');
+        ti.className = 'cb-preset-card-title';
+        ti.textContent = preset.title;
+
+        const de = document.createElement('div');
+        de.className = 'cb-preset-card-desc';
+        de.textContent = preset.desc;
+
+        card.append(icon, ti, de);
+        card.addEventListener('click', () => {
+          selected = preset.key;
+          cardEls.forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+        });
+
+        // Double-click to confirm immediately
+        card.addEventListener('dblclick', () => {
+          selected = preset.key;
+          finish(selected);
+        });
+
+        cards.appendChild(card);
+        cardEls.push(card);
+      }
+
+      // ── Buttons ──
+      const buttons = document.createElement('div');
+      buttons.className = 'cb-dialog-buttons';
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancel';
+      btnCancel.className = 'cb-dialog-btn';
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = 'Create';
+      btnOk.className = 'cb-dialog-btn cb-dialog-btn-primary';
+
+      buttons.append(btnCancel, btnOk);
+      dialog.append(titleEl, subtitle, cards, buttons);
+      overlay.appendChild(dialog);
+
+      const finish = (value: Preset3D['key'] | null) => {
+        overlay.remove();
+        resolve(value);
+      };
+
+      btnOk.addEventListener('click', () => finish(selected));
+      btnCancel.addEventListener('click', () => finish(null));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') finish(null);
+        if (e.key === 'Enter') finish(selected);
+      });
+
+      document.body.appendChild(overlay);
       overlay.tabIndex = -1;
       overlay.focus();
     });

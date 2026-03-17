@@ -12,11 +12,12 @@ import { defaultCollisionConfig } from '../engine/CollisionTypes';
 import type { CharacterPawnConfig, SpringArmConfig, CameraComponentConfig, CharacterRotationConfig, CameraModeSettings, Camera2DConfig } from '../engine/CharacterPawnData';
 import { defaultCharacterPawnConfig, defaultSpringArmConfig, defaultCameraConfig, defaultRotationConfig, defaultCameraModeSettings, defaultCamera2DConfig } from '../engine/CharacterPawnData';
 import type { ControllerType } from '../engine/Controller';
-import { platformer2DTemplate, topDown2DTemplate, characterPawn3DTemplate } from './pretemplates';
+import { platformer2DTemplate, topDown2DTemplate, characterPawn3DTemplate, firstPerson3DTemplate, topDown3DTemplate } from './pretemplates';
+import { projectile3DTemplate, projectile3DPhysicsDefaults } from './pretemplates/Projectile3DTemplate';
 
 // ---- Actor type ----
 export type ActorType = 'actor' | 'characterPawn' | 'spectatorPawn' | 'playerController' | 'aiController'
-  | 'spriteActor' | 'characterPawn2D' | 'tilemapActor' | 'parallaxLayer';
+  | 'spriteActor' | 'characterPawn2D' | 'tilemapActor' | 'parallaxLayer' | 'projectile';
 
 // ---- Light component configuration ----
 
@@ -532,17 +533,39 @@ export class ActorAssetManager {
     return this._assets.get(id);
   }
 
-  createAsset(name: string, actorType: ActorType = 'actor', preset2D?: 'platformer' | 'topdown' | 'blank'): ActorAsset {
+  createAsset(name: string, actorType: ActorType = 'actor', preset2D?: 'platformer' | 'topdown' | 'blank', preset3D?: 'thirdPerson' | 'firstPerson' | 'topDown'): ActorAsset {
     const asset = new ActorAsset(name);
     asset.actorType = actorType;
     if (actorType === 'characterPawn') {
       asset.rootMeshType = 'none';
       asset.controllerClass = 'PlayerController';   // default for character pawns
       asset.characterPawnConfig = defaultCharacterPawnConfig();
+
+      // ── Apply 3D preset config overrides ──
+      const selectedPreset = preset3D || 'thirdPerson';
+      if (selectedPreset === 'firstPerson' && firstPerson3DTemplate.configOverrides) {
+        const ov = firstPerson3DTemplate.configOverrides;
+        if (ov.camera)          Object.assign(asset.characterPawnConfig.camera, ov.camera);
+        if (ov.springArm)       Object.assign(asset.characterPawnConfig.springArm, ov.springArm);
+        if (ov.rotation)        Object.assign(asset.characterPawnConfig.rotation, ov.rotation);
+        if (ov.cameraSettings)  Object.assign(asset.characterPawnConfig.cameraSettings, ov.cameraSettings);
+        if (ov.topDownCamera)   Object.assign(asset.characterPawnConfig.topDownCamera, ov.topDownCamera);
+        if (ov.inputBindings)   Object.assign(asset.characterPawnConfig.inputBindings, ov.inputBindings);
+      } else if (selectedPreset === 'topDown' && topDown3DTemplate.configOverrides) {
+        const ov = topDown3DTemplate.configOverrides;
+        if (ov.camera)          Object.assign(asset.characterPawnConfig.camera, ov.camera);
+        if (ov.springArm)       Object.assign(asset.characterPawnConfig.springArm, ov.springArm);
+        if (ov.rotation)        Object.assign(asset.characterPawnConfig.rotation, ov.rotation);
+        if (ov.cameraSettings)  Object.assign(asset.characterPawnConfig.cameraSettings, ov.cameraSettings);
+        if (ov.topDownCamera)   Object.assign(asset.characterPawnConfig.topDownCamera, ov.topDownCamera);
+        if (ov.inputBindings)   Object.assign(asset.characterPawnConfig.inputBindings, ov.inputBindings);
+      }
+
       // Create default pawn component hierarchy: Capsule → SpringArm → Camera
       const capsuleId = 'comp_cap_' + Date.now().toString(36);
       const springArmId = 'comp_sa_' + Date.now().toString(36);
       const cameraId = 'comp_cam_' + Date.now().toString(36);
+      const cameraMode = asset.characterPawnConfig.camera.cameraMode || 'thirdPerson';
       asset.components = [
         {
           id: capsuleId,
@@ -561,7 +584,7 @@ export class ActorAssetManager {
           offset: { x: 0, y: 0, z: 0 },
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 1, y: 1, z: 1 },
-          springArm: defaultSpringArmConfig(),
+          springArm: { ...asset.characterPawnConfig.springArm },
           parentId: capsuleId,
         },
         {
@@ -572,7 +595,7 @@ export class ActorAssetManager {
           offset: { x: 0, y: 0, z: 0 },
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 1, y: 1, z: 1 },
-          camera: defaultCameraConfig('thirdPerson'),
+          camera: defaultCameraConfig(cameraMode as any),
           parentId: springArmId,
         },
         {
@@ -586,8 +609,34 @@ export class ActorAssetManager {
         },
       ];
 
-      // Pre-populate event graph from 3D character pawn pretemplate
-      asset.blueprintData.eventGraph = structuredClone(characterPawn3DTemplate.eventGraph);
+      // Pre-populate event graph from the selected 3D preset template
+      if (selectedPreset === 'firstPerson') {
+        asset.blueprintData.eventGraph = structuredClone(firstPerson3DTemplate.eventGraph);
+      } else if (selectedPreset === 'topDown') {
+        asset.blueprintData.eventGraph = structuredClone(topDown3DTemplate.eventGraph);
+      } else {
+        asset.blueprintData.eventGraph = structuredClone(characterPawn3DTemplate.eventGraph);
+      }
+    }
+    if (actorType === 'projectile') {
+      asset.rootMeshType = 'sphere';
+      // Apply projectile-optimised physics config
+      asset.physicsConfig = { ...defaultPhysicsConfig(), ...projectile3DPhysicsDefaults };
+      // Add a ProjectileMovement component
+      const pmId = 'comp_projmove_' + Date.now().toString(36);
+      asset.components = [
+        {
+          id: pmId,
+          type: 'mesh' as any,
+          meshType: 'sphere',
+          name: 'ProjectileMesh',
+          offset: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 0.2, y: 0.2, z: 0.2 },
+        },
+      ];
+      // Pre-populate event graph (OnHit → Destroy)
+      asset.blueprintData.eventGraph = structuredClone(projectile3DTemplate.eventGraph);
     }
     if (actorType === 'spectatorPawn') {
       asset.rootMeshType = 'none';

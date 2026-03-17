@@ -1161,12 +1161,12 @@ async function main() {
         toastContainer.id = 'mcp-toast-container';
         document.body.appendChild(toastContainer);
       }
-      
+
       const toast = document.createElement('div');
       toast.className = 'mcp-toast mcp-toast-visible';
       toast.innerHTML = `<span class="mcp-toast-icon">⚡</span> <span class="mcp-toast-label">MCP:</span> <span class="mcp-toast-tool">${toolName}</span>`;
       toastContainer.appendChild(toast);
-      
+
       setTimeout(() => {
         toast.className = 'mcp-toast mcp-toast-out';
         setTimeout(() => toast.remove(), 300);

@@ -140,6 +140,7 @@ import {
   Sparkles,
   Wand2,
   Mountain,
+  Rocket,
 } from 'lucide';
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -287,6 +288,8 @@ export function getActorTypeIcon(actorType: string): { icon: any[]; color: strin
     case 'playerController':
     case 'aiController':
       return { icon: Workflow, color: ICON_COLORS.blueprint };
+    case 'projectile':
+      return { icon: Rocket, color: ICON_COLORS.error };
     case 'texture':
     case 'image':
       return { icon: Image, color: ICON_COLORS.success };
@@ -479,4 +482,5 @@ export const Icons = {
   Sparkles,
   Wand2,
   Mountain,
+  Rocket,
 };

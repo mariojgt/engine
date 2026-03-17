@@ -217,7 +217,7 @@ async function startGameplay(sceneData: any): Promise<void> {
       ?? runtimeEngine.playerControllers.getActiveCamera()
       ?? new THREE.PerspectiveCamera();
     renderPipeline = new RenderPipeline(renderer, runtimeEngine.scene.threeScene, cam);
-    
+
     // Try to find PostProcessVolumeActor settings in sceneData
     if (sceneData.composition && sceneData.composition.actors) {
       const ppActor = sceneData.composition.actors.find((a: any) => a.actorType === 'PostProcessVolume');
