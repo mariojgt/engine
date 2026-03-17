@@ -192,6 +192,21 @@ async function startGameplay(sceneData: any): Promise<void> {
     }
   }
 
+  // Sync terrain heightfield collider from composition data
+  if (sceneData.terrainCollider) {
+    const tc = sceneData.terrainCollider;
+    runtimeEngine.physics.setTerrainHeightfield({
+      heights: new Float32Array(tc.heights),
+      resolution: tc.resolution,
+      worldSizeX: tc.worldSizeX,
+      worldSizeZ: tc.worldSizeZ,
+      maxHeight: tc.maxHeight,
+      offsetX: tc.offsetX ?? 0,
+      offsetY: tc.offsetY,
+      offsetZ: tc.offsetZ ?? 0,
+    });
+  }
+
   runtimeEngine.physics.play(runtimeEngine.scene);
 
   // Initialize Render Pipeline

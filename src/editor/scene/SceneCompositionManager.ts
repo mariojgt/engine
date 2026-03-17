@@ -23,6 +23,7 @@ import {
   PlayerStartActor,
   getSceneActorIcon,
 } from './SceneActors';
+import { TerrainActor } from './TerrainActor';
 
 // ---- Serialized composition data ----
 
@@ -341,6 +342,9 @@ export class SceneCompositionManager {
       case 'PlayerStart':
         actor = new PlayerStartActor(id, name, props);
         break;
+      case 'Terrain':
+        actor = new TerrainActor(id, name, props);
+        break;
       default:
         console.warn(`[SceneComposition] Cannot create actor of type: ${type}`);
         return '';
@@ -361,6 +365,7 @@ export class SceneCompositionManager {
       { type: 'PostProcessVolume', label: 'Post Process Volume', icon: getSceneActorIcon('PostProcessVolume') },
       { type: 'DevGroundPlane', label: 'Dev Ground Plane', icon: getSceneActorIcon('DevGroundPlane') },
       { type: 'PlayerStart', label: 'Player Start', icon: getSceneActorIcon('PlayerStart') },
+      { type: 'Terrain' as SceneActorType, label: 'Terrain', icon: getSceneActorIcon('Terrain') },
     ];
   }
 
@@ -498,6 +503,15 @@ export class SceneCompositionManager {
         return new DevGroundPlaneActor(json.actorId, json.actorName, json.properties);
       case 'PlayerStart':
         return new PlayerStartActor(json.actorId, json.actorName, json.properties);
+      case 'Terrain': {
+        const actor = new TerrainActor(json.actorId, json.actorName, json.properties);
+        // Restore full terrain data (heightmap, splatmap, layers, foliage)
+        if (json.properties.__terrainData) {
+          actor.loadTerrainData(json.properties.__terrainData);
+          delete json.properties.__terrainData;
+        }
+        return actor;
+      }
       default:
         console.warn(`[SceneComposition] Unknown actor type: ${json.actorType}`);
         return null;
@@ -538,6 +552,39 @@ export class SceneCompositionManager {
     return { hasCollision: true, halfExtent: 100 };
   }
 
+  /**
+   * Get terrain heightfield data for the physics system.
+   * Returns null if there is no TerrainActor in the scene.
+   */
+  getTerrainColliderData(): {
+    heights: Float32Array;
+    resolution: number;
+    worldSizeX: number;
+    worldSizeZ: number;
+    maxHeight: number;
+    offsetX: number;
+    offsetY: number;
+    offsetZ: number;
+  } | null {
+    for (const entry of this._actors.values()) {
+      if (entry.actor instanceof TerrainActor) {
+        const terrain = entry.actor as TerrainActor;
+        const cfg = terrain.config;
+        return {
+          heights: new Float32Array(terrain.heightmap),   // copy so physics owns it
+          resolution: cfg.resolution,
+          worldSizeX: cfg.worldSizeX,
+          worldSizeZ: cfg.worldSizeZ,
+          maxHeight: cfg.maxHeight,
+          offsetX: terrain.group.position.x,
+          offsetY: terrain.group.position.y,
+          offsetZ: terrain.group.position.z,
+        };
+      }
+    }
+    return null;
+  }
+
   /** Get the selectable group for a given actor (for gizmo attachment) */
   getActorGroup(id: string): THREE.Group | null {
     const entry = this._actors.get(id);
@@ -552,9 +599,21 @@ export class SceneCompositionManager {
 
   /** Get composition data needed for gameplay (PlayerStart, lights, etc.) */
   getCompositionDataForGameplay(): Record<string, any> {
+    const terrainData = this.getTerrainColliderData();
     return {
       playerStart: this.getPlayerStartTransform(),
       composition: this.serialize(),
+      terrainCollider: terrainData ? {
+        // Float32Array → plain array for postMessage serialisation
+        heights: Array.from(terrainData.heights),
+        resolution: terrainData.resolution,
+        worldSizeX: terrainData.worldSizeX,
+        worldSizeZ: terrainData.worldSizeZ,
+        maxHeight: terrainData.maxHeight,
+        offsetX: terrainData.offsetX,
+        offsetY: terrainData.offsetY,
+        offsetZ: terrainData.offsetZ,
+      } : null,
     };
   }
 

@@ -52,8 +52,12 @@ export class PhysicsWorld {
 
   /** Handle to the default ground plane collider so it can be resized */
   private _groundCollider: RAPIER.Collider | null = null;
+  /** Handle to terrain heightfield collider */
+  private _terrainCollider: RAPIER.Collider | null = null;
   /** Stored half-extent for ground plane recreation on stop/restart */
   private _groundHalfExtent: number = 10.0;
+  /** Stored terrain data for recreation on stop/restart */
+  private _terrainData: { heights: Float32Array; resolution: number; worldSizeX: number; worldSizeZ: number; maxHeight: number; offsetX: number; offsetY: number; offsetZ: number } | null = null;
 
   /**
    * Replace the default ground plane collider with one sized to match the
@@ -70,6 +74,64 @@ export class PhysicsWorld {
     const groundDesc = RAPIER.ColliderDesc.cuboid(halfExtent, 0.1, halfExtent)
       .setTranslation(0, -0.1, 0);
     this._groundCollider = this.world.createCollider(groundDesc);
+  }
+
+  /**
+   * Create a Rapier heightfield collider from the terrain heightmap.
+   * This provides accurate terrain collision so characters walk on sculpted
+   * terrain instead of falling through.  Call after init() and before play().
+   */
+  setTerrainHeightfield(data: {
+    heights: Float32Array;
+    resolution: number;
+    worldSizeX: number;
+    worldSizeZ: number;
+    maxHeight: number;
+    offsetX: number;
+    offsetY: number;
+    offsetZ: number;
+  }): void {
+    if (!this.world) return;
+    this._terrainData = data;
+
+    // Remove existing terrain collider
+    if (this._terrainCollider) {
+      this.world.removeCollider(this._terrainCollider, false);
+      this._terrainCollider = null;
+    }
+
+    const { heights, resolution, worldSizeX, worldSizeZ, maxHeight, offsetX, offsetY, offsetZ } = data;
+    const nrows = resolution - 1;
+    const ncols = resolution - 1;
+
+    // Rapier heightfield expects heights in **column-major** order:
+    //   index = col * (nrows+1) + row
+    // Our heightmap is row-major: index = row * resolution + col
+    //   (row = gz = Z axis, col = gx = X axis)
+    // Also scale normalised [0..1] values → actual world height.
+    const colMajorHeights = new Float32Array(resolution * resolution);
+    for (let iz = 0; iz < resolution; iz++) {
+      for (let ix = 0; ix < resolution; ix++) {
+        const rowMajorIdx = iz * resolution + ix;    // our layout
+        const colMajorIdx = ix * resolution + iz;    // Rapier's layout
+        colMajorHeights[colMajorIdx] = heights[rowMajorIdx] * maxHeight;
+      }
+    }
+
+    // Scale vector: physical width (X), Y scale (1 because heights are
+    // already in world units), physical depth (Z).
+    const scale = { x: worldSizeX, y: 1.0, z: worldSizeZ };
+
+    const desc = RAPIER.ColliderDesc
+      .heightfield(nrows, ncols, colMajorHeights, scale)
+      .setTranslation(offsetX, offsetY, offsetZ);
+
+    this._terrainCollider = this.world.createCollider(desc);
+    console.log(
+      `[PhysicsWorld] Terrain heightfield collider created: ${resolution}x${resolution}, ` +
+      `world ${worldSizeX}x${worldSizeZ}, maxH=${maxHeight}, ` +
+      `offset=(${offsetX}, ${offsetY}, ${offsetZ})`
+    );
   }
 
   addPhysicsBody(go: GameObject): void {
@@ -489,6 +551,11 @@ export class PhysicsWorld {
       const groundDesc = RAPIER.ColliderDesc.cuboid(halfExt, 0.1, halfExt)
         .setTranslation(0, -0.1, 0);
       this._groundCollider = this.world.createCollider(groundDesc);
+
+      // Recreate terrain heightfield collider if it was set
+      if (this._terrainData) {
+        this.setTerrainHeightfield(this._terrainData);
+      }
     }
   }
 

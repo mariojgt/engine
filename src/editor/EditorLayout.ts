@@ -70,6 +70,8 @@ import { BuildConfigurationEditorPanel } from './build/BuildConfigurationEditorP
 import type { BuildConfigurationManager } from './build/BuildConfigurationAsset';
 import type { DependencyAnalyzerContext } from './build/DependencyAnalyzer';
 import { SpriteMakerPanel } from './SpriteMakerPanel';
+import { TerrainEditorPanel } from './TerrainEditorPanel';
+import { TerrainInteractionHandler } from './viewport/TerrainInteractionHandler';
 
 // Store renderers by panel id for reliable element access
 const rendererMap = new Map<string, PanelRenderer>();
@@ -172,6 +174,8 @@ export class EditorLayout {
   /* 2D editor panels */
   private _tileEditorPanel: TileEditorPanel | null = null;
   private _tilemapRenderer: TilemapRenderer | null = null;
+  private _terrainEditorPanel: TerrainEditorPanel | null = null;
+  private _terrainInteraction: TerrainInteractionHandler | null = null;
   private _current2DMode: SceneMode = '3D';
 
   /** Shared actor asset manager — stores all actor blueprints in memory */
@@ -377,6 +381,17 @@ export class EditorLayout {
       },
     });
     this._initProjectSettings('project-settings');
+
+    // 7. Terrain Editor (tab alongside Properties)
+    this._api.addPanel({
+      id: 'terrain-editor',
+      title: 'Terrain',
+      component: 'default',
+      position: {
+        referencePanel: 'properties',
+      },
+    });
+    this._initTerrainEditor('terrain-editor');
   }
 
   private _initViewport(panelId: string): void {
@@ -598,6 +613,30 @@ export class EditorLayout {
     this._navMeshPanel.setScene2DManager(this.scene2DManager);
   }
 
+  private _initTerrainEditor(panelId: string): void {
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    this._terrainEditorPanel = new TerrainEditorPanel(el);
+    this._terrainEditorPanel.setCompositionManager(this.composition);
+    this._terrainEditorPanel.setTextureLibrary(TextureLibrary.instance);
+    if (this._meshManager) {
+      this._terrainEditorPanel.setMeshManager(this._meshManager);
+    }
+
+    // Create terrain interaction handler once viewport is ready
+    if (this._viewport) {
+      const cam = this._viewport.getCamera();
+      const canvas = this._viewport.getCanvas();
+      if (cam && canvas) {
+        this._terrainInteraction = new TerrainInteractionHandler(cam, canvas);
+        this._terrainEditorPanel.setInteractionHandler(this._terrainInteraction);
+      }
+    }
+
+    this._injectTabIcon(panelId, Icons.Mountain, ICON_COLORS.secondary);
+  }
+
   private _initProjectSettings(panelId: string): void {
     const renderer = rendererMap.get(panelId);
     if (!renderer) return;
@@ -780,6 +819,9 @@ export class EditorLayout {
   /** Wire up the MeshAssetManager for the content browser */
   setMeshManager(mgr: MeshAssetManager): void {
     this._meshManager = mgr;
+    if (this._terrainEditorPanel) {
+      this._terrainEditorPanel.setMeshManager(mgr);
+    }
     if (this._assetBrowser) {
       this._assetBrowser.setMeshManager(
         mgr,

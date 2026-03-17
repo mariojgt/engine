@@ -847,6 +847,11 @@ async function main() {
         if (gpFallback.hasCollision) {
           engine.physics.setGroundPlaneSize(gpFallback.halfExtent);
         }
+        // Sync terrain heightfield collider if a terrain actor exists
+        const terrainFallback = editor.composition.getTerrainColliderData();
+        if (terrainFallback) {
+          engine.physics.setTerrainHeightfield(terrainFallback);
+        }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();
         await engine.onPlayStarted(canvas ?? undefined);
@@ -964,6 +969,11 @@ async function main() {
         const gpSettings = editor.composition.getGroundPlaneSettings();
         if (gpSettings.hasCollision) {
           engine.physics.setGroundPlaneSize(gpSettings.halfExtent);
+        }
+        // Sync terrain heightfield collider if a terrain actor exists
+        const terrainData = editor.composition.getTerrainColliderData();
+        if (terrainData) {
+          engine.physics.setTerrainHeightfield(terrainData);
         }
         engine.physics.play(engine.scene);
         const canvas = editor.getCanvas();

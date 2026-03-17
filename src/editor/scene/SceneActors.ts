@@ -34,7 +34,8 @@ export type SceneActorType =
   | 'PostProcessVolume'
   | 'WorldGrid'
   | 'DevGroundPlane'
-  | 'PlayerStart';
+  | 'PlayerStart'
+  | 'Terrain';
 
 /** Allowed gizmo modes per actor type */
 export type GizmoCapability = 'translate' | 'rotate' | 'scale';
@@ -2062,6 +2063,7 @@ export function getSceneActorIcon(type: SceneActorType | string): string {
     WorldGrid: '\u{1F532}',
     DevGroundPlane: '\u{1F7EB}',
     PlayerStart: '\u{1F680}',
+    Terrain: '\u{26F0}',
   };
   return icons[type] || '\u{1F4E6}';
 }
