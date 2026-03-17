@@ -261,7 +261,7 @@ function resolveValue(
     const handleExpr = handleSrc
       ? resolveValue(handleSrc.nid, handleSrc.ok, nodeMap, inputSrc, bp)
       : '({})';
-    return `(function() { var __h = ${handleExpr}; if (!__h || !__h.dataTableId || !__h.rowName) return false; var __dt = eval('typeof __dt_' + __h.dataTableId + ' !== "undefined" ? __dt_' + __h.dataTableId + ' : null'); return __dt && __dt.rows[__h.rowName] != null; })()`;
+    return `(function() { var __h = ${handleExpr}; if (!__h || !__h.dataTableId || !__h.rowName) return false; var __dt = typeof __dtRegistry !== 'undefined' ? __dtRegistry[__h.dataTableId] : null; return __dt && __dt.rows[__h.rowName] != null; })()`;
   }
 
   // ResolveDataTableRowHandleNode — outputs resolved during genAction
@@ -1477,10 +1477,11 @@ function resolveValue(
     }
     case 'Get Velocity at Point': {
       const pS = inputSrc.get(`${nodeId}.point`);
-      const p = pS ? rv(pS.nid, pS.ok) : 'new THREE.Vector3()';
-      if (outputKey === 'x') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().x : 0)`;
-      if (outputKey === 'y') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().y : 0)`;
-      if (outputKey === 'z') return `(gameObject.rigidBody ? gameObject.rigidBody.linvel().z : 0)`;
+      const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
+      // v_point = v_cm + omega x (point - body_pos)
+      if (outputKey === 'x') return `(function(){ if(!gameObject.rigidBody) return 0; var _lv=gameObject.rigidBody.linvel(), _av=gameObject.rigidBody.angvel(), _bp=gameObject.rigidBody.translation(), _pt=${p}; var _rx=_pt.x-_bp.x, _ry=_pt.y-_bp.y, _rz=_pt.z-_bp.z; return _lv.x + (_av.y*_rz - _av.z*_ry); }())`;
+      if (outputKey === 'y') return `(function(){ if(!gameObject.rigidBody) return 0; var _lv=gameObject.rigidBody.linvel(), _av=gameObject.rigidBody.angvel(), _bp=gameObject.rigidBody.translation(), _pt=${p}; var _rx=_pt.x-_bp.x, _ry=_pt.y-_bp.y, _rz=_pt.z-_bp.z; return _lv.y + (_av.z*_rx - _av.x*_rz); }())`;
+      if (outputKey === 'z') return `(function(){ if(!gameObject.rigidBody) return 0; var _lv=gameObject.rigidBody.linvel(), _av=gameObject.rigidBody.angvel(), _bp=gameObject.rigidBody.translation(), _pt=${p}; var _rx=_pt.x-_bp.x, _ry=_pt.y-_bp.y, _rz=_pt.z-_bp.z; return _lv.z + (_av.x*_ry - _av.y*_rx); }())`;
       return '0';
     }
     case 'Get World Gravity': {
@@ -1503,7 +1504,7 @@ function resolveValue(
     case 'Get Player Character': {
       const piS = inputSrc.get(`${nodeId}.playerIndex`);
       const pi = piS ? rv(piS.nid, piS.ok) : '0';
-      return `(__scene ? __scene.gameObjects.find(function(g) { return g.actorType === 'characterPawn' && g.characterController; }) || null : null)`;
+      return `(function(){ if (!__scene) return null; var _pi = ${pi}, _idx = 0; for (var _i = 0; _i < __scene.gameObjects.length; _i++) { var _g = __scene.gameObjects[_i]; if (_g.actorType === 'characterPawn' && _g.characterController) { if (_idx === _pi) return _g; _idx++; } } return null; }())`;
     }
     case 'Get Player Camera Manager': {
       const piS = inputSrc.get(`${nodeId}.playerIndex`);
@@ -2817,7 +2818,8 @@ function genAction(
     const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
     const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
     const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __hit = __engine && __engine.physics ? __engine.physics.lineTraceSingle(${s}, ${e}, ${c}) : null; }`);
+    const hitVar = `__lt_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitVar} = __engine && __engine.physics ? __engine.physics.lineTraceSingle(${s}, ${e}, ${c}) : null;`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2828,7 +2830,8 @@ function genAction(
     const s = sS ? rv(sS.nid, sS.ok) : '{x:0,y:0,z:0}';
     const e = eS ? rv(eS.nid, eS.ok) : '{x:0,y:0,z:0}';
     const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __hits = __engine && __engine.physics ? __engine.physics.lineTraceMulti(${s}, ${e}, ${c}) : []; }`);
+    const hitsVar = `__ltm_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitsVar} = __engine && __engine.physics ? __engine.physics.lineTraceMulti(${s}, ${e}, ${c}) : [];`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2839,7 +2842,8 @@ function genAction(
     const p = pS ? rv(pS.nid, pS.ok) : '{x:0,y:0,z:0}';
     const r = rS ? rv(rS.nid, rS.ok) : '0';
     const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __overlaps = __engine && __engine.physics ? __engine.physics.overlapSphere(${p}, ${r}, ${c}) : []; }`);
+    const ovVar = `__ovs_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${ovVar} = __engine && __engine.physics ? __engine.physics.overlapSphere(${p}, ${r}, ${c}) : [];`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -2852,7 +2856,8 @@ function genAction(
     const h = hS ? rv(hS.nid, hS.ok) : '{x:0,y:0,z:0}';
     const o = oS ? rv(oS.nid, oS.ok) : '{x:0,y:0,z:0,w:1}';
     const c = cS ? rv(cS.nid, cS.ok) : '0';
-    lines.push(`{ var __overlaps = __engine && __engine.physics ? __engine.physics.overlapBox(${p}, ${h}, ${o}, ${c}) : []; }`);
+    const ovVar = `__ovb_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${ovVar} = __engine && __engine.physics ? __engine.physics.overlapBox(${p}, ${h}, ${o}, ${c}) : [];`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3252,7 +3257,8 @@ function genAction(
     const dirZ = resolveValue(nodeId, 'dirZ', nodeMap, inputSrc, bp);
     const radius = resolveValue(nodeId, 'radius', nodeMap, inputSrc, bp);
     const maxDist = resolveValue(nodeId, 'maxDist', nodeMap, inputSrc, bp);
-    lines.push(`const _sphereTraceHit = __engine.physics.sphereTrace(${startX}, ${startY}, ${startZ}, ${dirX}, ${dirY}, ${dirZ}, ${radius}, ${maxDist});`);
+    const hitVar = `__st3d_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`var ${hitVar} = (__engine && __engine.physics) ? __engine.physics.sphereTrace(${startX}, ${startY}, ${startZ}, ${dirX}, ${dirY}, ${dirZ}, ${radius}, ${maxDist}) : { hit: false };`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3627,12 +3633,15 @@ function genAction(
   // Player Controller pawn control nodes
   if (node instanceof N.PossessPawnNode) {
     const nS = inputSrc.get(`${nodeId}.pawnName`);
-    lines.push(`{ /* Possess Pawn â€” handled at engine level */ }`);
+    const pawnExpr = nS ? rv(nS.nid, nS.ok) : "''";
+    lines.push(`{ var _pc = gameObject.__playerController || gameObject.playerController; if (_pc && _pc.possess) { var _allActors = __engine.scene ? __engine.scene.children : []; var _pawn = _allActors.find(function(a){ return a.name === ${pawnExpr}; }); if (_pawn) _pc.possess(_pawn); } }`);
+
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
   if (node instanceof N.UnpossessPawnNode) {
-    lines.push(`{ /* Unpossess Pawn â€” handled at engine level */ }`);
+    lines.push(`{ var _pc = gameObject.__playerController || gameObject.playerController; if (_pc && _pc.unpossess) _pc.unpossess(); }`);
+
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -3720,7 +3729,7 @@ function genAction(
     const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
     const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     const val = vS ? rv(vS.nid, vS.ok) : 'null';
-    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB Set]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(`{ var _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
@@ -3730,7 +3739,7 @@ function genAction(
     const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
     const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     const val = vS ? rv(vS.nid, vS.ok) : 'false';
-    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetBool]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, Boolean(${val} || false)); }`);
+    lines.push(`{ var _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, Boolean(${val} || false)); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
@@ -3740,7 +3749,7 @@ function genAction(
     const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
     const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     const val = vS ? rv(vS.nid, vS.ok) : '0';
-    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetFloat]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, parseFloat(${val} || 0)); }`);
+    lines.push(`{ var _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, parseFloat(${val} || 0)); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
@@ -3750,7 +3759,7 @@ function genAction(
     const keyCtrl = (node.inputs['key']?.control as any)?.value ?? '';
     const key = kS ? rv(kS.nid, kS.ok) : JSON.stringify(String(keyCtrl));
     const val = vS ? rv(vS.nid, vS.ok) : '{x:0, y:0, z:0}';
-    lines.push(`{ const _ai = gameObject.aiController; console.log('[BB SetVec]', 'key=', ${key}, 'val=', ${val}, 'aiCtrl=', !!_ai); if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
+    lines.push(`{ var _ai = gameObject.aiController; if (_ai) _ai.setBlackboardValue(${key}, ${val}); }`);
     lines.push(...we(nodeId, 'execOut'));
     return lines;
   }
@@ -4055,7 +4064,23 @@ if (node instanceof N.NavMeshAddAgentNode) {
 
   // Macro Call â€” inline placeholder
   if (node instanceof N.MacroCallNode) {
-    lines.push(`/* macro: ${node.macroName} */`);
+    {
+      const macro = bp.macros?.find((m: any) => m.id === (node as any).macroId);
+      if (!macro) {
+        lines.push(`console.warn('[Blueprint] Macro not found for node ${nodeId}');`);
+      } else {
+        const mArgs: string[] = [];
+        if (macro.inputs) {
+          for (const inp of macro.inputs) {
+            const s = inputSrc.get(`${nodeId}.${inp.name}`);
+            mArgs.push(s ? rv(s.nid, s.ok) : 'undefined');
+          }
+        }
+        const macroFnName = `__macro_${sanitizeName(macro.name)}_${macro.id.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        lines.push(`${macroFnName}(${mArgs.join(', ')})`);
+      }
+    }
+
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }
@@ -4210,24 +4235,8 @@ if (node instanceof N.NavMeshAddAgentNode) {
       lines.push(...we(nodeId, 'exec'));
       break;
     }
-    case 'Add Tag to Actor': {
-      const tS = inputSrc.get(`${nodeId}.tag`);
-      lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && !(gameObject.userData.tags || []).includes(t)) { gameObject.userData.tags = gameObject.userData.tags || []; gameObject.userData.tags.push(t); } }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Remove Tag from Actor': {
-      const tS = inputSrc.get(`${nodeId}.tag`);
-      lines.push(`{ const t = ${tS ? rv(tS.nid, tS.ok) : '""'}; if (t && gameObject.userData.tags) { gameObject.userData.tags = gameObject.userData.tags.filter(x => x !== t); } }`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
-    case 'Set Actor Hidden in Game': {
-      const hS = inputSrc.get(`${nodeId}.hidden`);
-      lines.push(`gameObject.visible = !(${hS ? rv(hS.nid, hS.ok) : 'false'});`);
-      lines.push(...we(nodeId, 'exec'));
-      break;
-    }
+    // 'Add Tag to Actor', 'Remove Tag from Actor', 'Set Actor Hidden in Game'
+    // are handled by label-based checks earlier in genAction (with actor input pin support).
     case 'Set Actor Enable Collision': {
       const eS = inputSrc.get(`${nodeId}.enabled`);
       lines.push(`if (__physics && __physics.collision) { __physics.collision.setBodyEnabled(__physics, gameObject.id, !!(${eS ? rv(eS.nid, eS.ok) : 'true'})); }`);
@@ -4719,22 +4728,32 @@ if (node instanceof N.NavMeshAddAgentNode) {
       const isRandom = isRndS ? rv(isRndS.nid, isRndS.ok) : 'false';
       const loop = loopS ? rv(loopS.nid, loopS.ok) : 'false';
       const startIdx = siS ? rv(siS.nid, siS.ok) : '0';
+      // Dynamically detect output count (out0, out1, out2, ...)
+      const outKeys: string[] = [];
+      if (node.outputs) {
+        for (const key of Object.keys(node.outputs)) {
+          if (/^out\d+$/.test(key)) outKeys.push(key);
+        }
+      }
+      outKeys.sort((a, b) => parseInt(a.replace('out', '')) - parseInt(b.replace('out', '')));
+      const outCount = outKeys.length || 3;
       if (triggerInput === 'reset') {
         lines.push(`__mg_idx_${uid} = (${startIdx}); __mg_done_${uid} = false;`);
       } else {
         lines.push(`if (typeof __mg_idx_${uid} === 'undefined') { __mg_idx_${uid} = (${startIdx}); __mg_done_${uid} = false; }`);
         lines.push(`if (!__mg_done_${uid}) {`);
-        lines.push(`  var __mg_cnt_${uid} = 3;`);
+        lines.push(`  var __mg_cnt_${uid} = ${outCount};`);
         lines.push(`  var __mg_cur_${uid} = (${isRandom}) ? Math.floor(Math.random() * __mg_cnt_${uid}) : __mg_idx_${uid};`);
-        const out0Lines = we(nodeId, 'out0');
-        const out1Lines = we(nodeId, 'out1');
-        const out2Lines = we(nodeId, 'out2');
-        lines.push(`  if (__mg_cur_${uid} === 0) {`);
-        lines.push(...out0Lines.map(l => '    ' + l));
-        lines.push(`  } else if (__mg_cur_${uid} === 1) {`);
-        lines.push(...out1Lines.map(l => '    ' + l));
-        lines.push(`  } else if (__mg_cur_${uid} === 2) {`);
-        lines.push(...out2Lines.map(l => '    ' + l));
+        for (let oi = 0; oi < outCount; oi++) {
+          const outKey = `out${oi}`;
+          const outLines = we(nodeId, outKey);
+          if (oi === 0) {
+            lines.push(`  if (__mg_cur_${uid} === 0) {`);
+          } else {
+            lines.push(`  } else if (__mg_cur_${uid} === ${oi}) {`);
+          }
+          lines.push(...outLines.map(l => '    ' + l));
+        }
         lines.push(`  }`);
         lines.push(`  if (!(${isRandom})) {`);
         lines.push(`    __mg_idx_${uid}++;`);
@@ -5045,14 +5064,22 @@ if (node instanceof N.NavMeshAddAgentNode) {
     case 'Box Overlap 2D': {
       const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
       const hwS = inputSrc.get(`${nodeId}.halfW`); const hhS = inputSrc.get(`${nodeId}.halfH`);
-      lines.push(`/* Box Overlap 2D â€” placeholder: Rapier2D intersection test */`);
+      const cx = cxS ? rv(cxS.nid, cxS.ok) : '0'; const cy = cyS ? rv(cyS.nid, cyS.ok) : '0';
+      const hw = hwS ? rv(hwS.nid, hwS.ok) : '1'; const hh = hhS ? rv(hhS.nid, hhS.ok) : '1';
+      const ovVar = `__ov2d_box_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${ovVar} = (function(){ var _p2d = (__engine && __engine.scene2DManager) ? __engine.scene2DManager.physics2D : (__engine ? __engine.physics2D : null); return _p2d && _p2d.overlapBox ? _p2d.overlapBox(${cx}, ${cy}, ${hw}, ${hh}) : []; }());`);
+
       lines.push(...we(nodeId, 'exec'));
       break;
     }
     case 'Circle Overlap 2D': {
       const cxS = inputSrc.get(`${nodeId}.centerX`); const cyS = inputSrc.get(`${nodeId}.centerY`);
       const rS = inputSrc.get(`${nodeId}.radius`);
-      lines.push(`/* Circle Overlap 2D â€” placeholder: Rapier2D intersection test */`);
+      const cx = cxS ? rv(cxS.nid, cxS.ok) : '0'; const cy = cyS ? rv(cyS.nid, cyS.ok) : '0';
+      const r = rS ? rv(rS.nid, rS.ok) : '1';
+      const ovVar = `__ov2d_circ_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      lines.push(`var ${ovVar} = (function(){ var _p2d = (__engine && __engine.scene2DManager) ? __engine.scene2DManager.physics2D : (__engine ? __engine.physics2D : null); return _p2d && _p2d.overlapCircle ? _p2d.overlapCircle(${cx}, ${cy}, ${r}) : []; }());`);
+
       lines.push(...we(nodeId, 'exec'));
       break;
     }
@@ -5842,7 +5869,7 @@ if (node instanceof N.NavMeshAddAgentNode) {
       const handleSrc = inputSrc.get(`${nodeId}.handle`);
       const handleExpr = handleSrc ? rv(handleSrc.nid, handleSrc.ok) : '({})';
       lines.push(`var __rh_row_${uid} = null; var __rh_found_${uid} = false;`);
-      lines.push(`{ var __h = ${handleExpr}; if (__h && __h.dataTableId && __h.rowName) { var __dt = eval('typeof __dt_' + __h.dataTableId + ' !== "undefined" ? __dt_' + __h.dataTableId + ' : null'); if (__dt && __dt.rows[__h.rowName] != null) { __rh_row_${uid} = __dt.rows[__h.rowName]; __rh_found_${uid} = true; } } }`);
+      lines.push(`{ var __h = ${handleExpr}; if (__h && __h.dataTableId && __h.rowName) { var __dt = typeof __dtRegistry !== 'undefined' ? __dtRegistry[__h.dataTableId] : null; if (__dt && __dt.rows[__h.rowName] != null) { __rh_row_${uid} = __dt.rows[__h.rowName]; __rh_found_${uid} = true; } } }`);
       if (outputDst.has(`${nodeId}.then`) || outputDst.has(`${nodeId}.notFound`)) {
         lines.push(`if (__rh_found_${uid}) {`);
         lines.push(...we(nodeId, 'then'));
@@ -5886,12 +5913,15 @@ export function generateFullCode(
   // ── DataTable runtime constants ──────────────────────────────────
   // Embed all DataTable row data as plain JS objects so Get Data Table
   // Row nodes can look up rows at runtime without reaching back into editor state.
+  // __dtRegistry allows safe lookup by dynamic id (replaces eval).
+  parts.push(`var __dtRegistry = {};`);
   if (getDataTableMgr()) {
     for (const dt of getDataTableMgr()!.tables) {
       const safeDtId = dt.id.replace(/[^a-zA-Z0-9]/g, '_');
       const rowsObj: Record<string, any> = {};
       for (const row of dt.rows) { rowsObj[row.rowName] = row.data; }
       parts.push(`var __dt_${safeDtId} = ${JSON.stringify({ rows: rowsObj })};`);
+      parts.push(`__dtRegistry["${safeDtId}"] = __dt_${safeDtId};`);
     }
   }
 
