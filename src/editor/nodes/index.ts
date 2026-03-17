@@ -132,6 +132,10 @@ export { SetCollisionEnabledNode as SetCollisionEnabledPhysicsNode, SetCCDEnable
 export { GetCenterOfMassNode }      from './physics/GetCenterOfMassNode';
 // ── Collision Queries (new) ──────────────────────────────────
 export { LineTraceSingleNode, LineTraceMultiNode, SphereTraceNode, BoxTraceSingleNode, OverlapSphereNode, OverlapBoxNode, PointIsInsideNode } from './physics/CollisionQueryNodes';
+// ── Physics Joints ──────────────────────────────────────────
+export { CreateFixedJointNode, CreateBallSocketJointNode, CreateHingeJointNode, CreatePrismaticJointNode, CreateSpringJointNode, RemoveJointNode, SetHingeMotorNode } from './physics/PhysicsJointNodes';
+// ── Projectile Movement ─────────────────────────────────────
+export { LaunchProjectileNode, LaunchProjectileSimpleNode, SetProjectileHomingNode, DestroyProjectileNode, GetProjectileVelocityNode } from './physics/ProjectileNodes';
 
 // ── Variables (dynamic) ─────────────────────────────────────
 export { GetVariableNode, SetVariableNode, socketForType } from './variables/VariableNodes';

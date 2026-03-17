@@ -6,6 +6,8 @@ import type { PhysicsConfig } from '../runtime/RuntimeTypes';
 import { defaultPhysicsConfig } from '../runtime/RuntimeTypes';
 import { CollisionSystem } from './CollisionSystem';
 import { PhysicsDebugDrawer } from './PhysicsDebugDrawer';
+import { PhysicsJoints } from './PhysicsJoints';
+import { ProjectileMovementSystem } from './ProjectileMovementComponent';
 
 export interface PhysicsSettings {
   gravity: { x: number; y: number; z: number };
@@ -31,6 +33,8 @@ export class PhysicsWorld {
   public world: RAPIER.World | null = null;
   public isPlaying: boolean = false;
   public collision: CollisionSystem = new CollisionSystem();
+  public joints: PhysicsJoints = new PhysicsJoints();
+  public projectile: ProjectileMovementSystem = new ProjectileMovementSystem();
   public settings: PhysicsSettings = defaultPhysicsSettings();
   public debugDrawer: PhysicsDebugDrawer | null = null;
   private _initialized = false;
@@ -42,6 +46,10 @@ export class PhysicsWorld {
     await RAPIER.init();
     const gravity = { x: 0.0, y: -9.81, z: 0.0 };
     this.world = new RAPIER.World(gravity);
+
+    // Apply solver iterations from settings
+    this.world.numSolverIterations = this.settings.solverIterations;
+
     this._initialized = true;
 
     // Create ground plane collider
@@ -198,6 +206,9 @@ export class PhysicsWorld {
     const rootColDesc = this._buildColliderDesc(go, cfg);
     rootColDesc.setFriction(cfg.friction);
     rootColDesc.setRestitution(cfg.restitution);
+    // Apply friction & restitution combine rules (Rapier CoefficientCombineRule)
+    rootColDesc.setFrictionCombineRule(this._toCombineRule(cfg.frictionCombine));
+    rootColDesc.setRestitutionCombineRule(this._toCombineRule(cfg.restitutionCombine));
     if (!cfg.collisionEnabled) rootColDesc.setSensor(true);
     if (cfg.isTrigger) rootColDesc.setSensor(true);
     // Apply collider offset
@@ -235,10 +246,25 @@ export class PhysicsWorld {
       childColDesc.setFriction(cfg.friction);
       childColDesc.setRestitution(cfg.restitution);
       if (!cfg.collisionEnabled) childColDesc.setSensor(true);
+      if (cfg.isTrigger) childColDesc.setSensor(true);
       childColDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL);
       childColDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
       const childCol = this.world.createCollider(childColDesc, rigidBody);
       this._colliderToGoId.set(childCol.handle, go.id);
+    }
+  }
+
+  /**
+   * Convert a CombineMode string ('average' | 'min' | 'max' | 'multiply') to
+   * the Rapier CoefficientCombineRule enum value.
+   */
+  private _toCombineRule(mode: string | undefined): RAPIER.CoefficientCombineRule {
+    switch ((mode ?? 'average').toLowerCase()) {
+      case 'average': return RAPIER.CoefficientCombineRule.Average;
+      case 'min': return RAPIER.CoefficientCombineRule.Min;
+      case 'max': return RAPIER.CoefficientCombineRule.Max;
+      case 'multiply': return RAPIER.CoefficientCombineRule.Multiply;
+      default: return RAPIER.CoefficientCombineRule.Average;
     }
   }
 
@@ -255,8 +281,30 @@ export class PhysicsWorld {
       return RAPIER.ColliderDesc.cuboid(0.001, 0.001, 0.001).setSensor(true);
     }
 
-    // Compute bounding box for auto-fit (works for both Mesh and Group)
-    const bbox = new THREE.Box3().setFromObject(go.mesh);
+    // Compute bounding box for auto-fit, EXCLUDING helper children
+    // (trigger wireframes, light icons, component helpers) so their
+    // geometry doesn't inflate the physics collider.
+    const bbox = new THREE.Box3();
+    go.mesh.updateMatrixWorld(true);
+    go.mesh.traverse((child) => {
+      if (child.userData?.__isTriggerHelper) return;
+      if (child.userData?.__isLightHelper) return;
+      if (child.userData?.__isComponentHelper) return;
+      if (child.userData?.__lightCompName) return;
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.computeBoundingBox();
+          if (mesh.geometry.boundingBox) {
+            const childBox = mesh.geometry.boundingBox.clone();
+            childBox.applyMatrix4(mesh.matrixWorld);
+            bbox.union(childBox);
+          }
+        }
+      }
+    });
+    // Fallback if no valid meshes were found — use `setFromObject` as last resort
+    if (bbox.isEmpty()) bbox.setFromObject(go.mesh);
     const size = bbox.getSize(new THREE.Vector3());
     // Half-extents from bounding box
     const autoHX = Math.max(size.x / 2, 0.01);
@@ -465,6 +513,9 @@ export class PhysicsWorld {
 
     // Drain the EventQueue and dispatch overlap / hit callbacks
     this.collision.processEvents(scene, this);
+
+    // Update projectile movement
+    this.projectile.update(frameDt, scene, this);
   }
 
   play(scene: Scene): void {
@@ -487,7 +538,15 @@ export class PhysicsWorld {
     // Create sensor colliders for all trigger components
     this.collision.createSensors(scene, this);
 
-    console.log(`[PhysicsWorld] play() — sensors created: ${this.collision.getSensorCount()}, world colliders: ${this.world.colliders.len()}, world bodies: ${this.world.bodies.len()}`);
+    // Apply physics settings (gravity, solver iterations) from project settings
+    this.world.gravity = {
+      x: this.settings.gravity.x,
+      y: this.settings.gravity.y,
+      z: this.settings.gravity.z,
+    };
+    this.world.numSolverIterations = this.settings.solverIterations;
+
+    console.log(`[PhysicsWorld] play() — sensors created: ${this.collision.getSensorCount()}, world colliders: ${this.world.colliders.len()}, world bodies: ${this.world.bodies.len()}, solverIter=${this.settings.solverIterations}`);
 
     if (this.settings.debugDraw) {
       this.debugDrawer = new PhysicsDebugDrawer(scene.threeScene, this);
@@ -529,6 +588,8 @@ export class PhysicsWorld {
 
     // Reset collision system
     this.collision.reset();
+    this.joints.reset(this);
+    this.projectile.reset();
     this._colliderToGoId.clear();
 
     // Clear all physics body references from game objects
@@ -699,5 +760,144 @@ export class PhysicsWorld {
     }
 
     return { hit: true, point, normal, distance: toi, hitActor };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  //  Multi-hit / Overlap Queries
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Line Trace Multi — cast a ray from `start` toward `end` and return
+   * ALL hits along the ray (sorted by distance, nearest first).
+   *
+   * Called by generated blueprint code:
+   *   `__engine.physics.lineTraceMulti(start, end, channel)`
+   */
+  lineTraceMulti(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+    _channel?: number,
+    scene?: Scene,
+  ): Array<{ hit: boolean; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; distance: number; hitActor: any }> {
+    if (!this.world) return [];
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const dz = end.z - start.z;
+    const maxToi = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (maxToi < 1e-6) return [];
+
+    const dirX = dx / maxToi, dirY = dy / maxToi, dirZ = dz / maxToi;
+    const ray = new RAPIER.Ray(
+      { x: start.x, y: start.y, z: start.z },
+      { x: dirX, y: dirY, z: dirZ },
+    );
+
+    const hits: Array<{ hit: boolean; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; distance: number; hitActor: any }> = [];
+
+    this.world.intersectionsWithRay(ray, maxToi, true, (intersection) => {
+      const toi = intersection.timeOfImpact;
+      const normal = intersection.normal
+        ? { x: intersection.normal.x, y: intersection.normal.y, z: intersection.normal.z }
+        : { x: 0, y: 1, z: 0 };
+      const point = {
+        x: start.x + dirX * toi,
+        y: start.y + dirY * toi,
+        z: start.z + dirZ * toi,
+      };
+
+      let hitActor: any = null;
+      if (intersection.collider && scene) {
+        const goId = this._colliderToGoId.get(intersection.collider.handle);
+        if (goId != null) {
+          hitActor = scene.gameObjects.find(g => g.id === goId) ?? null;
+        }
+      }
+
+      hits.push({ hit: true, point, normal, distance: toi, hitActor });
+      return true; // continue collecting hits
+    });
+
+    // Sort by distance (nearest first)
+    hits.sort((a, b) => a.distance - b.distance);
+    return hits;
+  }
+
+  /**
+   * Overlap Sphere — find all colliders intersecting a sphere at `center`
+   * with given `radius`.  Returns an array of hit actors.
+   *
+   * Called by generated blueprint code:
+   *   `__engine.physics.overlapSphere(center, radius, channel)`
+   */
+  overlapSphere(
+    center: { x: number; y: number; z: number },
+    radius: number,
+    _channel?: number,
+    scene?: Scene,
+  ): Array<{ actorId: number; actorName: string; actor: any }> {
+    if (!this.world) return [];
+
+    const shape = new RAPIER.Ball(Math.max(radius, 0.001));
+    const shapePos = { x: center.x, y: center.y, z: center.z };
+    const shapeRot = { x: 0, y: 0, z: 0, w: 1 };
+
+    const results: Array<{ actorId: number; actorName: string; actor: any }> = [];
+    const seen = new Set<number>(); // avoid duplicate actors
+
+    this.world.intersectionsWithShape(shapePos, shapeRot, shape, (collider) => {
+      if (scene) {
+        const goId = this._colliderToGoId.get(collider.handle);
+        if (goId != null && !seen.has(goId)) {
+          seen.add(goId);
+          const go = scene.gameObjects.find(g => g.id === goId);
+          if (go) results.push({ actorId: go.id, actorName: go.name, actor: go });
+        }
+      }
+      return true; // continue
+    });
+
+    return results;
+  }
+
+  /**
+   * Overlap Box — find all colliders intersecting an oriented box at `center`.
+   *
+   * Called by generated blueprint code:
+   *   `__engine.physics.overlapBox(center, halfExtents, orientation, channel)`
+   */
+  overlapBox(
+    center: { x: number; y: number; z: number },
+    halfExtents: { x: number; y: number; z: number },
+    orientation?: { x: number; y: number; z: number; w: number },
+    _channel?: number,
+    scene?: Scene,
+  ): Array<{ actorId: number; actorName: string; actor: any }> {
+    if (!this.world) return [];
+
+    const shape = new RAPIER.Cuboid(
+      Math.max(halfExtents.x, 0.001),
+      Math.max(halfExtents.y, 0.001),
+      Math.max(halfExtents.z, 0.001),
+    );
+    const shapePos = { x: center.x, y: center.y, z: center.z };
+    const shapeRot = orientation ?? { x: 0, y: 0, z: 0, w: 1 };
+
+    const results: Array<{ actorId: number; actorName: string; actor: any }> = [];
+    const seen = new Set<number>();
+
+    this.world.intersectionsWithShape(shapePos, shapeRot, shape, (collider) => {
+      if (scene) {
+        const goId = this._colliderToGoId.get(collider.handle);
+        if (goId != null && !seen.has(goId)) {
+          seen.add(goId);
+          const go = scene.gameObjects.find(g => g.id === goId);
+          if (go) results.push({ actorId: go.id, actorName: go.name, actor: go });
+        }
+      }
+      return true; // continue
+    });
+
+    return results;
   }
 }

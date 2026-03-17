@@ -310,6 +310,8 @@ export interface ActorAssetJSON {
   controllerBlueprintId?: string;
   /** Per-slot material overrides for the root mesh: maps slot index (as string) → MaterialAssetJSON.assetId */
   rootMaterialOverrides?: Record<string, string>;
+  /** When true, root mesh is hidden at runtime (like UE's Hidden In Game) */
+  rootHiddenInGame?: boolean;
   // ── 2D-specific fields ──
   /** Scene mode this actor was designed for */
   sceneMode?: '2D' | '3D';
@@ -352,6 +354,8 @@ export class ActorAsset {
   /** Per-slot material overrides for the root mesh: maps slot index (as string) → MaterialAssetJSON.assetId */
   public rootMaterialOverrides: Record<string, string> = {};
   public rootPhysics: PhysicsConfig = defaultPhysicsConfig();
+  /** When true, root mesh is hidden at runtime (like UE's Hidden In Game) */
+  public rootHiddenInGame: boolean = false;
   public components: ActorComponentData[] = [];
   public blueprintData: BlueprintData;
   public createdAt: number;
@@ -409,6 +413,7 @@ export class ActorAsset {
       rootMaterialOverrides: Object.keys(this.rootMaterialOverrides).length > 0
         ? structuredClone(this.rootMaterialOverrides) : undefined,
       rootPhysics: structuredClone(this.rootPhysics),
+      rootHiddenInGame: this.rootHiddenInGame || undefined,
       components: structuredClone(this.components),
       variables: structuredClone(bp.variables),
       functions: bp.functions.map(f => ({
@@ -452,6 +457,7 @@ export class ActorAsset {
     asset.rootMeshType = json.rootMeshType || 'cube';
     asset.rootCustomMeshAssetId = json.rootCustomMeshAssetId || '';
     asset.rootMaterialOverrides = json.rootMaterialOverrides ? structuredClone(json.rootMaterialOverrides) : {};
+    asset.rootHiddenInGame = json.rootHiddenInGame ?? false;
     asset.characterPawnConfig = json.characterPawnConfig
       ? {
           ...defaultCharacterPawnConfig(),

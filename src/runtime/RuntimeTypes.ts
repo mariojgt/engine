@@ -44,9 +44,13 @@ export interface CollisionConfig {
 }
 
 export interface PhysicsConfig {
+  /** Master on/off for the physics component */
+  enabled: boolean;
   simulatePhysics: boolean;
   bodyType: PhysicsBodyType;
   mass: number;
+  /** Whether gravity affects this body */
+  gravityEnabled: boolean;
   linearDamping: number;
   angularDamping: number;
   friction: number;
@@ -54,7 +58,12 @@ export interface PhysicsConfig {
   frictionCombine: CombineMode;
   restitutionCombine: CombineMode;
   colliderShape: ColliderShapeType;
-  boxExtents: { x: number; y: number; z: number };
+  /** Auto-fit collider to mesh bounding box */
+  autoFitCollider: boolean;
+  /** Manual box half extents (when autoFit off + shape=Box) */
+  boxHalfExtents: { x: number; y: number; z: number };
+  /** @deprecated Use boxHalfExtents instead */
+  boxExtents?: { x: number; y: number; z: number };
   sphereRadius: number;
   capsuleRadius: number;
   capsuleHalfHeight: number;
@@ -71,8 +80,20 @@ export interface PhysicsConfig {
   lockRotationZ: boolean;
   autoMass: boolean;
   ccdEnabled: boolean;
+  /** Enable collision detection */
+  collisionEnabled: boolean;
+  /** Collision channel preset */
+  collisionChannel?: string;
+  /** Which channels this body blocks */
+  blocksChannels?: string[];
+  /** Which channels this body overlaps */
+  overlapsChannels?: string[];
   enableOverlapEvents: boolean;
   enableHitEvents: boolean;
+  /** Generate overlap events (alias) */
+  generateOverlapEvents?: boolean;
+  /** Generate hit events (alias) */
+  generateHitEvents?: boolean;
   /** Collision channels */
   collision?: CollisionConfig;
   /** Sensor/trigger mode (no physics response, only events) */
@@ -80,9 +101,11 @@ export interface PhysicsConfig {
 }
 
 export const defaultPhysicsConfig: PhysicsConfig = {
+  enabled: false,
   simulatePhysics: false,
   bodyType: 'static',
   mass: 1,
+  gravityEnabled: true,
   linearDamping: 0.01,
   angularDamping: 0.05,
   friction: 0.5,
@@ -90,7 +113,8 @@ export const defaultPhysicsConfig: PhysicsConfig = {
   frictionCombine: 'average',
   restitutionCombine: 'average',
   colliderShape: 'box',
-  boxExtents: { x: 0.5, y: 0.5, z: 0.5 },
+  autoFitCollider: true,
+  boxHalfExtents: { x: 0.5, y: 0.5, z: 0.5 },
   sphereRadius: 0.5,
   capsuleRadius: 0.3,
   capsuleHalfHeight: 0.5,
@@ -107,6 +131,7 @@ export const defaultPhysicsConfig: PhysicsConfig = {
   lockRotationZ: false,
   autoMass: false,
   ccdEnabled: false,
+  collisionEnabled: true,
   enableOverlapEvents: false,
   enableHitEvents: false,
 };

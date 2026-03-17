@@ -865,6 +865,7 @@ async function main() {
         engine.scene.setTriggerHelpersVisible(false);
         engine.scene.setLightHelpersVisible(false);
         engine.scene.setComponentHelpersVisible(false);
+        engine.scene.setMeshesHiddenInGame(true);
         playBtn.style.display = 'none';
         stopBtn.style.display = '';
       }
@@ -989,6 +990,7 @@ async function main() {
       engine.scene.setTriggerHelpersVisible(false);
       engine.scene.setLightHelpersVisible(false);
       engine.scene.setComponentHelpersVisible(false);
+      engine.scene.setMeshesHiddenInGame(true);
       playBtn.style.display = 'none';
       stopBtn.style.display = '';
 
@@ -1038,6 +1040,7 @@ async function main() {
     engine.scene.setTriggerHelpersVisible(true);  // restore debug wireframes
     engine.scene.setLightHelpersVisible(true);     // restore light editor helpers
     engine.scene.setComponentHelpersVisible(true); // restore component helpers
+    engine.scene.setMeshesHiddenInGame(false);     // restore hidden-in-game meshes
 
     // Delay hiding the output log so OnDestroy print output is visible
     setTimeout(() => outputLog.hide(), 500);

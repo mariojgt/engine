@@ -573,6 +573,7 @@ export class EditorLayout {
           asset.controllerClass,
           asset.controllerBlueprintId,
           asset.rootMaterialOverrides,
+          asset.rootHiddenInGame,
         );
       },
     );

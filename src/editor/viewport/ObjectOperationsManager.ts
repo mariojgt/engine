@@ -119,6 +119,7 @@ export class ObjectOperationsManager {
           asset.controllerClass,
           asset.controllerBlueprintId,
           asset.rootMaterialOverrides,
+          asset.rootHiddenInGame,
         );
         newGO.mesh.rotation.copy(go.mesh.rotation);
         newGO.mesh.scale.copy(go.mesh.scale);
@@ -288,6 +289,7 @@ export class ObjectOperationsManager {
             asset.controllerClass,
             asset.controllerBlueprintId,
             asset.rootMaterialOverrides,
+            asset.rootHiddenInGame,
           );
           go.mesh.rotation.copy(entry.rotation);
           go.mesh.scale.copy(entry.scale);

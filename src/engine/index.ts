@@ -5,6 +5,8 @@ export { Scene, type MeshType } from './Scene';
 export { GameObject } from './GameObject';
 export { ScriptComponent, type ScriptContext } from './ScriptComponent';
 export { PhysicsWorld } from './PhysicsWorld';
+export { PhysicsJoints, type JointType, type JointConfig, type FixedJointConfig, type BallSocketJointConfig, type HingeJointConfig, type PrismaticJointConfig, type SpringJointConfig } from './PhysicsJoints';
+export { ProjectileMovementSystem, type ProjectileConfig, type ProjectileHitInfo, defaultProjectileConfig } from './ProjectileMovementComponent';
 export { Controller, type Pawn, type ControllerType } from './Controller';
 export { SpectatorController, SpectatorControllerManager, defaultSpectatorPawnConfig, type SpectatorPawnConfig } from './SpectatorController';
 export { PlayerController, PlayerControllerManager, type Possessable } from './PlayerController';

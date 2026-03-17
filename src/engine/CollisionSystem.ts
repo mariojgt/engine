@@ -410,6 +410,27 @@ export class CollisionSystem {
         const sensorGoId = sensorEntry!.gameObjectId;
         const otherGoId = sensorGoId === goId1 ? goId2 : goId1;
 
+        // Enforce generateOverlapEvents flag — skip if disabled on the sensor config
+        if (!sensorEntry!.config.generateOverlapEvents) return;
+
+        // Enforce channel responses — check if the sensor's channelResponses
+        // allow overlap with the other actor's collision channel
+        const otherGo = goById.get(otherGoId);
+        if (otherGo) {
+          const otherChannel = otherGo.physicsConfig?.collision?.channelResponses
+            ? undefined // channel-level check below
+            : undefined;
+          // If the sensor has channelResponses set, check that the other actor's
+          // object type (from PhysicsConfig) is not 'ignore'd
+          const sensorResponses = sensorEntry!.config.channelResponses;
+          if (sensorResponses && otherGo.physicsConfig?.collision) {
+            const otherObjType = (otherGo.physicsConfig as any).collisionChannel;
+            if (otherObjType && sensorResponses[otherObjType as keyof typeof sensorResponses] === 'ignore') {
+              return; // This channel is ignored — skip event
+            }
+          }
+        }
+
         if (started) {
           this._fireOverlapBegin(sensorGoId, otherGoId, sensorHandle, goById);
         } else {
@@ -418,6 +439,17 @@ export class CollisionSystem {
       } else {
         // ── Contact/hit event (blocking collision) ──
         if (started) {
+          // Enforce generateHitEvents — check PhysicsConfig on both GameObjects
+          const go1 = goById.get(goId1);
+          const go2 = goById.get(goId2);
+          const cfg1 = go1?.physicsConfig;
+          const cfg2 = go2?.physicsConfig;
+
+          // Skip if either actor has explicitly disabled hit events
+          const go1HitEnabled = cfg1?.enableHitEvents !== false && cfg1?.generateHitEvents !== false;
+          const go2HitEnabled = cfg2?.enableHitEvents !== false && cfg2?.generateHitEvents !== false;
+          if (!go1HitEnabled && !go2HitEnabled) return;
+
           this._fireHit(goId1, goId2, handle1, handle2, physics, goById);
         }
       }
@@ -561,7 +593,34 @@ export class CollisionSystem {
       inorm = { x: n.x, y: n.y, z: n.z };
       if (m.numContacts() > 0) {
         const p = m.localContactPoint1(0);
-        if (p) ip = { x: p.x, y: p.y, z: p.z };
+        if (p) {
+          // Transform local contact point to world space using the
+          // collider's parent rigid body translation.
+          const col1 = physics.world!.getCollider(handle1);
+          if (col1) {
+            const rb = col1.parent();
+            if (rb) {
+              const t = rb.translation();
+              const r = rb.rotation();
+              // Apply rotation: q * p * q^-1 + translation
+              // Quaternion rotation of a vector:
+              const qx = r.x, qy = r.y, qz = r.z, qw = r.w;
+              const ix = qw * p.x + qy * p.z - qz * p.y;
+              const iy = qw * p.y + qz * p.x - qx * p.z;
+              const iz = qw * p.z + qx * p.y - qy * p.x;
+              const iw = -qx * p.x - qy * p.y - qz * p.z;
+              ip = {
+                x: ix * qw + iw * -qx + iy * -qz - iz * -qy + t.x,
+                y: iy * qw + iw * -qy + iz * -qx - ix * -qz + t.y,
+                z: iz * qw + iw * -qz + ix * -qy - iy * -qx + t.z,
+              };
+            } else {
+              ip = { x: p.x, y: p.y, z: p.z };
+            }
+          } else {
+            ip = { x: p.x, y: p.y, z: p.z };
+          }
+        }
         imp = Math.abs(m.contactImpulse(0));
       }
     });

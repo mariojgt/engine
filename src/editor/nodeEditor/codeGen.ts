@@ -1489,6 +1489,17 @@ function resolveValue(
       if (outputKey === 'z') return `(__physics ? __physics.world.gravity.z : 0)`;
       return '0';
     }
+    case 'Get Projectile Velocity': {
+      const piS = inputSrc.get(`${nodeId}.projectileId`);
+      const pi = piS ? rv(piS.nid, piS.ok) : '-1';
+      if (outputKey === 'vx') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pi}) || {x:0}).x : 0)`;
+      if (outputKey === 'vy') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pi}) || {y:0}).y : 0)`;
+      if (outputKey === 'vz') return `((__engine && __engine.physics && __engine.physics.projectile) ? (__engine.physics.projectile.getVelocity(${pi}) || {z:0}).z : 0)`;
+      if (outputKey === 'speed') {
+        return `(function(){ var __v = (__engine && __engine.physics && __engine.physics.projectile) ? __engine.physics.projectile.getVelocity(${pi}) : null; return __v ? Math.sqrt(__v.x*__v.x+__v.y*__v.y+__v.z*__v.z) : 0; })()`;
+      }
+      return '0';
+    }
     case 'Get Player Character': {
       const piS = inputSrc.get(`${nodeId}.playerIndex`);
       const pi = piS ? rv(piS.nid, piS.ok) : '0';
@@ -2873,6 +2884,143 @@ function genAction(
     const r = rS ? rv(rS.nid, rS.ok) : '0';
     const s = sS ? rv(sS.nid, sS.ok) : '0';
     lines.push(`{ if(__engine && __engine.physics) { __engine.physics.addRadialImpulse(${o}, ${r}, ${s}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // ── Physics Joint nodes ───────────────────────────────────
+  if (node.label === 'Create Fixed Joint') {
+    const aA = inputSrc.get(`${nodeId}.actorA`);
+    const aB = inputSrc.get(`${nodeId}.actorB`);
+    const a = aA ? rv(aA.nid, aA.ok) : '0';
+    const b = aB ? rv(aB.nid, aB.ok) : '0';
+    const aax = inputSrc.get(`${nodeId}.anchorAx`); const aay = inputSrc.get(`${nodeId}.anchorAy`); const aaz = inputSrc.get(`${nodeId}.anchorAz`);
+    const abx = inputSrc.get(`${nodeId}.anchorBx`); const aby = inputSrc.get(`${nodeId}.anchorBy`); const abz = inputSrc.get(`${nodeId}.anchorBz`);
+    const ax = aax ? rv(aax.nid, aax.ok) : '0'; const ay = aay ? rv(aay.nid, aay.ok) : '0'; const az = aaz ? rv(aaz.nid, aaz.ok) : '0';
+    const bx = abx ? rv(abx.nid, abx.ok) : '0'; const by = aby ? rv(aby.nid, aby.ok) : '0'; const bz = abz ? rv(abz.nid, abz.ok) : '0';
+    lines.push(`{ var __jid = -1; if(__engine && __engine.physics && __engine.physics.joints) { var __goA = __scene.gameObjects.find(function(g){return g.id===${a};}); var __goB = __scene.gameObjects.find(function(g){return g.id===${b};}); if(__goA && __goB) { __jid = __engine.physics.joints.createJoint(__engine.physics, __goA, __goB, {type:'fixed', anchorA:{x:${ax},y:${ay},z:${az}}, anchorB:{x:${bx},y:${by},z:${bz}}}); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Create Ball Socket Joint') {
+    const aA = inputSrc.get(`${nodeId}.actorA`);
+    const aB = inputSrc.get(`${nodeId}.actorB`);
+    const a = aA ? rv(aA.nid, aA.ok) : '0';
+    const b = aB ? rv(aB.nid, aB.ok) : '0';
+    const aax = inputSrc.get(`${nodeId}.anchorAx`); const aay = inputSrc.get(`${nodeId}.anchorAy`); const aaz = inputSrc.get(`${nodeId}.anchorAz`);
+    const abx = inputSrc.get(`${nodeId}.anchorBx`); const aby = inputSrc.get(`${nodeId}.anchorBy`); const abz = inputSrc.get(`${nodeId}.anchorBz`);
+    const ax = aax ? rv(aax.nid, aax.ok) : '0'; const ay = aay ? rv(aay.nid, aay.ok) : '0'; const az = aaz ? rv(aaz.nid, aaz.ok) : '0';
+    const bx = abx ? rv(abx.nid, abx.ok) : '0'; const by = aby ? rv(aby.nid, aby.ok) : '0'; const bz = abz ? rv(abz.nid, abz.ok) : '0';
+    lines.push(`{ var __jid = -1; if(__engine && __engine.physics && __engine.physics.joints) { var __goA = __scene.gameObjects.find(function(g){return g.id===${a};}); var __goB = __scene.gameObjects.find(function(g){return g.id===${b};}); if(__goA && __goB) { __jid = __engine.physics.joints.createJoint(__engine.physics, __goA, __goB, {type:'ballSocket', anchorA:{x:${ax},y:${ay},z:${az}}, anchorB:{x:${bx},y:${by},z:${bz}}}); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Create Hinge Joint') {
+    const aA = inputSrc.get(`${nodeId}.actorA`);
+    const aB = inputSrc.get(`${nodeId}.actorB`);
+    const a = aA ? rv(aA.nid, aA.ok) : '0';
+    const b = aB ? rv(aB.nid, aB.ok) : '0';
+    const aax = inputSrc.get(`${nodeId}.anchorAx`); const aay = inputSrc.get(`${nodeId}.anchorAy`); const aaz = inputSrc.get(`${nodeId}.anchorAz`);
+    const abx = inputSrc.get(`${nodeId}.anchorBx`); const aby = inputSrc.get(`${nodeId}.anchorBy`); const abz = inputSrc.get(`${nodeId}.anchorBz`);
+    const axS = inputSrc.get(`${nodeId}.axisX`); const ayS = inputSrc.get(`${nodeId}.axisY`); const azS = inputSrc.get(`${nodeId}.axisZ`);
+    const lMin = inputSrc.get(`${nodeId}.limitMin`); const lMax = inputSrc.get(`${nodeId}.limitMax`);
+    const ax = aax ? rv(aax.nid, aax.ok) : '0'; const ay = aay ? rv(aay.nid, aay.ok) : '0'; const az = aaz ? rv(aaz.nid, aaz.ok) : '0';
+    const bx = abx ? rv(abx.nid, abx.ok) : '0'; const by = aby ? rv(aby.nid, aby.ok) : '0'; const bz = abz ? rv(abz.nid, abz.ok) : '0';
+    const hax = axS ? rv(axS.nid, axS.ok) : '0'; const hay = ayS ? rv(ayS.nid, ayS.ok) : '1'; const haz = azS ? rv(azS.nid, azS.ok) : '0';
+    const lmin = lMin ? rv(lMin.nid, lMin.ok) : 'null'; const lmax = lMax ? rv(lMax.nid, lMax.ok) : 'null';
+    lines.push(`{ var __jid = -1; if(__engine && __engine.physics && __engine.physics.joints) { var __goA = __scene.gameObjects.find(function(g){return g.id===${a};}); var __goB = __scene.gameObjects.find(function(g){return g.id===${b};}); if(__goA && __goB) { var __cfg = {type:'hinge', anchorA:{x:${ax},y:${ay},z:${az}}, anchorB:{x:${bx},y:${by},z:${bz}}, axisA:{x:${hax},y:${hay},z:${haz}}, axisB:{x:${hax},y:${hay},z:${haz}}}; if(${lmin}!=null && ${lmax}!=null) __cfg.limits=[${lmin},${lmax}]; __jid = __engine.physics.joints.createJoint(__engine.physics, __goA, __goB, __cfg); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Create Prismatic Joint') {
+    const aA = inputSrc.get(`${nodeId}.actorA`);
+    const aB = inputSrc.get(`${nodeId}.actorB`);
+    const a = aA ? rv(aA.nid, aA.ok) : '0';
+    const b = aB ? rv(aB.nid, aB.ok) : '0';
+    const aax = inputSrc.get(`${nodeId}.anchorAx`); const aay = inputSrc.get(`${nodeId}.anchorAy`); const aaz = inputSrc.get(`${nodeId}.anchorAz`);
+    const abx = inputSrc.get(`${nodeId}.anchorBx`); const aby = inputSrc.get(`${nodeId}.anchorBy`); const abz = inputSrc.get(`${nodeId}.anchorBz`);
+    const axS = inputSrc.get(`${nodeId}.axisX`); const ayS = inputSrc.get(`${nodeId}.axisY`); const azS = inputSrc.get(`${nodeId}.axisZ`);
+    const lMin = inputSrc.get(`${nodeId}.limitMin`); const lMax = inputSrc.get(`${nodeId}.limitMax`);
+    const ax = aax ? rv(aax.nid, aax.ok) : '0'; const ay = aay ? rv(aay.nid, aay.ok) : '0'; const az = aaz ? rv(aaz.nid, aaz.ok) : '0';
+    const bx = abx ? rv(abx.nid, abx.ok) : '0'; const by = aby ? rv(aby.nid, aby.ok) : '0'; const bz = abz ? rv(abz.nid, abz.ok) : '0';
+    const pax = axS ? rv(axS.nid, axS.ok) : '1'; const pay = ayS ? rv(ayS.nid, ayS.ok) : '0'; const paz = azS ? rv(azS.nid, azS.ok) : '0';
+    const lmin = lMin ? rv(lMin.nid, lMin.ok) : 'null'; const lmax = lMax ? rv(lMax.nid, lMax.ok) : 'null';
+    lines.push(`{ var __jid = -1; if(__engine && __engine.physics && __engine.physics.joints) { var __goA = __scene.gameObjects.find(function(g){return g.id===${a};}); var __goB = __scene.gameObjects.find(function(g){return g.id===${b};}); if(__goA && __goB) { var __cfg = {type:'prismatic', anchorA:{x:${ax},y:${ay},z:${az}}, anchorB:{x:${bx},y:${by},z:${bz}}, axisA:{x:${pax},y:${pay},z:${paz}}, axisB:{x:${pax},y:${pay},z:${paz}}}; if(${lmin}!=null && ${lmax}!=null) __cfg.limits=[${lmin},${lmax}]; __jid = __engine.physics.joints.createJoint(__engine.physics, __goA, __goB, __cfg); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Create Spring Joint') {
+    const aA = inputSrc.get(`${nodeId}.actorA`);
+    const aB = inputSrc.get(`${nodeId}.actorB`);
+    const a = aA ? rv(aA.nid, aA.ok) : '0';
+    const b = aB ? rv(aB.nid, aB.ok) : '0';
+    const aax = inputSrc.get(`${nodeId}.anchorAx`); const aay = inputSrc.get(`${nodeId}.anchorAy`); const aaz = inputSrc.get(`${nodeId}.anchorAz`);
+    const abx = inputSrc.get(`${nodeId}.anchorBx`); const aby = inputSrc.get(`${nodeId}.anchorBy`); const abz = inputSrc.get(`${nodeId}.anchorBz`);
+    const rlS = inputSrc.get(`${nodeId}.restLength`); const stS = inputSrc.get(`${nodeId}.stiffness`); const daS = inputSrc.get(`${nodeId}.damping`);
+    const ax = aax ? rv(aax.nid, aax.ok) : '0'; const ay = aay ? rv(aay.nid, aay.ok) : '0'; const az = aaz ? rv(aaz.nid, aaz.ok) : '0';
+    const bx = abx ? rv(abx.nid, abx.ok) : '0'; const by = aby ? rv(aby.nid, aby.ok) : '0'; const bz = abz ? rv(abz.nid, abz.ok) : '0';
+    const rl = rlS ? rv(rlS.nid, rlS.ok) : '1'; const st = stS ? rv(stS.nid, stS.ok) : '10'; const da = daS ? rv(daS.nid, daS.ok) : '1';
+    lines.push(`{ var __jid = -1; if(__engine && __engine.physics && __engine.physics.joints) { var __goA = __scene.gameObjects.find(function(g){return g.id===${a};}); var __goB = __scene.gameObjects.find(function(g){return g.id===${b};}); if(__goA && __goB) { __jid = __engine.physics.joints.createJoint(__engine.physics, __goA, __goB, {type:'spring', anchorA:{x:${ax},y:${ay},z:${az}}, anchorB:{x:${bx},y:${by},z:${bz}}, restLength:${rl}, stiffness:${st}, damping:${da}}); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Remove Joint') {
+    const jS = inputSrc.get(`${nodeId}.jointId`);
+    const j = jS ? rv(jS.nid, jS.ok) : '-1';
+    lines.push(`{ var __success = false; if(__engine && __engine.physics && __engine.physics.joints) { __success = __engine.physics.joints.removeJoint(__engine.physics, ${j}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Hinge Motor') {
+    const jS = inputSrc.get(`${nodeId}.jointId`);
+    const vS = inputSrc.get(`${nodeId}.velocity`);
+    const fS = inputSrc.get(`${nodeId}.maxForce`);
+    const j = jS ? rv(jS.nid, jS.ok) : '-1';
+    const v = vS ? rv(vS.nid, vS.ok) : '0';
+    const f = fS ? rv(fS.nid, fS.ok) : '1';
+    lines.push(`{ if(__engine && __engine.physics && __engine.physics.joints) { __engine.physics.joints.setHingeMotor(${j}, ${v}, ${f}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  // ── Projectile Movement nodes ─────────────────────────────
+  if (node.label === 'Launch Projectile') {
+    const aiS = inputSrc.get(`${nodeId}.actorId`);
+    const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+    const spS = inputSrc.get(`${nodeId}.speed`); const gsS = inputSrc.get(`${nodeId}.gravityScale`); const ltS = inputSrc.get(`${nodeId}.lifetime`);
+    const boS = inputSrc.get(`${nodeId}.bounce`); const bnS = inputSrc.get(`${nodeId}.bounciness`); const mbS = inputSrc.get(`${nodeId}.maxBounces`);
+    const ai = aiS ? rv(aiS.nid, aiS.ok) : '0';
+    const ddx = dxS ? rv(dxS.nid, dxS.ok) : '1'; const ddy = dyS ? rv(dyS.nid, dyS.ok) : '0'; const ddz = dzS ? rv(dzS.nid, dzS.ok) : '0';
+    const sp = spS ? rv(spS.nid, spS.ok) : '20'; const gs = gsS ? rv(gsS.nid, gsS.ok) : '1'; const lt = ltS ? rv(ltS.nid, ltS.ok) : '5';
+    const bo = boS ? rv(boS.nid, boS.ok) : 'false'; const bn = bnS ? rv(bnS.nid, bnS.ok) : '0.6'; const mb = mbS ? rv(mbS.nid, mbS.ok) : '3';
+    lines.push(`{ var __projId = -1; if(__engine && __engine.physics && __engine.physics.projectile) { var __go = __scene.gameObjects.find(function(g){return g.id===${ai};}); if(__go) { __projId = __engine.physics.projectile.create(__go, {initialSpeed:${sp}, direction:{x:${ddx},y:${ddy},z:${ddz}}, gravityScale:${gs}, lifetime:${lt}, shouldBounce:${bo}, bounciness:${bn}, maxBounces:${mb}}); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Launch Projectile Simple') {
+    const aiS = inputSrc.get(`${nodeId}.actorId`);
+    const dxS = inputSrc.get(`${nodeId}.dirX`); const dyS = inputSrc.get(`${nodeId}.dirY`); const dzS = inputSrc.get(`${nodeId}.dirZ`);
+    const spS = inputSrc.get(`${nodeId}.speed`);
+    const ai = aiS ? rv(aiS.nid, aiS.ok) : '0';
+    const ddx = dxS ? rv(dxS.nid, dxS.ok) : '1'; const ddy = dyS ? rv(dyS.nid, dyS.ok) : '0'; const ddz = dzS ? rv(dzS.nid, dzS.ok) : '0';
+    const sp = spS ? rv(spS.nid, spS.ok) : '20';
+    lines.push(`{ var __projId = -1; if(__engine && __engine.physics && __engine.physics.projectile) { var __go = __scene.gameObjects.find(function(g){return g.id===${ai};}); if(__go) { __projId = __engine.physics.projectile.create(__go, {initialSpeed:${sp}, direction:{x:${ddx},y:${ddy},z:${ddz}}}); } } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Set Projectile Homing') {
+    const pS = inputSrc.get(`${nodeId}.projectileId`);
+    const tS = inputSrc.get(`${nodeId}.targetId`);
+    const haS = inputSrc.get(`${nodeId}.homingAccel`);
+    const p = pS ? rv(pS.nid, pS.ok) : '-1';
+    const t = tS ? rv(tS.nid, tS.ok) : '-1';
+    const ha = haS ? rv(haS.nid, haS.ok) : '10';
+    lines.push(`{ if(__engine && __engine.physics && __engine.physics.projectile) { __engine.physics.projectile.setHomingTarget(${p}, ${t}); var __pp = __engine.physics.projectile.getProjectile(${p}); if(__pp) __pp.config.homingAcceleration = ${ha}; } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+  if (node.label === 'Destroy Projectile') {
+    const pS = inputSrc.get(`${nodeId}.projectileId`);
+    const p = pS ? rv(pS.nid, pS.ok) : '-1';
+    lines.push(`{ if(__engine && __engine.physics && __engine.physics.projectile) { __engine.physics.projectile.destroy(${p}); } }`);
     lines.push(...we(nodeId, 'exec'));
     return lines;
   }

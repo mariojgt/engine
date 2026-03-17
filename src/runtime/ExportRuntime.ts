@@ -1783,6 +1783,8 @@ async function setup2DScene(sceneData: any): Promise<void> {
           goData.characterPawnConfig || null,
           goData.controllerClass,
           goData.controllerBlueprintId,
+          undefined,
+          goData.rootHiddenInGame,
         );
 
         if (go.mesh) go.mesh.visible = false;
@@ -1960,9 +1962,8 @@ async function setup2DScene(sceneData: any): Promise<void> {
   engine.scene.setTriggerHelpersVisible(false);
   engine.scene.setLightHelpersVisible(false);
   engine.scene.setComponentHelpersVisible(false);
+  engine.scene.setMeshesHiddenInGame(true);
 }
-
-// ── 2D scene detection heuristic ────────────────────────────
 
 function isLikely2DSceneData(sceneData: any): boolean {
   if (!sceneData || typeof sceneData !== 'object') return false;
@@ -2115,6 +2116,7 @@ async function loadSceneByName(sceneName: string): Promise<void> {
             goData.controllerClass,
             goData.controllerBlueprintId,
             Object.keys(rootMatOverrides).length > 0 ? rootMatOverrides : undefined,
+            goData.rootHiddenInGame,
           );
 
           if (typeof goData.hasPhysics === 'boolean') go.hasPhysics = goData.hasPhysics;
@@ -2198,6 +2200,7 @@ async function loadSceneByName(sceneName: string): Promise<void> {
     engine.scene.setTriggerHelpersVisible(false);
     engine.scene.setLightHelpersVisible(false);
     engine.scene.setComponentHelpersVisible(false);
+    engine.scene.setMeshesHiddenInGame(true);
 
     // 8. Camera
     if (sceneData.camera?.position) {

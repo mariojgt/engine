@@ -349,6 +349,7 @@ export function deserializeScene(
           asset.controllerClass,
           asset.controllerBlueprintId,
           asset.rootMaterialOverrides,
+          asset.rootHiddenInGame,
         );
         // Apply saved transform (overrides default asset position)
         go.mesh.rotation.set(goData.rotation.x, goData.rotation.y, goData.rotation.z);

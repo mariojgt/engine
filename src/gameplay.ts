@@ -165,6 +165,7 @@ async function startGameplay(sceneData: any): Promise<void> {
           goData.controllerClass,
           goData.controllerBlueprintId,
           goData.rootMaterialOverrides,
+          goData.rootHiddenInGame,
         );
 
         // Apply rotation and scale

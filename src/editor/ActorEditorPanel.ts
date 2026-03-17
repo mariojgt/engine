@@ -891,6 +891,15 @@ export class ActorEditorPanel {
       this._buildPhysicsSection(container, this._asset.rootPhysics);
     }
 
+    // ---- Hidden In Game toggle (root) ----
+    if (this._asset.rootMeshType !== 'none') {
+      container.appendChild(this._makeCheckboxRow('Hidden In Game', this._asset.rootHiddenInGame ?? false, (v) => {
+        this._asset.rootHiddenInGame = v;
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
+    }
+
     // ---- Character Pawn settings ----
     if (this._asset.actorType === 'characterPawn') {
       if (!this._asset.characterPawnConfig) {
@@ -1907,6 +1916,13 @@ export class ActorEditorPanel {
       // Physics section for mesh child component
       if (!comp.physics) comp.physics = defaultPhysicsConfig();
       this._buildPhysicsSection(container, comp.physics);
+
+      // ---- Hidden In Game toggle (mesh component) ----
+      container.appendChild(this._makeCheckboxRow('Hidden In Game', comp.hiddenInGame ?? false, (v) => {
+        comp.hiddenInGame = v;
+        this._asset.touch();
+        this._onAssetChanged();
+      }));
 
       // Collision section for mesh child component (UE-style per-component collision)
       if (!comp.collision) comp.collision = defaultMeshCollisionConfig();

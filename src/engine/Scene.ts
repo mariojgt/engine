@@ -214,9 +214,15 @@ export class Scene {
     controllerClass?: import('./Controller').ControllerType,
     controllerBlueprintId?: string,
     rootMaterialOverrides?: Record<string, string>,
+    rootHiddenInGame?: boolean,
   ): GameObject {
     const go = this.addGameObject(assetName, meshType);
     go.actorAssetId = assetId;
+
+    // Mark root mesh for Hidden In Game
+    if (rootHiddenInGame) {
+      go.mesh.userData.__rootHiddenInGame = true;
+    }
 
     // Apply root material overrides
     if (rootMaterialOverrides && Object.keys(rootMaterialOverrides).length > 0) {
@@ -328,6 +334,7 @@ export class Scene {
       asset.controllerClass,
       asset.controllerBlueprintId,
       asset.rootMaterialOverrides,
+      asset.rootHiddenInGame,
     );
 
     // Restore original variables on the asset if we swapped them
@@ -1078,6 +1085,8 @@ export class Scene {
             wrapper.userData.__collisionData = meshAsset.collisionData || null;
             wrapper.userData.__compCollision = comp.collision || null;
             wrapper.userData.__compPhysics = comp.physics || null;
+            // Mark with hiddenInGame for play-mode visibility
+            if (comp.hiddenInGame) wrapper.userData.__hiddenInGame = true;
             wrapper.name = comp.name;
             go.mesh.add(wrapper);
 
@@ -1151,6 +1160,11 @@ export class Scene {
             child.userData.__hiddenInGame = comp.hiddenInGame !== false;
           }
 
+          // Mark mesh components with hiddenInGame for play-mode visibility
+          if (comp.type === 'mesh' && comp.hiddenInGame) {
+            child.userData.__hiddenInGame = true;
+          }
+
           go.mesh.add(child);
           meshComps.push({ mesh: child, name: comp.name, index: meshIdx++ });
         }
@@ -1163,6 +1177,27 @@ export class Scene {
     (go as any)._lightComponents = lightComps;
     // Store mesh component children so codegen can index them reliably
     (go as any)._meshComponents = meshComps;
+  }
+
+  /** Hide or show meshes marked as 'Hidden In Game' during Play/Stop.
+   * When entering play mode (playing=true), hides root meshes and child meshes
+   * that have hiddenInGame set. When leaving play mode, restores them. */
+  setMeshesHiddenInGame(playing: boolean): void {
+    for (const go of this.gameObjects) {
+      // Root mesh hiddenInGame
+      if (go.mesh.userData.__rootHiddenInGame) {
+        go.mesh.visible = !playing;
+      }
+      // Child mesh components with hiddenInGame
+      for (const child of go.mesh.children) {
+        if (child.userData?.__isComponentHelper) continue; // handled by setComponentHelpersVisible
+        if (child.userData?.__isTriggerHelper) continue;
+        if (child.userData?.__isLightHelper) continue;
+        if (child.userData?.__hiddenInGame) {
+          child.visible = !playing;
+        }
+      }
+    }
   }
 
   /** Hide or show trigger wireframe helpers (e.g., hide during Play for cleaner view) */
