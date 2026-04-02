@@ -11,7 +11,7 @@ import { Physics2DDebugDraw } from '../engine/Physics2DDebugDraw';
 import { SortingLayerManager, DEFAULT_SORTING_LAYERS, type SortingLayerData } from '../engine/SortingLayers';
 import type { SpriteSheetAsset } from '../engine/SpriteRenderer';
 import type { TilesetAsset, TilemapAsset } from '../engine/TilemapData';
-import { TilemapCollisionBuilder } from '../engine/TilemapData';
+import { TilemapCollisionBuilder, baseTileId } from '../engine/TilemapData';
 import { SpriteActor, type SpriteActorConfig } from '../engine/SpriteActor';
 import { CharacterMovement2D, defaultCharacterMovement2DProps } from '../engine/CharacterMovement2D';
 import { ScriptComponent } from '../engine/ScriptComponent';
@@ -1011,7 +1011,7 @@ export class Scene2DManager {
       const tileH = tileset.tileHeight / ppu;
       for (const layer of tilemap.layers) {
         for (const key of Object.keys(layer.tiles)) {
-          const tileId = layer.tiles[key];
+          const tileId = baseTileId(layer.tiles[key]);
           // Determine if this tile is solid
           const solid = layer.hasCollision || (() => {
             const td = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];

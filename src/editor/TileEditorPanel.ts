@@ -4,8 +4,8 @@
 //  Rectangle/Line/Pick tools. Real-time collision rebuild.
 // ============================================================
 
-import type { TilemapAsset, TilemapLayer, TilesetAsset, AnimatedTileDef } from '../engine/TilemapData';
-import { TilemapCollisionBuilder, createDefaultTilemap, createTilesetFromImage, encodeAnimatedTileId, decodeAnimatedTileIndex, isAnimatedTileId } from '../engine/TilemapData';
+import type { TilemapAsset, TilemapLayer, TilesetAsset, AnimatedTileDef, AutoTileRule } from '../engine/TilemapData';
+import { TilemapCollisionBuilder, createDefaultTilemap, createTilesetFromImage, encodeAnimatedTileId, decodeAnimatedTileIndex, isAnimatedTileId, encodeTileValue, decodeTileValue, baseTileId, applyAutoTile } from '../engine/TilemapData';
 import { iconHTML, Icons, ICON_COLORS } from './icons';
 
 export type TileTool = 'paint' | 'erase' | 'fill' | 'select' | 'rect' | 'line' | 'pick' | 'moveLayer';
@@ -64,6 +64,9 @@ export class TileEditorPanel {
   private _collisionBuilder = new TilemapCollisionBuilder();
   private _collisionRebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private _pendingCollisionRebuilds = new Map<string, { layer: TilemapLayer; tileset: TilesetAsset }>();
+
+  // Active auto-tile rule (if any) — when set, painting auto-resolves neighbors
+  private _activeAutoTileRule: AutoTileRule | null = null;
 
   // Undo stack
   private _undoStack: { layerId: string; tiles: Record<string, number> }[] = [];
@@ -778,6 +781,14 @@ export class TileEditorPanel {
 
   private _renderBrushOptions(): void {
     if (!this._brushOptionsEl) return;
+
+    // Build auto-tile rule options
+    const rules = this._activeTileset?.autoTileRules ?? [];
+    const activeRuleId = this._activeAutoTileRule?.id ?? '';
+    const ruleOptions = rules.map(r =>
+      `<option value="${r.id}" ${r.id === activeRuleId ? 'selected' : ''}>${r.name}</option>`
+    ).join('');
+
     this._brushOptionsEl.innerHTML = `
       <div style="font-weight:600;margin-bottom:3px">BRUSH OPTIONS</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -786,6 +797,14 @@ export class TileEditorPanel {
         <label><input type="checkbox" class="flip-y" ${this._flipY ? 'checked' : ''}> Flip Y</label>
         <span>Rotation <select class="rotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></span>
       </div>
+      ${rules.length > 0 ? `
+      <div style="margin-top:5px;display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:#a6adc8">Auto-Tile:</span>
+        <select class="autotile-rule" style="flex:1">
+          <option value="">None</option>
+          ${ruleOptions}
+        </select>
+      </div>` : ''}
     `;
     // Style inputs
     this._brushOptionsEl.querySelectorAll('input, select').forEach(el => {
@@ -797,6 +816,7 @@ export class TileEditorPanel {
     const fx = this._brushOptionsEl.querySelector('.flip-x') as HTMLInputElement;
     const fy = this._brushOptionsEl.querySelector('.flip-y') as HTMLInputElement;
     const rot = this._brushOptionsEl.querySelector('.rotation') as HTMLSelectElement;
+    const atSel = this._brushOptionsEl.querySelector('.autotile-rule') as HTMLSelectElement | null;
 
     if (bw) bw.onchange = () => { this._brushSize.w = parseInt(bw.value) || 1; };
     if (bh) bh.onchange = () => { this._brushSize.h = parseInt(bh.value) || 1; };
@@ -805,6 +825,12 @@ export class TileEditorPanel {
     if (rot) {
       rot.value = String(this._rotation);
       rot.onchange = () => { this._rotation = parseInt(rot.value); };
+    }
+    if (atSel) {
+      atSel.onchange = () => {
+        const selId = atSel.value;
+        this._activeAutoTileRule = rules.find(r => r.id === selId) ?? null;
+      };
     }
   }
 
@@ -965,12 +991,17 @@ export class TileEditorPanel {
       for (let dx = 0; dx < stampW; dx++) {
         const key = `${cellX + dx},${cellY + dy}`;
         if (this._activeTool === 'paint') {
-          this._activeLayer.tiles[key] = stamp[dy][dx];
+          const rawTileId = stamp[dy][dx];
+          // Encode flip/rotation from brush options (animated tiles skip transforms)
+          this._activeLayer.tiles[key] = encodeTileValue(rawTileId, this._flipX, this._flipY, this._rotation);
         } else if (this._activeTool === 'erase') {
           delete this._activeLayer.tiles[key];
         }
       }
     }
+
+    // Apply auto-tile rules if any match the painted tiles
+    this._applyAutoTileAtRegion(cellX, cellY, stampW, stampH);
 
     // When erasing, also remove overlapping tiles from ALL other tilemaps
     // that share the same layer name, so the user doesn't have to switch
@@ -1016,7 +1047,7 @@ export class TileEditorPanel {
       const currentId = layer.tiles[key] ?? null;
       if (currentId !== targetId) continue;
       visited.add(key);
-      layer.tiles[key] = fillId;
+      layer.tiles[key] = encodeTileValue(fillId, this._flipX, this._flipY, this._rotation);
       queue.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
     }
 
@@ -1054,10 +1085,10 @@ export class TileEditorPanel {
         if (this._activeTool === 'erase') {
           delete this._activeLayer.tiles[key];
         } else {
-          // Tile the stamp across the rectangle
+          // Tile the stamp across the rectangle with flip/rotation
           const sx = ((cx - minCX) % stampW + stampW) % stampW;
           const sy = ((cy - minCY) % stampH + stampH) % stampH;
-          this._activeLayer.tiles[key] = stamp[sy][sx];
+          this._activeLayer.tiles[key] = encodeTileValue(stamp[sy][sx], this._flipX, this._flipY, this._rotation);
         }
       }
     }
@@ -1107,11 +1138,11 @@ export class TileEditorPanel {
         delete this._activeLayer.tiles[key];
         erasedLineCells.push([cx, cy]);
       } else {
-        // Stamp the full selection centered on the line point
+        // Stamp the full selection centered on the line point with flip/rotation
         for (let sdy = 0; sdy < stampH; sdy++) {
           for (let sdx = 0; sdx < stampW; sdx++) {
             const key = `${cx + sdx},${cy + sdy}`;
-            this._activeLayer.tiles[key] = stamp[sdy][sdx];
+            this._activeLayer.tiles[key] = encodeTileValue(stamp[sdy][sdx], this._flipX, this._flipY, this._rotation);
           }
         }
       }
@@ -1146,8 +1177,12 @@ export class TileEditorPanel {
     const tileId = this._activeLayer.tiles[key];
 
     if (tileId !== undefined) {
-      if (isAnimatedTileId(tileId)) {
-        const animIdx = decodeAnimatedTileIndex(tileId);
+      // Decode transforms from picked tile
+      const decoded = decodeTileValue(tileId);
+      const baseId = decoded.tileId;
+
+      if (isAnimatedTileId(baseId)) {
+        const animIdx = decodeAnimatedTileIndex(baseId);
         const anims = this._activeTileset.animatedTiles ?? [];
         if (animIdx >= 0 && animIdx < anims.length) {
           this._activeAnimTileIndex = animIdx;
@@ -1159,11 +1194,15 @@ export class TileEditorPanel {
         }
       } else {
         this._activeAnimTileIndex = -1;
-        this._selectedTileId = tileId;
-        const col = tileId % this._activeTileset.columns;
-        const row = Math.floor(tileId / this._activeTileset.columns);
+        this._selectedTileId = baseId;
+        const col = baseId % this._activeTileset.columns;
+        const row = Math.floor(baseId / this._activeTileset.columns);
         this._selectionRect = { col, row, w: 1, h: 1 };
       }
+      // Restore flip/rotation from the picked tile
+      this._flipX = decoded.flipX;
+      this._flipY = decoded.flipY;
+      this._rotation = decoded.rotation;
       this._activeTool = 'paint'; // Switch back to paint tool after picking
       this._renderPalette();
       this._renderAnimatedTilesList();
@@ -1258,6 +1297,24 @@ export class TileEditorPanel {
     this._scheduleCollisionRebuild(layer, tileset);
     this._emitChanged();
   }
+
+  // ---- Auto-tile application ----
+
+  /** Apply auto-tile rules at a painted region and its neighbors */
+  private _applyAutoTileAtRegion(cx: number, cy: number, w: number, h: number): void {
+    const rule = this._activeAutoTileRule;
+    if (!rule || !this._activeLayer) return;
+    // Apply auto-tile for every cell in the painted region
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        applyAutoTile(cx + dx, cy + dy, this._activeLayer.tiles, rule);
+      }
+    }
+  }
+
+  /** Get/set the active auto-tile rule */
+  get activeAutoTileRule(): AutoTileRule | null { return this._activeAutoTileRule; }
+  set activeAutoTileRule(rule: AutoTileRule | null) { this._activeAutoTileRule = rule; }
 
   // ---- Collision rebuild (debounced 200ms) ----
 

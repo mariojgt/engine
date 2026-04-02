@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import type { TilemapAsset, TilemapLayer, TilesetAsset, AnimatedTileDef } from '../engine/TilemapData';
-import { isAnimatedTileId, decodeAnimatedTileIndex } from '../engine/TilemapData';
+import { isAnimatedTileId, decodeAnimatedTileIndex, decodeTileValue } from '../engine/TilemapData';
 
 /**
  * Info about a single animated-tile quad inside a layer mesh.
@@ -264,8 +264,15 @@ export class TilemapRenderer {
     const animDefs = ts.animatedTiles ?? [];
 
     for (const key of tileKeys) {
-      let tileId = layer.tiles[key];
+      const rawVal = layer.tiles[key];
       const [cx, cy] = key.split(',').map(Number);
+
+      // Decode per-tile transforms (flip/rotation)
+      const decoded = decodeTileValue(rawVal);
+      let tileId = decoded.tileId;
+      const tileFlipX = decoded.flipX;
+      const tileFlipY = decoded.flipY;
+      const tileRotation = decoded.rotation; // 0, 90, 180, 270
 
       // If this is an animated tile reference, resolve to the first frame
       let animDef: AnimatedTileDef | null = null;
@@ -287,27 +294,46 @@ export class TilemapRenderer {
       const tileCol = tileId % actualCols;
       const tileRow = Math.floor(tileId / actualCols);
       // Base UVs — flipY=true (THREE.js default): v=0→bottom, v=1→top of original
-      const u0 = tileCol * uvTileW + halfTexelU;
-      const v0 = 1 - (tileRow + 1) * uvTileH + halfTexelV;
-      const u1 = (tileCol + 1) * uvTileW - halfTexelU;
-      const v1 = 1 - tileRow * uvTileH - halfTexelV;
+      let u0 = tileCol * uvTileW + halfTexelU;
+      let v0 = 1 - (tileRow + 1) * uvTileH + halfTexelV;
+      let u1 = (tileCol + 1) * uvTileW - halfTexelU;
+      let v1 = 1 - tileRow * uvTileH - halfTexelV;
+
+      // Apply flip transforms to UV coordinates
+      if (tileFlipX) { const tmp = u0; u0 = u1; u1 = tmp; }
+      if (tileFlipY) { const tmp = v0; v0 = v1; v1 = tmp; }
 
       // Record the UV buffer offset BEFORE pushing UVs so update() knows where to write
       const uvBufferOffset = uvs.length; // byte offset = index in the flat array
 
+      // 4 corner UVs: BL, BR, TR, TL — then apply rotation
+      let bl_u = u0, bl_v = v0;
+      let br_u = u1, br_v = v0;
+      let tr_u = u1, tr_v = v1;
+      let tl_u = u0, tl_v = v1;
+
+      // Rotate UVs (rotate the UV assignments around the quad)
+      // 90° CW: BL←TL, BR←BL, TR←BR, TL←TR
+      if (tileRotation === 90) {
+        [bl_u, bl_v, br_u, br_v, tr_u, tr_v, tl_u, tl_v] =
+          [tl_u, tl_v, bl_u, bl_v, br_u, br_v, tr_u, tr_v];
+      } else if (tileRotation === 180) {
+        [bl_u, bl_v, br_u, br_v, tr_u, tr_v, tl_u, tl_v] =
+          [tr_u, tr_v, tl_u, tl_v, bl_u, bl_v, br_u, br_v];
+      } else if (tileRotation === 270) {
+        [bl_u, bl_v, br_u, br_v, tr_u, tr_v, tl_u, tl_v] =
+          [br_u, br_v, tr_u, tr_v, tl_u, tl_v, bl_u, bl_v];
+      }
+
       // 4 vertices (quad)
-      // Bottom-left
       positions.push(wx, wy, 0);
-      uvs.push(u0, v0);
-      // Bottom-right
+      uvs.push(bl_u, bl_v);
       positions.push(wx + tileWorldW, wy, 0);
-      uvs.push(u1, v0);
-      // Top-right
+      uvs.push(br_u, br_v);
       positions.push(wx + tileWorldW, wy + tileWorldH, 0);
-      uvs.push(u1, v1);
-      // Top-left
+      uvs.push(tr_u, tr_v);
       positions.push(wx, wy + tileWorldH, 0);
-      uvs.push(u0, v1);
+      uvs.push(tl_u, tl_v);
 
       // Track animated quad for runtime UV cycling
       if (animDef) {

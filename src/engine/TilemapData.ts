@@ -38,6 +38,93 @@ export interface AnimatedTileDef {
   loop: boolean;
 }
 
+// ============================================================
+//  Tile Transform Encoding — flip & rotation packed into tileId
+//
+//  For normal (non-animated) tiles the stored integer packs:
+//    Bits  0–20 : base tileId  (supports up to ~2 million tiles)
+//    Bit  28    : flipX
+//    Bit  29    : flipY
+//    Bits 30–31 : rotation  (0=0°, 1=90°, 2=180°, 3=270°)
+//
+//  Animated tiles remain negative and have NO transform bits.
+//  This is backward-compatible: old data has 0 in the high bits,
+//  so decodeTileId returns the original ID unchanged.
+// ============================================================
+
+const TILE_ID_MASK   = 0x001FFFFF; // bits 0-20
+const FLIP_X_BIT     = 1 << 28;
+const FLIP_Y_BIT     = 1 << 29;
+const ROTATION_SHIFT = 30;
+const ROTATION_MASK  = 0x3; // 2 bits
+
+/** Encode a tile value with optional flip/rotation transforms */
+export function encodeTileValue(
+  tileId: number,
+  flipX = false,
+  flipY = false,
+  rotation = 0, // 0, 90, 180, 270
+): number {
+  // Animated tiles (negative) are stored as-is — no transforms
+  if (tileId < 0) return tileId;
+  let val = tileId & TILE_ID_MASK;
+  if (flipX) val |= FLIP_X_BIT;
+  if (flipY) val |= FLIP_Y_BIT;
+  const rotIndex = Math.round(((rotation % 360) + 360) % 360 / 90) & ROTATION_MASK;
+  val |= (rotIndex << ROTATION_SHIFT);
+  return val;
+}
+
+/** Decode a stored tile value into its components */
+export function decodeTileValue(val: number): {
+  tileId: number;
+  flipX: boolean;
+  flipY: boolean;
+  rotation: number; // 0, 90, 180, 270
+} {
+  // Animated tiles (negative) — no transforms
+  if (val < 0) return { tileId: val, flipX: false, flipY: false, rotation: 0 };
+  return {
+    tileId:   val & TILE_ID_MASK,
+    flipX:    (val & FLIP_X_BIT) !== 0,
+    flipY:    (val & FLIP_Y_BIT) !== 0,
+    rotation: ((val >>> ROTATION_SHIFT) & ROTATION_MASK) * 90,
+  };
+}
+
+/** Extract just the base tileId (strips transform bits) */
+export function baseTileId(val: number): number {
+  if (val < 0) return val; // animated
+  return val & TILE_ID_MASK;
+}
+
+// ============================================================
+//  Auto-Tile (Bitmask) System
+//
+//  Uses a simplified 4-bit bitmask for cardinal neighbors:
+//    bit 0 = north, bit 1 = east, bit 2 = south, bit 3 = west
+//  This gives 16 possible combinations (0–15), each mapping to
+//  a specific tile in the auto-tile set.
+//
+//  For a 47-tile "blob" set, 8 bits (including diagonals) are used,
+//  but we start with 16-tile for maximum compatibility.
+// ============================================================
+
+export interface AutoTileRule {
+  /** Unique ID for this auto-tile rule set */
+  id: string;
+  /** Display name */
+  name: string;
+  /**
+   * Mapping from 4-bit bitmask (0-15) to tileId in the tileset.
+   * Index = bitmask value, value = tileId to render.
+   * Example: index 0 = isolated tile (no neighbors), index 15 = surrounded on all 4 sides.
+   */
+  bitmaskToTileId: (number | null)[];
+  /** The set of tileIds that are considered "same terrain" for neighbor matching */
+  memberTileIds: number[];
+}
+
 export interface TilesetAsset {
   assetId: string;
   assetType: 'tileset';
@@ -53,6 +140,8 @@ export interface TilesetAsset {
   tiles: TileDefData[];
   /** Animated tile definitions. Index in this array is used with encodeAnimatedTileId(). */
   animatedTiles?: AnimatedTileDef[];
+  /** Auto-tile rule sets for bitmask-based auto-tiling */
+  autoTileRules?: AutoTileRule[];
   image?: HTMLImageElement;
   /** Base-64 data URL of the source image — persisted so tilesets survive save/load */
   imageDataUrl?: string;
@@ -94,6 +183,72 @@ export interface TilemapAsset {
   tilesetId: string;
   pixelsPerUnit: number;
   layers: TilemapLayer[];
+}
+
+/**
+ * Compute the 4-bit bitmask for a cell based on cardinal neighbors.
+ * bit 0 (1) = north has same-terrain tile
+ * bit 1 (2) = east  has same-terrain tile
+ * bit 2 (4) = south has same-terrain tile
+ * bit 3 (8) = west  has same-terrain tile
+ */
+export function computeAutoTileBitmask(
+  x: number,
+  y: number,
+  tiles: Record<string, number>,
+  memberSet: Set<number>,
+): number {
+  let mask = 0;
+  // North (y-1 in screen coords where y increases downward)
+  const n = tiles[`${x},${y - 1}`];
+  if (n !== undefined && memberSet.has(baseTileId(n))) mask |= 1;
+  // East
+  const e = tiles[`${x + 1},${y}`];
+  if (e !== undefined && memberSet.has(baseTileId(e))) mask |= 2;
+  // South
+  const s = tiles[`${x},${y + 1}`];
+  if (s !== undefined && memberSet.has(baseTileId(s))) mask |= 4;
+  // West
+  const w = tiles[`${x - 1},${y}`];
+  if (w !== undefined && memberSet.has(baseTileId(w))) mask |= 8;
+  return mask;
+}
+
+/**
+ * After painting/erasing at (cx, cy), re-evaluate auto-tile for
+ * the painted cell and its 4 cardinal neighbors.
+ * Returns the set of "x,y" keys that were modified.
+ */
+export function applyAutoTile(
+  cx: number,
+  cy: number,
+  tiles: Record<string, number>,
+  rule: AutoTileRule,
+): Set<string> {
+  const changed = new Set<string>();
+  const memberSet = new Set(rule.memberTileIds);
+  // Check the cell itself + 4 neighbors
+  const toCheck = [
+    [cx, cy], [cx, cy - 1], [cx + 1, cy], [cx, cy + 1], [cx - 1, cy],
+  ];
+  for (const [x, y] of toCheck) {
+    const key = `${x},${y}`;
+    const existing = tiles[key];
+    if (existing === undefined) continue;
+    const base = baseTileId(existing);
+    if (!memberSet.has(base)) continue;
+    const mask = computeAutoTileBitmask(x, y, tiles, memberSet);
+    const resolved = rule.bitmaskToTileId[mask];
+    if (resolved == null) continue;
+    // Preserve any existing flip/rotation transforms
+    const { flipX, flipY, rotation } = decodeTileValue(existing);
+    const newVal = encodeTileValue(resolved, flipX, flipY, rotation);
+    if (tiles[key] !== newVal) {
+      tiles[key] = newVal;
+      changed.add(key);
+    }
+  }
+  return changed;
 }
 
 export function createDefaultTilemap(name: string, tilesetId: string): TilemapAsset {
@@ -196,7 +351,8 @@ export class TilemapCollisionBuilder {
 
     for (const key of Object.keys(tiles)) {
       const [x, y] = key.split(',').map(Number);
-      const tileId = tiles[key];
+      const rawVal = tiles[key];
+      const tileId = baseTileId(rawVal);
       // Slopes and platforms are ALWAYS emitted individually in rebuild().
       // They must never enter the greedy-merge grid or they produce wrong box shapes.
       const tileDef = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
@@ -286,8 +442,9 @@ export class TilemapCollisionBuilder {
     // These were excluded from greedy-merge and need their own shaped colliders.
     const tw = tileset.tileWidth  / ppu;
     const th = tileset.tileHeight / ppu;
-    for (const [key, tileId] of Object.entries(layer.tiles)) {
+    for (const [key, rawVal] of Object.entries(layer.tiles)) {
       const [tx, ty] = key.split(',').map(Number);
+      const tileId = baseTileId(rawVal);
       const def = tileset.tiles.find(t => t.tileId === tileId) ?? tileset.tiles[tileId];
       if (!def) continue;
       const shape = def.physicsShape ?? def.collision;
