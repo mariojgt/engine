@@ -25,6 +25,47 @@ import { ScriptComponent, type ScriptContext } from './ScriptComponent';
 import type { GameObject } from './GameObject';
 import { tryGetEngineDeps } from '../runtime/EngineDeps';
 
+// ── Montage Types ───────────────────────────────────────────
+
+export interface MontagePlayOptions {
+  /** Blend-in duration in seconds (default 0.2) */
+  blendIn?: number;
+  /** Blend-out duration in seconds (default 0.2) */
+  blendOut?: number;
+  /** Playback rate multiplier (default 1) */
+  playRate?: number;
+  /** Start time in seconds (default 0) */
+  startTime?: number;
+  /** Loop the montage (default false — one-shot) */
+  loop?: boolean;
+}
+
+export interface ActiveMontage {
+  action: THREE.AnimationAction;
+  clip: THREE.AnimationClip;
+  blendIn: number;
+  blendOut: number;
+  /** Whether we're currently blending in, playing, blending out, or done */
+  phase: 'blendIn' | 'playing' | 'blendOut' | 'done';
+  /** Time spent in current phase */
+  phaseTime: number;
+  /** Callback when montage finishes (after blend-out) */
+  onEnded: (() => void) | null;
+  /** Callback when montage is interrupted by another montage or stop */
+  onInterrupted: (() => void) | null;
+}
+
+// ── Notify Types ────────────────────────────────────────────
+
+export interface AnimNotify {
+  /** Unique name for this notify (e.g., "Footstep", "AttackStart", "AttackEnd") */
+  name: string;
+  /** Time in seconds within the clip when this notify fires */
+  time: number;
+  /** Optional clip name — if omitted, fires on any active clip */
+  clipName?: string;
+}
+
 /** Runtime state for a single AnimationInstance */
 export class AnimationInstance {
   public asset: AnimBlueprintAsset;
@@ -46,6 +87,19 @@ export class AnimationInstance {
   private _transitionFromActions: THREE.AnimationAction[] = [];
   private _transitionToActions: THREE.AnimationAction[] = [];
   private _transitionCurve: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' = 'linear';
+
+  // ── Montage System ──────────────────────────────────────────
+  private _activeMontage: ActiveMontage | null = null;
+  /** While a montage is active, state machine actions are suppressed to this weight */
+  private _stateMachineWeight = 1;
+
+  // ── Notify System ───────────────────────────────────────────
+  /** Registered notifies (can be added from editor or blueprint at runtime) */
+  private _notifies: AnimNotify[] = [];
+  /** Callbacks registered for notify names */
+  private _notifyCallbacks: Map<string, Array<() => void>> = new Map();
+  /** Tracks last-known playback time per action to detect crossings */
+  private _lastActionTimes: Map<THREE.AnimationAction, number> = new Map();
 
   /** Runtime variable values (written by event graph, read by transition conditions) */
   public variables: Map<string, number | boolean | string> = new Map();
@@ -153,6 +207,9 @@ export class AnimationInstance {
       timeRemaining: remaining,
       normalizedTime: normalized,
       stateRelevance: relevance,
+      montageActive: this.isMontageActive,
+      montageClip: this.montageClipName,
+      montagePhase: this._activeMontage?.phase ?? 'none',
     };
   }
 
@@ -223,8 +280,8 @@ export class AnimationInstance {
       }
     }
 
-    // 3. Evaluate state machine transitions
-    if (!this._transitioning) {
+    // 3. Evaluate state machine transitions (skip while montage overrides)
+    if (!this._transitioning && !this.isMontageActive) {
       this._evaluateTransitions();
     }
 
@@ -233,6 +290,12 @@ export class AnimationInstance {
     if (currentState && currentState.outputType === 'blendSpace1D') {
       this._updateBlendSpace1D(currentState);
     }
+
+    // 5. Update montage blend phases
+    this._updateMontage(dt);
+
+    // 6. Check animation notifies
+    this._checkNotifies();
 
     if (this._currentActions.length === 0 && this.animations.length > 0 && !this._warnedNoAction) {
       this._warnedNoAction = true;
@@ -810,6 +873,250 @@ export class AnimationInstance {
     }
   }
 
+  // ════════════════════════════════════════════════════════════
+  //  Montage System — one-shot animations over the state machine
+  // ════════════════════════════════════════════════════════════
+
+  /**
+   * Play a montage (one-shot animation) that overrides the state machine.
+   * Returns true if successfully started. When finished, blends back to
+   * the state machine seamlessly.
+   */
+  playMontage(
+    clipName: string,
+    options: MontagePlayOptions = {},
+    onEnded?: () => void,
+    onInterrupted?: () => void,
+  ): boolean {
+    const clip = this._findClipByName(this.animations, clipName);
+    if (!clip) {
+      console.warn(`[AnimationInstance] Montage clip not found: "${clipName}"`);
+      return false;
+    }
+
+    // Interrupt existing montage if any
+    if (this._activeMontage && this._activeMontage.phase !== 'done') {
+      this._interruptMontage();
+    }
+
+    const blendIn = options.blendIn ?? 0.2;
+    const blendOut = options.blendOut ?? 0.2;
+    const playRate = options.playRate ?? 1;
+    const startTime = options.startTime ?? 0;
+    const loop = options.loop ?? false;
+
+    const action = this.mixer.clipAction(clip);
+    action.reset();
+    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+    action.clampWhenFinished = !loop;
+    action.timeScale = playRate;
+    action.time = startTime;
+
+    // Start with zero weight for blend-in
+    if (blendIn > 0) {
+      action.setEffectiveWeight(0);
+    } else {
+      action.setEffectiveWeight(1);
+      // Immediately suppress state machine
+      this._setStateMachineWeight(0);
+    }
+    action.play();
+
+    this._activeMontage = {
+      action,
+      clip,
+      blendIn,
+      blendOut,
+      phase: blendIn > 0 ? 'blendIn' : 'playing',
+      phaseTime: 0,
+      onEnded: onEnded ?? null,
+      onInterrupted: onInterrupted ?? null,
+    };
+
+    return true;
+  }
+
+  /** Stop the active montage early, triggering blend-out */
+  stopMontage(blendOut?: number): void {
+    if (!this._activeMontage || this._activeMontage.phase === 'done') return;
+    const m = this._activeMontage;
+    m.blendOut = blendOut ?? m.blendOut;
+    if (m.blendOut > 0) {
+      m.phase = 'blendOut';
+      m.phaseTime = 0;
+    } else {
+      this._finishMontage();
+    }
+  }
+
+  /** Is a montage currently playing? */
+  get isMontageActive(): boolean {
+    return this._activeMontage !== null && this._activeMontage.phase !== 'done';
+  }
+
+  /** Get the name of the currently playing montage clip (or empty string) */
+  get montageClipName(): string {
+    return this._activeMontage?.clip.name ?? '';
+  }
+
+  /** Update montage blend phases — called from update() */
+  private _updateMontage(dt: number): void {
+    const m = this._activeMontage;
+    if (!m || m.phase === 'done') return;
+
+    m.phaseTime += dt;
+
+    switch (m.phase) {
+      case 'blendIn': {
+        const t = Math.min(1, m.phaseTime / Math.max(0.001, m.blendIn));
+        m.action.setEffectiveWeight(t);
+        this._setStateMachineWeight(1 - t);
+        if (t >= 1) {
+          m.phase = 'playing';
+          m.phaseTime = 0;
+        }
+        break;
+      }
+      case 'playing': {
+        // Check if one-shot montage has finished playing
+        if (!m.action.loop && m.action.time >= m.clip.duration - m.blendOut) {
+          // Start blend-out before the clip fully ends
+          if (m.blendOut > 0) {
+            m.phase = 'blendOut';
+            m.phaseTime = 0;
+          } else {
+            this._finishMontage();
+          }
+        }
+        break;
+      }
+      case 'blendOut': {
+        const t = Math.min(1, m.phaseTime / Math.max(0.001, m.blendOut));
+        m.action.setEffectiveWeight(1 - t);
+        this._setStateMachineWeight(t);
+        if (t >= 1) {
+          this._finishMontage();
+        }
+        break;
+      }
+    }
+  }
+
+  /** Set the weight of all state machine actions */
+  private _setStateMachineWeight(w: number): void {
+    this._stateMachineWeight = w;
+    for (const a of this._currentActions) {
+      if (a && a.setEffectiveWeight) {
+        // Scale existing weights by the state machine factor
+        // (blend spaces have per-sample weights, so preserve relative ratios)
+        a.setEffectiveWeight(a.getEffectiveWeight() > 0 ? w : 0);
+      }
+    }
+  }
+
+  private _interruptMontage(): void {
+    const m = this._activeMontage!;
+    m.action.stop();
+    m.phase = 'done';
+    this._setStateMachineWeight(1);
+    if (m.onInterrupted) {
+      try { m.onInterrupted(); } catch (e) { console.error('[AnimationInstance] Montage onInterrupted error:', e); }
+    }
+    this._activeMontage = null;
+  }
+
+  private _finishMontage(): void {
+    const m = this._activeMontage!;
+    m.action.stop();
+    m.phase = 'done';
+    this._setStateMachineWeight(1);
+    if (m.onEnded) {
+      try { m.onEnded(); } catch (e) { console.error('[AnimationInstance] Montage onEnded error:', e); }
+    }
+    this._activeMontage = null;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  Notify System — fire callbacks at specific animation times
+  // ════════════════════════════════════════════════════════════
+
+  /**
+   * Register a notify marker on a clip. When playback crosses this time,
+   * all registered callbacks for that notify name fire.
+   */
+  addNotify(name: string, time: number, clipName?: string): void {
+    this._notifies.push({ name, time, clipName });
+  }
+
+  /** Remove all notifies with the given name */
+  removeNotify(name: string): void {
+    this._notifies = this._notifies.filter(n => n.name !== name);
+  }
+
+  /** Register a callback for when a named notify fires */
+  onNotify(name: string, callback: () => void): void {
+    let cbs = this._notifyCallbacks.get(name);
+    if (!cbs) {
+      cbs = [];
+      this._notifyCallbacks.set(name, cbs);
+    }
+    cbs.push(callback);
+  }
+
+  /** Unregister a specific callback for a named notify */
+  offNotify(name: string, callback: () => void): void {
+    const cbs = this._notifyCallbacks.get(name);
+    if (!cbs) return;
+    const idx = cbs.indexOf(callback);
+    if (idx !== -1) cbs.splice(idx, 1);
+  }
+
+  /** Clear all notify callbacks (but keep notify definitions) */
+  clearNotifyCallbacks(): void {
+    this._notifyCallbacks.clear();
+  }
+
+  /** Check all active actions for notify time crossings — called from update() */
+  private _checkNotifies(): void {
+    if (this._notifies.length === 0) return;
+
+    // Collect all active actions to check (state machine + montage)
+    const actionsToCheck: THREE.AnimationAction[] = [];
+    for (const a of this._currentActions) {
+      if (a && a.isRunning()) actionsToCheck.push(a);
+    }
+    if (this._activeMontage && this._activeMontage.phase !== 'done') {
+      actionsToCheck.push(this._activeMontage.action);
+    }
+
+    for (const action of actionsToCheck) {
+      const clip = action.getClip();
+      const currentTime = action.time;
+      const lastTime = this._lastActionTimes.get(action) ?? currentTime;
+
+      for (const notify of this._notifies) {
+        // Skip if notify is for a specific clip and this isn't it
+        if (notify.clipName && clip.name !== notify.clipName) continue;
+
+        // Check if playback crossed the notify time since last frame
+        // Handle both forward and looping playback
+        const crossed = (lastTime < notify.time && currentTime >= notify.time) ||
+                        (lastTime > currentTime && notify.time >= 0 && currentTime >= notify.time); // loop wrap
+
+        if (crossed) {
+          const cbs = this._notifyCallbacks.get(notify.name);
+          if (cbs) {
+            for (const cb of cbs) {
+              try { cb(); } catch (e) { console.error(`[AnimationInstance] Notify "${notify.name}" callback error:`, e); }
+            }
+          }
+        }
+      }
+
+      this._lastActionTimes.set(action, currentTime);
+    }
+  }
+
   /** Get current state name (for debug/UI) */
   get currentStateName(): string {
     const state = this._findState(this._currentStateId);
@@ -822,6 +1129,17 @@ export class AnimationInstance {
 
   /** Clean up — stop all actions */
   dispose(): void {
+    // Stop montage if active
+    if (this._activeMontage && this._activeMontage.phase !== 'done') {
+      this._activeMontage.action.stop();
+      this._activeMontage = null;
+    }
+
+    // Clear notifies
+    this._notifies = [];
+    this._notifyCallbacks.clear();
+    this._lastActionTimes.clear();
+
     for (const action of this._currentActions) {
       if (action) action.stop();
     }

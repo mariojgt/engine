@@ -370,6 +370,21 @@ export {
   GetAnimVarNode,
 } from './animation/AnimBPNodes';
 
+// ── Animation Montage Nodes ────────────────────────────────
+export {
+  PlayMontageNode,
+  StopMontageNode,
+  IsMontagePlayingNode,
+  OnMontageEndedNode,
+} from './animation/MontageNodes';
+
+// ── Animation Notify Nodes ─────────────────────────────────
+export {
+  AddAnimNotifyNode,
+  RemoveAnimNotifyNode,
+  OnAnimNotifyNode,
+} from './animation/NotifyNodes';
+
 // ── UI / Widget Nodes ───────────────────────────────────────
 export {
   WidgetBPSelectControl,

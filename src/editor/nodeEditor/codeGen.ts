@@ -973,6 +973,26 @@ function resolveValue(
     if (outputKey === 'dt') return 'deltaTime';
     return 'null';
   }
+  // ── Montage pure nodes ──
+  if (node instanceof N.IsMontagePlayingNode) {
+    if (outputKey === 'isPlaying') return `(function(){ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); return _ai ? _ai.isMontageActive : false; })()`;
+    if (outputKey === 'clipName') return `(function(){ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); return _ai ? _ai.montageClipName : ""; })()`;
+    return 'null';
+  }
+  if (node instanceof N.PlayMontageNode) {
+    const safeId = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'success') return `(typeof __montageOk_${safeId} !== 'undefined' ? __montageOk_${safeId} : false)`;
+    return 'null';
+  }
+  if (node instanceof N.OnMontageEndedNode) {
+    const safeId = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (outputKey === 'success') return `(typeof __montageOk_${safeId} !== 'undefined' ? __montageOk_${safeId} : false)`;
+    return 'null';
+  }
+  if (node instanceof N.OnAnimNotifyNode) {
+    if (outputKey === 'notifyName') return JSON.stringify((node as N.OnAnimNotifyNode).notifyName);
+    return 'null';
+  }
   // Create Widget node â€” the 'widget' output resolves to the temp variable set in genAction
   if (node instanceof N.CreateWidgetNode) {
     if (outputKey === 'widget') {
@@ -4260,10 +4280,91 @@ if (node instanceof N.NavMeshAddAgentNode) {
   if (node instanceof N.SetAnimVarNode) {
     const vS = inputSrc.get(`${nodeId}.value`);
     const an = node as N.SetAnimVarNode;
-    const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '""';
+    const defaultVal = an.varType === 'number' ? '0' : an.varType === 'boolean' ? 'false' : '””';
     const valCode = vS ? rv(vS.nid, vS.ok) : defaultVal;
     lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.variables.set(${JSON.stringify(an.varName)}, ${valCode}); } }`);
     lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── PlayMontageNode — play a one-shot animation over the state machine ──
+  if (node instanceof N.PlayMontageNode) {
+    const clipS = inputSrc.get(`${nodeId}.clipName`);
+    const biS = inputSrc.get(`${nodeId}.blendIn`);
+    const boS = inputSrc.get(`${nodeId}.blendOut`);
+    const prS = inputSrc.get(`${nodeId}.playRate`);
+    const stS = inputSrc.get(`${nodeId}.startTime`);
+    const loopS = inputSrc.get(`${nodeId}.loop`);
+    const clipCode = clipS ? rv(clipS.nid, clipS.ok) : '””';
+    const biCode = biS ? rv(biS.nid, biS.ok) : '0.2';
+    const boCode = boS ? rv(boS.nid, boS.ok) : '0.2';
+    const prCode = prS ? rv(prS.nid, prS.ok) : '1';
+    const stCode = stS ? rv(stS.nid, stS.ok) : '0';
+    const loopCode = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+    const safeId = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); var __montageOk_${safeId} = false; if (_ai) { __montageOk_${safeId} = _ai.playMontage(${clipCode}, { blendIn: ${biCode}, blendOut: ${boCode}, playRate: ${prCode}, startTime: ${stCode}, loop: ${loopCode} }); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── OnMontageEndedNode — play montage with onCompleted/onInterrupted callbacks ──
+  if (node instanceof N.OnMontageEndedNode) {
+    const clipS = inputSrc.get(`${nodeId}.clipName`);
+    const biS = inputSrc.get(`${nodeId}.blendIn`);
+    const boS = inputSrc.get(`${nodeId}.blendOut`);
+    const prS = inputSrc.get(`${nodeId}.playRate`);
+    const stS = inputSrc.get(`${nodeId}.startTime`);
+    const loopS = inputSrc.get(`${nodeId}.loop`);
+    const clipCode = clipS ? rv(clipS.nid, clipS.ok) : '””';
+    const biCode = biS ? rv(biS.nid, biS.ok) : '0.2';
+    const boCode = boS ? rv(boS.nid, boS.ok) : '0.2';
+    const prCode = prS ? rv(prS.nid, prS.ok) : '1';
+    const stCode = stS ? rv(stS.nid, stS.ok) : '0';
+    const loopCode = loopS ? rv(loopS.nid, loopS.ok) : 'false';
+    const safeId = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    const completedLines = we(nodeId, 'onCompleted');
+    const interruptedLines = we(nodeId, 'onInterrupted');
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); var __montageOk_${safeId} = false; if (_ai) { __montageOk_${safeId} = _ai.playMontage(${clipCode}, { blendIn: ${biCode}, blendOut: ${boCode}, playRate: ${prCode}, startTime: ${stCode}, loop: ${loopCode} }, function() { ${completedLines.join('\n')} }, function() { ${interruptedLines.join('\n')} }); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── StopMontageNode — stop the active montage ──
+  if (node instanceof N.StopMontageNode) {
+    const boS = inputSrc.get(`${nodeId}.blendOut`);
+    const boCode = boS ? rv(boS.nid, boS.ok) : 'undefined';
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.stopMontage(${boCode}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── AddAnimNotifyNode — register a notify marker on a clip ──
+  if (node instanceof N.AddAnimNotifyNode) {
+    const nameS = inputSrc.get(`${nodeId}.notifyName`);
+    const timeS = inputSrc.get(`${nodeId}.time`);
+    const clipS = inputSrc.get(`${nodeId}.clipName`);
+    const nameCode = nameS ? rv(nameS.nid, nameS.ok) : '””';
+    const timeCode = timeS ? rv(timeS.nid, timeS.ok) : '0';
+    const clipCode = clipS ? rv(clipS.nid, clipS.ok) : 'undefined';
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.addNotify(${nameCode}, ${timeCode}, ${clipCode}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── RemoveAnimNotifyNode — remove all notifies with a given name ──
+  if (node instanceof N.RemoveAnimNotifyNode) {
+    const nameS = inputSrc.get(`${nodeId}.notifyName`);
+    const nameCode = nameS ? rv(nameS.nid, nameS.ok) : '””';
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.removeNotify(${nameCode}); } }`);
+    lines.push(...we(nodeId, 'exec'));
+    return lines;
+  }
+
+  // ── OnAnimNotifyNode — register callback that fires when a named notify crosses ──
+  if (node instanceof N.OnAnimNotifyNode) {
+    const an = node as N.OnAnimNotifyNode;
+    const notifyExecLines = we(nodeId, 'exec');
+    lines.push(`{ var _ai = __animInstance || (gameObject && gameObject._animationInstances && gameObject._animationInstances[0]); if (_ai) { _ai.onNotify(${JSON.stringify(an.notifyName)}, function() { ${notifyExecLines.join('\n')} }); } }`);
     return lines;
   }
 
