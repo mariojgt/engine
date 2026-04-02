@@ -794,7 +794,9 @@ export class Engine {
         }
       }
       // Tick controller blueprint scripts
-      for (const { go, script } of this._controllerScripts) {
+      // Snapshot the array — a script may spawn new actors with controllers mid-iteration
+      const controllerSnapshot = [...this._controllerScripts];
+      for (const { go, script } of controllerSnapshot) {
         if (go.isDestroyed) continue;
         const ctx = this._getCtx(go, dt, this._elapsedTime);
         try {

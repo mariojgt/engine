@@ -68,6 +68,41 @@ function sanitize(obj: Record<string, any>): Record<string, any> {
   return result;
 }
 
+// -- Save file validation -------------------------------------
+
+/** Current schema version. Bump when SaveFileData format changes. */
+const SAVE_FORMAT_VERSION = 1;
+
+/** Validate that parsed JSON is a valid SaveFileData structure */
+function validateSaveFile(data: any, fileName: string): data is SaveFileData {
+  if (!data || typeof data !== 'object') {
+    console.warn(`[SaveLoad] Invalid save "${fileName}": not an object`);
+    return false;
+  }
+  if (typeof data.version !== 'number') {
+    console.warn(`[SaveLoad] Invalid save "${fileName}": missing version field`);
+    return false;
+  }
+  if (data.version > SAVE_FORMAT_VERSION) {
+    console.warn(`[SaveLoad] Save "${fileName}" version ${data.version} is newer than engine version ${SAVE_FORMAT_VERSION} — data may be incompatible`);
+    // Still load it, but warn — forward compatibility is best-effort
+  }
+  if (!data.info || typeof data.info !== 'object') {
+    console.warn(`[SaveLoad] Invalid save "${fileName}": missing info block`);
+    return false;
+  }
+  if (typeof data.info.slotName !== 'string') {
+    console.warn(`[SaveLoad] Invalid save "${fileName}": info.slotName is not a string`);
+    return false;
+  }
+  // saveGameData can be missing (empty saves) — default to {}
+  if (data.saveGameData !== undefined && typeof data.saveGameData !== 'object') {
+    console.warn(`[SaveLoad] Invalid save "${fileName}": saveGameData is not an object`);
+    return false;
+  }
+  return true;
+}
+
 // -- SaveGameObject -------------------------------------------
 
 /**
@@ -256,7 +291,8 @@ export class SaveLoadSystem {
         try {
           const filePath = `${this._savesDir}/${fileName}`;
           const json = await invoke('read_file', { path: filePath }) as string;
-          const data: SaveFileData = JSON.parse(json);
+          const data = JSON.parse(json);
+          if (!validateSaveFile(data, fileName)) continue;
           const key = fileName.replace(/\.sav$/i, '');
           this._cache.set(key, data);
         } catch (e) {
@@ -407,7 +443,11 @@ export class SaveLoadSystem {
       const invoke = await getTauriInvoke();
       const filePath = this._filePath(slotName, userIndex);
       const json = await invoke('read_file', { path: filePath }) as string;
-      const data: SaveFileData = JSON.parse(json);
+      const data = JSON.parse(json);
+
+      if (!validateSaveFile(data, `${slotName}_${userIndex}.sav`)) {
+        return this.loadGameFromSlot(slotName, userIndex); // Fall back to cache
+      }
 
       // Refresh cache
       const key = this._slotKey(slotName, userIndex);

@@ -3,9 +3,15 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
 
 export interface PostProcessSettings {
+  ssaoEnabled: boolean;
+  ssaoRadius: number;
+  ssaoIntensity: number;
+  ssaoBias: number;
+  ssaoKernelSize: number;
   bloomEnabled: boolean;
   bloomIntensity: number;
   bloomThreshold: number;
@@ -31,6 +37,11 @@ export interface PostProcessSettings {
 }
 
 export const defaultPostProcessSettings: PostProcessSettings = {
+  ssaoEnabled: false,
+  ssaoRadius: 0.5,
+  ssaoIntensity: 1.0,
+  ssaoBias: 0.025,
+  ssaoKernelSize: 16,
   bloomEnabled: true,
   bloomIntensity: 0.15,
   bloomThreshold: 0.85,
@@ -58,6 +69,7 @@ export const defaultPostProcessSettings: PostProcessSettings = {
 export class RenderPipeline {
   public composer: EffectComposer;
   public renderPass: RenderPass;
+  public ssaoPass: SSAOPass;
   public bloomPass: UnrealBloomPass;
   public godRaysPass: ShaderPass;
   public colorGradingPass: ShaderPass;
@@ -76,6 +88,15 @@ export class RenderPipeline {
 
     this.renderPass = new RenderPass(scene, camera);
     this.composer.addPass(this.renderPass);
+
+    // ── SSAO (Screen-Space Ambient Occlusion) ──
+    this.ssaoPass = new SSAOPass(scene, camera, size.x, size.y);
+    this.ssaoPass.kernelRadius = this._settings.ssaoRadius;
+    this.ssaoPass.minDistance = this._settings.ssaoBias;
+    this.ssaoPass.maxDistance = this._settings.ssaoRadius * 2;
+    this.ssaoPass.output = SSAOPass.OUTPUT.Default;
+    this.ssaoPass.enabled = this._settings.ssaoEnabled;
+    this.composer.addPass(this.ssaoPass);
 
     // ── Bloom ──
     this.bloomPass = new UnrealBloomPass(
@@ -252,6 +273,11 @@ export class RenderPipeline {
 
   public updateSettings(settings: Partial<PostProcessSettings>): void {
     this._settings = { ...this._settings, ...settings };
+
+    this.ssaoPass.enabled = this._settings.ssaoEnabled;
+    this.ssaoPass.kernelRadius = this._settings.ssaoRadius;
+    this.ssaoPass.minDistance = this._settings.ssaoBias;
+    this.ssaoPass.maxDistance = this._settings.ssaoRadius * 2;
 
     this.bloomPass.enabled = this._settings.bloomEnabled;
     this.bloomPass.strength = this._settings.bloomIntensity;

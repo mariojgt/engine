@@ -57,6 +57,13 @@ export class ScriptComponent {
   public getVars: (() => Record<string, any>) | null = null;
   private _hasStarted = false;
 
+  /** Consecutive tick error counter — script is disabled after MAX_CONSECUTIVE_ERRORS */
+  private _consecutiveErrors = 0;
+  /** Whether this script has been disabled due to repeated errors */
+  public disabled = false;
+  /** Max consecutive tick errors before the script is auto-disabled */
+  static readonly MAX_CONSECUTIVE_ERRORS = 5;
+
   compile(): boolean {
     try {
       const code = this.code || '';
@@ -261,11 +268,20 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars
   }
 
   tick(ctx: ScriptContext): void {
-    if (!this._tickFn) return;
+    if (!this._tickFn || this.disabled) return;
     try {
       this._tickFn(ctx);
+      this._consecutiveErrors = 0; // Reset on success
     } catch (e) {
-      console.error('Tick error:', e);
+      this._consecutiveErrors++;
+      if (this._consecutiveErrors >= ScriptComponent.MAX_CONSECUTIVE_ERRORS) {
+        this.disabled = true;
+        console.error(
+          `[Script] DISABLED "${ctx.gameObject?.name}" after ${this._consecutiveErrors} consecutive tick errors. Last error:`, e
+        );
+      } else {
+        console.error(`[Script] Tick error (${this._consecutiveErrors}/${ScriptComponent.MAX_CONSECUTIVE_ERRORS}) on "${ctx.gameObject?.name}":`, e);
+      }
     }
   }
 
@@ -285,5 +301,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars
 
   reset(): void {
     this._hasStarted = false;
+    this._consecutiveErrors = 0;
+    this.disabled = false;
   }
 }

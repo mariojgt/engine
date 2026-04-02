@@ -83,6 +83,7 @@ export class AudioSource {
   private _sourceNode: AudioBufferSourceNode | null = null;
   private _gainNode: GainNode;
   private _pannerNode: PannerNode | null = null;
+  private _fadeOutTimer: ReturnType<typeof setTimeout> | null = null;
   private _bus: AudioBus;
   private _volume = 1;
   private _pitch = 1;
@@ -210,7 +211,7 @@ export class AudioSource {
     }
     if (fadeOut > 0) {
       this._gainNode.gain.setTargetAtTime(0, this._ctx.currentTime, fadeOut / 3);
-      setTimeout(() => this._hardStop(), fadeOut * 1000);
+      this._fadeOutTimer = setTimeout(() => { this._fadeOutTimer = null; this._hardStop(); }, fadeOut * 1000);
     } else {
       this._hardStop();
     }
@@ -232,6 +233,7 @@ export class AudioSource {
 
   /** Clean up all Web Audio nodes */
   dispose(): void {
+    if (this._fadeOutTimer) { clearTimeout(this._fadeOutTimer); this._fadeOutTimer = null; }
     this._hardStop();
     this._gainNode.disconnect();
     if (this._pannerNode) this._pannerNode.disconnect();
