@@ -251,6 +251,7 @@ export class Engine {
   //  Debug Drawing — ephemeral 3D lines / spheres for blueprint trace nodes
   // ─────────────────────────────────────────────────────────────────────
   private _debugLines: { obj: THREE.Object3D; life: number }[] = [];
+  private static readonly MAX_DEBUG_LINES = 2000;
 
   /**
    * Draw a debug line in the 3D scene. Automatically removed after `duration` seconds.
@@ -274,6 +275,13 @@ export class Engine {
 
     // Ensure we add to the active scene
     if (this.scene && this.scene.threeScene) {
+        // Evict oldest entries if at capacity
+        while (this._debugLines.length >= Engine.MAX_DEBUG_LINES) {
+          const oldest = this._debugLines.shift()!;
+          oldest.obj.removeFromParent();
+          if ((oldest.obj as any).geometry) (oldest.obj as any).geometry.dispose();
+          if ((oldest.obj as any).material) (oldest.obj as any).material.dispose();
+        }
         this.scene.threeScene.add(line);
         this._debugLines.push({ obj: line, life: duration });
     } else {
@@ -296,6 +304,13 @@ export class Engine {
     mesh.position.set(point.x, point.y, point.z);
     mesh.renderOrder = 10000;
     mesh.frustumCulled = false;
+    // Evict oldest entries if at capacity
+    while (this._debugLines.length >= Engine.MAX_DEBUG_LINES) {
+      const oldest = this._debugLines.shift()!;
+      oldest.obj.removeFromParent();
+      if ((oldest.obj as any).geometry) (oldest.obj as any).geometry.dispose();
+      if ((oldest.obj as any).material) (oldest.obj as any).material.dispose();
+    }
     this.scene.threeScene.add(mesh);
     this._debugLines.push({ obj: mesh, life: duration });
   }

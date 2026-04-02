@@ -42,6 +42,11 @@ export class PhysicsWorld {
   /** Map Rapier collider handle → GameObject id (for contact/intersection queries) */
   private _colliderToGoId = new Map<number, number>();
 
+  /** Pre-allocated temp objects for vertex collection (avoids per-mesh allocations) */
+  private static _tmpVec3 = new THREE.Vector3();
+  private static _tmpMat4 = new THREE.Matrix4();
+  private static _tmpMat4Inv = new THREE.Matrix4();
+
   async init(): Promise<void> {
     await RAPIER.init();
     const gravity = { x: 0.0, y: -9.81, z: 0.0 };
@@ -355,6 +360,9 @@ export class PhysicsWorld {
   /** Collect all vertices from an Object3D tree into a Float32Array */
   private _collectVertices(obj: THREE.Object3D): Float32Array | null {
     const verts: number[] = [];
+    const v = PhysicsWorld._tmpVec3;
+    const invParent = PhysicsWorld._tmpMat4Inv.copy(obj.matrixWorld).invert();
+    const localMat = PhysicsWorld._tmpMat4;
     obj.updateMatrixWorld(true);
     obj.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
@@ -362,13 +370,10 @@ export class PhysicsWorld {
         const geo = mesh.geometry;
         const posAttr = geo.getAttribute('position');
         if (!posAttr) return;
-        const worldMatrix = mesh.matrixWorld.clone().premultiply(
-          new THREE.Matrix4().copy(obj.matrixWorld).invert()
-        );
-        const v = new THREE.Vector3();
+        localMat.copy(mesh.matrixWorld).premultiply(invParent);
         for (let i = 0; i < posAttr.count; i++) {
           v.fromBufferAttribute(posAttr, i);
-          v.applyMatrix4(worldMatrix);
+          v.applyMatrix4(localMat);
           verts.push(v.x, v.y, v.z);
         }
       }
@@ -388,6 +393,9 @@ export class PhysicsWorld {
     const allVerts: number[] = [];
     const allIndices: number[] = [];
     let vertOffset = 0;
+    const v = PhysicsWorld._tmpVec3;
+    const invParent = PhysicsWorld._tmpMat4Inv.copy(obj.matrixWorld).invert();
+    const localMat = PhysicsWorld._tmpMat4;
     obj.updateMatrixWorld(true);
     obj.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
@@ -395,13 +403,10 @@ export class PhysicsWorld {
         const geo = mesh.geometry;
         const posAttr = geo.getAttribute('position');
         if (!posAttr) return;
-        const worldMatrix = mesh.matrixWorld.clone().premultiply(
-          new THREE.Matrix4().copy(obj.matrixWorld).invert()
-        );
-        const v = new THREE.Vector3();
+        localMat.copy(mesh.matrixWorld).premultiply(invParent);
         for (let i = 0; i < posAttr.count; i++) {
           v.fromBufferAttribute(posAttr, i);
-          v.applyMatrix4(worldMatrix);
+          v.applyMatrix4(localMat);
           allVerts.push(v.x, v.y, v.z);
         }
         if (geo.index) {

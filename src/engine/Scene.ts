@@ -190,6 +190,10 @@ export class Scene {
       this._emitChanged();
     } catch (err) {
       console.error('[Scene] Failed to load imported mesh:', err);
+      // Clean up the placeholder so it doesn't ghost in the scene
+      this.threeScene.remove(placeholder);
+      placeholder.geometry.dispose();
+      (placeholder.material as THREE.Material).dispose();
     }
 
     return go;
@@ -595,6 +599,14 @@ export class Scene {
         script.reset();
       } catch (e) {
         console.warn(`[Scene] destroyActor: error in onDestroy for "${go.name}":`, e);
+      }
+    }
+
+    // Dispose AnimationInstance(s) so event-graph scripts and mixers are cleaned up
+    const animInstances = (go as any)._animationInstances as any[] | undefined;
+    if (animInstances) {
+      for (const inst of animInstances) {
+        try { inst.dispose(); } catch { /* noop */ }
       }
     }
 

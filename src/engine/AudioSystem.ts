@@ -223,8 +223,11 @@ export class AudioSource {
       this._sourceNode.disconnect();
       this._sourceNode = null;
     }
+    const wasPlaying = this._playing;
     this._playing = false;
     this._pausedAt = 0;
+    // Fire onFinished so callers (e.g. AudioEngine.stopSource with fadeOut) can clean up
+    if (wasPlaying && this.onFinished) this.onFinished();
   }
 
   /** Clean up all Web Audio nodes */
@@ -243,6 +246,7 @@ export class AudioEngine {
   private _buses: Map<string, AudioBus> = new Map();
   private _sources: Map<number, AudioSource> = new Map();
   private _bufferCache: Map<string, AudioBuffer> = new Map();
+  private static readonly MAX_BUFFER_CACHE = 128;
   private _nextSourceId = 1;
   private _masterVolume = 1;
   private _initialized = false;
@@ -395,6 +399,11 @@ export class AudioEngine {
       }
 
       const buffer = await this._ctx.decodeAudioData(arrayBuffer);
+      // Evict oldest entry if cache is full (Map iterates in insertion order)
+      if (this._bufferCache.size >= AudioEngine.MAX_BUFFER_CACHE) {
+        const oldestKey = this._bufferCache.keys().next().value!;
+        this._bufferCache.delete(oldestKey);
+      }
       this._bufferCache.set(url, buffer);
       return buffer;
     } catch (e) {
@@ -480,8 +489,17 @@ export class AudioEngine {
   stopSource(id: number, fadeOut = 0): void {
     const src = this._sources.get(id);
     if (!src) return;
-    src.stop(fadeOut);
-    if (fadeOut <= 0) {
+    if (fadeOut > 0) {
+      // Clean up after fade completes so the source doesn't leak in the map
+      const prevOnFinished = src.onFinished;
+      src.onFinished = () => {
+        prevOnFinished?.();
+        this._sources.delete(id);
+        src.dispose();
+      };
+      src.stop(fadeOut);
+    } else {
+      src.stop(0);
       this._sources.delete(id);
       src.dispose();
     }
@@ -528,8 +546,14 @@ export class AudioEngine {
   /** Stop all currently playing sounds */
   stopAll(fadeOut = 0): void {
     for (const [id, src] of this._sources) {
-      src.stop(fadeOut);
-      if (fadeOut <= 0) {
+      if (fadeOut > 0) {
+        src.onFinished = () => {
+          this._sources.delete(id);
+          src.dispose();
+        };
+        src.stop(fadeOut);
+      } else {
+        src.stop(0);
         src.dispose();
       }
     }
