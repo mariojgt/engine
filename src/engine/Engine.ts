@@ -60,6 +60,9 @@ export class Engine {
   /** Pluggable print handler — editor wires this to the output log */
   public onPrint: (value: any) => void = (v) => console.log('[Print]', v);
 
+  /** Pluggable error handler — editor wires this to the output log error sink */
+  public onError: (value: any) => void = (v) => console.error('[Engine]', v);
+
   /**
    * Optional reference to the asset manager.
    * Set by the editor so the engine can resolve controller blueprint assets.
@@ -313,6 +316,66 @@ export class Engine {
     }
     this.scene.threeScene.add(mesh);
     this._debugLines.push({ obj: mesh, life: duration });
+  }
+
+  /**
+   * Draw an arrow from `from` along unit direction `dir` of length `length`.
+   * The arrowhead is rendered as two short lines forming a chevron.
+   * Useful for visualising grid direction / item flow.
+   */
+  drawDebugArrow(
+    from: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    length = 1,
+    color: number = 0xffff00,
+    duration = 0.1,
+  ): void {
+    const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const ux = dir.x / dl, uy = dir.y / dl, uz = dir.z / dl;
+    const tip = { x: from.x + ux * length, y: from.y + uy * length, z: from.z + uz * length };
+    this.drawDebugLine(from, tip, color, duration);
+    // Arrowhead — pick an "up" reference that isn't parallel to the dir.
+    const refY = Math.abs(uy) > 0.9 ? 1 : 0;
+    const refX = refY ? 0 : 0;
+    const refZ = refY ? 0 : 1;
+    // side = normalize(cross(dir, ref))
+    const sx = uy * refZ - uz * refY;
+    const sy = uz * refX - ux * refZ;
+    const sz = ux * refY - uy * refX;
+    const sl = Math.hypot(sx, sy, sz) || 1;
+    const headLen = length * 0.2;
+    const headW = length * 0.12;
+    const baseX = tip.x - ux * headLen, baseY = tip.y - uy * headLen, baseZ = tip.z - uz * headLen;
+    const offX = (sx / sl) * headW, offY = (sy / sl) * headW, offZ = (sz / sl) * headW;
+    this.drawDebugLine(tip, { x: baseX + offX, y: baseY + offY, z: baseZ + offZ }, color, duration);
+    this.drawDebugLine(tip, { x: baseX - offX, y: baseY - offY, z: baseZ - offZ }, color, duration);
+  }
+
+  /**
+   * Draw the outline of a single grid cell on the X/Z plane at the given Y.
+   * Pulls cellSize from the scene's GridSystem so it always matches gameplay.
+   */
+  drawDebugGridCell(
+    gx: number,
+    gz: number,
+    color: number = 0x00ffff,
+    duration = 0.1,
+    yOverride?: number,
+  ): void {
+    const grid = (this.scene as any)?.gridSystem;
+    const size = grid?.cellSize ?? 1;
+    const cy = (yOverride !== undefined) ? yOverride : (grid?.placementY ?? 0);
+    const cx = gx * size, cz = gz * size;
+    const half = size * 0.5;
+    const pts = [
+      { x: cx - half, y: cy, z: cz - half },
+      { x: cx + half, y: cy, z: cz - half },
+      { x: cx + half, y: cy, z: cz + half },
+      { x: cx - half, y: cy, z: cz + half },
+    ];
+    for (let i = 0; i < 4; i++) {
+      this.drawDebugLine(pts[i], pts[(i + 1) % 4], color, duration);
+    }
   }
 
   /** Tick debug draw lifetimes — called from the main update loop */

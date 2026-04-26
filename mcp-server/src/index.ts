@@ -54,7 +54,19 @@ function startBridgeServer(): void {
         }
       } catch { /* ignore */ }
     });
-    ws.on('close', () => console.error('[MCP Bridge] Engine client disconnected'));
+    ws.on('close', () => {
+      console.error('[MCP Bridge] Engine client disconnected');
+      // Cancel any in-flight requests so callers don't sit on the timeout.
+      // The engine may reconnect within seconds, but the request that was in
+      // flight at disconnect-time is lost — fail it fast instead of waiting.
+      if (!wss || wss.clients.size === 0) {
+        for (const [requestId, pending] of _pendingRequests) {
+          clearTimeout(pending.timer);
+          _pendingRequests.delete(requestId);
+          pending.resolve({ success: false, error: 'Engine disconnected mid-request' });
+        }
+      }
+    });
   });
   wss.on('error', (err: any) => {
     console.error('[MCP Bridge] WebSocket error:', err.message);

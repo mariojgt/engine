@@ -8,6 +8,7 @@ import { defaultCollisionConfig } from './CollisionTypes';
 import type { CharacterPawnConfig } from './CharacterPawnData';
 import { tryGetEngineDeps } from '../runtime/EngineDeps';
 import { AnimationInstance } from './AnimationInstance';
+import { GridSystem } from './GridSystem';
 
 export type MeshType = 'cube' | 'sphere' | 'cylinder' | 'plane';
 export type RootMeshType = MeshType | 'none';
@@ -40,6 +41,12 @@ export class Scene {
   public threeScene: THREE.Scene;
   public gameObjects: GameObject[] = [];
   public selectedObject: GameObject | null = null;
+
+  /**
+   * Tile grid for grid-based gameplay (factory belts, tower defense, etc.).
+   * Runtime-only state — cleared when play stops.
+   */
+  public gridSystem: GridSystem = new GridSystem();
 
   /**
    * Optional reference to the ActorAssetManager.
@@ -631,6 +638,9 @@ export class Scene {
       this.selectObject(null);
     }
 
+    // Unbind from grid (runtime-only state)
+    this.gridSystem.remove(go);
+
     // Backup for restoration when play stops
     go.isDestroyed = true;
     this._runtimeDestroyedGOs.push(go);
@@ -644,6 +654,8 @@ export class Scene {
    * Called when play stops to reset the scene to its pre-play state.
    */
   restoreRuntimeDestroyedActors(): void {
+    // Grid placements are runtime-only state — wipe on play stop.
+    this.gridSystem.clear();
     if (this._runtimeDestroyedGOs.length === 0) return;
     for (const go of this._runtimeDestroyedGOs) {
       go.isDestroyed = false;

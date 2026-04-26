@@ -2220,6 +2220,150 @@ function resolveValue(
       return 'null';
     }
 
+    // ── Grid: Direction helpers ──────────────────────────────
+    case 'Direction Literal': {
+      const ctrl = node.controls['value'] as ClassicPreset.InputControl<'number'> | undefined;
+      const v = Math.round(Number(ctrl?.value ?? 0));
+      return `(((${v}%4)+4)%4)`;
+    }
+    case 'Rotate Direction': {
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const sS = inputSrc.get(`${nodeId}.steps`);
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      const s = sS ? rv(sS.nid, sS.ok) : '1';
+      return `((((${d}+${s})%4)+4)%4)`;
+    }
+    case 'Opposite Direction': {
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      return `((((${d}+2)%4)+4)%4)`;
+    }
+    case 'Direction To Vector': {
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      const idx = `((((${d})%4)+4)%4)`;
+      if (outputKey === 'x') return `([0,1,0,-1][${idx}])`;
+      if (outputKey === 'y') return `0`;
+      if (outputKey === 'z') return `([-1,0,1,0][${idx}])`;
+      return '0';
+    }
+    case 'Direction To Yaw': {
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      return `([0,-Math.PI/2,Math.PI,Math.PI/2][((((${d})%4)+4)%4)])`;
+    }
+    case 'Direction From Yaw': {
+      const yS = inputSrc.get(`${nodeId}.yaw`);
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      return `((function(__y){var Y=[0,-Math.PI/2,Math.PI,Math.PI/2];var pi=Math.PI;while(__y>pi)__y-=2*pi;while(__y<=-pi)__y+=2*pi;var b=0,bd=Infinity;for(var i=0;i<4;i++){var d=Math.abs(__y-Y[i]);if(d>pi)d=2*pi-d;if(d<bd){bd=d;b=i;}}return b;})(${y}))`;
+    }
+    case 'Direction To String': {
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      return `(['North','East','South','West'][((((${d})%4)+4)%4)])`;
+    }
+
+    // ── Grid: Coordinate conversion ─────────────────────────
+    case 'World To Grid': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      const cs = `((__scene && __scene.gridSystem) ? __scene.gridSystem.cellSize : 1)`;
+      if (outputKey === 'gx') return `Math.floor((${x})/${cs}+0.5)`;
+      if (outputKey === 'gz') return `Math.floor((${z})/${cs}+0.5)`;
+      return '0';
+    }
+    case 'Grid To World': {
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      const cs = `((__scene && __scene.gridSystem) ? __scene.gridSystem.cellSize : 1)`;
+      const py = `((__scene && __scene.gridSystem) ? __scene.gridSystem.placementY : 0)`;
+      if (outputKey === 'x') return `((${gx})*${cs})`;
+      if (outputKey === 'y') return py;
+      if (outputKey === 'z') return `((${gz})*${cs})`;
+      return '0';
+    }
+    case 'Snap To Grid': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      const cs = `((__scene && __scene.gridSystem) ? __scene.gridSystem.cellSize : 1)`;
+      const py = `((__scene && __scene.gridSystem) ? __scene.gridSystem.placementY : 0)`;
+      if (outputKey === 'gx') return `Math.floor((${x})/${cs}+0.5)`;
+      if (outputKey === 'gz') return `Math.floor((${z})/${cs}+0.5)`;
+      if (outputKey === 'x')  return `(Math.floor((${x})/${cs}+0.5)*${cs})`;
+      if (outputKey === 'y')  return py;
+      if (outputKey === 'z')  return `(Math.floor((${z})/${cs}+0.5)*${cs})`;
+      return '0';
+    }
+    case 'Get Grid Cell Size':
+      return `((__scene && __scene.gridSystem) ? __scene.gridSystem.cellSize : 1)`;
+
+    // ── Grid: Queries ───────────────────────────────────────
+    case 'Is Grid Cell Occupied': {
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      return `(!!(__scene && __scene.gridSystem && __scene.gridSystem.isOccupied(${gx}, ${gz})))`;
+    }
+    case 'Get Grid Actor At': {
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      return `((__scene && __scene.gridSystem) ? __scene.gridSystem.getAt(${gx}, ${gz}) : null)`;
+    }
+    case 'Get Actor Grid Cell': {
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      const cellExpr = `((__scene && __scene.gridSystem) ? __scene.gridSystem.getCellOf(${a}) : null)`;
+      if (outputKey === 'gx')    return `(${cellExpr} ? ${cellExpr}.gx : 0)`;
+      if (outputKey === 'gz')    return `(${cellExpr} ? ${cellExpr}.gz : 0)`;
+      if (outputKey === 'dir')   return `(${cellExpr} ? ${cellExpr}.dir : 0)`;
+      if (outputKey === 'valid') return `(!!${cellExpr})`;
+      return '0';
+    }
+    case 'Get Neighbor Grid Actor': {
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      return `((__scene && __scene.gridSystem) ? __scene.gridSystem.getNeighbor(${a}, ${d}) : null)`;
+    }
+    case 'Get Forward Grid Actor': {
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      return `((__scene && __scene.gridSystem) ? __scene.gridSystem.getForwardNeighbor(${a}) : null)`;
+    }
+
+    // ── Grid: Exec data outputs (resolved via temps set in genAction) ──
+    case 'Place On Grid': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'success') return `__pog_${uid}`;
+      return 'false';
+    }
+    case 'Remove From Grid At': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'actor') return `__rfgat_${uid}`;
+      return 'null';
+    }
+    case 'Save Grid State': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'count') return `__sgs_count_${uid}`;
+      return '0';
+    }
+    case 'Load Grid State': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      if (outputKey === 'json')  return `__lgs_json_${uid}`;
+      if (outputKey === 'count') return `__lgs_count_${uid}`;
+      return '""';
+    }
+
     default: return '0';
   }
 
@@ -6081,6 +6225,132 @@ if (node instanceof N.NavMeshAddAgentNode) {
       break;
     }
 
+    // ── Grid: Configuration ─────────────────────────────────
+    case 'Set Grid Cell Size': {
+      const sS = inputSrc.get(`${nodeId}.size`);
+      const s = sS ? rv(sS.nid, sS.ok) : '1';
+      lines.push(`if (__scene && __scene.gridSystem) { var __v = ${s}; if (typeof __v === 'number' && __v > 0) __scene.gridSystem.cellSize = __v; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Grid Placement Y': {
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      lines.push(`if (__scene && __scene.gridSystem) { __scene.gridSystem.placementY = ${y}; }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Grid: Placement ─────────────────────────────────────
+    case 'Place On Grid': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      lines.push(`var __pog_${uid} = false;`);
+      lines.push(`if (__scene && __scene.gridSystem && ${a}) { __pog_${uid} = !!__scene.gridSystem.place(${a}, ${gx}, ${gz}, ${d}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove From Grid': {
+      const aS = inputSrc.get(`${nodeId}.actor`);
+      const a = aS ? rv(aS.nid, aS.ok) : 'gameObject';
+      lines.push(`if (__scene && __scene.gridSystem && ${a}) { __scene.gridSystem.remove(${a}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Remove From Grid At': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      lines.push(`var __rfgat_${uid} = null;`);
+      lines.push(`if (__scene && __scene.gridSystem) { __rfgat_${uid} = __scene.gridSystem.removeAt(${gx}, ${gz}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Clear Grid': {
+      lines.push(`if (__scene && __scene.gridSystem) { __scene.gridSystem.clear(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Grid: Debug overlay ─────────────────────────────────
+    case 'Draw Debug Arrow': {
+      const xS = inputSrc.get(`${nodeId}.x`);
+      const yS = inputSrc.get(`${nodeId}.y`);
+      const zS = inputSrc.get(`${nodeId}.z`);
+      const dS = inputSrc.get(`${nodeId}.dir`);
+      const lS = inputSrc.get(`${nodeId}.length`);
+      const cS = inputSrc.get(`${nodeId}.color`);
+      const tS = inputSrc.get(`${nodeId}.duration`);
+      const x = xS ? rv(xS.nid, xS.ok) : '0';
+      const y = yS ? rv(yS.nid, yS.ok) : '0';
+      const z = zS ? rv(zS.nid, zS.ok) : '0';
+      const d = dS ? rv(dS.nid, dS.ok) : '0';
+      const len = lS ? rv(lS.nid, lS.ok) : '1';
+      const col = cS ? rv(cS.nid, cS.ok) : '"#ffff00"';
+      const dur = tS ? rv(tS.nid, tS.ok) : '0.1';
+      lines.push(`if (__engine && __engine.drawDebugArrow) {`);
+      lines.push(`  var __di = ((((${d})%4)+4)%4);`);
+      lines.push(`  var __dv = { x: [0,1,0,-1][__di], y: 0, z: [-1,0,1,0][__di] };`);
+      lines.push(`  var __c = ${col}; var __cn = (typeof __c === 'number') ? __c : parseInt(String(__c).replace('#',''),16); if (isNaN(__cn)) __cn = 0xffff00;`);
+      lines.push(`  __engine.drawDebugArrow({x:${x},y:${y},z:${z}}, __dv, ${len}, __cn, ${dur});`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Draw Debug Grid Cell': {
+      const gxS = inputSrc.get(`${nodeId}.gx`);
+      const gzS = inputSrc.get(`${nodeId}.gz`);
+      const cS = inputSrc.get(`${nodeId}.color`);
+      const tS = inputSrc.get(`${nodeId}.duration`);
+      const gx = gxS ? rv(gxS.nid, gxS.ok) : '0';
+      const gz = gzS ? rv(gzS.nid, gzS.ok) : '0';
+      const col = cS ? rv(cS.nid, cS.ok) : '"#00ffff"';
+      const dur = tS ? rv(tS.nid, tS.ok) : '0.1';
+      lines.push(`if (__engine && __engine.drawDebugGridCell) {`);
+      lines.push(`  var __c = ${col}; var __cn = (typeof __c === 'number') ? __c : parseInt(String(__c).replace('#',''),16); if (isNaN(__cn)) __cn = 0x00ffff;`);
+      lines.push(`  __engine.drawDebugGridCell(${gx}, ${gz}, __cn, ${dur});`);
+      lines.push(`}`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Grid: Save/Load ─────────────────────────────────────
+    case 'Save Grid State': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const soS = inputSrc.get(`${nodeId}.saveObject`);
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const so = soS ? rv(soS.nid, soS.ok) : 'null';
+      const ctrl = node.controls['defaultVarName'] as ClassicPreset.InputControl<'text'> | undefined;
+      const defaultVar = JSON.stringify(String(ctrl?.value ?? 'gridState'));
+      const vn = vnS ? rv(vnS.nid, vnS.ok) : defaultVar;
+      lines.push(`var __sgs_count_${uid} = 0;`);
+      lines.push(`{ var __so = ${so}; var __vn = ${vn} || ${defaultVar}; if (__so && __scene && __scene.gridSystem) { var __cells = __scene.gridSystem.serialize(); __sgs_count_${uid} = __cells.length; __so[__vn] = JSON.stringify(__cells); } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Load Grid State': {
+      const uid = nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+      const soS = inputSrc.get(`${nodeId}.saveObject`);
+      const vnS = inputSrc.get(`${nodeId}.varName`);
+      const so = soS ? rv(soS.nid, soS.ok) : 'null';
+      const ctrl = node.controls['defaultVarName'] as ClassicPreset.InputControl<'text'> | undefined;
+      const defaultVar = JSON.stringify(String(ctrl?.value ?? 'gridState'));
+      const vn = vnS ? rv(vnS.nid, vnS.ok) : defaultVar;
+      lines.push(`var __lgs_json_${uid} = ""; var __lgs_count_${uid} = 0;`);
+      lines.push(`{ var __so = ${so}; var __vn = ${vn} || ${defaultVar}; if (__so && __so[__vn] != null) { __lgs_json_${uid} = String(__so[__vn]); try { var __arr = JSON.parse(__lgs_json_${uid}); if (Array.isArray(__arr)) __lgs_count_${uid} = __arr.length; } catch (e) { __lgs_count_${uid} = 0; } } }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
   }
   return lines;
 
@@ -6110,6 +6380,17 @@ export function generateFullCode(
   }
   if (varDecls.length > 0) parts.push(varDecls.join('\n'));
   parts.push(`function __getVars() { return { ${varNames.join(', ')} }; }`);
+  // Setter: writes back to closure variables so external tools (MCP bridge,
+  // debugger) can mutate runtime variables without rebuilding the closure.
+  if (bp.variables.length > 0) {
+    const setCases = bp.variables.map(v => {
+      const sName = sanitizeName(v.name);
+      return `case ${JSON.stringify(v.name)}: __var_${sName} = __value; return true;`;
+    });
+    parts.push(`function __setVar(__name, __value) { switch (__name) { ${setCases.join(' ')} } return false; }`);
+  } else {
+    parts.push(`function __setVar() { return false; }`);
+  }
 
   // ── DataTable runtime constants ──────────────────────────────────
   // Embed all DataTable row data as plain JS objects so Get Data Table

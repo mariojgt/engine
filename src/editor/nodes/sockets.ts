@@ -118,6 +118,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'Selection':     '#00ACC1',
   'AI':            '#1565C0',
   'DataTable':     '#0d9488',
+  'Grid':          '#5E35B1',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -158,6 +159,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Selection':     return iconHTML(Icons.Box, 10, '#00ACC1');
     case 'AI':             return iconHTML(Icons.Bot, 10, '#1565C0');
     case 'DataTable':     return iconHTML(Icons.Table2, 10, '#0d9488');
+    case 'Grid':           return iconHTML(Icons.Grid, 10, '#5E35B1');
     // Phase 1 categories
     case 'Audio':          return iconHTML(Icons.Circle, 10, '#E91E63');
     case 'Gamepad':        return iconHTML(Icons.Gamepad2, 10, '#00BFA5');

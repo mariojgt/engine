@@ -152,6 +152,9 @@ export class EditorLayout {
   /** MCP Bridge — manages MCP server process and WebSocket connection */
   private _mcpBridge: MCPBridge | null = null;
 
+  /** OutputLog reference so MCP bridge handlers can read print output / errors */
+  private _outputLog: import('./OutputLog').OutputLog | null = null;
+
   /** Profiler panel and viewport overlay */
   private _profilerPanel: ProfilerPanel | null = null;
   private _profilerOverlay: ProfilerOverlay | null = null;
@@ -1725,6 +1728,11 @@ export class EditorLayout {
     }
   }
 
+  /** Wire OutputLog reference (called from main.ts after construction) */
+  setOutputLog(log: import('./OutputLog').OutputLog): void {
+    this._outputLog = log;
+  }
+
   /** Wire MCP bridge into the editor so Project Settings can show MCP controls */
   setMCPBridge(bridge: MCPBridge): void {
     this._mcpBridge = bridge;
@@ -1807,6 +1815,256 @@ export class EditorLayout {
 
       return { error: `Compile not yet supported for assetType: ${assetType}. Only "actor" is supported.` };
     });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Play / Stop / State
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('get_play_state', async () => {
+      const isPlaying = (this._engine as any)._playStarted === true
+        || !!this._engine.physics?.isPlaying
+        || !!(this._engine as any).scene2DManager?.isPlaying;
+      return {
+        isPlaying,
+        activeScene: this._storedProjectManager?.activeSceneName ?? null,
+      };
+    });
+
+    bridge.onBridgeRequest('play_scene', async (req: any) => {
+      const sceneName = req?.sceneName as string | undefined;
+      if (sceneName && this._storedProjectManager) {
+        const current = this._storedProjectManager.activeSceneName;
+        if (current !== sceneName) {
+          const ok = await this._storedProjectManager.openScene(sceneName);
+          if (!ok) return { error: `Scene not found: ${sceneName}` };
+        }
+      }
+      const playBtn = document.getElementById('btn-play') as HTMLButtonElement | null;
+      if (!playBtn) return { error: 'Play button not found in DOM' };
+      playBtn.click();
+      return { message: `Play started${sceneName ? ` (scene: ${sceneName})` : ''}` };
+    });
+
+    bridge.onBridgeRequest('stop_scene', async () => {
+      const stopBtn = document.getElementById('btn-stop') as HTMLButtonElement | null;
+      if (!stopBtn) return { error: 'Stop button not found in DOM' };
+      stopBtn.click();
+      return { message: 'Play stopped' };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Scene management
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('open_scene', async (req: any) => {
+      const sceneName = req?.sceneName as string | undefined;
+      if (!sceneName) return { error: 'sceneName required' };
+      if (!this._storedProjectManager) return { error: 'No project loaded' };
+      const ok = await this._storedProjectManager.openScene(sceneName);
+      return ok
+        ? { message: `Opened scene: ${sceneName}`, activeScene: sceneName }
+        : { error: `Scene not found: ${sceneName}` };
+    });
+
+    bridge.onBridgeRequest('reload_project', async () => {
+      if (!this._storedProjectManager) return { error: 'No project loaded' };
+      const path = this._storedProjectManager.projectPath;
+      if (!path) return { error: 'Project path not available' };
+      const ok = await this._storedProjectManager.openProjectFromPath(path);
+      return ok ? { message: 'Project reloaded' } : { error: 'Reload failed' };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Selection / object state
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('select_object', async (req: any) => {
+      const objectName = req?.objectName as string | undefined;
+      if (!objectName) {
+        this._engine.scene.selectObject(null);
+        return { message: 'Selection cleared' };
+      }
+      const go = this._engine.scene.gameObjects.find(g => g.name === objectName);
+      if (!go) return { error: `Object not found: ${objectName}` };
+      this._engine.scene.selectObject(go);
+      return { message: `Selected: ${objectName}`, id: (go as any).id ?? null };
+    });
+
+    bridge.onBridgeRequest('get_object_state', async (req: any) => {
+      const objectName = req?.objectName as string | undefined;
+      if (!objectName) return { error: 'objectName required' };
+      const go: any = this._engine.scene.gameObjects.find(g => g.name === objectName);
+      if (!go) return { error: `Object not found: ${objectName}` };
+      const pos = go.position ?? go.mesh?.position ?? { x: 0, y: 0, z: 0 };
+      const rot = go.rotation ?? go.mesh?.rotation ?? { x: 0, y: 0, z: 0 };
+      const scl = go.scale ?? go.mesh?.scale ?? { x: 1, y: 1, z: 1 };
+      const variables: Record<string, any> = {};
+      for (const s of go.scripts ?? []) {
+        if (typeof s.getVars === 'function') {
+          try { Object.assign(variables, s.getVars()); } catch { /* ignore */ }
+        }
+      }
+      return {
+        name: go.name,
+        id: go.id ?? null,
+        actorAssetId: go.actorAssetId ?? null,
+        actorType: go.actorType ?? null,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        rotation: { x: rot.x, y: rot.y, z: rot.z },
+        scale:    { x: scl.x, y: scl.y, z: scl.z },
+        tags: Array.isArray(go.tags) ? [...go.tags] : [],
+        isDestroyed: !!go.isDestroyed,
+        variables,
+      };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Viewport: gizmo / camera / snap
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('set_gizmo_mode', async (req: any) => {
+      if (!this._viewport) return { error: 'Viewport not available' };
+      const gizmo: any = (this._viewport as any)._gizmo;
+      if (!gizmo) return { error: 'Gizmo not available' };
+      const mode = req?.mode as string | undefined;
+      const space = req?.space as string | undefined;
+      if (mode && (mode === 'translate' || mode === 'rotate' || mode === 'scale')) {
+        gizmo.setMode(mode);
+      } else if (mode) {
+        return { error: `Invalid mode: ${mode} (expected translate|rotate|scale)` };
+      }
+      if (space && (space === 'world' || space === 'local')) {
+        gizmo.setSpace(space);
+      } else if (space) {
+        return { error: `Invalid space: ${space} (expected world|local)` };
+      }
+      return { message: `Gizmo: mode=${gizmo.mode} space=${gizmo.space}` };
+    });
+
+    bridge.onBridgeRequest('set_viewport_camera', async (req: any) => {
+      if (!this._viewport) return { error: 'Viewport not available' };
+      const cam: any = this._viewport.getCamera();
+      const ctrl: any = (this._viewport as any)._cameraController;
+      const pos = req?.position;
+      const lookAt = req?.lookAt;
+      if (pos && typeof pos.x === 'number') {
+        cam.position.set(pos.x, pos.y, pos.z);
+      }
+      if (lookAt && typeof lookAt.x === 'number') {
+        cam.lookAt(lookAt.x, lookAt.y, lookAt.z);
+        if (ctrl?.orbitTarget) ctrl.orbitTarget.set(lookAt.x, lookAt.y, lookAt.z);
+      }
+      return { message: 'Viewport camera updated' };
+    });
+
+    bridge.onBridgeRequest('set_snap_settings', async (req: any) => {
+      if (!this._viewport) return { error: 'Viewport not available' };
+      const gizmo: any = (this._viewport as any)._gizmo;
+      if (!gizmo) return { error: 'Gizmo not available' };
+      if (typeof req?.translateSnap === 'number') gizmo.snapSettings.translate = req.translateSnap;
+      if (typeof req?.rotateSnap === 'number')    gizmo.snapSettings.rotate = req.rotateSnap;
+      if (typeof req?.scaleSnap === 'number')     gizmo.snapSettings.scale = req.scaleSnap;
+      // Re-apply (only effective when snap is enabled).
+      if (typeof gizmo.setSnapEnabled === 'function') gizmo.setSnapEnabled(gizmo.snapEnabled);
+      return { message: 'Snap settings updated', snap: { ...gizmo.snapSettings } };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Output log / runtime errors
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('get_print_log', async (req: any) => {
+      if (!this._outputLog) return { entries: [], note: 'OutputLog not wired' };
+      const limit = typeof req?.limit === 'number' ? req.limit : 100;
+      const level = req?.level as ('info' | 'warn' | 'error' | undefined);
+      const entries = this._outputLog.getEntries(limit, level);
+      return { entries };
+    });
+
+    bridge.onBridgeRequest('clear_print_log', async () => {
+      if (!this._outputLog) return { message: 'OutputLog not wired (no-op)' };
+      this._outputLog.clear();
+      return { message: 'Cleared' };
+    });
+
+    bridge.onBridgeRequest('get_runtime_errors', async (req: any) => {
+      if (!this._outputLog) return { errors: [], note: 'OutputLog not wired' };
+      const limit = typeof req?.limit === 'number' ? req.limit : 100;
+      return { errors: this._outputLog.getErrors(limit) };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Runtime spawn / destroy / variable read+write
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('spawn_actor_runtime', async (req: any) => {
+      const actorId = req?.actorId as string | undefined;
+      if (!actorId) return { error: 'actorId required' };
+      const pos = req?.position ?? { x: 0, y: 0, z: 0 };
+      const rot = req?.rotation ?? { x: 0, y: 0, z: 0 };
+      const scl = req?.scale ?? { x: 1, y: 1, z: 1 };
+      let className = '';
+      try {
+        const asset = (this as any).assetManager?.getAsset?.(actorId);
+        if (asset?.name) className = asset.name;
+      } catch { /* ignore */ }
+      const go: any = (this._engine as any).spawnActor?.(actorId, className, pos, rot, scl, null, null);
+      if (!go) return { error: `Spawn failed for actorId: ${actorId}` };
+      return { message: 'Spawned', name: go.name, id: go.id ?? null };
+    });
+
+    bridge.onBridgeRequest('destroy_actor_runtime', async (req: any) => {
+      const objectName = req?.objectName as string | undefined;
+      if (!objectName) return { error: 'objectName required' };
+      const go = this._engine.scene.gameObjects.find(g => g.name === objectName);
+      if (!go) return { error: `Object not found: ${objectName}` };
+      this._engine.scene.destroyActor(go);
+      return { message: `Destroyed: ${objectName}` };
+    });
+
+    bridge.onBridgeRequest('get_runtime_variable', async (req: any) => {
+      const objectName = req?.objectName as string | undefined;
+      const variableName = req?.variableName as string | undefined;
+      if (!objectName || !variableName) return { error: 'objectName and variableName required' };
+      const go: any = this._engine.scene.gameObjects.find(g => g.name === objectName);
+      if (!go) return { error: `Object not found: ${objectName}` };
+      for (const s of go.scripts ?? []) {
+        if (typeof s.getVars === 'function') {
+          try {
+            const vars = s.getVars();
+            if (vars && Object.prototype.hasOwnProperty.call(vars, variableName)) {
+              return { value: vars[variableName] };
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      const def = go.blueprintData?.getVariableByName?.(variableName);
+      if (def) return { value: def.defaultValue, fallback: 'defaultValue' };
+      return { error: `Variable not found: ${variableName}` };
+    });
+
+    bridge.onBridgeRequest('set_runtime_variable', async (req: any) => {
+      const objectName = req?.objectName as string | undefined;
+      const variableName = req?.variableName as string | undefined;
+      const value = req?.value;
+      if (!objectName || !variableName) return { error: 'objectName and variableName required' };
+      const go: any = this._engine.scene.gameObjects.find(g => g.name === objectName);
+      if (!go) return { error: `Object not found: ${objectName}` };
+      let writtenAtRuntime = false;
+      for (const s of go.scripts ?? []) {
+        if (typeof s.setVar === 'function') {
+          try {
+            if (s.setVar(variableName, value)) { writtenAtRuntime = true; break; }
+          } catch { /* ignore */ }
+        }
+      }
+      const def = go.blueprintData?.getVariableByName?.(variableName);
+      if (def) def.defaultValue = value;
+      if (!writtenAtRuntime && !def) return { error: `Variable not found: ${variableName}` };
+      return { message: 'Set', writtenAtRuntime, persisted: !!def };
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Undo / Redo — currently no global undo stack in the engine.
+    //  Return a clear error so callers know it isn't implemented yet
+    //  rather than timing out with "No response from engine".
+    // ─────────────────────────────────────────────────────────────────
+    bridge.onBridgeRequest('undo', async () => ({ error: 'Undo not implemented in engine (no global undo stack)' }));
+    bridge.onBridgeRequest('redo', async () => ({ error: 'Redo not implemented in engine (no global undo stack)' }));
   }
 
   /** Wire up the BuildConfigurationManager so the build dashboard can use it */

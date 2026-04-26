@@ -368,6 +368,11 @@ async function main() {
     console.log('[Print]', value);
     outputLog.log(value);
   };
+  engine.onError = (value: any) => {
+    console.error('[Engine]', value);
+    outputLog.error(value);
+  };
+  editor.setOutputLog(outputLog);
 
   // Wire the same print function into the 2D Scene Manager so that
   // Print String nodes inside AnimBP 2D Event Graphs appear in the Output Log.

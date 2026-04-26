@@ -55,6 +55,8 @@ export class ScriptComponent {
   private _tickFn: ((ctx: ScriptContext) => void) | null = null;
   private _onDestroyFn: ((ctx: ScriptContext) => void) | null = null;
   public getVars: (() => Record<string, any>) | null = null;
+  /** Mutates a runtime blueprint variable. Returns true if the variable existed. */
+  public setVar: ((name: string, value: any) => boolean) | null = null;
   private _hasStarted = false;
 
   /** Consecutive tick error counter — script is disabled after MAX_CONSECUTIVE_ERRORS */
@@ -93,6 +95,7 @@ export class ScriptComponent {
         this._tickFn = compiled.tick;
         this._onDestroyFn = compiled.onDestroy;
         this.getVars = compiled.getVars;
+        this.setVar = compiled.setVar;
       }
 
       this._hasStarted = false;
@@ -120,6 +123,7 @@ export class ScriptComponent {
     tick: ((ctx: ScriptContext) => void) | null;
     onDestroy: ((ctx: ScriptContext) => void) | null;
     getVars: (() => Record<string, any>) | null;
+    setVar: ((name: string, value: any) => boolean) | null;
   } {
     // We build a factory function that returns { beginPlay, tick, onDestroy } closures.
     // The preamble runs once at compile time (declares shared variables/functions).
@@ -198,7 +202,7 @@ ${onDestroy.trim() ? `__od = function(ctx) {
   ${onDestroy}
 };` : ''}
 
-return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars !== 'undefined' ? __getVars : null };
+return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars !== 'undefined' ? __getVars : null, setVar: typeof __setVar !== 'undefined' ? __setVar : null };
 `;
 
     const factory = new Function(factoryBody) as () => {
@@ -206,6 +210,7 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars
       tick: ((ctx: ScriptContext) => void) | null;
       onDestroy: ((ctx: ScriptContext) => void) | null;
       getVars: (() => Record<string, any>) | null;
+      setVar: ((name: string, value: any) => boolean) | null;
     };
 
     return factory();
@@ -274,13 +279,16 @@ return { beginPlay: __bp, tick: __tk, onDestroy: __od, getVars: typeof __getVars
       this._consecutiveErrors = 0; // Reset on success
     } catch (e) {
       this._consecutiveErrors++;
+      const actor = ctx.gameObject?.name;
       if (this._consecutiveErrors >= ScriptComponent.MAX_CONSECUTIVE_ERRORS) {
         this.disabled = true;
-        console.error(
-          `[Script] DISABLED "${ctx.gameObject?.name}" after ${this._consecutiveErrors} consecutive tick errors. Last error:`, e
-        );
+        const msg = `[Script] DISABLED "${actor}" after ${this._consecutiveErrors} consecutive tick errors. Last error: ${(e as any)?.message ?? e}`;
+        console.error(msg, e);
+        try { (ctx.engine as any)?.onError?.(msg); } catch { /* ignore */ }
       } else {
-        console.error(`[Script] Tick error (${this._consecutiveErrors}/${ScriptComponent.MAX_CONSECUTIVE_ERRORS}) on "${ctx.gameObject?.name}":`, e);
+        const msg = `[Script] Tick error (${this._consecutiveErrors}/${ScriptComponent.MAX_CONSECUTIVE_ERRORS}) on "${actor}": ${(e as any)?.message ?? e}`;
+        console.error(msg, e);
+        try { (ctx.engine as any)?.onError?.(msg); } catch { /* ignore */ }
       }
     }
   }

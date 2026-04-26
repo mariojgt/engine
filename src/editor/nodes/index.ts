@@ -812,3 +812,41 @@ export {
   GetDataTableFieldNode,
   DataTableFieldSelectControl,
 } from './datatable/DataTableNodes';
+
+// ── Grid Nodes ──────────────────────────────────────────────
+export {
+  DirectionLiteralNode,
+  RotateDirectionNode,
+  OppositeDirectionNode,
+  DirectionToVectorNode,
+  DirectionToYawNode,
+  DirectionFromYawNode,
+  DirectionToStringNode,
+} from './grid/DirectionNodes';
+export {
+  WorldToGridNode,
+  GridToWorldNode,
+  SnapToGridNode,
+  GetGridCellSizeNode,
+  SetGridCellSizeNode,
+  SetGridPlacementYNode,
+} from './grid/GridCoordNodes';
+export {
+  PlaceOnGridNode,
+  RemoveFromGridNode,
+  RemoveFromGridAtNode,
+  IsGridCellOccupiedNode,
+  GetGridActorAtNode,
+  GetActorGridCellNode,
+  GetNeighborGridActorNode,
+  GetForwardGridActorNode,
+  ClearGridNode,
+} from './grid/GridPlacementNodes';
+export {
+  DrawDebugArrowNode,
+  DrawDebugGridCellNode,
+} from './grid/GridDebugNodes';
+export {
+  SaveGridStateNode,
+  LoadGridStateNode,
+} from './grid/GridSaveLoadNodes';
