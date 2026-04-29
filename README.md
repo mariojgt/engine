@@ -1,52 +1,55 @@
-# Feather Engine — Repository Deep Guide
+<div align="center">
+  <img src="assets/banner.png" alt="Feather Engine Banner" width="100%" />
+</div>
 
-This README is a practical, repo-specific explanation of how this engine works today:
+<div align="center">
 
-- how to run it,
-- what tech stack it uses,
-- how the architecture is split,
-- how Blueprint nodes become runtime code,
-- how the Widget/UI system works,
-- what “runtime differences” exist,
-- and a full inventory of node modules currently in the repo.
+# Feather Engine
 
----
+**A TypeScript-first game engine with visual scripting, real-time physics, and a fully dockable editor — running in the browser or as a native desktop app.**
 
-## 1) What this repository is
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Three.js](https://img.shields.io/badge/Three.js-r182-black?logo=threedotjs&logoColor=white)](https://threejs.org)
+[![Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri&logoColor=black)](https://tauri.app)
+[![Rapier](https://img.shields.io/badge/Rapier-Physics-orange)](https://rapier.rs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Feather Engine is a **TypeScript + Three.js + Rapier + Rete** game engine/editor with:
-
-- a dockable in-engine editor UI,
-- Blueprint-style visual scripting,
-- a runtime Play mode,
-- a widget blueprint/UI runtime,
-- optional desktop packaging through **Tauri (Rust shell + web frontend)**.
-
-At a high level:
-
-1. You edit scenes/actors/blueprints/widgets in the editor.
-2. Node graphs compile into JavaScript code strings.
-3. `ScriptComponent` compiles those strings into functions (`beginPlay`, `tick`, `onDestroy`).
-4. Play mode runs lifecycle callbacks every frame, plus physics and controllers.
+</div>
 
 ---
 
-## 2) Tech stack
+## What Is This?
 
-### Frontend / engine layer
+Feather Engine is a **browser-native game engine and editor** built entirely in TypeScript. It delivers a Unreal-inspired development experience — Blueprint visual scripting, dockable editor panels, real-time 3D physics, particle systems, AI controllers — all running in a Vite-powered web app or packaged as a native desktop app via Tauri.
 
-- **TypeScript**
-- **Vite** (dev server + build)
-- **Three.js** (rendering)
-- **@dimforge/rapier3d-compat** (physics)
-- **Rete** + area/connection/react plugins (node graph editor)
-- **React** + **React DOM** (parts of editor tooling/panels)
-- **dockview-core** (dockable editor layout)
+You build your game in the editor. Visual node graphs compile down to executable JavaScript. Hit Play and your `beginPlay`, `tick`, and `onDestroy` lifecycles run immediately — no reload, no compile step, no waiting.
 
-### Desktop shell layer
+### Key Highlights
 
-- **Tauri v2**
-- **Rust** backend commands for project/file operations
+- **Blueprint visual scripting** — connect nodes in a Rete-powered graph editor; the engine compiles them to live JS closures at runtime
+- **Full 3D rendering** — Three.js scene graph with cameras, lighting, meshes, sprite actors, and a custom render pipeline
+- **2D + 3D physics** — Rapier physics worlds for both dimensions; joints, character controllers, collision events
+- **Dockable editor UI** — DockView-based layout with viewport, inspector, asset browser, blueprint editor, and widget editor panels
+- **Widget/UI blueprints** — author in-game HUDs visually; rendered as a DOM overlay above the canvas at runtime
+- **AI & navigation** — behaviour tree manager, AI controllers, and NavMesh pathfinding via Recast Navigation
+- **Desktop packaging** — wrap the same web frontend in a Tauri Rust shell for a native Windows/macOS/Linux app with filesystem access
+- **Audio & particles** — built-in audio system and particle system integrated into the engine lifecycle
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | TypeScript 5.9 |
+| Renderer | Three.js r182 |
+| Physics | Rapier 2D + 3D |
+| Visual Scripting | Rete 2 + plugins |
+| Editor Layout | DockView Core |
+| UI Framework | React 19 |
+| Build Tool | Vite 8 |
+| Desktop Shell | Tauri v2 (Rust) |
+| Navigation | Recast Navigation |
 
 ---
 
