@@ -79,6 +79,19 @@ export { PrintStringNode } from './utility/PrintStringNode';
 export { OpenSceneNode, SceneSelectControl, setSceneListProvider, getSceneListProvider } from './utility/OpenSceneNode';
 export { LoadSceneNode } from './utility/LoadSceneNode';
 
+// ── Environment (Sky + DayNight) ────────────────────────────
+export {
+  EnableDayNightCycleNode,
+  DisableDayNightCycleNode,
+  SetTimeOfDayNode,
+  PauseDayNightNode,
+  ResumeDayNightNode,
+  GetDayNightPhaseNode,
+  GetDaylightNode,
+  IsDayNode,
+} from './environment/DayNightNodes';
+export { EnableSkyNode, DisableSkyNode } from './environment/SkyNodes';
+
 
 // ── Physics ─────────────────────────────────────────────────
 export { AddForceNode }   from './physics/AddForceNode';

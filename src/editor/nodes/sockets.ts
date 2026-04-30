@@ -119,6 +119,7 @@ export const NODE_CATEGORY_COLORS: Record<string, string> = {
   'AI':            '#1565C0',
   'DataTable':     '#0d9488',
   'Grid':          '#5E35B1',
+  'Environment':   '#0E7C66',
 };
 
 export function getCategoryIcon(cat: string): string {
@@ -164,6 +165,7 @@ export function getCategoryIcon(cat: string): string {
     case 'Audio':          return iconHTML(Icons.Circle, 10, '#E91E63');
     case 'Gamepad':        return iconHTML(Icons.Gamepad2, 10, '#00BFA5');
     case 'Save/Load':      return iconHTML(Icons.Circle, 10, '#FF7043');
+    case 'Environment':    return iconHTML(Icons.Globe, 10, '#0E7C66');
     default:              return iconHTML(Icons.Circle, 10, ICON_COLORS.muted);
   }
 }

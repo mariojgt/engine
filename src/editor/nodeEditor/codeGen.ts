@@ -1116,6 +1116,13 @@ function resolveValue(
     }
     case 'Get Time': return 'elapsedTime';
     case 'Get Delta Time': return 'deltaTime';
+    // ── Environment (DayNight read-only) ──
+    case 'Get Day/Night Phase':
+      return '((__engine && __engine.dayNight) ? __engine.dayNight.phase() : 0)';
+    case 'Get Daylight':
+      return '((__engine && __engine.dayNight) ? __engine.dayNight.daylight() : 1)';
+    case 'Is Day':
+      return '((__engine && __engine.dayNight) ? __engine.dayNight.isDay() : true)';
     case 'Event Tick':
       return outputKey === 'dt' ? 'deltaTime' : '0';
     // For Loop / For Each Loop data outputs
@@ -5961,6 +5968,55 @@ if (node instanceof N.NavMeshAddAgentNode) {
     }
     case 'Resume All Sounds': {
       lines.push(`if (__engine && __engine.audio) { __engine.audio.resumeAll(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+
+    // ── Environment Nodes (DayNight + Sky) ──────────────────────
+    case 'Enable Day/Night Cycle': {
+      const csS = inputSrc.get(`${nodeId}.cycleSeconds`);
+      const spS = inputSrc.get(`${nodeId}.startPhase`);
+      const cs = csS ? rv(csS.nid, csS.ok) : '90';
+      const sp = spS ? rv(spS.nid, spS.ok) : '0.25';
+      lines.push(`if (__engine && typeof __engine.enableDayNight === 'function') { __engine.enableDayNight({ cycleSeconds: ${cs}, startPhase: ${sp} }); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Disable Day/Night Cycle': {
+      lines.push(`if (__engine && typeof __engine.disableDayNight === 'function') { __engine.disableDayNight(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Set Time of Day': {
+      const pS = inputSrc.get(`${nodeId}.phase`);
+      const p = pS ? rv(pS.nid, pS.ok) : '0.5';
+      lines.push(`if (__engine && __engine.dayNight) { __engine.dayNight.setPhase(${p}); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Pause Day/Night': {
+      lines.push(`if (__engine && __engine.dayNight) { __engine.dayNight.pause(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Resume Day/Night': {
+      lines.push(`if (__engine && __engine.dayNight) { __engine.dayNight.resume(); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Enable Sky': {
+      const rS = inputSrc.get(`${nodeId}.radius`);
+      const dS = inputSrc.get(`${nodeId}.dayTexUrl`);
+      const nS = inputSrc.get(`${nodeId}.nightTexUrl`);
+      const radius = rS ? rv(rS.nid, rS.ok) : '240';
+      const dayUrl = dS ? rv(dS.nid, dS.ok) : '""';
+      const nightUrl = nS ? rv(nS.nid, nS.ok) : '""';
+      lines.push(`if (__engine && typeof __engine.enableSky === 'function') { __engine.enableSky({ radius: ${radius}, dayTexUrl: (${dayUrl} || null), nightTexUrl: (${nightUrl} || null) }); }`);
+      lines.push(...we(nodeId, 'exec'));
+      break;
+    }
+    case 'Disable Sky': {
+      lines.push(`if (__engine && typeof __engine.disableSky === 'function') { __engine.disableSky(); }`);
       lines.push(...we(nodeId, 'exec'));
       break;
     }

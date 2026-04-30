@@ -19,6 +19,8 @@ import { EventBus } from './EventBus';
 import { ParticleSystemManager } from './ParticleSystem';
 import { SaveLoadSystem } from './SaveLoadSystem';
 import { InputManager } from './InputManager';
+import { DayNight, type DayNightOptions } from './DayNight';
+import { Sky, type SkyOptions } from './Sky';
 
 // Expose THREE on globalThis so blueprint `new Function()` closures can access it
 (globalThis as any).THREE = THREE;
@@ -154,6 +156,19 @@ export class Engine {
 
   /** Particle system manager — blueprint nodes use __engine.particleManager */
   public particleManager: ParticleSystemManager = ParticleSystemManager.getInstance();
+
+  /**
+   * Day/night cycle — opt-in. Stays null until enableDayNight() is called.
+   * When set, the engine ticks it each frame and Sky (if enabled) reads
+   * phase + daylight from it automatically.
+   */
+  public dayNight: DayNight | null = null;
+
+  /**
+   * Procedural sky — opt-in. Stays null until enableSky() is called.
+   * When both Sky and DayNight are enabled, Sky auto-syncs each tick.
+   */
+  public sky: Sky | null = null;
 
   /** Game pause state — blueprint nodes read/write __engine.isPaused */
   public isPaused = false;
@@ -950,6 +965,26 @@ export class Engine {
     // Step physics
     this.physics.step(this.scene, dt);
 
+    // Day/night + sky — opt-in subsystems. Each is null unless enableDayNight()
+    // / enableSky() was called, so this is a no-op for projects that don't use them.
+    if (this.dayNight) {
+      try {
+        this.dayNight.update(dt);
+      } catch (err) {
+        console.error('[Engine] DayNight update failed', err);
+      }
+    }
+    if (this.sky) {
+      try {
+        const phase = this.dayNight ? this.dayNight.phase() : 0.5;
+        const daylight = this.dayNight ? this.dayNight.daylight() : 1.0;
+        const sunPos = this.dayNight?.sun?.position;
+        this.sky.update({ phase, daylight, sunDir: sunPos });
+      } catch (err) {
+        console.error('[Engine] Sky update failed', err);
+      }
+    }
+
     // Tick debug draw lifetimes
     this._tickDebugDraw(dt);
 
@@ -965,5 +1000,56 @@ export class Engine {
 
   onUpdate(cb: (dt: number) => void): void {
     this._onUpdate.push(cb);
+  }
+
+  /**
+   * Enable the day/night cycle. Idempotent — calling again replaces the
+   * existing instance with new options. Pass `sun`/`ambient` from your
+   * scene lights to have them animated automatically.
+   */
+  enableDayNight(opts: DayNightOptions = {}): DayNight {
+    if (this.dayNight) {
+      // Replace cleanly so options can be tweaked at runtime.
+      this.dayNight = null;
+    }
+    const merged: DayNightOptions = {
+      scene: opts.scene ?? this.scene.threeScene,
+      ...opts,
+    };
+    this.dayNight = new DayNight(merged);
+    return this.dayNight;
+  }
+
+  /** Disable the day/night cycle. Sun/ambient lights are left at their last values. */
+  disableDayNight(): void {
+    this.dayNight = null;
+  }
+
+  /**
+   * Enable the procedural sky. Idempotent — disposes the old instance first.
+   * If `scene` isn't supplied, defaults to the engine's THREE.Scene.
+   */
+  enableSky(opts: Partial<SkyOptions> = {}): Sky {
+    if (this.sky) {
+      this.sky.dispose();
+      this.sky = null;
+    }
+    const full: SkyOptions = {
+      scene: opts.scene ?? this.scene.threeScene,
+      radius: opts.radius,
+      dayTexUrl: opts.dayTexUrl ?? null,
+      nightTexUrl: opts.nightTexUrl ?? null,
+      clearSceneBackground: opts.clearSceneBackground,
+    };
+    this.sky = new Sky(full);
+    return this.sky;
+  }
+
+  /** Disable + dispose the procedural sky. */
+  disableSky(): void {
+    if (this.sky) {
+      this.sky.dispose();
+      this.sky = null;
+    }
   }
 }

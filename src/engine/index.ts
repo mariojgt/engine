@@ -20,6 +20,8 @@ export { UIManager, type RuntimeWidgetBlueprint, type RuntimeWidgetNode } from '
 export { AudioEngine, AudioSource, AudioBus, type AudioPlayOptions } from './AudioSystem';
 export { SaveLoadSystem, SaveGameObject, type SaveFileData, type SaveSlotInfo } from './SaveLoadSystem';
 export { GAMEPAD_BUTTONS, GAMEPAD_AXES } from './InputManager';
+export { DayNight, type DayNightOptions } from './DayNight';
+export { Sky, type SkyOptions, type SkyUpdateInput } from './Sky';
 
 // ── 2D Engine Exports ───────────────────────────────────────
 export { Physics2DWorld, type Physics2DSettings, type BodyEntry2D } from './Physics2DWorld';
