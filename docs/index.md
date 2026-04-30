@@ -3,48 +3,97 @@ layout: home
 
 hero:
   name: "Feather Engine"
-  text: "Unreal-style TypeScript Engine + Editor"
-  tagline: "A self-hosted game engine docs portal for runtime systems, 2D/3D node scripting, and production workflows."
+  text: "Build games. In your browser."
+  tagline: "A TypeScript-first game engine with visual scripting, real-time physics, and a dockable editor — running in the browser or as a native desktop app. No reload. No compile step. Just hit play."
   actions:
     - theme: brand
-      text: What is Feather?
-      link: /what-is-feather
+      text: Get started →
+      link: /introduction
     - theme: alt
-      text: Learn Nodes (2D/3D)
-      link: /node-system
+      text: Quickstart (5 min)
+      link: /quickstart
+    - theme: alt
+      text: Node catalog
+      link: /nodes
 
 features:
-  - title: Unreal-Inspired Workflow
-    details: Editor panels, content browser, blueprints, and play mode closely mirror familiar Unreal-style workflows.
-  - title: 2D + 3D Runtime Systems
-    details: Physics, controllers, AI, animation, UI widgets, and scene/runtime integration across both dimensions.
-  - title: Blueprint Code Generation
-    details: Visual graphs are transformed to JavaScript lifecycle handlers through shared-closure compilation.
-  - title: Self-Hosted Documentation
-    details: VitePress docs can be built and deployed with GitHub Actions on your self-hosted runners.
+  - icon: 🪶
+    title: Browser-Native Editor
+    details: A full Unreal-style editor — viewport, inspector, content browser, blueprint graph — running on Vite. Open it, build, ship.
+  - icon: 🧩
+    title: Visual Scripting
+    details: Connect nodes in a Rete-powered graph. The engine compiles them into live JavaScript closures. No build step between you and play.
+  - icon: ⚙️
+    title: Real Physics
+    details: Rapier 2D + 3D worlds. Joints, character controllers, collision events, raycasts, and triggers — all wired to nodes.
+  - icon: 🎮
+    title: 2D + 3D in One
+    details: Three.js scene graph, sprite actors, tilemaps, and 2D physics share the same lifecycle, scripts, and editor.
+  - icon: 🧠
+    title: AI &amp; Navigation
+    details: Behavior trees, AI controllers, and Recast NavMesh pathfinding — exposed as nodes you can drop into any actor.
+  - icon: 🖼️
+    title: Widget Blueprints
+    details: Author HUDs visually. Rendered as a DOM overlay over the canvas at runtime — fast, accessible, easy to style.
+  - icon: 🖥️
+    title: Web + Desktop
+    details: One TypeScript codebase. Run in any browser, or wrap in Tauri for a native Windows / macOS / Linux app with filesystem access.
+  - icon: 🔌
+    title: Extensible By Design
+    details: Add your own nodes, components, and runtime systems. The engine, editor, and codegen are all in plain TypeScript.
 ---
 
-## Documentation Goals
+<div style="margin-top: 3rem;">
 
-This portal explains:
+## Why Feather
 
-1. what Feather Engine is,
-2. how to use it as a developer,
-3. how the 2D/3D node system works,
-4. and what should be improved next based on a deep repository review.
+<div class="feather-stats">
+  <div class="feather-stat">
+    <div class="fs-num">200+</div>
+    <div class="fs-label">Built-in Nodes</div>
+  </div>
+  <div class="feather-stat">
+    <div class="fs-num">2D + 3D</div>
+    <div class="fs-label">Same Engine</div>
+  </div>
+  <div class="feather-stat">
+    <div class="fs-num">0</div>
+    <div class="fs-label">Compile Steps</div>
+  </div>
+  <div class="feather-stat">
+    <div class="fs-num">Web · Desktop</div>
+    <div class="fs-label">Ship Anywhere</div>
+  </div>
+</div>
 
-## Run Docs Locally
+## Pick Your Path
 
-```bash
-cd docs
-npm install
-npm run docs:dev
-```
+<div class="feather-feature-grid">
 
-## Build Docs Locally
+<FeatureCard icon="🚀" title="I'm new — show me" href="/quickstart">
+Build your first scene, drop an actor, wire two nodes, hit Play. Five minutes, zero ceremony.
+</FeatureCard>
 
-```bash
-cd docs
-npm install
-npm run docs:build
-```
+<FeatureCard icon="🧭" title="Learn the editor" href="/editor">
+The viewport, the inspector, the content browser, the blueprint graph. What every panel does and how they fit together.
+</FeatureCard>
+
+<FeatureCard icon="🔗" title="Understand blueprints" href="/blueprints">
+How visual graphs become real JavaScript at runtime. Events, exec pins, data pins, custom functions.
+</FeatureCard>
+
+<FeatureCard icon="📚" title="Browse all nodes" href="/nodes">
+Every node, organized by what it does — events, flow, math, transform, physics, character, UI, AI, audio, 2D.
+</FeatureCard>
+
+<FeatureCard icon="🛠️" title="Runtime systems" href="/systems">
+Physics, animation, audio, particles, save/load, navigation, sky &amp; day-night — all under the hood.
+</FeatureCard>
+
+<FeatureCard icon="🧪" title="Build your own nodes" href="/extending">
+Add new gameplay primitives with a few lines of TypeScript. The engine treats your nodes the same as the built-ins.
+</FeatureCard>
+
+</div>
+
+</div>

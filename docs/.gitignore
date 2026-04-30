@@ -1,0 +1,6 @@
+# VitePress build artifacts
+.vitepress/cache/
+.vitepress/dist/
+
+# Dependencies
+node_modules/

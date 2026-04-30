@@ -1,32 +1,550 @@
+/* ============================================================
+   FEATHER ENGINE DOCS — NEO-BRUTALIST THEME
+   Bold borders. Hard offset shadows. Uppercase. Squared corners.
+   ============================================================ */
+
 :root {
-  --vp-c-brand-1: #7c5cff;
+  /* Brand */
+  --feather-purple:  #7c5cff;
+  --feather-cyan:    #2ac3ff;
+  --feather-mint:    #00d4a3;
+  --feather-amber:   #ffb547;
+  --feather-pink:    #ff5cb8;
+  --feather-red:     #ff5c5c;
+
+  /* Surfaces (dark-first) */
+  --feather-bg:       #0a0d14;
+  --feather-bg-soft:  #121826;
+  --feather-bg-alt:   #0f1420;
+  --feather-ink:      #f4f6ff;
+  --feather-ink-dim:  #aab1c5;
+  --feather-line:     #2a3045;
+  --feather-line-hot: #7c5cff;
+
+  /* VitePress overrides */
+  --vp-c-brand-1: var(--feather-purple);
   --vp-c-brand-2: #6a47ff;
   --vp-c-brand-3: #5a3ee0;
-  --vp-c-bg: #0a0d14;
-  --vp-c-bg-soft: #121826;
-  --vp-c-bg-alt: #0f1420;
+  --vp-c-brand-soft: rgba(124, 92, 255, 0.18);
+
+  --vp-c-bg:        var(--feather-bg);
+  --vp-c-bg-alt:    var(--feather-bg-alt);
+  --vp-c-bg-soft:   var(--feather-bg-soft);
+  --vp-c-bg-elv:    var(--feather-bg-soft);
+
+  --vp-c-text-1: var(--feather-ink);
+  --vp-c-text-2: var(--feather-ink-dim);
+
+  --vp-c-divider:        var(--feather-line);
+  --vp-c-gutter:         var(--feather-line);
+
+  /* Hero gradient */
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(120deg, #7c5cff 20%, #2ac3ff 65%, #00d4a3 100%);
-  --vp-home-hero-image-background-image: radial-gradient(circle at 30% 30%, rgba(124, 92, 255, 0.35), rgba(42, 195, 255, 0.2));
+  --vp-home-hero-image-background-image: radial-gradient(circle at 30% 30%, rgba(124, 92, 255, 0.45), rgba(42, 195, 255, 0.25));
   --vp-home-hero-image-filter: blur(46px);
+
+  /* Brutalist shadow tokens */
+  --neo-shadow-sm: 3px 3px 0 var(--feather-line);
+  --neo-shadow:    6px 6px 0 var(--feather-line);
+  --neo-shadow-lg: 8px 8px 0 var(--feather-line);
+  --neo-shadow-hot:    6px 6px 0 var(--feather-purple);
+  --neo-shadow-hot-lg: 8px 8px 0 var(--feather-purple);
 }
 
-.VPNav {
-  background: rgba(10, 13, 20, 0.82) !important;
-  border-bottom: 1px solid rgba(124, 92, 255, 0.26);
-  backdrop-filter: blur(10px);
+/* ---------- Global typography & shape ---------- */
+html, body {
+  background: var(--feather-bg);
 }
 
-.VPHero .name {
-  letter-spacing: 0.02em;
+.vp-doc h1,
+.vp-doc h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
 }
 
-.VPFeature {
-  border: 1px solid rgba(124, 92, 255, 0.22);
-  background: linear-gradient(180deg, rgba(22, 28, 43, 0.95), rgba(12, 18, 31, 0.95));
+.vp-doc h1 {
+  font-size: 2.6rem;
+  line-height: 1.05;
+  margin-bottom: 1rem;
 }
 
 .vp-doc h2 {
-  border-top: 1px solid rgba(124, 92, 255, 0.22);
-  padding-top: 14px;
+  margin-top: 3rem;
+  padding: 0 0 0.4rem 0;
+  border-top: none;
+  border-bottom: 3px solid var(--feather-purple);
+  display: inline-block;
+}
+
+.vp-doc h3 {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-top: 2rem;
+}
+
+.vp-doc strong { color: var(--feather-cyan); }
+.vp-doc em { color: var(--feather-mint); font-style: normal; font-weight: 600; }
+
+/* ---------- Top nav ---------- */
+.VPNav,
+.VPNavBar {
+  background: rgba(10, 13, 20, 0.85) !important;
+  border-bottom: 3px solid var(--feather-purple) !important;
+  backdrop-filter: blur(10px);
+}
+
+.VPNavBarTitle .title,
+.VPNavBarMenuLink {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+/* ---------- Sidebar ---------- */
+.VPSidebar {
+  background: var(--feather-bg-alt) !important;
+  border-right: 3px solid var(--feather-line) !important;
+}
+
+.VPSidebarItem .text {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.VPSidebarItem.is-active > .item .link .text {
+  color: var(--feather-purple) !important;
+}
+
+/* ---------- Hero ---------- */
+.VPHero .name {
+  letter-spacing: 0.02em;
+  font-weight: 900;
+}
+
+.VPHero .text {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+.VPHero .tagline {
+  color: var(--feather-ink-dim);
+  font-size: 1.1rem;
+  max-width: 56ch;
+}
+
+.VPButton {
+  border-radius: 0 !important;
+  border: 3px solid var(--feather-purple) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  font-weight: 800 !important;
+  box-shadow: var(--neo-shadow);
+  transition: transform 80ms ease, box-shadow 80ms ease;
+}
+
+.VPButton:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--feather-line);
+}
+
+.VPButton:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--feather-line);
+}
+
+.VPButton.brand {
+  background: var(--feather-purple) !important;
+  color: #0a0d14 !important;
+}
+
+.VPButton.alt {
+  background: var(--feather-bg-soft) !important;
+  color: var(--feather-ink) !important;
+}
+
+/* ---------- Feature cards (home) ---------- */
+.VPFeature {
+  border: 3px solid var(--feather-line) !important;
+  border-radius: 0 !important;
+  background: var(--feather-bg-soft) !important;
+  box-shadow: var(--neo-shadow);
+  transition: transform 100ms ease, box-shadow 100ms ease, border-color 100ms ease;
+}
+
+.VPFeature:hover {
+  transform: translate(-3px, -3px);
+  border-color: var(--feather-purple) !important;
+  box-shadow: var(--neo-shadow-hot-lg);
+}
+
+.VPFeature .title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+.VPFeature .icon {
+  border-radius: 0 !important;
+  border: 3px solid var(--feather-purple);
+  background: rgba(124, 92, 255, 0.15) !important;
+}
+
+/* ---------- Inline elements ---------- */
+.vp-doc a {
+  color: var(--feather-cyan);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  font-weight: 600;
+  transition: border-color 80ms ease, color 80ms ease;
+}
+
+.vp-doc a:hover {
+  color: var(--feather-mint);
+  border-bottom-color: var(--feather-mint);
+}
+
+.vp-doc :not(pre) > code {
+  background: rgba(124, 92, 255, 0.15) !important;
+  border: 2px solid var(--feather-purple);
+  border-radius: 0 !important;
+  color: var(--feather-cyan) !important;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+
+.vp-doc div[class*='language-'] {
+  border-radius: 0 !important;
+  border: 3px solid var(--feather-line);
+  box-shadow: var(--neo-shadow);
+  margin: 1.2rem 0;
+}
+
+.vp-doc div[class*='language-']:hover {
+  border-color: var(--feather-purple);
+}
+
+.vp-doc table {
+  border-radius: 0 !important;
+  border: 3px solid var(--feather-line);
+  box-shadow: var(--neo-shadow);
+  display: block;
+  overflow-x: auto;
+}
+
+.vp-doc th {
+  background: var(--feather-bg-soft) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.82rem;
+  border: 1px solid var(--feather-line) !important;
+}
+
+.vp-doc td {
+  border: 1px solid var(--feather-line) !important;
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: rgba(124, 92, 255, 0.04) !important;
+}
+
+.vp-doc blockquote {
+  border-left: 6px solid var(--feather-purple) !important;
+  border-radius: 0;
+  background: rgba(124, 92, 255, 0.06);
+  padding: 12px 18px;
+  margin: 1.2rem 0;
+}
+
+.vp-doc hr {
+  border: none;
+  height: 3px;
+  background: var(--feather-purple);
+  margin: 2rem 0;
+}
+
+/* ---------- Custom containers (tip / warning / danger / info) ---------- */
+.vp-doc .custom-block {
+  border-radius: 0 !important;
+  border-width: 3px !important;
+  box-shadow: var(--neo-shadow);
+  text-transform: none;
+}
+
+.vp-doc .custom-block .custom-block-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+}
+
+/* ============================================================
+   FEATHER COMPONENTS
+   ============================================================ */
+
+/* ---------- <FeatureCard> ---------- */
+.feather-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+  margin: 1.5rem 0;
+}
+
+.feather-feature-card {
+  display: block;
+  padding: 20px;
+  background: var(--feather-bg-soft);
+  border: 3px solid var(--feather-line);
+  box-shadow: var(--neo-shadow);
+  text-decoration: none !important;
+  border-bottom: 3px solid var(--feather-line) !important;
+  color: var(--feather-ink) !important;
+  transition: transform 100ms ease, box-shadow 100ms ease, border-color 100ms ease;
+}
+
+.feather-feature-card:hover {
+  transform: translate(-3px, -3px);
+  border-color: var(--feather-purple) !important;
+  box-shadow: var(--neo-shadow-hot-lg);
+}
+
+.feather-feature-card .ff-icon {
+  font-size: 1.6rem;
+  display: inline-block;
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  text-align: center;
+  border: 3px solid var(--feather-purple);
+  background: rgba(124, 92, 255, 0.15);
+  margin-bottom: 12px;
+}
+
+.feather-feature-card .ff-title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+  font-size: 1.05rem;
+  margin: 0 0 6px 0;
+  color: var(--feather-ink);
+}
+
+.feather-feature-card .ff-desc {
+  color: var(--feather-ink-dim);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+/* ---------- <ConceptBox> ---------- */
+.feather-concept {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 16px;
+  align-items: start;
+  padding: 18px 20px;
+  margin: 1.2rem 0;
+  background: var(--feather-bg-soft);
+  border: 3px solid var(--feather-line);
+  box-shadow: var(--neo-shadow);
+}
+
+.feather-concept[data-tone="purple"] { border-color: var(--feather-purple); box-shadow: var(--neo-shadow-hot); }
+.feather-concept[data-tone="cyan"]   { border-color: var(--feather-cyan);   box-shadow: 6px 6px 0 var(--feather-cyan); }
+.feather-concept[data-tone="mint"]   { border-color: var(--feather-mint);   box-shadow: 6px 6px 0 var(--feather-mint); }
+.feather-concept[data-tone="amber"]  { border-color: var(--feather-amber);  box-shadow: 6px 6px 0 var(--feather-amber); }
+.feather-concept[data-tone="pink"]   { border-color: var(--feather-pink);   box-shadow: 6px 6px 0 var(--feather-pink); }
+.feather-concept[data-tone="red"]    { border-color: var(--feather-red);    box-shadow: 6px 6px 0 var(--feather-red); }
+
+.feather-concept .fc-icon {
+  font-size: 1.6rem;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid currentColor;
+  background: rgba(255,255,255,0.04);
+}
+
+.feather-concept .fc-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+  font-size: 1rem;
+  margin: 0 0 4px 0;
+}
+
+.feather-concept .fc-body {
+  color: var(--feather-ink-dim);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.feather-concept .fc-body p { margin: 0; }
+
+/* ---------- <NodeCard> ---------- */
+.feather-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 1.2rem 0 2.4rem 0;
+}
+
+.feather-node {
+  display: flex;
+  flex-direction: column;
+  background: var(--feather-bg-soft);
+  border: 3px solid var(--feather-line);
+  box-shadow: var(--neo-shadow);
+  transition: transform 100ms ease, box-shadow 100ms ease, border-color 100ms ease;
+}
+
+.feather-node:hover {
+  transform: translate(-2px, -2px);
+  border-color: var(--feather-purple);
+  box-shadow: var(--neo-shadow-hot-lg);
+}
+
+.feather-node .fn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--feather-bg-alt);
+  border-bottom: 3px solid var(--feather-line);
+}
+
+.feather-node .fn-name {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--feather-ink);
+}
+
+.feather-node .fn-tag {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border: 2px solid currentColor;
+  background: rgba(255,255,255,0.04);
+}
+
+.feather-node[data-kind="event"]    .fn-tag { color: var(--feather-red); }
+.feather-node[data-kind="flow"]     .fn-tag { color: var(--feather-amber); }
+.feather-node[data-kind="action"]   .fn-tag { color: var(--feather-purple); }
+.feather-node[data-kind="pure"]     .fn-tag { color: var(--feather-cyan); }
+.feather-node[data-kind="value"]    .fn-tag { color: var(--feather-mint); }
+.feather-node[data-kind="convert"]  .fn-tag { color: var(--feather-pink); }
+
+.feather-node[data-kind="event"]    .fn-head { border-bottom-color: var(--feather-red); }
+.feather-node[data-kind="flow"]     .fn-head { border-bottom-color: var(--feather-amber); }
+.feather-node[data-kind="action"]   .fn-head { border-bottom-color: var(--feather-purple); }
+.feather-node[data-kind="pure"]     .fn-head { border-bottom-color: var(--feather-cyan); }
+.feather-node[data-kind="value"]    .fn-head { border-bottom-color: var(--feather-mint); }
+.feather-node[data-kind="convert"]  .fn-head { border-bottom-color: var(--feather-pink); }
+
+.feather-node .fn-body {
+  padding: 10px 12px 12px 12px;
+  font-size: 0.88rem;
+  color: var(--feather-ink-dim);
+  line-height: 1.5;
+}
+
+.feather-node .fn-pins {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--feather-line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.feather-node .fn-pin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feather-node .fn-pin::before {
+  content: '';
+  width: 8px; height: 8px;
+  flex: 0 0 8px;
+  background: var(--feather-purple);
+}
+
+.feather-node .fn-pin[data-type="exec"]::before  { background: #ffffff; }
+.feather-node .fn-pin[data-type="bool"]::before  { background: var(--feather-red); }
+.feather-node .fn-pin[data-type="num"]::before   { background: var(--feather-cyan); }
+.feather-node .fn-pin[data-type="str"]::before   { background: var(--feather-pink); }
+.feather-node .fn-pin[data-type="vec3"]::before  { background: var(--feather-amber); }
+.feather-node .fn-pin[data-type="color"]::before { background: var(--feather-mint); }
+.feather-node .fn-pin[data-type="any"]::before   { background: var(--feather-ink-dim); }
+
+.feather-node .fn-pin-side {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--feather-ink-dim);
+  margin-left: auto;
+}
+
+/* ---------- Stat / pillar bar ---------- */
+.feather-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 1.5rem 0;
+}
+
+.feather-stat {
+  padding: 14px 16px;
+  border: 3px solid var(--feather-line);
+  background: var(--feather-bg-soft);
+  box-shadow: var(--neo-shadow);
+}
+
+.feather-stat .fs-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--feather-cyan);
+  line-height: 1;
+}
+
+.feather-stat .fs-label {
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: var(--feather-ink-dim);
+  font-weight: 700;
+}
+
+/* ---------- Light mode tweaks ---------- */
+html:not(.dark) {
+  --feather-bg:       #f6f6fa;
+  --feather-bg-soft:  #ffffff;
+  --feather-bg-alt:   #eef0f7;
+  --feather-ink:      #0a0d14;
+  --feather-ink-dim:  #4a5070;
+  --feather-line:     #0a0d14;
+  --neo-shadow-sm: 3px 3px 0 #0a0d14;
+  --neo-shadow:    6px 6px 0 #0a0d14;
+  --neo-shadow-lg: 8px 8px 0 #0a0d14;
+}
+
+html:not(.dark) .vp-doc :not(pre) > code {
+  background: rgba(124, 92, 255, 0.12) !important;
+  color: #5a3ee0 !important;
 }

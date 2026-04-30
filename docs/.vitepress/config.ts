@@ -2,36 +2,56 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'Feather Engine',
-  description: 'Unreal-style game engine workflow in TypeScript: editor, runtime, blueprints, 2D/3D systems, and deployment guides.',
+  description: 'A TypeScript-first game engine with visual scripting, real-time physics, and a fully dockable editor — for the browser and desktop.',
+  // Repo deploys at https://mariojgt.github.io/featherEngine/
+  // For a custom domain or username.github.io repo, change to '/'.
+  base: '/featherEngine/',
   srcDir: '.',
   cleanUrls: true,
+  appearance: 'dark',
+  // Source-code links (e.g. ../src/engine/Engine.ts) are intentional — they
+  // resolve in editors / IDEs but aren't routes inside the docs site. Skip
+  // dead-link validation for any path that escapes the docs root.
+  ignoreDeadLinks: [
+    /\.\.\//,
+    /^\/\.\.\//,
+  ],
   themeConfig: {
     logo: '/logo.svg',
     nav: [
-      { text: 'What is Feather?', link: '/what-is-feather' },
-      { text: 'Getting Started', link: '/getting-started' },
-      { text: 'Node System', link: '/node-system' },
-      { text: 'Deep Review', link: '/deep-review' },
+      { text: 'Start', link: '/introduction' },
+      { text: 'Editor', link: '/editor' },
+      { text: 'Blueprints', link: '/blueprints' },
+      { text: 'Nodes', link: '/nodes' },
+      { text: 'Systems', link: '/systems' },
     ],
     sidebar: [
       {
-        text: 'Feather Guide',
+        text: 'Get Going',
+        collapsed: false,
         items: [
           { text: 'Home', link: '/' },
-          { text: 'What is Feather?', link: '/what-is-feather' },
-          { text: 'Getting Started', link: '/getting-started' },
-          { text: 'Architecture', link: '/architecture' },
-          { text: 'Node System (2D/3D)', link: '/node-system' },
-          { text: 'Deep Review', link: '/deep-review' },
+          { text: 'Introduction', link: '/introduction' },
+          { text: 'Installation', link: '/installation' },
+          { text: 'Quickstart', link: '/quickstart' },
         ],
       },
       {
-        text: 'Blueprint Docs',
+        text: 'Use the Engine',
+        collapsed: false,
         items: [
-          { text: 'How Nodes Become Runtime Code', link: '/How-Nodes-Become-Runtime-Code' },
-          { text: 'Adding New Nodes', link: '/adding-new-nodes' },
-          { text: 'Drag From Pin Context Menu', link: '/Drag-From-Pin-Context-Menu' },
-          { text: 'Adding Component Nodes', link: '/Adding-Component-Nodes' },
+          { text: 'Editor Tour', link: '/editor' },
+          { text: 'Core Concepts', link: '/concepts' },
+          { text: 'Blueprints', link: '/blueprints' },
+        ],
+      },
+      {
+        text: 'Reference',
+        collapsed: false,
+        items: [
+          { text: 'Node Catalog', link: '/nodes' },
+          { text: 'Runtime Systems', link: '/systems' },
+          { text: 'Extending Feather', link: '/extending' },
         ],
       },
     ],
@@ -39,11 +59,12 @@ export default defineConfig({
       provider: 'local',
     },
     footer: {
-      message: 'Feather Engine documentation (self-hosted VitePress).',
+      message: 'Built with VitePress · Neo-brutalist by design.',
       copyright: 'Copyright © Feather Engine contributors',
     },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/' },
     ],
+    outline: { level: [2, 3], label: 'On this page' },
   },
 });
