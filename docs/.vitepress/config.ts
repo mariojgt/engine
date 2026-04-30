@@ -24,6 +24,7 @@ export default defineConfig({
       { text: 'Blueprints', link: '/blueprints' },
       { text: 'Nodes', link: '/nodes' },
       { text: 'Systems', link: '/systems' },
+      { text: 'Showcase', link: '/showcase' },
     ],
     sidebar: [
       {
@@ -52,6 +53,13 @@ export default defineConfig({
           { text: 'Node Catalog', link: '/nodes' },
           { text: 'Runtime Systems', link: '/systems' },
           { text: 'Extending Feather', link: '/extending' },
+        ],
+      },
+      {
+        text: 'Community',
+        collapsed: false,
+        items: [
+          { text: 'Showcase', link: '/showcase' },
         ],
       },
     ],

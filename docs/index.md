@@ -5,6 +5,9 @@ hero:
   name: "Feather Engine"
   text: "Build games. In your browser."
   tagline: "A TypeScript-first game engine with visual scripting, real-time physics, and a dockable editor — running in the browser or as a native desktop app. No reload. No compile step. Just hit play."
+  image:
+    src: /img4.png
+    alt: Feather Engine editor
   actions:
     - theme: brand
       text: Get started →
@@ -94,6 +97,25 @@ Physics, animation, audio, particles, save/load, navigation, sky &amp; day-night
 Add new gameplay primitives with a few lines of TypeScript. The engine treats your nodes the same as the built-ins.
 </FeatureCard>
 
+</div>
+
+## Built With Feather
+
+<div class="feather-showcase-hero" style="margin-top: 1rem;">
+  <span class="fsh-tag">★ Showcase · Factory Sim</span>
+
+### Loop Industries
+
+  <p class="fsh-sub">A factory simulation game built end-to-end on Feather Engine — place machines, route conveyor belts, automate production lines, scale up an entire industrial loop.</p>
+
+  <div class="fsh-meta">
+    <span class="fsh-pill">Blueprints</span>
+    <span class="fsh-pill">3D Physics</span>
+    <span class="fsh-pill">Widget UI</span>
+    <span class="fsh-pill">Save / Load</span>
+  </div>
+
+  <p style="margin-top: 16px;"><a href="/showcase">See more &amp; full gallery →</a></p>
 </div>
 
 </div>

@@ -6,7 +6,7 @@ This page is a tour of the panels you'll spend the most time in.
 
 ## The shell
 
-<!-- screenshot: full editor with default layout -->
+![Feather Engine editor with default layout — World Outliner, Viewport, Properties, Terrain Editor, and Content Browser docked](/img4.png)
 
 The editor opens with a default layout:
 
