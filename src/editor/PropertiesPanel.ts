@@ -635,6 +635,16 @@ export class PropertiesPanel {
       this._createVec3Row('Scale', go.mesh.scale),
     ]));
 
+    // Rendering — opt-in static-batch instancing.
+    // Only meaningful for actors that share geometry+material with siblings;
+    // takes effect at play start.
+    this._bodyEl.appendChild(this._createGroup('Rendering', [
+      this._createCheckboxRow('Instanced (Static Batch)', go.instanced, (v) => {
+        go.instanced = v;
+        this._engine.scene['_emitChanged']();
+      }),
+    ]));
+
     // ---- Full Physics Properties Panel ----
     const cfg: PhysicsConfig = go.physicsConfig ?? defaultPhysicsConfig();
     if (!go.physicsConfig) go.physicsConfig = cfg;

@@ -86,6 +86,14 @@ export class GameObject implements Transform {
   /** Whether this actor has been destroyed at runtime (DestroyActor node) */
   public isDestroyed: boolean = false;
 
+  /**
+   * When true, the engine batches this actor into a shared InstancedMesh at
+   * play start (provided the root mesh is a non-skinned THREE.Mesh and shares
+   * its geometry+material with at least one other instanced actor).
+   * Editor view is unaffected — instancing is play-mode-only.
+   */
+  public instanced: boolean = false;
+
   constructor(name: string, mesh: THREE.Mesh) {
     this.id = nextId++;
     this.name = name;

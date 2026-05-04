@@ -21,6 +21,7 @@ import { SaveLoadSystem } from './SaveLoadSystem';
 import { InputManager } from './InputManager';
 import { DayNight, type DayNightOptions } from './DayNight';
 import { Sky, type SkyOptions } from './Sky';
+import { InstancedBatcher } from './InstancedBatcher';
 
 // Expose THREE on globalThis so blueprint `new Function()` closures can access it
 (globalThis as any).THREE = THREE;
@@ -37,6 +38,9 @@ export class Engine {
   public uiManager: UIManager = new UIManager();
   public audio: AudioEngine = new AudioEngine();
   public eventBus: EventBus = EventBus.getInstance();
+  /** Collapses opt-in static actors (`go.instanced=true`) into shared
+   *  InstancedMesh draw calls during play. */
+  public instancedBatcher: InstancedBatcher = new InstancedBatcher();
 
   /** Exposed DragSelectionComponent class for runtime instantiation by blueprint code */
   public _DragSelectionComponent = DragSelectionComponent;
@@ -699,9 +703,20 @@ export class Engine {
       this._autoLaunchProjectile(go);
     }
 
+    // ── Final: collapse opt-in actors into InstancedMesh batches ──
+    // Done last so any spawn / pawn-placement / blueprint setup that ran
+    // above is reflected in the initial instance matrices.
+    try {
+      this.instancedBatcher.build(this.scene.threeScene, this.scene.gameObjects);
+      const s = this.instancedBatcher.stats;
+      if (s.batches > 0) {
+        console.log(`[Engine] InstancedBatcher: ${s.instances} actors → ${s.batches} draw call(s)`);
+      }
+    } catch (err) {
+      console.error('[Engine] InstancedBatcher build failed', err);
+    }
+
     console.log(`[Engine] onPlayStarted: ${this.scene.gameObjects.length} gameObjects, ${scriptCount} scripts`);
-
-
   }
 
   // ── Projectile auto-launch helper ────────────────────────
@@ -820,6 +835,13 @@ export class Engine {
 
     // Stop all audio
     this.audio.stopAll();
+
+    // Tear down InstancedMesh batches and restore original mesh visibility
+    try {
+      this.instancedBatcher.dispose(this.scene.threeScene);
+    } catch (err) {
+      console.error('[Engine] InstancedBatcher dispose failed', err);
+    }
 
     // Stop physics
     this.physics.stop(this.scene);
@@ -983,6 +1005,12 @@ export class Engine {
       } catch (err) {
         console.error('[Engine] Sky update failed', err);
       }
+    }
+
+    // Sync InstancedMesh batches from each member's matrixWorld.
+    // Runs after physics + scripts so post-physics transforms land in this frame.
+    if (this.instancedBatcher.isActive()) {
+      this.instancedBatcher.update();
     }
 
     // Tick debug draw lifetimes

@@ -55,6 +55,8 @@ export interface GameObjectJSON {
   controllerBlueprintId?: string;
   /** Gameplay tags */
   tags?: string[];
+  /** When true, the engine batches this actor into a shared InstancedMesh at play time. */
+  instanced?: boolean;
   // ── 2D-specific fields ──
   /** Sorting layer name (for 2D actors) */
   sortingLayer?: string;
@@ -274,6 +276,9 @@ export function serializeScene(
     if (go.tags && go.tags.length > 0) {
       obj.tags = [...go.tags];
     }
+    if (go.instanced) {
+      obj.instanced = true;
+    }
 
     // 2D sorting layer (per-instance override)
     const __sl = go.mesh?.userData?.__sortingLayer;
@@ -438,6 +443,9 @@ function restoreInstanceProps(go: GameObject, goData: GameObjectJSON): void {
 
   // Gameplay tags
   if (goData.tags && goData.tags.length > 0) go.tags = [...goData.tags];
+
+  // Instanced rendering opt-in
+  if (goData.instanced) go.instanced = true;
 
   // 2D sorting layer (per-instance override)
   if (goData.sortingLayer && go.mesh) {
