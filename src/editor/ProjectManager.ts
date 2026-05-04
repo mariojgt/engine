@@ -18,6 +18,7 @@ import type { WidgetBlueprintManager, WidgetBlueprintJSON } from './WidgetBluepr
 import type { GameInstanceBlueprintManager, GameInstanceBlueprintJSON } from './GameInstanceData';
 import type { SaveGameAssetManager, SaveGameAssetJSON } from './SaveGameAsset';
 import type { DataTableAssetManager, DataTableAssetJSON } from './DataTableAsset';
+import type { ScriptCodeAssetManager, ScriptCodeAssetJSON } from './ScriptCodeAsset';
 import type { EventAssetManager, EventAssetJSON } from './EventAsset';
 import type { ContentFolderManager } from './ContentFolderManager';
 import { ClassInheritanceSystem } from './ClassInheritanceSystem';
@@ -116,6 +117,7 @@ const WIDGET_BLUEPRINTS_DIR = 'Widgets';
 const GAME_INSTANCES_DIR = 'GameInstances';
 const SAVE_GAME_CLASSES_DIR = 'SaveGameClasses';
 const DATA_TABLES_DIR = 'DataTables';
+const SCRIPT_CODE_DIR = 'Scripts';
 const EVENTS_DIR = 'Events';
 const INPUT_MAPPINGS_DIR = 'InputMappings';
 const AI_ASSETS_DIR = 'AIAssets';
@@ -143,6 +145,7 @@ export class ProjectManager {
   private _gameInstanceManager: GameInstanceBlueprintManager | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _dataTableManager: DataTableAssetManager | null = null;
+  private _scriptCodeManager: ScriptCodeAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _aiManager: import('./ai/AIAssetManager').AIAssetManager | null = null;
@@ -225,6 +228,12 @@ export class ProjectManager {
   setDataTableManager(mgr: DataTableAssetManager): void {
     this._dataTableManager = mgr;
     mgr.onChanged(() => { this._dirty = true; });
+  }
+
+  /** Wire up the ScriptCodeAssetManager for saving/loading script assets */
+  setScriptCodeManager(mgr: ScriptCodeAssetManager): void {
+    this._scriptCodeManager = mgr;
+    mgr.on('changed', () => { this._dirty = true; });
   }
 
   /** Wire up the EventAssetManager for saving/loading event definitions */
@@ -484,6 +493,9 @@ export class ProjectManager {
       // Load data tables
       await this._loadDataTables();
 
+      // Load script code assets
+      await this._loadScriptCodeAssets();
+
       // Load event definitions
       await this._loadEvents();
 
@@ -596,6 +608,10 @@ export class ProjectManager {
       // Save data tables
       await this._saveDataTables();
       console.log('[ProjectManager]   ✓ data tables');
+
+      // Save script code assets
+      await this._saveScriptCodeAssets();
+      console.log('[ProjectManager]   ✓ scripts');
 
       // Save event definitions
       await this._saveEvents();
@@ -1570,6 +1586,63 @@ export class ProjectManager {
 
     if (allDT.length > 0) {
       this._dataTableManager.importAll(allDT);
+    }
+  }
+
+  // ============================================================
+  //  Save/Load Script Code Assets
+  // ============================================================
+
+  private async _saveScriptCodeAssets(): Promise<void> {
+    if (!this._projectPath || !this._scriptCodeManager) return;
+    const dir = `${this._projectPath}/${SCRIPT_CODE_DIR}`;
+    const all = this._scriptCodeManager.exportAll();
+    for (const json of all) {
+      const safeName = json.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await fsWrite(`${dir}/${safeName}_${json.id}.json`, JSON.stringify(json, null, 2));
+    }
+    const index = all.map(j => ({
+      id: j.id,
+      name: j.name,
+      file: `${j.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_${j.id}.json`,
+    }));
+    await fsWrite(`${dir}/_index.json`, JSON.stringify(index, null, 2));
+  }
+
+  private async _loadScriptCodeAssets(): Promise<void> {
+    if (!this._projectPath || !this._scriptCodeManager) return;
+    const dir = `${this._projectPath}/${SCRIPT_CODE_DIR}`;
+    if (!(await fsExists(dir))) return;
+
+    const all: ScriptCodeAssetJSON[] = [];
+    const indexPath = `${dir}/_index.json`;
+
+    if (await fsExists(indexPath)) {
+      const indexRaw = await fsRead(indexPath);
+      const index: Array<{ id: string; name: string; file: string }> = JSON.parse(indexRaw);
+      for (const entry of index) {
+        try {
+          const raw = await fsRead(`${dir}/${entry.file}`);
+          all.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load script "${entry.name}":`, e);
+        }
+      }
+    } else {
+      const fileNames = await fsListDir(dir, '.json');
+      for (const name of fileNames) {
+        if (name === '_index.json') continue;
+        try {
+          const raw = await fsRead(`${dir}/${name}`);
+          all.push(JSON.parse(raw));
+        } catch (e) {
+          console.warn(`Failed to load script file ${name}:`, e);
+        }
+      }
+    }
+
+    if (all.length > 0) {
+      this._scriptCodeManager.importAll(all);
     }
   }
 

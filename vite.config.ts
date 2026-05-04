@@ -8,7 +8,7 @@ export default defineConfig({
     strictPort: true,
   },
   optimizeDeps: {
-    exclude: ['recast-navigation'],
+    exclude: ['recast-navigation', 'monaco-editor'],
   },
   build: {
     outDir: 'dist',

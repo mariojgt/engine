@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Engine } from '../engine/Engine';
 import type { GameObject } from '../engine/GameObject';
+import { ScriptComponent } from '../engine/ScriptComponent';
 import type { SceneCompositionManager } from './scene/SceneCompositionManager';
 import type { PropertyDescriptor as ScenePropertyDescriptor } from './scene/SceneActors';
 import { MeshAssetManager, buildThreeMaterialFromAsset } from './MeshAsset';
@@ -10,6 +11,7 @@ import { defaultPhysicsConfig, ALL_COLLISION_CHANNELS } from './ActorAsset';
 import type { PhysicsConfig, PhysicsBodyType, ColliderShapeType, CombineMode, CollisionChannel } from './ActorAsset';
 import { createIconSpan, Icons, ICON_COLORS } from './icons';
 import { DEFAULT_SORTING_LAYERS } from '../engine/SortingLayers';
+import type { ScriptCodeAssetManager } from './ScriptCodeAsset';
 
 export class PropertiesPanel {
   public container: HTMLElement;
@@ -19,6 +21,7 @@ export class PropertiesPanel {
   private _composition: SceneCompositionManager | null = null;
   private _currentCompositionActorId: string | null = null;
   private _scene2DManager: any = null;
+  private _scriptCodeManager: ScriptCodeAssetManager | null = null;
 
   constructor(container: HTMLElement, engine: Engine) {
     this.container = container;
@@ -39,6 +42,9 @@ export class PropertiesPanel {
 
   /** Set Scene2DManager for sorting layer access (called from EditorLayout) */
   setScene2DManager(sm: any): void { this._scene2DManager = sm; }
+
+  /** Wire the ScriptCodeAssetManager so the Script picker can list assets */
+  setScriptCodeManager(mgr: ScriptCodeAssetManager): void { this._scriptCodeManager = mgr; }
 
   /** Set the composition manager reference (called from EditorLayout) */
   setCompositionManager(comp: SceneCompositionManager | null): void {
@@ -765,6 +771,9 @@ export class PropertiesPanel {
       this._createCheckboxRow('Generate Hit Events', cfg.generateHitEvents, (v) => physUpdate('generateHitEvents', v)),
     ]));
 
+    // ---- Script Asset Assignment ----
+    this._bodyEl.appendChild(this._buildScriptSection(go));
+
     // ---- Visual Material Assignment ----
     this._bodyEl.appendChild(this._buildMaterialSection(go));
 
@@ -834,6 +843,106 @@ export class PropertiesPanel {
     container.appendChild(this._createGroup('Physics 2D', phys2DRows));
 
     return container;
+  }
+
+  /** Build the Script asset assignment section for a game object */
+  private _buildScriptSection(go: GameObject): HTMLElement {
+    const group = document.createElement('div');
+    group.className = 'prop-group';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'prop-group-title';
+    titleEl.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    titleEl.innerHTML = `${createIconSpan(Icons.Code, 12, ICON_COLORS.blueprint).outerHTML}<span>Script</span>`;
+    group.appendChild(titleEl);
+
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    row.style.cssText = 'align-items:center;gap:6px;flex-wrap:nowrap;';
+
+    const label = document.createElement('span');
+    label.className = 'prop-label';
+    label.textContent = 'Asset';
+    row.appendChild(label);
+
+    const valueWrap = document.createElement('div');
+    valueWrap.style.cssText = 'display:flex;align-items:center;gap:4px;flex:1;min-width:0;';
+
+    const mgr = this._scriptCodeManager;
+    const all = mgr?.getAll() ?? [];
+
+    const select = document.createElement('select');
+    select.className = 'prop-select';
+    select.style.cssText = 'flex:1;min-width:0;font-size:11px;';
+
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '— None —';
+    select.appendChild(noneOpt);
+
+    for (const sc of all) {
+      const opt = document.createElement('option');
+      opt.value = sc.id;
+      opt.textContent = sc.name;
+      select.appendChild(opt);
+    }
+
+    select.value = go.scriptAssetId ?? '';
+
+    select.addEventListener('change', () => {
+      const chosen = select.value;
+      if (!chosen) {
+        // Remove assigned script
+        go.scriptAssetId = null;
+        if (go.scripts.length > 0 && go.scripts[0].codeMode) {
+          go.scripts[0].code = '';
+          go.scripts[0].codeMode = false;
+        }
+        clearBtn.style.display = 'none';
+        this._engine.scene['_emitChanged']();
+        return;
+      }
+      go.scriptAssetId = chosen;
+      // Build merged code (handles parent inheritance) and compile immediately
+      if (mgr) {
+        const code = mgr.buildMergedCode(chosen);
+        if (go.scripts.length === 0) {
+          go.scripts.push(new ScriptComponent());
+        }
+        if (go.scripts.length > 0) {
+          go.scripts[0].code = code;
+          go.scripts[0].codeMode = true;
+          go.scripts[0].compile();
+        }
+      }
+      clearBtn.style.display = '';
+      this._engine.scene['_emitChanged']();
+    });
+
+    valueWrap.appendChild(select);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'btn btn-ghost btn-xs';
+    clearBtn.title = 'Remove script assignment';
+    clearBtn.innerHTML = createIconSpan(Icons.X, 11, 'var(--color-text-muted,#888)').outerHTML;
+    clearBtn.style.display = go.scriptAssetId ? '' : 'none';
+    clearBtn.addEventListener('click', () => {
+      select.value = '';
+      select.dispatchEvent(new Event('change'));
+    });
+    valueWrap.appendChild(clearBtn);
+
+    row.appendChild(valueWrap);
+    group.appendChild(row);
+
+    if (!mgr || all.length === 0) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:10px;color:var(--color-text-muted,#888);padding:2px 8px 6px;';
+      hint.textContent = 'No scripts yet — create one in the Content Browser.';
+      group.appendChild(hint);
+    }
+
+    return group;
   }
 
   /** Build visual material assignment section for a game object */

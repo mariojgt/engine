@@ -16,6 +16,7 @@ import { WidgetBlueprintManager } from './editor/WidgetBlueprintData';
 import { GameInstanceBlueprintManager } from './editor/GameInstanceData';
 import { SaveGameAssetManager } from './editor/SaveGameAsset';
 import { DataTableAssetManager } from './editor/DataTableAsset';
+import { ScriptCodeAssetManager } from './editor/ScriptCodeAsset';
 import { EventAssetManager } from './editor/EventAsset';
 import { AIAssetManager } from './editor/ai/AIAssetManager';
 import { TextureLibrary } from './editor/TextureLibrary';
@@ -240,6 +241,11 @@ async function main() {
   projectManager.setDataTableManager(dataTableManager);
   editor.setDataTableManager(dataTableManager);
   setDataTableAssetManager(dataTableManager);
+
+  // Create script code asset manager (hand-written JS scripts for actors)
+  const scriptCodeManager = new ScriptCodeAssetManager();
+  projectManager.setScriptCodeManager(scriptCodeManager);
+  editor.setScriptCodeManager(scriptCodeManager);
 
   // Wire project manager into the engine so blueprint nodes can switch scenes at runtime
   engine.projectManager = projectManager;

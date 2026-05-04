@@ -201,6 +201,11 @@ function NodeEditorView({ gameObject, components, rootMeshType, widgetList, isAn
       // Now compile — the save callback that fires during compile()
       // will see the up-to-date nodeData set above.
       if (gameObject.scripts.length === 0) gameObject.scripts.push(new ScriptComponent());
+      // Do not overwrite hand-written code-mode scripts with blueprint-generated code.
+      if (gameObject.scripts[0].codeMode) {
+        console.warn('[NodeEditor] Script is in code-mode — blueprint compile skipped. Use the Code Editor to edit this script.');
+        return;
+      }
       gameObject.scripts[0].code = code;
       gameObject.scripts[0].compile();
       console.log('[NodeEditor] Compilation complete');

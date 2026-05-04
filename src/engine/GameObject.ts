@@ -29,6 +29,12 @@ export class GameObject implements Transform {
   public actorAssetId: string | null = null;
 
   /**
+   * If this GameObject has a hand-written script assigned from the content browser,
+   * this holds the ScriptCodeAsset ID. The merged code is compiled at play time.
+   */
+  public scriptAssetId: string | null = null;
+
+  /**
    * If this GameObject uses an imported mesh asset, this holds the mesh asset ID.
    * Used for serialization and to reload the mesh from GLB data.
    */

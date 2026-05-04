@@ -30,6 +30,7 @@ import { createParentSelector } from './InheritanceDialogsUI';
 import { iconHTML, Icons, ICON_COLORS, createIcon } from './icons';
 import { AIAssetManager, type AIAssetType, type BehaviorTreeAsset, type BlackboardAsset, type BTTaskAsset, type BTDecoratorAsset, type BTServiceAsset, type AIControllerAsset, type PerceptionConfigAsset, type EQSAsset, AI_ASSET_META } from './ai/AIAssetManager';
 import { DataTableAssetManager, type DataTableAsset } from './DataTableAsset';
+import { ScriptCodeAssetManager, type ScriptCodeAsset } from './ScriptCodeAsset';
 
 // ── Type exports (preserved) ──
 
@@ -65,6 +66,7 @@ const ASSET_TYPE_META: Record<AssetType, { color: string; icon: any[]; label: st
   eqs:          { color: '#4527A0', icon: Icons.Target,       label: 'EQS Query' },
   dataTable:    { color: '#14b8a6', icon: Icons.Table2,      label: 'Data Table' },
   buildConfig:  { color: '#f97316', icon: Icons.Hammer,      label: 'Build Config' },
+  scriptCode:   { color: '#a78bfa', icon: Icons.Code,        label: 'Script' },
 };
 
 function escapeCtxHtml(s: string): string {
@@ -134,6 +136,10 @@ export class ActorAssetBrowser {
   // ── DataTable Manager + Callback ──
   private _dataTableManager: DataTableAssetManager | null = null;
   private _onOpenDataTable: ((asset: DataTableAsset) => void) | null = null;
+
+  // ── ScriptCode Manager + Callback ──
+  private _scriptCodeManager: ScriptCodeAssetManager | null = null;
+  private _onOpenScriptCode: ((asset: ScriptCodeAsset) => void) | null = null;
 
   // ── Drag system (preserved — no HTML5 DnD) ──
   private _dragAsset: ActorAsset | null = null;
@@ -326,6 +332,13 @@ export class ActorAssetBrowser {
     this._dataTableManager = mgr;
     this._onOpenDataTable = onOpenDataTable;
     mgr.onChanged(() => this._refreshGrid());
+    this._refreshGrid();
+  }
+
+  public setScriptCodeManager(mgr: ScriptCodeAssetManager, onOpenScriptCode: (asset: ScriptCodeAsset) => void): void {
+    this._scriptCodeManager = mgr;
+    this._onOpenScriptCode = onOpenScriptCode;
+    mgr.on('changed', () => this._refreshGrid());
     this._refreshGrid();
   }
 
@@ -1559,6 +1572,21 @@ export class ActorAssetBrowser {
           dragKind: null, dragPayload: null,
         };
       }
+      case 'scriptCode': {
+        if (!this._scriptCodeManager) return null;
+        const sc = this._scriptCodeManager.getAsset(assetId);
+        if (!sc) return null;
+        const parentName = sc.parentId ? (this._scriptCodeManager.getAsset(sc.parentId)?.name ?? 'Unknown') : null;
+        return {
+          id: sc.id, name: sc.name, type: assetType,
+          typeColor: meta.color, typeLabel: 'Script',
+          icon: meta.icon, iconColor: meta.color, thumbnail: null,
+          subtitle: parentName ? `extends ${parentName}` : 'JS Script',
+          onOpen: () => this._onOpenScriptCode?.(sc),
+          onContextMenu: (e) => this._showScriptCodeContextMenu(e, sc),
+          dragKind: null, dragPayload: null,
+        };
+      }
       default:
         return null;
     }
@@ -2129,6 +2157,20 @@ export class ActorAssetBrowser {
           this._selectedIds.clear(); this._selectedIds.add(dt.id);
           this._refreshGrid();
           if (this._onOpenDataTable) this._onOpenDataTable(dt);
+        }
+      });
+    }
+    if (this._scriptCodeManager) {
+      dataItems.push({
+        icon: iconHTML(Icons.Code, 12, '#a78bfa'), label: 'Script', keywords: 'script code javascript js behavior',
+        action: async () => {
+          const name = await this._showNameDialog('New Script', 'SC_NewScript');
+          if (!name) return;
+          const sc = this._scriptCodeManager!.createAsset(name);
+          this._folderManager.setAssetLocation(sc.id, 'scriptCode', this._currentFolderId);
+          this._selectedIds.clear(); this._selectedIds.add(sc.id);
+          this._refreshGrid();
+          if (this._onOpenScriptCode) this._onOpenScriptCode(sc);
         }
       });
     }
@@ -3047,6 +3089,62 @@ export class ActorAssetBrowser {
         this._dataTableManager!.removeTable(dt.id);
         this._folderManager.removeAssetLocation(dt.id, 'dataTable');
         this._selectedIds.delete(dt.id);
+      }
+    });
+    delItem.style.color = 'var(--danger, #f87171)';
+
+    document.body.appendChild(menu);
+    this._contextMenu = menu;
+  }
+
+  // ── Script Code context menu ──
+  private _showScriptCodeContextMenu(e: MouseEvent, sc: ScriptCodeAsset): void {
+    this._closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+
+    this._addMenuItem(menu, iconHTML(Icons.Code, 12, '#a78bfa') + ' Open Editor', () => this._onOpenScriptCode?.(sc));
+    this._addMenuItem(menu, iconHTML(Icons.Pencil, 12, ICON_COLORS.muted) + ' Rename', async () => {
+      const newName = await this._showNameDialog('Rename Script', sc.name);
+      if (newName && newName !== sc.name) {
+        this._scriptCodeManager!.renameAsset(sc.id, newName);
+      }
+    });
+    this._addMenuItem(menu, iconHTML(Icons.Copy, 12, ICON_COLORS.muted) + ' Duplicate', async () => {
+      const newName = await this._showNameDialog('Duplicate Script', `${sc.name}_Copy`);
+      if (newName) {
+        const dup = this._scriptCodeManager!.duplicateAsset(sc.id, newName);
+        if (dup) {
+          this._folderManager.setAssetLocation(dup.id, 'scriptCode', this._currentFolderId);
+          this._selectedIds.clear(); this._selectedIds.add(dup.id);
+          this._refreshGrid();
+        }
+      }
+    });
+    this._addMenuItem(menu, iconHTML(Icons.GitBranch, 12, ICON_COLORS.muted) + ' Set Parent', async () => {
+      const all = this._scriptCodeManager!.getAll().filter(a => a.id !== sc.id && a.parentId !== sc.id);
+      if (all.length === 0) { alert('No other scripts available as parent.'); return; }
+      const choices = all.map(a => a.name).join(', ');
+      const chosen = prompt(`Enter parent script name (${choices}):`, sc.parentId ? (this._scriptCodeManager!.getAsset(sc.parentId)?.name ?? '') : '');
+      if (chosen === null) return;
+      if (chosen.trim() === '') {
+        sc.parentId = null; sc.touch(); (this._scriptCodeManager as any)._emit(); return;
+      }
+      const found = all.find(a => a.name === chosen.trim());
+      if (!found) { alert(`Script "${chosen.trim()}" not found.`); return; }
+      sc.parentId = found.id; sc.touch();
+      (this._scriptCodeManager as any)._emit();
+    });
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:var(--border);margin:4px 0;';
+    menu.appendChild(sep);
+    const delItem = this._addMenuItem(menu, iconHTML(Icons.Trash2, 12, ICON_COLORS.error) + ' Delete', () => {
+      if (confirm(`Delete script "${sc.name}"?`)) {
+        this._scriptCodeManager!.removeAsset(sc.id);
+        this._folderManager.removeAssetLocation(sc.id, 'scriptCode');
+        this._selectedIds.delete(sc.id);
       }
     });
     delItem.style.color = 'var(--danger, #f87171)';

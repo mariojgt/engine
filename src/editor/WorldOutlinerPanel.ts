@@ -16,6 +16,7 @@ export class WorldOutlinerPanel {
   private _composition: SceneCompositionManager;
   private _groupSystem: ActorGroupSystem | null;
   private _onOpenNodeEditor: (go: GameObject) => void;
+  private _onOpenCodeEditor: (go: GameObject) => void;
   private _onSelectActor: (actorId: string | null) => void;
   private _bodyEl!: HTMLElement;
   private _searchInput!: HTMLInputElement;
@@ -33,12 +34,14 @@ export class WorldOutlinerPanel {
     onOpenNodeEditor: (go: GameObject) => void,
     onSelectActor: (actorId: string | null) => void,
     groupSystem?: ActorGroupSystem | null,
+    onOpenCodeEditor?: (go: GameObject) => void,
   ) {
     this.container = container;
     this._engine = engine;
     this._composition = composition;
     this._groupSystem = groupSystem ?? null;
     this._onOpenNodeEditor = onOpenNodeEditor;
+    this._onOpenCodeEditor = onOpenCodeEditor ?? (() => {});
     this._onSelectActor = onSelectActor;
 
     this._build();
@@ -694,6 +697,11 @@ export class WorldOutlinerPanel {
         label: 'Open Blueprint',
         iconEl: iconHTML(Icons.GitBranch, 12, ICON_COLORS.blueprint),
         action: () => this._onOpenNodeEditor(go),
+      },
+      {
+        label: 'Edit as Code',
+        iconEl: iconHTML(Icons.Code, 12, ICON_COLORS.secondary),
+        action: () => this._onOpenCodeEditor(go),
       },
     ];
 

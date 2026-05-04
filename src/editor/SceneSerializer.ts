@@ -12,6 +12,7 @@ import type { BlueprintData } from './BlueprintData';
 import type { PhysicsConfig, ActorType } from './ActorAsset';
 import type { ControllerType } from '../engine/Controller';
 import type { BufferGeometry } from 'three';
+import { ScriptComponent } from '../engine/ScriptComponent';
 
 // ---- Serialized shape ----
 
@@ -63,6 +64,12 @@ export interface GameObjectJSON {
   spriteSheetId?: string;
   /** Default sprite name */
   defaultSprite?: string;
+  /** Hand-written JS code for code-mode scripts */
+  scriptCode?: string;
+  /** Whether this object's script was authored in the Code Editor */
+  scriptCodeMode?: boolean;
+  /** ScriptCodeAsset ID assigned to this object (compiled from content browser) */
+  scriptAssetId?: string;
 }
 
 export interface CameraStateJSON {
@@ -280,6 +287,17 @@ export function serializeScene(
       obj.blueprintData = serializeBlueprintData(go.blueprintData);
     }
 
+    // Persist code-mode script source so it survives save/load
+    if (go.scripts.length > 0 && go.scripts[0].codeMode) {
+      obj.scriptCode = go.scripts[0].code;
+      obj.scriptCodeMode = true;
+    }
+
+    // Persist script asset assignment
+    if (go.scriptAssetId) {
+      obj.scriptAssetId = go.scriptAssetId;
+    }
+
     gameObjects.push(obj);
   }
 
@@ -427,5 +445,18 @@ function restoreInstanceProps(go: GameObject, goData: GameObjectJSON): void {
   }
   if (goData.orderInLayer != null && go.mesh) {
     go.mesh.userData.__orderInLayer = goData.orderInLayer;
+  }
+
+  // Code-mode script: restore hand-written JS source and recompile
+  if (goData.scriptCodeMode && goData.scriptCode) {
+    if (go.scripts.length === 0) go.scripts.push(new ScriptComponent());
+    go.scripts[0].code = goData.scriptCode;
+    go.scripts[0].codeMode = true;
+    go.scripts[0].compile();
+  }
+
+  // Script asset assignment: restore the reference (code is compiled at play time)
+  if (goData.scriptAssetId) {
+    go.scriptAssetId = goData.scriptAssetId;
   }
 }

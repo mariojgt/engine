@@ -12,6 +12,7 @@ import { ViewportPanel } from './ViewportPanel';
 import { ContentBrowserPanel } from './ContentBrowserPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { mountNodeEditor } from './NodeEditorPanel';
+import { mountCodeEditor } from './CodeEditorPanel';
 import { ActorAssetManager, type ActorAsset } from './ActorAsset';
 import { ActorAssetBrowser } from './ActorAssetBrowser';
 import { ActorEditorPanel } from './ActorEditorPanel';
@@ -30,6 +31,7 @@ import { SaveGameAssetManager, type SaveGameAsset } from './SaveGameAsset';
 import { SaveGameEditorPanel } from './SaveGameEditorPanel';
 import { DataTableAssetManager, type DataTableAsset } from './DataTableAsset';
 import { DataTableEditorPanel } from './DataTableEditorPanel';
+import { ScriptCodeAssetManager, type ScriptCodeAsset } from './ScriptCodeAsset';
 import { EventAssetManager, type EventAsset } from './EventAsset';
 import { EnumEditorPanel } from './EnumEditorPanel';
 import { MaterialEditorPanel } from './MaterialEditorPanel';
@@ -121,6 +123,7 @@ export class EditorLayout {
   private _buildConfigManager: BuildConfigurationManager | null = null;
   private _storedProjectManager: any = null;
   private _nodeEditorCleanup: (() => void) | null = null;
+  private _codeEditorCleanup: (() => void) | null = null;
   private _actorEditor: ActorEditorPanel | null = null;
   private _animBPEditor: AnimBlueprintEditorPanel | null = null;
   private _animBP2DEditor: AnimBlueprint2DEditorPanel | null = null;
@@ -134,6 +137,7 @@ export class EditorLayout {
   private _gameInstanceEditor: GameInstanceEditorPanel | null = null;
   private _saveGameManager: SaveGameAssetManager | null = null;
   private _dataTableManager: DataTableAssetManager | null = null;
+  private _scriptCodeManager: ScriptCodeAssetManager | null = null;
   private _inputMappingManager: import('./InputMappingAsset').InputMappingAssetManager | null = null;
   private _eventManager: EventAssetManager | null = null;
   private _materialEditor: MaterialEditorPanel | null = null;
@@ -439,6 +443,9 @@ export class EditorLayout {
         }
       },
       this._viewport?.groupSystem ?? null,
+      (go: GameObject) => {
+        this._openCodeEditor(go);
+      },
     );
   }
 
@@ -594,6 +601,9 @@ export class EditorLayout {
     const el = renderer.element;
     this._properties = new PropertiesPanel(el, this._engine);
     this._properties.setCompositionManager(this.composition);
+    if (this._scriptCodeManager) {
+      this._properties.setScriptCodeManager(this._scriptCodeManager);
+    }
   }
 
   private _initParticleEditor(panelId: string): void {
@@ -900,6 +910,17 @@ export class EditorLayout {
     this._dataTableManager = mgr;
     if (this._assetBrowser) {
       this._assetBrowser.setDataTableManager(mgr, (asset: DataTableAsset) => this._openDataTableEditor(asset));
+    }
+  }
+
+  /** Wire up the ScriptCodeAssetManager for the content browser and editors */
+  setScriptCodeManager(mgr: ScriptCodeAssetManager): void {
+    this._scriptCodeManager = mgr;
+    if (this._assetBrowser) {
+      this._assetBrowser.setScriptCodeManager(mgr, (asset: ScriptCodeAsset) => this._openScriptCodeEditor(asset));
+    }
+    if (this._properties) {
+      this._properties.setScriptCodeManager(mgr);
     }
   }
 
@@ -1261,6 +1282,45 @@ export class EditorLayout {
   private _openEventEditor(ev: EventAsset): void {
     // Events are lightweight assets — just show in the content browser for now
     console.log(`[EditorLayout] Event selected: ${ev.name} (${ev.id})`);
+  }
+
+  /** Open the Monaco-based Code Editor for a ScriptCodeAsset */
+  private _openScriptCodeEditor(sc: ScriptCodeAsset): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeCodeEditor();
+
+    const panelId = 'script-editor-' + sc.id;
+    this._api.addPanel({
+      id: panelId,
+      title: `Script: ${sc.name}`,
+      component: 'default',
+      position: { direction: 'below', referencePanel: 'viewport' },
+    });
+    this._injectTabIcon(panelId, Icons.Code, ICON_COLORS.secondary);
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) {}
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    renderer.element.appendChild(wrapper);
+
+    // Use mountCodeEditor in asset mode: edits sc.source directly, no game object needed
+    this._codeEditorCleanup = mountCodeEditor(wrapper, null, {
+      scriptAsset: sc,
+      scriptCodeManager: this._scriptCodeManager ?? undefined,
+      onCompiled: () => {
+        try {
+          this._api.getPanel(panelId)?.setTitle(`Script: ${sc.name}`);
+          this._injectTabIcon(panelId, Icons.Code, ICON_COLORS.secondary);
+        } catch (_e) {}
+      },
+    });
   }
 
   /** Open an enum editor panel */
@@ -1636,6 +1696,53 @@ export class EditorLayout {
         this._api.removePanel(p);
       }
     }
+  }
+
+  private _closeCodeEditor(): void {
+    if (this._codeEditorCleanup) {
+      this._codeEditorCleanup();
+      this._codeEditorCleanup = null;
+    }
+    const panels = this._api.panels;
+    for (const p of panels) {
+      if (p.id.startsWith('code-editor-')) {
+        this._api.removePanel(p);
+      }
+    }
+  }
+
+  private _openCodeEditor(go: GameObject): void {
+    this._closeNodeEditor();
+    this._closeActorEditor();
+    this._closeCodeEditor();
+
+    const panelId = 'code-editor-' + go.id;
+
+    this._api.addPanel({
+      id: panelId,
+      title: `Code: ${go.name}`,
+      component: 'default',
+      position: {
+        direction: 'below',
+        referencePanel: 'viewport',
+      },
+    });
+    this._injectTabIcon(panelId, Icons.Code, ICON_COLORS.secondary);
+
+    try {
+      const vpGroup = this._api.getPanel('viewport')?.group;
+      if (vpGroup) vpGroup.api.setSize({ height: 300 });
+    } catch (_e) { /* not critical */ }
+
+    const renderer = rendererMap.get(panelId);
+    if (!renderer) return;
+    const el = renderer.element;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-editor-container';
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    el.appendChild(wrapper);
+
+    this._codeEditorCleanup = mountCodeEditor(wrapper, go);
   }
 
   private _closeActorEditor(): void {
